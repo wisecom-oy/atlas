@@ -24,7 +24,12 @@ import {
   fetch_initial_delta_page,
   type GraphCollectionResponse,
 } from '@/adapters/graph-sharepoint-delta-fetch';
-import { map_delta_item, type GraphDeltaDriveItem } from '@/adapters/graph-sharepoint-delta-mapper';
+import {
+  has_item_id,
+  map_delta_item,
+  type GraphDeltaDriveItem,
+} from '@/adapters/graph-sharepoint-delta-mapper';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import { SHAREPOINT_DOWNLOAD_EXECUTOR } from '@/adapters/graph-sharepoint-download-executor';
 import {
   graph_sharepoint_create_folder,
@@ -181,7 +186,7 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
   ): Promise<SharePointDeltaItem | undefined> {
     try {
       const raw = await fetch_drive_item_by_id(this._client, drive_id, item_id);
-      if (!raw?.id) return undefined;
+      if (!raw || !has_item_id(raw)) return undefined;
       return map_delta_item(raw, drive_id);
     } catch (err) {
       SHAREPOINT_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(err);
@@ -319,10 +324,11 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
     );
     let page = initial_page;
 
+    let items_without_id = 0;
     while (true) {
       for (const raw of page.value ?? []) {
-        if (!raw.id) continue;
-        items.push(map_delta_item(raw, drive_id));
+        if (has_item_id(raw)) items.push(map_delta_item(raw, drive_id));
+        else items_without_id++;
       }
 
       const next = page['@odata.nextLink'];
@@ -332,6 +338,11 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
       }
       page = await with_graph_retry(
         () => this._client.api(next).get() as Promise<GraphCollectionResponse<GraphDeltaDriveItem>>,
+      );
+    }
+    if (items_without_id > 0) {
+      logger.warn(
+        `Skipped ${items_without_id} item(s) in drive ${drive_id} that Graph returned without an id`,
       );
     }
 

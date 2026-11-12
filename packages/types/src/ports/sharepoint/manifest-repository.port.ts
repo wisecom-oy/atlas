@@ -1,6 +1,7 @@
 import type { SharePointSnapshotManifest } from '../../domain/sharepoint/manifest';
 import type { SharePointSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type { TenantContext } from '../tenant/context.port';
+import type { HeldOwnerLease } from '@/ports/lease/owner-lease.port';
 import type {
   LatestReadableManifest,
   ReadableManifestListing,
@@ -13,8 +14,18 @@ import type {
  * instead (issue #631).
  */
 export interface SharePointManifestRepository {
-  /** Persists a snapshot manifest. */
-  save(ctx: TenantContext, manifest: SharePointSnapshotManifest): Promise<void>;
+  /**
+   * Persists a snapshot manifest, then records it in the site's summary index. A backup passes
+   * its lease, which is checked again right before the summary write.
+   */
+  save(
+    ctx: TenantContext,
+    manifest: SharePointSnapshotManifest,
+    lease?: HeldOwnerLease,
+  ): Promise<void>;
+
+  /** Drops a removed snapshot's row from the site's summary index; logs instead of failing. */
+  forget_snapshot_summary(ctx: TenantContext, site_id: string, snapshot_id: string): Promise<void>;
 
   /**
    * Finds a manifest for a site by snapshot ID.

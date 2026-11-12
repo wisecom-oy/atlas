@@ -8,18 +8,46 @@ import {
 /** Format of the stored summary object. A reader treats any other version as absent. */
 export const SNAPSHOT_SUMMARY_FORMAT_VERSION = 1;
 
-/** Serialises an owner's summaries as the stored document, before encryption. */
-export function serialize_snapshot_summaries<T extends SnapshotSummary>(
+/** The stored summary document of one owner, before serialisation and encryption. */
+export interface SnapshotSummaryDocument<T extends SnapshotSummary> {
+  readonly format_version: number;
+  readonly owner_id: string;
+  readonly updated_at: string;
+  readonly snapshots: readonly T[];
+}
+
+/** Builds the stored document that holds an owner's summaries. */
+export function build_snapshot_summary_document<T extends SnapshotSummary>(
   owner_id: string,
   summaries: readonly T[],
-): Buffer {
-  const document = {
+): SnapshotSummaryDocument<T> {
+  return {
     format_version: SNAPSHOT_SUMMARY_FORMAT_VERSION,
     owner_id,
     updated_at: new Date().toISOString(),
     snapshots: summaries,
   };
-  return Buffer.from(JSON.stringify(document));
+}
+
+/**
+ * The document check of a parsed summary, shared by reader and writer: raises unless it is a
+ * summary this build wrote for `owner_id`, and returns its stored rows unparsed. The reader treats
+ * a document that fails it as absent; the writer refuses to store one.
+ *
+ * Rows are not checked here. The reader drops a malformed row and decrypts that manifest instead,
+ * which is the same answer the manifest itself gives, so a row never makes the document unusable.
+ */
+export function require_snapshot_summary_document(
+  owner_id: string,
+  value: unknown,
+): readonly unknown[] {
+  if (!is_json_record(value)) throw new Error('it is not a JSON object');
+  if (value.format_version !== SNAPSHOT_SUMMARY_FORMAT_VERSION) {
+    throw new Error(`its format_version is not ${SNAPSHOT_SUMMARY_FORMAT_VERSION}`);
+  }
+  if (value.owner_id !== owner_id) throw new Error(`it does not name ${owner_id} as its owner`);
+  if (!Array.isArray(value.snapshots)) throw new Error('it holds no snapshots array');
+  return value.snapshots as readonly unknown[];
 }
 
 /**
@@ -36,10 +64,13 @@ export function parse_snapshot_summaries<TManifest, TSummary extends SnapshotSum
   owner_id: string,
   value: unknown,
 ): TSummary[] | undefined {
-  if (!is_json_record(value)) return undefined;
-  if (value.format_version !== SNAPSHOT_SUMMARY_FORMAT_VERSION) return undefined;
-  if (value.owner_id !== owner_id || !Array.isArray(value.snapshots)) return undefined;
-  return value.snapshots.flatMap((row: unknown) => {
+  let rows: readonly unknown[];
+  try {
+    rows = require_snapshot_summary_document(owner_id, value);
+  } catch {
+    return undefined;
+  }
+  return rows.flatMap((row: unknown) => {
     const summary = parse_row(layout, owner_id, row);
     return summary ? [summary] : [];
   });

@@ -7,6 +7,7 @@ import { UnreadableObjectsError } from '@wisecom/atlas-types';
 import { read_each_readable } from '@/services/shared/readable-object-listing';
 import { append_all } from '@/utils/append-all';
 import { is_json_record, read_encrypted_json } from '@/services/shared/stored-json-reader';
+import { write_encrypted_json } from '@/services/shared/stored-json-writer';
 
 /** The fields every full snapshot manifest carries, whichever mailbox workload wrote it. */
 export interface FullSnapshotManifest {
@@ -47,6 +48,38 @@ export async function read_full_snapshot_manifest<T extends FullSnapshotManifest
 ): Promise<T | undefined> {
   const parsed = await read_encrypted_json(ctx, key, layout.label);
   if (parsed === undefined) return undefined;
+  return require_full_snapshot_manifest<T>(layout, parsed, key);
+}
+
+/**
+ * Encrypts and stores one manifest under the key its mailbox and snapshot name. The write is
+ * create-only, refused when {@link require_full_snapshot_manifest} would reject the body, and read
+ * back once it lands.
+ */
+export async function save_full_snapshot_manifest(
+  ctx: TenantContext,
+  layout: FullSnapshotManifestLayout,
+  manifest: FullSnapshotManifest,
+): Promise<void> {
+  await write_encrypted_json(
+    ctx,
+    {
+      key: layout.manifest_key(manifest.mailbox_id, manifest.snapshot_id),
+      label: layout.label,
+      reader_check: (parsed, key) => require_full_snapshot_manifest(layout, parsed, key),
+      write: 'create_only',
+      confirm_read_back: true,
+    },
+    manifest,
+  );
+}
+
+/** The shape, identity and date checks of a parsed manifest body, shared by reader and writer. */
+export function require_full_snapshot_manifest<T extends FullSnapshotManifest>(
+  layout: FullSnapshotManifestLayout,
+  parsed: unknown,
+  key: string,
+): T {
   if (!has_manifest_shape(layout, parsed)) {
     throw new UnreadableObjectsError(`The ${layout.label} is not a manifest`, [key]);
   }

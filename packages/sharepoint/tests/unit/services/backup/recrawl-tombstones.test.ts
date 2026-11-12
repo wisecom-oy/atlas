@@ -49,6 +49,8 @@ const CURSOR: SharePointDeltaCursor = {
   previous_etag_by_file_id: {},
   previous_kind_by_file_id: {},
   updated_at: '2026-09-01T00:00:00Z',
+  // Saved while the site had no snapshot, and none is stored, so the run resumes it (#725).
+  snapshot_id: null,
 } as unknown as SharePointDeltaCursor;
 
 interface Libraries {

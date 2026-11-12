@@ -3,6 +3,7 @@ import type { TenantContextFactory } from '@wisecom/atlas-types';
 import { MailboxSyncService } from '@/services/backup/mailbox-sync.service';
 import { RestoreService } from '@/services/restore/restore.service';
 import { SaveService } from '@/services/save/save.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 describe('Outlook operation cancellation', () => {
   it('does no remote work when every operation starts interrupted', async () => {
@@ -12,7 +13,13 @@ describe('Outlook operation cancellation', () => {
     } as unknown as TenantContextFactory;
     const callbacks = Array.from({ length: 5 }, () => vi.fn());
     const should_interrupt = (): boolean => true;
-    const backup = new MailboxSyncService(factory, {} as never, {} as never, {} as never);
+    const backup = new MailboxSyncService(
+      factory,
+      {} as never,
+      {} as never,
+      {} as never,
+      stub_owner_leases().leases,
+    );
     const restore = new RestoreService(factory, {} as never, {} as never, {} as never);
     const save = new SaveService(factory, {} as never, {} as never);
 

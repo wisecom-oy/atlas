@@ -1,8 +1,9 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { inject, injectable } from 'inversify';
-import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
-import type { MailboxConnector, MailFolder, ManifestRepository } from '@wisecom/atlas-types';
+import type { TenantContextFactory } from '@wisecom/atlas-types';
+import type { HeldOwnerLease, OwnerLeasePort } from '@wisecom/atlas-types';
+import type { MailboxConnector, ManifestRepository } from '@wisecom/atlas-types';
 import type { MailboxDeltaCursorRepository } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
@@ -12,8 +13,7 @@ import {
   emit_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
-import { sync_single_folder, type FolderSyncResult } from '@/services/backup/folder-sync-executor';
-import { failed_folder_result } from '@/services/backup/failed-folder-result';
+import { sync_single_folder_with_progress } from '@/services/backup/folder-sync-attempt';
 import { persist_mailbox_run, resolve_resume_state } from '@/services/backup/mailbox-run-persister';
 import { warn_if_replica } from '@/services/backup/replica-marker-warning';
 import { resolve_backup_folders } from '@/services/shared/folder-selector';
@@ -33,17 +33,13 @@ import {
   build_interrupted_result,
   mark_progress_interrupted,
 } from '@/services/backup/outlook-interrupted-result';
-import type {
-  BackupProgressReporter,
-  BackupUseCase,
-  SyncOptions,
-  SyncResult,
-} from '@wisecom/atlas-types';
+import type { BackupUseCase, SyncOptions, SyncResult } from '@wisecom/atlas-types';
 import {
   TENANT_CONTEXT_FACTORY_TOKEN,
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
   MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
+  OWNER_LEASE_TOKEN,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
@@ -58,6 +54,7 @@ export class MailboxSyncService implements BackupUseCase {
     @inject(MANIFEST_REPOSITORY_TOKEN) private readonly _manifests: ManifestRepository,
     @inject(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN)
     private readonly _cursors: MailboxDeltaCursorRepository,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
   ) {}
 
   /**
@@ -65,6 +62,10 @@ export class MailboxSyncService implements BackupUseCase {
    *
    * The run's abort signal is published to every Graph call inside it, so cancelling also ends a
    * Graph retry or throttle wait rather than only the next page (issue #673).
+   *
+   * The run holds the mailbox's lease from before it reads the cursor until it ends.
+   *
+   * @throws OwnerBusyError when another operation holds the mailbox's backup.
    */
   async sync_mailbox(
     tenant_id: string,
@@ -94,7 +95,14 @@ export class MailboxSyncService implements BackupUseCase {
       include_recoverable_items: options.include_recoverable_items,
     });
     const ctx = await this._tenant_factory.create(tenant_id);
+    let lease: HeldOwnerLease | undefined;
     try {
+      // Taken before the cursor is read, released in the `finally` below (issue #623).
+      lease = await this._leases.acquire(ctx, {
+        workload: 'outlook',
+        owner_id,
+        operation: 'backup',
+      });
       await warn_if_replica(ctx);
       const snapshot = create_pending_snapshot(tenant_id, owner_id, {
         owner_email: options.owner_email,
@@ -143,7 +151,8 @@ export class MailboxSyncService implements BackupUseCase {
         const folder = folders[i]!;
         progress.mark_active(i);
 
-        const outcome = await this.sync_single_folder_with_progress(
+        const outcome = await sync_single_folder_with_progress(
+          this._connector,
           ctx,
           tenant_id,
           owner_id,
@@ -236,6 +245,7 @@ export class MailboxSyncService implements BackupUseCase {
       const persisted = await persist_mailbox_run(
         { manifests: this._manifests, cursors: this._cursors },
         ctx,
+        lease,
         manifest,
         snapshot,
         previous,
@@ -275,62 +285,8 @@ export class MailboxSyncService implements BackupUseCase {
         },
       };
     } finally {
+      await lease?.release();
       ctx.destroy();
-    }
-  }
-
-  /** Syncs one folder and updates progress; returns aggregated results or an error message. */
-  private async sync_single_folder_with_progress(
-    ctx: TenantContext,
-    tenant_id: string,
-    owner_id: string,
-    folder: MailFolder,
-    folder_index: number,
-    saved_links: Record<string, string>,
-    previous_entry_count: number,
-    global_total: number,
-    global_processed_before: number,
-    sync_start: number,
-    progress: BackupProgressReporter,
-    options: SyncOptions,
-    should_interrupt: () => boolean,
-    should_force_stop: () => boolean,
-  ): Promise<FolderSyncResult & { error?: string }> {
-    try {
-      const prev_link = saved_links[folder.folder_id];
-      const result = await sync_single_folder({
-        ctx,
-        connector: this._connector,
-        tenant_id,
-        owner_id,
-        folder_id: folder.folder_id,
-        folder_index,
-        folder_total: folder.total_item_count,
-        global_total,
-        global_processed_before,
-        sync_start,
-        progress,
-        is_interrupted: should_interrupt,
-        is_hard_stopped: should_force_stop,
-        operation_control: options,
-        ...(prev_link !== undefined ? { prev_delta_link: prev_link } : {}),
-        previous_manifest_entries: previous_entry_count,
-        ...(options.page_size !== undefined ? { page_size: options.page_size } : {}),
-        ...(options.object_lock_policy !== undefined
-          ? { object_lock_policy: options.object_lock_policy }
-          : {}),
-      });
-      return {
-        ...result,
-        // Marked here rather than inside the executor: the folder knows where
-        // it came from, the message pipeline has no reason to.
-        entries:
-          folder.is_recoverable_items === true
-            ? result.entries.map((entry) => ({ ...entry, recoverable_items: true }))
-            : result.entries,
-      };
-    } catch (err) {
-      return failed_folder_result(err, options);
     }
   }
 }

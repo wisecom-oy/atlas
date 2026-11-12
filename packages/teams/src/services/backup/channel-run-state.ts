@@ -3,7 +3,6 @@ import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   TEAMS_FORMAT_VERSION,
   UnreadableContentError,
-  UnsupportedFormatVersionError,
   type FailedItemLedger,
   type TeamsChannelCheckpointHead,
   type TeamsChannelCheckpointHostedEntry,
@@ -105,6 +104,7 @@ export async function flush_channel_run(
   run: ChannelRun,
   step: RunStep,
 ): Promise<void> {
+  scope.lease.assert_held();
   if (step.threads.length > 0 || step.seen.length > 0) {
     const name = `seg-${run.stamp}-${run.segments.length}`;
     const segment: TeamsChannelCheckpointSegment = {
@@ -164,7 +164,9 @@ interface LoadedCheckpoint {
 
 /**
  * Loads the channel's checkpoint when it can continue this run. Any mismatch, unreadable part, or
- * missing segment deletes the checkpoint and returns undefined, so the read starts fresh.
+ * missing segment deletes the checkpoint and returns undefined, so the read starts fresh. A part
+ * written by a newer Atlas format is intact, so it is never deleted: its
+ * `UnsupportedFormatVersionError` propagates and stops the run.
  */
 async function load_checkpoint(
   scope: BackupRunScope,
@@ -192,7 +194,7 @@ async function load_checkpoint(
     );
     return { head, segments, hosted_entries };
   } catch (err) {
-    if (err instanceof UnreadableContentError || err instanceof UnsupportedFormatVersionError) {
+    if (err instanceof UnreadableContentError) {
       return discard_checkpoint(scope, channel_id, err.message);
     }
     throw err;
@@ -222,6 +224,7 @@ async function discard_checkpoint(
   channel_id: string,
   reason: string,
 ): Promise<undefined> {
+  scope.lease.assert_held();
   logger.warn(`Teams channel ${channel_id}: discarding its checkpoint (${reason})`);
   await scope.checkpoints.delete_channel(checkpoint_ctx(scope), scope.team_id, channel_id);
   return undefined;

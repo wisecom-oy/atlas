@@ -10,7 +10,8 @@ import {
   USER_IDENTITY_RESOLVER_TOKEN,
 } from '@wisecom/atlas-types';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
-import type { DeletionResult } from '@wisecom/atlas-types';
+import { SnapshotNotNewestError, type DeletionResult } from '@wisecom/atlas-types';
+import { handle_fatal_error } from '@/fatal-error';
 import { register_onedrive_command } from '@/commands/onedrive/onedrive.command';
 import { register_sharepoint_command } from '@/commands/sharepoint/sharepoint.command';
 import { register_tenant_delete_command } from '@/commands/tenant/delete.command';
@@ -138,6 +139,34 @@ describe('drive deletion commands (issue #163)', () => {
 
     expect(h.resolve_site).not.toHaveBeenCalled();
     expect(h.sharepoint.delete_snapshot).toHaveBeenCalledWith(TENANT_ID, SITE_ID, 'sp-snap-1');
+  });
+
+  // Issue #725: newer snapshots fold in what an older one recorded, so the service refuses to
+  // delete it. The refusal has to reach the fatal handler as itself to get its own exit code.
+  it.each([
+    {
+      workload: 'onedrive' as const,
+      argv: ['onedrive', 'delete', '-o', OWNER_OBJECT_ID, '-s', 'od-snap-1', '-y'],
+      wording: { owner: 'OneDrive', records: 'files', delete_all_flag: '-o' },
+    },
+    {
+      workload: 'sharepoint' as const,
+      argv: ['sharepoint', 'delete', '--site', SITE_ID, '-s', 'sp-snap-1', '-y'],
+      wording: { owner: 'site', records: 'files', delete_all_flag: '--site' },
+    },
+  ])('exits 11 when $workload delete -s names an older snapshot', async (refused) => {
+    const errors: string[] = [];
+    vi.spyOn(console, 'error').mockImplementation((...args) => void errors.push(args.join(' ')));
+    const refusal = new SnapshotNotNewestError('snap-1', ['snap-2'], { wording: refused.wording });
+    h[refused.workload].delete_snapshot.mockRejectedValue(refusal);
+
+    const run = h.program.parseAsync(refused.argv, { from: 'user' });
+    await expect(run).rejects.toBe(refusal);
+    handle_fatal_error(refusal);
+
+    expect(process.exitCode).toBe(11);
+    expect(errors.join('\n')).toContain('Atlas code: ATLAS_SNAPSHOT_NOT_NEWEST');
+    expect(errors.join('\n')).toContain(`whole ${refused.wording.owner} backup`);
   });
 
   it('deletes nothing when the operator declines the confirmation', async () => {

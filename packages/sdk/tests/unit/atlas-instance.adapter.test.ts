@@ -290,6 +290,7 @@ describe('createAtlasInstance', () => {
         versioning_enabled: true,
         object_lock_enabled: true,
         mode_supported: true,
+        conditional_writes: { support: 'supported' },
       };
       vi.mocked(mock_storage_check.check_storage).mockResolvedValue(check_result);
 

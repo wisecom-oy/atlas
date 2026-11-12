@@ -14,6 +14,8 @@ export type AtlasErrorCode =
   | 'ATLAS_FORMAT_UNSUPPORTED'
   | 'ATLAS_KEY_CONFLICT'
   | 'ATLAS_SNAPSHOT_NOT_NEWEST'
+  | 'ATLAS_WRITE_REFUSED'
+  | 'ATLAS_OWNER_BUSY'
   | 'ATLAS_CONFIG_INVALID';
 
 /**
@@ -93,23 +95,41 @@ export class ObjectLockRetainedError extends AtlasError {
   }
 }
 
+/** How a refused snapshot delete names the chain it protects. Defaults to an Outlook mailbox. */
+export interface SnapshotChainWording {
+  /** What owns the chain, e.g. `mailbox`, `OneDrive`, `site`. */
+  readonly owner: string;
+  /** What a snapshot records, e.g. `messages`, `files`. */
+  readonly records: string;
+  /** The CLI flag that deletes the whole backup when given without `-s`, e.g. `-m`. */
+  readonly delete_all_flag: string;
+}
+
+const MAILBOX_CHAIN_WORDING: SnapshotChainWording = {
+  owner: 'mailbox',
+  records: 'messages',
+  delete_all_flag: '-m',
+};
+
 /**
- * A snapshot delete was refused because newer snapshots are built on it. An Outlook manifest holds
- * only its own run's changes, so the messages and removals it recorded exist in no later manifest;
- * deleting it would silently change every newer snapshot (issue #704).
+ * A snapshot delete was refused because newer snapshots are built on it. An Outlook, OneDrive or
+ * SharePoint manifest holds only its own run's changes, so the items and removals it recorded
+ * exist in no later manifest; deleting it would silently change every newer snapshot (issues
+ * #704, #725).
  */
 export class SnapshotNotNewestError extends AtlasError {
   constructor(
     readonly snapshot_id: string,
     readonly newer_snapshot_ids: readonly string[],
-    options?: { cause?: unknown },
+    options?: { cause?: unknown; wording?: SnapshotChainWording },
   ) {
+    const { owner, records, delete_all_flag } = options?.wording ?? MAILBOX_CHAIN_WORDING;
     super(
       'ATLAS_SNAPSHOT_NOT_NEWEST',
       `Refusing to delete snapshot ${snapshot_id}: ${newer_snapshot_ids.length} newer ` +
-        `snapshot(s) of this mailbox include the messages it recorded. Delete the newer ` +
-        `snapshots first, newest first, or delete the whole mailbox backup with -m.`,
-      options,
+        `snapshot(s) of this ${owner} include the ${records} it recorded. Delete the newer ` +
+        `snapshots first, newest first, or delete the whole ${owner} backup with ${delete_all_flag}.`,
+      options?.cause === undefined ? undefined : { cause: options.cause },
     );
   }
 }
@@ -118,6 +138,119 @@ export class SnapshotNotNewestError extends AtlasError {
 export class StorageError extends AtlasError {
   constructor(message: string, options?: { cause?: unknown }) {
     super('ATLAS_STORAGE_FAILURE', message, options);
+  }
+}
+
+/**
+ * A create-only write found a different object already stored under its key, and left it in place.
+ *
+ * A `StorageError` like the refused conditional write it comes from. The key belongs to a snapshot
+ * or run, so the next run writes under a new one and a rerun is the remedy.
+ */
+export class StoredObjectConflictError extends StorageError {
+  constructor(
+    readonly key: string,
+    label: string,
+    options?: { cause?: unknown },
+  ) {
+    super(
+      `The ${label} at ${key} already exists and holds a different object. ` +
+        'It was not overwritten.',
+      options,
+    );
+  }
+}
+
+/**
+ * Atlas built a metadata object it could not store safely and refused before writing anything:
+ * the object is too large for one JSON document, fails the checks its own reader applies, or does
+ * not decrypt back to what was encrypted.
+ *
+ * A writer-side defect, never storage damage. No object exists at `key`, so it is neither
+ * `StorageError` nor `UnreadableObjectsError`, whose remedy is `quarantine`.
+ */
+export class RefusedWriteError extends AtlasError {
+  constructor(
+    readonly key: string,
+    label: string,
+    reason: string,
+    options?: { cause?: unknown },
+  ) {
+    super(
+      'ATLAS_WRITE_REFUSED',
+      `Refusing to write the ${label} at ${key}: ${reason}. Nothing was written.`,
+      options,
+    );
+  }
+}
+
+/** The owner a lease error is about, and what is known of the operation that holds it. */
+export interface OwnerLeaseHolder {
+  /** Workload namespace of the lease, e.g. `outlook`, `onedrive`, `teams`. */
+  readonly workload: string;
+  /** The mailbox, drive owner, site or team id the lease covers. */
+  readonly owner_id: string;
+  /** The operation that holds the owner, when its lease could be read: `backup`, `delete`, `quarantine`. */
+  readonly held_by_operation?: string | undefined;
+  /** When the holder's lease runs out unless it renews it first, as an ISO 8601 UTC timestamp. */
+  readonly lease_expires_at?: string | undefined;
+}
+
+/**
+ * Another operation holds the lease on this mailbox, drive owner, site or team, so this one did not
+ * start and wrote nothing (issue #623). Retrying helps once the other operation ends, or after its
+ * lease expires when the process that held it was killed.
+ */
+export class OwnerBusyError extends AtlasError {
+  readonly workload: string;
+  readonly owner_id: string;
+  readonly held_by_operation: string | undefined;
+  readonly lease_expires_at: string | undefined;
+
+  constructor(holder: OwnerLeaseHolder, options?: { cause?: unknown; message?: string }) {
+    super(
+      'ATLAS_OWNER_BUSY',
+      options?.message ?? owner_busy_message(holder),
+      options?.cause === undefined ? undefined : { cause: options.cause },
+    );
+    this.workload = holder.workload;
+    this.owner_id = holder.owner_id;
+    this.held_by_operation = holder.held_by_operation;
+    this.lease_expires_at = holder.lease_expires_at;
+  }
+}
+
+function owner_busy_message(holder: OwnerLeaseHolder): string {
+  const operation = holder.held_by_operation ?? 'operation';
+  const expiry =
+    holder.lease_expires_at === undefined
+      ? ''
+      : ` Its lease expires at ${holder.lease_expires_at} unless that operation is still running and renews it.`;
+  return (
+    `Another ${operation} is running on ${holder.workload} owner ${holder.owner_id}, so this ` +
+    `operation did not start and wrote nothing.${expiry} Retry once the other operation ends, ` +
+    'or after the lease expires.'
+  );
+}
+
+/**
+ * This run held the owner's lease and lost it before a commit point: it could not renew the lease
+ * until it expired, or another operation took the owner over. The run stopped before writing the
+ * manifest, cursor or deletion the check guarded.
+ *
+ * An `OwnerBusyError`, with the same code and exit status, because the remedy is the same: another
+ * operation may own the mailbox, drive owner, site or team now, and a rerun is safe once it ends.
+ * Content objects this run already uploaded stay in storage and are deduplicated by the next run.
+ */
+export class OwnerLeaseLostError extends OwnerBusyError {
+  constructor(holder: OwnerLeaseHolder, reason: string, options?: { cause?: unknown }) {
+    super(holder, {
+      ...options,
+      message:
+        `This run lost its lease on ${holder.workload} owner ${holder.owner_id}: ${reason}. It ` +
+        'stopped before committing, so no manifest, cursor or deletion was written past this ' +
+        'point. Retry once no other operation is running on the owner.',
+    });
   }
 }
 

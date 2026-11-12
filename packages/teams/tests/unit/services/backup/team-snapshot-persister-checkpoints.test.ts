@@ -15,6 +15,7 @@ import {
 } from '@/services/backup/team-snapshot-persister';
 import { BACKUP_AT, TEAM_ID } from './channel-backup-processor-harness';
 import { channel_output } from './backup-service-harness';
+import { stub_held_owner_lease } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const CTX = {} as TenantContext;
 const TEAM: TeamsGraphResource = { id: TEAM_ID, displayName: 'Team' };
@@ -51,6 +52,7 @@ function build_ports(fail_cursor = false) {
     indexes: { save: vi.fn(async () => undefined) } as unknown as TeamsIndexRepository,
     cursors: { save: cursor_save } as unknown as TeamsChannelCursorRepository,
     checkpoints,
+    lease: stub_held_owner_lease(),
   };
   return { ports, checkpoints, cursor_save };
 }

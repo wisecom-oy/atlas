@@ -11,6 +11,7 @@ import { calendar_rig } from '@wisecom/atlas-types/testing/stub-calendar-rig';
 import { MAILBOX } from '@wisecom/atlas-types/testing/stub-calendar-snapshots';
 
 import { CalendarBackupService } from '@/services/backup/backup.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 /** A Graph call throttled with `Retry-After: 360`, which on its own waits six minutes. */
 function graph_call_parked_in_retry_wait(): Promise<never> {
@@ -35,7 +36,14 @@ describe('Calendar backup cancelled during a Graph retry wait (issue #673)', () 
 
   it('ends the delta read wait within a second and records an interrupted run', async () => {
     const h = calendar_rig(
-      (s) => new CalendarBackupService(s.tenant_factory, s.connector, s.manifests, s.cursors),
+      (s) =>
+        new CalendarBackupService(
+          s.tenant_factory,
+          s.connector,
+          s.manifests,
+          s.cursors,
+          stub_owner_leases().leases,
+        ),
     );
     vi.spyOn(h.connector, 'fetch_event_delta').mockImplementation(graph_call_parked_in_retry_wait);
     const controller = new AbortController();

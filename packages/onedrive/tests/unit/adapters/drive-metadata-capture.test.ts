@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { DRIVE_DELTA_SELECT_FIELDS, map_delta_item } from '@/adapters/graph-onedrive-delta-mapper';
+import {
+  DRIVE_DELTA_SELECT_FIELDS,
+  map_delta_item,
+  type IdentifiedGraphDeltaDriveItem,
+} from '@/adapters/graph-onedrive-delta-mapper';
 import {
   graph_onedrive_upload_large_file,
   graph_onedrive_upload_small_file,
@@ -11,7 +15,7 @@ const FILE_SYSTEM_INFO = {
   lastModifiedDateTime: '2021-07-08T11:30:00Z',
 };
 
-function raw_item(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function raw_item(overrides: Record<string, unknown> = {}): IdentifiedGraphDeltaDriveItem {
   return {
     id: 'item-1',
     name: 'report.docx',

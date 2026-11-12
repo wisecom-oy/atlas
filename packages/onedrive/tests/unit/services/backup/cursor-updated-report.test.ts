@@ -15,6 +15,7 @@ import type {
 import { with_graph_retry } from '@wisecom/atlas-m365-graph';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 /** A Graph call throttled with `Retry-After: 600`, which on its own waits ten minutes. */
 function graph_call_parked_in_retry_wait(): Promise<never> {
@@ -83,6 +84,7 @@ function make_harness(connector_overrides: Record<string, unknown> = {}): Harnes
       write_run_index: vi.fn().mockResolvedValue(undefined),
     } as never,
     { load: vi.fn().mockResolvedValue(undefined), save: cursor_save } as never,
+    stub_owner_leases().leases,
   );
   return {
     run: (options = {}) => service.backup_onedrive('tenant-1', 'owner-1', options),

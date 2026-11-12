@@ -332,6 +332,55 @@ john.doe@example.com is not in the identity registry of tenant <source>, and the
 
 The warning appears when the address is not in the registry. The object ID Graph returned belongs to the other tenant, so a lookup for a backed-up owner finds no snapshots. Pass the owner's Entra object ID instead, which `atlas list-users -t <source>` lists. Restore targets (`-T`, `--target-owner`) always resolve through Graph alone, so they name users of the tenant being restored into.
 
+### Another operation holds the owner
+
+```
+Another backup is running on onedrive owner <owner-id>, so this operation did not start and wrote nothing. Its lease expires at 2026-03-01T10:05:00.000Z unless that operation is still running and renews it. Retry once the other operation ends, or after the lease expires.
+  Atlas code: ATLAS_OWNER_BUSY
+```
+
+A backup, deletion, or quarantine takes a lease on its mailbox, drive owner, site, or team, and this command found a live one. It exits `12` and has written nothing. The message names the workload, the owner, the operation that holds it, and when its lease runs out. See [Concurrent operations](/reference/sdk#concurrent-operations).
+
+| Situation                                             | What to do                                                                                                                                                                                                                                  |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The other operation is still running                  | Wait for it and rerun. The expiry in the message moves forward every minute while it runs, so it is not a completion time                                                                                                                   |
+| Its process was killed, or exited on a second Ctrl+C  | Wait until the time in the message, at most 5 minutes after the kill, and rerun. The next run takes the expired lease over and logs `Taking over the lease a backup left behind`                                                            |
+| Two scheduled jobs overlap every night                | Space them out, or wrap them in `flock` as in [Scheduling](/self-hosting/scheduling). The lease keeps the data safe, but the second job still fails with exit `12`                                                                          |
+| `This run lost its lease on ...`                      | This run held the owner and could not renew its lease for 5 minutes, or another host took it over. It stopped before writing its manifest or cursor. Check storage reachability and the clocks of the hosts that share the bucket, then rerun |
+
+Do not delete or edit the lease object by hand to get past the error unless you are certain no operation on that owner is running anywhere. Deleting a live lease lets a second run start next to the first. The first run notices at its next renewal, within 60 seconds, and stops before its next commit, but until then both write the same owner's state. Waiting out the 5 minutes is always safe.
+
+Clocks matter here. A host whose clock runs several minutes ahead sees a live lease as expired and takes it over. If runs fail with `lost its lease` while storage is healthy, compare the hosts' clocks against NTP.
+
+## Refused and unconfirmed metadata writes
+
+```
+Refusing to write the OneDrive manifest at onedrive/manifests/<owner-id>/od-snap-1767225600000-a1b2c3.json: its reader would reject it (...). Nothing was written.
+```
+
+```
+The OneDrive manifest at onedrive/manifests/<owner-id>/od-snap-1767225600000-a1b2c3.json already exists and holds a different object. It was not overwritten.
+```
+
+```
+The OneDrive delta cursor at onedrive/_meta/<owner-id>/delta.json was written, but reading it back returned different bytes than were sent
+```
+
+Atlas checks every manifest, index, and cursor before it uploads it, writes snapshot objects create-only, and reads the important ones back. See [Metadata is checked before and after it is stored](/security#metadata-is-checked-before-and-after-it-is-stored) for the steps. Each message names the object and the step that failed:
+
+| Message                                                    | Error and exit                                         | Meaning                                                                                                                                                 | What to do                                                                                                                                                              |
+| ---------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Refusing to write ... its reader would reject it`         | `RefusedWriteError`, `ATLAS_WRITE_REFUSED`, exit `1`   | The object Atlas built fails the checks its own reader applies. Storing it would have produced a damaged manifest                                       | Rerun the backup. If it repeats, report it with the message. It names the key and the failed check, never content                                                        |
+| `Refusing to write ... too large to store as one JSON document` | The same                                          | One manifest or index passed the JSON string limit of about 512 MB                                                                                      | Rerunning gives the same result. Report it with the message                                                                                                              |
+| `Refusing to write ... decrypts to different bytes`, `does not decrypt` | The same                                  | The ciphertext did not decrypt back to what was encrypted, which points at faulty memory or CPU on the host                                             | Rerun. If it repeats, test the host's memory before trusting any backup made on it                                                                                      |
+| `already exists and holds a different object`              | `StoredObjectConflictError`, `ATLAS_STORAGE_FAILURE`, exit `1` | Another object sits under this run's snapshot ID. The owner lease keeps two runs off one owner, so suspect a backend that ignores write conditions | Rerun. A new run uses a new snapshot ID. Run `atlas storage-check` and read its `Conditional writes` row                                                                 |
+| `was written, but reading it back returned different bytes` | `StorageError`, `ATLAS_STORAGE_FAILURE`, exit `1`     | Storage returned something other than what was sent: a backend fault, or for a cursor, another run writing the same cursor                              | Rerun. Check `status` afterwards. If the object is reported damaged, follow [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes) or [Delta cursor or identity registry cannot be read](#delta-cursor-or-identity-registry-cannot-be-read) |
+| `was written but could not be read back to confirm it`     | The same                                               | The upload succeeded and the confirming `GET` failed. The cause is attached                                                                             | Rerun once storage responds                                                                                                                                             |
+
+A manifest or index that fails stops the run before the delta cursor of that mailbox, owner, or site is saved. The next run starts from the previous cursor and reads the same changes again, and content already uploaded deduplicates. When the cursor is the object that failed its read-back, its manifest is already stored. A delta cursor names the snapshot it was saved with, so a cursor left behind the newest manifest makes the next run read in full.
+
+A refused write stores nothing, so `quarantine` does not apply to it.
+
 ## Damaged manifests and version indexes
 
 ```
@@ -364,21 +413,22 @@ A refusal is deliberate. OneDrive, SharePoint, and Outlook snapshots are increme
 Backups keep working:
 
 - **Contacts and Calendar** build each snapshot on the previous one. When the newest manifest is damaged, the cursor's delta links describe a state nobody can read, so the run ignores them, reads every folder or calendar in full, and always writes a fresh snapshot. The next run resumes incrementally from that one.
-- **Teams** compares against the newest readable index instead. Each channel cursor is bound to the shard its index entry named, so a channel whose cursor pointed at the damaged index's shard is read in full, and the run writes a fresh index. A channel that fails in the same run keeps its entry from the older index until a later run reads it.
+- **Teams** compares against the newest readable index instead. Each channel cursor is bound to the shard its index entry named, so a channel whose cursor pointed at the damaged index's shard is read in full, and the run writes a fresh index. A channel that fails in the same run keeps its entry from the older index until a later run reads it. A channel whose own shard is missing or damaged fails until it is rebuilt with `--full`, see [Unreadable channel shards](/teams-backup#unreadable-channel-shards).
 - **Outlook** builds nothing on the previous manifest's entries. The run resumes from the delta cursor and records its own changes as usual.
-- **OneDrive and SharePoint** read manifests only when a full enumeration places tombstones. A whole-drive enumeration leaves a damaged manifest out of that comparison, which can only add a tombstone for a file already deleted, never remove a file that exists. A `--folder` enumeration places no tombstones while a manifest is damaged: the damaged run may have moved a file outside the scope, and its older in-scope entry would otherwise be recorded as deleted. A file deleted meanwhile keeps its older entry until a later re-crawl.
+- **OneDrive and SharePoint** read manifests only when a full enumeration places tombstones. A whole-drive enumeration leaves a damaged manifest out of that comparison, which can only add a tombstone for a file already deleted, never remove a file that exists. A `--folder` enumeration places no tombstones while a manifest is damaged: the damaged run may have moved a file outside the scope, and its older in-scope entry would otherwise be recorded as deleted. A file deleted meanwhile keeps its older entry until a later re-crawl. A run keeps resuming its delta cursor while the damaged manifest is still in place, because the cursor is checked against the manifests that exist, not against the ones that decrypt.
 
 ### Recovery
 
 ```bash
 atlas onedrive quarantine --key onedrive/manifests/<owner-id>/od-snap-1767225600000-a1b2c3.json
+# Needed when newer snapshots exist. After the newest one is quarantined the next backup is full by itself.
 atlas onedrive backup -o user@example.com --full
 ```
 
 1. **Rule out storage and key problems first.** A wrong passphrase fails the data key before any manifest is read, so it is never reported this way. If many objects across owners are damaged at once, suspect the bucket, a misconfigured replica, or tampering, and stop there.
 2. **Check bucket versioning.** If the bucket is versioned, an earlier version of the same key may be intact. Restoring that version with your S3 tooling recovers the snapshot completely, which quarantine cannot.
 3. **Quarantine the object.** `atlas <workload> quarantine --key <key>` moves it to `_quarantine/<key>` without changing its bytes. Later listings, status, and backups stop reporting it. See [`quarantine`](./reference/cli.md#damaged-manifests-and-version-indexes) for the refusals and Object Lock behaviour.
-4. **Re-establish a full baseline for incremental workloads.** Contacts and Calendar need nothing: quarantine removes the mailbox's delta cursor, so the next backup reads in full. Teams needs nothing either: every index is complete on its own, and channels whose cursor no longer matches the older index are read in full. After quarantining an Outlook, OneDrive, or SharePoint manifest, snapshots taken after it no longer include the changes it recorded. Run one `backup --full` so the newest snapshot holds every current item again. Older points in time stay incomplete for items first captured in the quarantined run.
+4. **Re-establish a full baseline for incremental workloads.** Contacts and Calendar need nothing: quarantine removes the mailbox's delta cursor, so the next backup reads in full. Teams needs nothing either: every index is complete on its own, and channels whose cursor no longer matches the older index are read in full. After quarantining an Outlook, OneDrive, or SharePoint manifest, snapshots taken after it no longer include the changes it recorded. Run one `backup --full` so the newest snapshot holds every current item again. OneDrive and SharePoint need that manual run only when newer snapshots exist: their delta cursor records the snapshot it was saved with, so when the newest manifest is the quarantined one, the next backup sees it is gone and reads every drive or library in full by itself. Cursors written before 7.0 record no snapshot, so run `backup --full` in either case until a 7.0 backup has run for that owner or site. Older points in time stay incomplete for items first captured in the quarantined run.
 
 A quarantined object is kept, not destroyed. Its ciphertext stays bound to its original key, so it does not decrypt at the quarantine key. To retry it after repairing storage, copy it back to the original key. Owner deletion (`atlas <workload> delete -o`, `-m`, `--site`, or `--team`) removes the quarantined copies of that owner, and `atlas delete --purge` removes all of them.
 
