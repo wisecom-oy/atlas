@@ -62,6 +62,8 @@ exit "$status"
 
 Fatal exceptions map to these categories. Failures the command reports itself stay `1`: failed verification, `storage-check` reporting an unready bucket, and `config validate` reporting a failed probe. Per-item failures already reported as partial stay `2`, and their messages are not reclassified.
 
+A confirmation prompt that ends without an answer exits `1` and changes nothing. That covers stdin at EOF, as under cron or systemd with stdin on `/dev/null`, and Ctrl+C or Ctrl+D pressed at the prompt. Answering `n` is a decision, not a failure, and exits `0`. Scheduled jobs pass `-y` to skip the prompt.
+
 An explicit Atlas category takes precedence over transport details. Network detection reads structured Node error codes, including nested `cause`, never message text. An error that only says "socket hang up" is unclassified unless it carries a recognized code. A process killed by a signal may appear as `128 + signal` in the shell. That is separate from these categories.
 
 ### Fatal error diagnostics
@@ -446,6 +448,7 @@ atlas outlook save -m user@company.com --start-date 2026-01-01 --end-date 2026-0
 | `--end-date <YYYY-MM-DD>`     | Include snapshots created on or before this date                       |
 | `--output <path>`             | Output file path (default: `Restore-<timestamp>.zip`)                  |
 | `--skip-verify`               | Skip SHA-256 integrity checks (faster on low-power systems)            |
+| `-y, --yes`                   | Overwrite an existing output file without asking                       |
 | `-t, --tenant <id>`           | Override the tenant ID from config                                     |
 | `--include-recoverable-items` | Also include hard-deleted and hold-retained mail (excluded by default) |
 
@@ -470,7 +473,7 @@ Archive folders are named the way [`restore`](#atlas-outlook-restore) names them
 
 File names use `YYYY-MM-DD_HHmmss_Sanitized-subject.eml`, with the time taken from `receivedDateTime`, so they sort chronologically. Duplicate names within a folder get numeric suffixes (`_1`, `_2`).
 
-A mailbox that was backed up before v4 and kept receiving incremental snapshots has both legacy JSON entries and MIME entries. `save` walks the whole chain and writes an `.eml` for each, regardless of format. If the output file already exists, Atlas asks `Overwrite? [Y/n]` before it proceeds.
+A mailbox that was backed up before v4 and kept receiving incremental snapshots has both legacy JSON entries and MIME entries. `save` walks the whole chain and writes an `.eml` for each, regardless of format. If the output file already exists, Atlas asks `Overwrite? [Y/n]` before it proceeds. `-y` overwrites without asking. With stdin at EOF the prompt gets no answer, so `save` exits `1` and leaves the existing file untouched. A scheduled export that writes to a fixed path needs `-y`.
 
 ### atlas outlook delete
 
@@ -598,7 +601,7 @@ atlas delete --purge -y     # skip the typed confirmation
 
 `atlas delete` without `--purge` exits non-zero and deletes nothing. For scoped deletes, use `atlas outlook delete`, `atlas contacts delete`, `atlas calendar delete`, `atlas onedrive delete`, or `atlas sharepoint delete`.
 
-Interactively, the purge asks you to type the tenant ID and aborts on any other input:
+Interactively, the purge asks you to type the tenant ID and aborts on any other input. Input that ends before a line is typed fails with exit `1`:
 
 ```
 [!] This will delete ALL data for tenant <tenant-id> across Outlook, Contacts, Calendar, OneDrive and SharePoint (data, manifests, encryption keys)
