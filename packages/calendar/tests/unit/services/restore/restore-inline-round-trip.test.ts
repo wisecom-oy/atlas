@@ -19,7 +19,12 @@ function round_trip_harness() {
       s.cursors,
       stub_owner_leases().leases,
     ),
-    restore: new CalendarRestoreService(s.tenant_factory, s.connector, s.manifests),
+    restore: new CalendarRestoreService(
+      s.tenant_factory,
+      s.connector,
+      s.manifests,
+      stub_owner_leases().leases,
+    ),
   }));
 }
 

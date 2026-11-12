@@ -20,8 +20,16 @@ export interface ManifestRepository {
    */
   save(ctx: TenantContext, manifest: Manifest, lease?: HeldOwnerLease): Promise<void>;
 
-  /** Drops a removed snapshot's row from the mailbox's summary index; logs instead of failing. */
-  forget_snapshot_summary(ctx: TenantContext, owner_id: string, snapshot_id: string): Promise<void>;
+  /**
+   * Drops a removed snapshot's row from the summary index; logs instead of failing. `lease` is
+   * checked right before the write, and a lost one is raised.
+   */
+  forget_snapshot_summary(
+    ctx: TenantContext,
+    owner_id: string,
+    snapshot_id: string,
+    lease?: HeldOwnerLease,
+  ): Promise<void>;
 
   /** @throws UnreadableContentError when the snapshot's manifest is damaged. */
   find_by_snapshot(ctx: TenantContext, snapshot_id: string): Promise<Manifest | undefined>;

@@ -67,8 +67,9 @@ export class S3SharePointManifestRepository implements SharePointManifestReposit
     ctx: TenantContext,
     site_id: string,
     snapshot_id: string,
+    lease?: HeldOwnerLease,
   ): Promise<void> {
-    await forget_snapshot_summary_or_warn(ctx, SUMMARY_LAYOUT, site_id, snapshot_id);
+    await forget_snapshot_summary_or_warn(ctx, SUMMARY_LAYOUT, site_id, snapshot_id, lease);
   }
 
   /** Loads a manifest by listing only that site's manifest prefix; raises when it is damaged. */

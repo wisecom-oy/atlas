@@ -259,6 +259,10 @@ describe('quarantine_unreadable_object (issue #631)', () => {
     ).rejects.toThrow(/No OneDrive object exists/);
 
     expect(after_move).toHaveBeenCalledTimes(1);
-    expect(after_move).toHaveBeenCalledWith(harness.ctx, KEY);
+    expect(after_move).toHaveBeenCalledWith(
+      harness.ctx,
+      KEY,
+      expect.objectContaining({ assert_held: expect.any(Function) }),
+    );
   });
 });

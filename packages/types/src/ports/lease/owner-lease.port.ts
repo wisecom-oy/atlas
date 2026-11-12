@@ -4,8 +4,11 @@ import type { TenantStorageContext } from '@/ports/tenant/context.port';
 export type OwnerLeaseWorkload =
   'outlook' | 'onedrive' | 'sharepoint' | 'contacts' | 'calendar' | 'teams';
 
-/** The operations that write per-owner state and therefore take the lease. */
-export type OwnerLeaseOperation = 'backup' | 'delete' | 'quarantine';
+/**
+ * The operations that take the lease: those that write per-owner state, and restore, which reads it
+ * while a delete or another restore of the same owner would change what it restores.
+ */
+export type OwnerLeaseOperation = 'backup' | 'delete' | 'quarantine' | 'restore';
 
 /** Which owner an operation needs exclusively, and what the operation is. */
 export interface OwnerLeaseRequest {

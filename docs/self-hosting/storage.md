@@ -276,12 +276,12 @@ Snapshot manifests, the version index of a OneDrive or SharePoint run, and Teams
 
 After the upload, Atlas reads each manifest, run index, Teams index, and delta cursor back and compares it with what it sent. That is one `GET` of the object's own size per object, a fixed number per run that does not grow with the number of items:
 
-| Workload                 | Extra `GET` requests per mailbox, owner, site, or team per run |
-| ------------------------ | -------------------------------------------------------------- |
-| Outlook                  | 2: manifest and cursor                                         |
-| OneDrive, SharePoint     | 3: manifest, version index, and cursor                         |
-| Contacts, Calendar       | 2: manifest and cursor                                         |
-| Teams                    | 1: snapshot index                                              |
+| Workload             | Extra `GET` requests per mailbox, owner, site, or team per run |
+| -------------------- | -------------------------------------------------------------- |
+| Outlook              | 2: manifest and cursor                                         |
+| OneDrive, SharePoint | 3: manifest, version index, and cursor                         |
+| Contacts, Calendar   | 2: manifest and cursor                                         |
+| Teams                | 1: snapshot index                                              |
 
 A run that changed nothing writes no snapshot and reads back only its cursor. The read-back needs no new permission, because backups already read from the bucket. See [Metadata is checked before and after it is stored](/security#metadata-is-checked-before-and-after-it-is-stored) for what each step proves.
 
@@ -291,17 +291,17 @@ A run that changed nothing writes no snapshot and reads back only its cursor. Th
 atlas storage-check   # the `Conditional writes` row must read `supported`
 ```
 
-A backup, deletion, or quarantine holds a small unencrypted lease object for its mailbox, drive owner, site, or team, so a second operation on the same owner fails with `ATLAS_OWNER_BUSY` (exit `12`) instead of overwriting the first one's delta cursor. The lease is taken with `If-None-Match: *`, renewed and taken over with `If-Match`, and read back after every acquire. See [Concurrent operations](/reference/sdk#concurrent-operations) and [Owner leases](/operations/storage-layout#owner-leases).
+A backup, restore, deletion, or quarantine holds a small unencrypted lease object for its mailbox, drive owner, site, or team, so a second operation on the same owner fails with `ATLAS_OWNER_BUSY` (exit `12`) instead of overwriting the first one's delta cursor. The lease is taken with `If-None-Match: *`, renewed and taken over with `If-Match`, and read back after every acquire. See [Concurrent operations](/reference/sdk#concurrent-operations) and [Owner leases](/operations/storage-layout#owner-leases).
 
-| Consideration   | Detail                                                                                                                                                                                                                                              |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Backend         | Must refuse a create-only write onto an existing key and a compare-and-swap with a stale ETag, both with `412`. `atlas storage-check` probes both. A backend that accepts them lets two runs hold one lease for up to 60 seconds                    |
-| Requests        | Per operation: 2 to acquire and 2 to release, 3 when the delete is refused. While it runs: 2 per minute, one `GET` and one `PUT` of about 200 bytes. Nothing per object |
-| Permissions     | `s3:PutObject` and `s3:GetObject` on the lease keys, and `s3:DeleteObject` to remove a lease when its run ends. Where the delete is denied, as under a policy that denies `DeleteObject` on `_meta/*`, the run marks its lease released with a conditional `PUT` and the object stays as a free lease |
-| Versioned bucket | Each renewal replaces the lease, so an operation leaves one noncurrent version per minute it ran, plus a delete marker. The `atlas-expire-noncurrent-versions` rule removes the versions after 30 days, and the delete marker rule removes the marker |
-| Other buckets   | A bucket Atlas did not create has no such rule. Add a noncurrent-version expiry, or the lease versions accumulate                                                                                                                                   |
-| Default retention | A lease is never written with retention, but a bucket default retention locks every version of it until the retention ends. See [Removing a bucket default retention](#removing-a-bucket-default-retention)                                      |
-| Clocks          | Hosts that share a bucket must agree on the time to within a few minutes. Expiry compares a timestamp one host wrote with another host's clock                                                                                                      |
+| Consideration     | Detail                                                                                                                                                                                                                                                                                                |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend           | Must refuse a create-only write onto an existing key and a compare-and-swap with a stale ETag, both with `412`. `atlas storage-check` probes both. A backend that accepts them lets two runs hold one lease for up to 60 seconds                                                                      |
+| Requests          | Per operation: 2 to acquire and 2 to release, 3 when the delete is refused. While it runs: 2 per minute, one `GET` and one `PUT` of about 200 bytes. Nothing per object                                                                                                                               |
+| Permissions       | `s3:PutObject` and `s3:GetObject` on the lease keys, and `s3:DeleteObject` to remove a lease when its run ends. Where the delete is denied, as under a policy that denies `DeleteObject` on `_meta/*`, the run marks its lease released with a conditional `PUT` and the object stays as a free lease |
+| Versioned bucket  | Each renewal replaces the lease, so an operation leaves one noncurrent version per minute it ran, plus a delete marker. The `atlas-expire-noncurrent-versions` rule removes the versions after 30 days, and the delete marker rule removes the marker                                                 |
+| Other buckets     | A bucket Atlas did not create has no such rule. Add a noncurrent-version expiry, or the lease versions accumulate                                                                                                                                                                                     |
+| Default retention | A lease is never written with retention, but a bucket default retention locks every version of it until the retention ends. See [Removing a bucket default retention](#removing-a-bucket-default-retention)                                                                                           |
+| Clocks            | Hosts that share a bucket must agree on the time to within a few minutes. Expiry compares a timestamp one host wrote with another host's clock                                                                                                                                                        |
 
 A 6-hour backup renews its lease 360 times, which in a versioned bucket is about 72 KB of noncurrent versions until the lifecycle rule removes them.
 

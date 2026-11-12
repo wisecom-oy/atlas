@@ -86,7 +86,12 @@ describe('OneDrive operation cancellation', () => {
       {} as never,
       stub_owner_leases().leases,
     );
-    const restore = new OneDriveRestoreService(factory, {} as never, {} as never);
+    const restore = new OneDriveRestoreService(
+      factory,
+      {} as never,
+      {} as never,
+      stub_owner_leases().leases,
+    );
     const save = new OneDriveSaveService(factory, {} as never);
     const verify = new OneDriveVerificationService(factory, {} as never, {} as never);
 
@@ -146,6 +151,7 @@ describe('OneDrive operation cancellation', () => {
       factory,
       connector,
       make_manifest_repository(make_manifest()),
+      stub_owner_leases().leases,
     );
 
     const result = await service.restore_onedrive('tenant-1', 'owner-1', {

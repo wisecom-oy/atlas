@@ -168,7 +168,12 @@ describe.each(WORKLOADS)('$name delete -s and the delta cursor', (workload) => {
 
     await delete_snapshot('snap-2');
 
-    expect(reads.forget_snapshot_summary).toHaveBeenCalledWith(bucket.ctx, owner, 'snap-2');
+    expect(reads.forget_snapshot_summary).toHaveBeenCalledWith(
+      bucket.ctx,
+      owner,
+      'snap-2',
+      expect.objectContaining({ assert_held: expect.any(Function) }),
+    );
     expect(left_when_pruned).not.toContain(manifest_key('snap-2'));
     expect(left_when_pruned).not.toContain(cursor_key);
   });

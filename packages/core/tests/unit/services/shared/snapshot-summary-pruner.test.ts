@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { OwnerLeaseLostError, type HeldOwnerLease } from '@wisecom/atlas-types';
 import {
   forget_snapshot_summary,
   forget_snapshot_summary_or_warn,
@@ -78,5 +79,43 @@ describe('forget_snapshot_summary (#625)', () => {
     ).resolves.toBeUndefined();
 
     expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(expect.stringContaining('snap-2000'));
+  });
+});
+
+/** A lease that was lost: every check throws, as after another operation took the owner over. */
+function lost_lease(): HeldOwnerLease {
+  return {
+    storage_key: 'lease',
+    assert_held: () => {
+      throw new OwnerLeaseLostError({ workload: 'onedrive', owner_id: OWNER }, 'taken over');
+    },
+    release: async () => undefined,
+  };
+}
+
+describe('forget_snapshot_summary under a lost lease (#623)', () => {
+  it('writes nothing and raises when the lease was lost', async () => {
+    const harness = await two_recorded_snapshots();
+    const put = vi.spyOn(harness.ctx.storage, 'put');
+
+    const forget = forget_snapshot_summary(harness.ctx, LAYOUT, OWNER, 'snap-2000', lost_lease());
+
+    await expect(forget).rejects.toBeInstanceOf(OwnerLeaseLostError);
+    expect(put).not.toHaveBeenCalled();
+    expect(stored_snapshot_ids(harness)).toEqual(['snap-2000', 'snap-1000']);
+  });
+
+  it('does not swallow a lost lease as a summary warning', async () => {
+    const harness = await two_recorded_snapshots();
+
+    const forget = forget_snapshot_summary_or_warn(
+      harness.ctx,
+      LAYOUT,
+      OWNER,
+      'snap-2000',
+      lost_lease(),
+    );
+
+    await expect(forget).rejects.toBeInstanceOf(OwnerLeaseLostError);
   });
 });

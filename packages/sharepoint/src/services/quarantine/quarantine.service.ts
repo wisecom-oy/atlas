@@ -42,8 +42,8 @@ export class SharePointQuarantineService implements QuarantineUseCase {
         read_manifest: (ctx, key) => this._manifests.read_manifest_at(ctx, key),
         read_index_object: (ctx, key) => this._indexes.read_index_object_at(ctx, key),
       },
-      (ctx, site_id, snapshot_id) =>
-        this._manifests.forget_snapshot_summary(ctx, site_id, snapshot_id),
+      (ctx, site_id, snapshot_id, lease) =>
+        this._manifests.forget_snapshot_summary(ctx, site_id, snapshot_id, lease),
     );
     return quarantine_unreadable_object(
       this._tenant_factory,

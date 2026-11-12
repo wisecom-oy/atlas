@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import 'reflect-metadata';
 
 import type { GraphEventPayload } from '@wisecom/atlas-types';
@@ -19,7 +20,13 @@ import { CalendarRestoreService } from '@/services/restore/restore.service';
 /** Restore service over fresh in-memory stores. */
 function restore_harness() {
   return calendar_rig(
-    (s) => new CalendarRestoreService(s.tenant_factory, s.connector, s.manifests),
+    (s) =>
+      new CalendarRestoreService(
+        s.tenant_factory,
+        s.connector,
+        s.manifests,
+        stub_owner_leases().leases,
+      ),
   );
 }
 
