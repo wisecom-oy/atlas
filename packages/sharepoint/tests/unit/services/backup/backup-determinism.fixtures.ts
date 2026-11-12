@@ -11,6 +11,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { SharePointBackupService } from '@/services/backup/backup.service';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 export function make_file_item(
@@ -108,9 +109,10 @@ export function make_service(
     manifests?: SharePointManifestRepository;
     file_indexes?: SharePointFileVersionIndexRepository;
     cursors?: SharePointDeltaCursorRepository;
+    ctx?: TenantContext;
   } = {},
 ): SharePointBackupService {
-  const ctx = make_ctx();
+  const ctx = overrides.ctx ?? make_ctx();
   const factory: TenantContextFactory = {
     create: vi.fn().mockResolvedValue(ctx),
     create_readonly: vi.fn().mockResolvedValue(ctx),
@@ -121,13 +123,12 @@ export function make_service(
   const file_indexes = overrides.file_indexes ?? make_file_indexes();
   const cursors = overrides.cursors ?? make_cursors();
 
-  return new (
-    SharePointBackupService as unknown as new (
-      factory: TenantContextFactory,
-      connector: SharePointSiteConnector,
-      manifests: SharePointManifestRepository,
-      file_indexes: SharePointFileVersionIndexRepository,
-      cursors: SharePointDeltaCursorRepository,
-    ) => SharePointBackupService
-  )(factory, connector, manifests, file_indexes, cursors);
+  return new SharePointBackupService(
+    factory,
+    connector,
+    manifests,
+    file_indexes,
+    cursors,
+    stub_owner_leases().leases,
+  );
 }

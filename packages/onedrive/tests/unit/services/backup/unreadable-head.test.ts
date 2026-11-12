@@ -14,10 +14,12 @@ import type {
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 
 const OWNER_ID = 'owner-1';
 const DAMAGED_KEY = `onedrive/manifests/${OWNER_ID}/od-snap-9999-abc.json`;
+const OLDER_KEY = `onedrive/manifests/${OWNER_ID}/od-snap-1.json`;
 
 const OLDER = {
   owner_id: OWNER_ID,
@@ -26,8 +28,13 @@ const OLDER = {
   entries: [],
 } as unknown as OneDriveSnapshotManifest;
 
+/**
+ * Saved by the run that wrote the damaged manifest. That manifest still exists, so the cursor is
+ * resumed (#725) and the run is incremental.
+ */
 const CURSOR: OneDriveDeltaCursor = {
   owner_id: OWNER_ID,
+  snapshot_id: 'od-snap-9999-abc',
   delta_link_by_drive: { d1: 'link-1' },
   previous_path_by_file_id: { report: '/Docs' },
   previous_name_by_file_id: { report: 'report.docx' },
@@ -72,7 +79,8 @@ function run_backup(items: OneDriveDeltaItem[], head: LatestReadableManifest<unk
     storage: {
       exists: async () => false,
       put: async () => undefined,
-      list: async () => [],
+      list: async (prefix: string) =>
+        prefix.startsWith('onedrive/manifests/') ? [OLDER_KEY, DAMAGED_KEY] : [],
       list_stale: async () => [],
       abort_incomplete_uploads: async () => 0,
     },
@@ -93,6 +101,7 @@ function run_backup(items: OneDriveDeltaItem[], head: LatestReadableManifest<unk
     manifests as never,
     { load_version_watermarks: async () => ({}), write_run_index: vi.fn() } as never,
     cursors as never,
+    stub_owner_leases().leases,
   );
   return { result: service.backup_onedrive('t', OWNER_ID), manifests, cursors };
 }

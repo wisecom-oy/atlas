@@ -3,6 +3,7 @@ import { Container } from 'inversify';
 import { execute_teams_backup } from '@/commands/teams/command.handlers';
 import {
   AuthError,
+  OwnerBusyError,
   TEAMS_BACKUP_USE_CASE_TOKEN,
   TEAMS_CATALOG_USE_CASE_TOKEN,
   type TeamsBackupUseCase,
@@ -96,6 +97,30 @@ describe('teams backup scope and per-team isolation', () => {
     expect(backup_team).toHaveBeenCalledTimes(2);
     expect(backup_team.mock.calls[1]?.[1]).toBe('team-b');
     expect(process.exitCode).toBe(2);
+  });
+
+  it('reports a team another operation holds as that team failure and backs up the rest (#623)', async () => {
+    backup_team
+      .mockRejectedValueOnce(
+        new OwnerBusyError({ workload: 'teams', owner_id: 'team-a', held_by_operation: 'backup' }),
+      )
+      .mockResolvedValueOnce(healthy_result('team-b'));
+
+    await execute_teams_backup(container, { tenant: TENANT, team: ['team-a', 'team-b'] });
+
+    expect(backup_team).toHaveBeenCalledTimes(2);
+    expect(backup_team.mock.calls[1]?.[1]).toBe('team-b');
+    expect(process.exitCode).toBe(2);
+  });
+
+  it('rethrows a busy single team so the command exits with the busy category (#623)', async () => {
+    backup_team.mockRejectedValueOnce(
+      new OwnerBusyError({ workload: 'teams', owner_id: 'team-a' }),
+    );
+
+    await expect(
+      execute_teams_backup(container, { tenant: TENANT, team: ['team-a'] }),
+    ).rejects.toBeInstanceOf(OwnerBusyError);
   });
 
   it('stops on an auth failure and rethrows it so the category exit applies', async () => {

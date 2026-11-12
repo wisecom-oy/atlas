@@ -98,6 +98,7 @@ describe('ReplicationService drive snapshot routing (issue #91)', () => {
 
     manifests = {
       save: vi.fn(),
+      forget_snapshot_summary: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
       list_by_owner: vi.fn().mockResolvedValue([]),
       find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),

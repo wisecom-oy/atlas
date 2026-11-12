@@ -1,5 +1,6 @@
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { ReplicationStatusRecord } from '@wisecom/atlas-types';
+import { READER_CHECKS_NOTHING, write_encrypted_json } from '@/services/shared/stored-json-writer';
 
 const STATUS_PREFIX = '_meta/replication/';
 
@@ -8,15 +9,25 @@ function status_key(owner_id: string, snapshot_id: string, target_id: string): s
   return `${STATUS_PREFIX}${owner_id}/${snapshot_id}/${target_id}.json`;
 }
 
-/** Persists an encrypted replication status sidecar to primary storage. */
+/**
+ * Persists an encrypted replication status sidecar to primary storage, overwriting the status of
+ * an earlier replication of the same snapshot to the same target.
+ */
 export async function save_replication_status(
   ctx: TenantContext,
   record: ReplicationStatusRecord,
 ): Promise<void> {
-  const key = status_key(record.owner_id, record.snapshot_id, record.target_id);
-  const plaintext = Buffer.from(JSON.stringify(record), 'utf-8');
-  const ciphertext = ctx.encrypt(plaintext, key);
-  await ctx.storage.put(key, ciphertext);
+  await write_encrypted_json(
+    ctx,
+    {
+      key: status_key(record.owner_id, record.snapshot_id, record.target_id),
+      label: 'replication status',
+      reader_check: READER_CHECKS_NOTHING,
+      write: 'overwrite',
+      confirm_read_back: false,
+    },
+    record,
+  );
 }
 
 /** Loads a single replication status sidecar, or undefined if not found. */

@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { TeamsChannelShard, TenantContext } from '@wisecom/atlas-types';
-import { UnreadableContentError, UnsupportedFormatVersionError } from '@wisecom/atlas-types';
+import {
+  RefusedWriteError,
+  UnreadableContentError,
+  UnsupportedFormatVersionError,
+} from '@wisecom/atlas-types';
+import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
+import { canonical_json } from '@/services/shared/canonical-json';
 import {
   stub_encrypted_object_store,
   type StubEncryptedObjectStore,
@@ -8,6 +14,7 @@ import {
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { S3TeamsChannelShardRepository } from '@/adapters/s3-teams-channel-shard-repository.adapter';
 import { teams_channel_shard_key } from '@/services/shared/storage-keys';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 const TEAM = '00000000-0000-0000-0000-000000000001';
 const CHANNEL = 'channel-1';
@@ -48,6 +55,23 @@ function make_ctx(store: StubEncryptedObjectStore, bucket: Map<string, Buffer>) 
   return { ctx, put };
 }
 
+/**
+ * Stores a shard body under the content key the repository would give it, bypassing `save`, which
+ * refuses a shard that `load` would reject. A bucket can still hold one from before that check.
+ */
+function plant_shard(
+  ctx: TenantContext,
+  store: StubEncryptedObjectStore,
+  bucket: Map<string, Buffer>,
+  body: TeamsChannelShard,
+): string {
+  const plaintext = Buffer.from(canonical_json(body));
+  const { content_name } = compute_content_digests(ctx, plaintext);
+  const key = teams_channel_shard_key(body.team_id, body.channel_id, content_name);
+  bucket.set(key, store.encrypt(plaintext));
+  return key;
+}
+
 describe('S3TeamsChannelShardRepository', () => {
   it('loads back the shard it saved, under the key the save returned', async () => {
     const store = stub_encrypted_object_store();
@@ -74,6 +98,68 @@ describe('S3TeamsChannelShardRepository', () => {
     expect(put).toHaveBeenCalledTimes(1);
   });
 
+  it('overwrites an existing object that is damaged, and warns with its key', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const store = stub_encrypted_object_store();
+    const bucket = new Map<string, Buffer>();
+    const { ctx, put } = make_ctx(store, bucket);
+    const repository = new S3TeamsChannelShardRepository();
+    const first = await repository.save(ctx, shard());
+    bucket.set(first.storage_key, Buffer.from('damaged in storage, long enough to hold a tag'));
+
+    const second = await repository.save(ctx, shard());
+
+    expect(second).toEqual(first);
+    expect(put).toHaveBeenCalledTimes(2);
+    await expect(repository.load(ctx, first.storage_key)).resolves.toEqual(shard());
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(first.storage_key));
+    warn.mockRestore();
+  });
+
+  it('never overwrites an existing object written by a newer format', async () => {
+    const store = stub_encrypted_object_store();
+    const bucket = new Map<string, Buffer>();
+    const { ctx, put } = make_ctx(store, bucket);
+    const repository = new S3TeamsChannelShardRepository();
+    await repository.save(ctx, shard());
+    ctx.decrypt = () => {
+      throw new UnsupportedFormatVersionError('Unsupported content envelope version 2');
+    };
+
+    const save = repository.save(ctx, shard());
+
+    await expect(save).rejects.toBeInstanceOf(UnsupportedFormatVersionError);
+    expect(put).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not overwrite when the existing object cannot be fetched', async () => {
+    const store = stub_encrypted_object_store();
+    const bucket = new Map<string, Buffer>();
+    const { ctx, put } = make_ctx(store, bucket);
+    const repository = new S3TeamsChannelShardRepository();
+    await repository.save(ctx, shard());
+    vi.mocked(ctx.storage.get).mockRejectedValueOnce(new Error('connection reset'));
+
+    await expect(repository.save(ctx, shard())).rejects.toThrow('connection reset');
+    expect(put).toHaveBeenCalledTimes(1);
+  });
+
+  it('raises UnsupportedFormatVersionError when the envelope is from a newer format', async () => {
+    const store = stub_encrypted_object_store();
+    const bucket = new Map<string, Buffer>();
+    const { ctx } = make_ctx(store, bucket);
+    const repository = new S3TeamsChannelShardRepository();
+    const ref = await repository.save(ctx, shard());
+    ctx.decrypt = () => {
+      throw new UnsupportedFormatVersionError('Unsupported content envelope version 2');
+    };
+
+    const load = repository.load(ctx, ref.storage_key);
+
+    await expect(load).rejects.toBeInstanceOf(UnsupportedFormatVersionError);
+    await expect(load).rejects.not.toBeInstanceOf(UnreadableContentError);
+  });
+
   it('raises UnreadableContentError for a shard copied under another channel key', async () => {
     const store = stub_encrypted_object_store();
     const bucket = new Map<string, Buffer>();
@@ -93,12 +179,26 @@ describe('S3TeamsChannelShardRepository', () => {
     const { ctx } = make_ctx(store, bucket);
     const repository = new S3TeamsChannelShardRepository();
     const newer_body = { ...shard(), format_version: 2 } as unknown as TeamsChannelShard;
-    const newer = await repository.save(ctx, newer_body);
+    const newer_key = plant_shard(ctx, store, bucket, newer_body);
 
-    const load = repository.load(ctx, newer.storage_key);
+    const load = repository.load(ctx, newer_key);
 
     await expect(load).rejects.toBeInstanceOf(UnsupportedFormatVersionError);
     await expect(load).rejects.not.toBeInstanceOf(UnreadableContentError);
+  });
+
+  it('refuses to save a shard its own load would reject, and writes nothing', async () => {
+    const store = stub_encrypted_object_store();
+    const bucket = new Map<string, Buffer>();
+    const { ctx, put } = make_ctx(store, bucket);
+    const malformed = shard({ threads: { 'root-1': { root: {}, replies: {} } } as never });
+
+    const save = new S3TeamsChannelShardRepository().save(ctx, malformed);
+
+    await expect(save).rejects.toBeInstanceOf(RefusedWriteError);
+    await expect(save).rejects.toThrow('Nothing was written');
+    expect(put).not.toHaveBeenCalled();
+    expect(bucket.size).toBe(0);
   });
 
   it('raises UnreadableContentError naming the key for a shard whose thread root lacks storage_key (P1)', async () => {
@@ -114,12 +214,12 @@ describe('S3TeamsChannelShardRepository', () => {
       hosted: {},
     };
     const malformed = shard({ threads: { 'root-1': { root, replies: {} } } as never });
-    const ref = await repository.save(ctx, malformed);
+    const malformed_key = plant_shard(ctx, store, bucket, malformed);
 
-    const load = repository.load(ctx, ref.storage_key);
+    const load = repository.load(ctx, malformed_key);
 
     await expect(load).rejects.toBeInstanceOf(UnreadableContentError);
-    await expect(load).rejects.toThrow(ref.storage_key);
+    await expect(load).rejects.toThrow(malformed_key);
   });
 
   it('raises UnreadableContentError for a shard that is absent', async () => {

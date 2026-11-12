@@ -4,7 +4,7 @@
 // branch, which is the shape that made the copies hard to change.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { with_summary_unreadable_keys } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
-import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
+import { attach_run_retention } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { randomBytes } from 'node:crypto';
 import {
@@ -15,8 +15,16 @@ import { inject, injectable } from 'inversify';
 import { classify_empty_run } from '@wisecom/atlas-drive/backup/empty-run-classifier';
 import { append_recrawl_tombstones } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
 import { merge_damaged_manifest_keys } from '@wisecom/atlas-drive/backup/damaged-manifest-report';
+import { build_tracking_state } from '@/services/backup/file-tracking-state';
+import {
+  resolve_saved_cursor_binding,
+  select_resumable_cursor,
+} from '@wisecom/atlas-drive/shared/cursor-snapshot-binding';
+import { SHAREPOINT_KEYS } from '@/services/shared/storage-keys';
 import { build_version_errors } from '@wisecom/atlas-drive/backup/version-failure-errors';
 import type {
+  HeldOwnerLease,
+  OwnerLeasePort,
   SharePointBackupOptions,
   SharePointBackupResult,
   SharePointBackupUseCase,
@@ -25,10 +33,10 @@ import type {
   SharePointDeltaCursorRepository,
   SharePointFileVersionIndexRepository,
   SharePointManifestRepository,
-  TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import {
+  OWNER_LEASE_TOKEN,
   SHAREPOINT_CONNECTOR_TOKEN,
   SHAREPOINT_DELTA_CURSOR_REPOSITORY_TOKEN,
   SHAREPOINT_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
@@ -38,14 +46,14 @@ import {
 import { describe_failed_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
+  build_delta_cursor,
   build_empty_result,
   build_package_warnings,
   build_run_version_indexes,
   build_snapshot_manifest,
   persist_snapshot_backup,
 } from '@/services/backup/backup-builders';
-import { build_delta_cursor, build_tracking_state } from '@/services/backup/delta-cursor-state';
-import type { RunVersionCollector } from '@/services/versioning/version-sync';
+import { load_run_version_collector } from '@/services/versioning/run-version-collector';
 import {
   scan_all_libraries,
   type SharePointLibraryScanResult,
@@ -64,6 +72,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     private readonly _file_indexes: SharePointFileVersionIndexRepository,
     @inject(SHAREPOINT_DELTA_CURSOR_REPOSITORY_TOKEN)
     private readonly _cursors: SharePointDeltaCursorRepository,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
   ) {}
 
   /**
@@ -71,6 +80,10 @@ export class SharePointBackupService implements SharePointBackupUseCase {
    *
    * The run's abort signal is published to every Graph call inside it, so cancelling also ends a
    * Graph retry or throttle wait rather than only the next file (issue #673).
+   *
+   * The run holds the site's lease from before it reads the cursor until it ends.
+   *
+   * @throws OwnerBusyError when another operation holds the site's backup.
    */
   async backup_site(
     tenant_id: string,
@@ -89,14 +102,27 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     options: SharePointBackupOptions,
   ): Promise<SharePointBackupResult> {
     const tenant_ctx = await this._tenant_factory.create(tenant_id);
+    let lease: HeldOwnerLease | undefined;
     try {
+      // Taken before the cursor is read, released in the `finally` below (issue #623).
+      lease = await this._leases.acquire(tenant_ctx, {
+        workload: 'sharepoint',
+        owner_id: site_id,
+        operation: 'backup',
+      });
       // Per-object retention carried by this run's context, not the bucket default: concurrent
       // runs on one tenant would overwrite each other's bucket setting (#551).
-      const ctx = await lock_run_writes(tenant_ctx, options.object_lock_request);
+      const ctx = await attach_run_retention(tenant_ctx, options.object_lock_request);
       const stored_cursor = await this._cursors.load(ctx, site_id);
       // Read before this run saves a manifest, which would become the head and hide a damaged one.
       const head = await this._manifests.find_latest_readable(ctx, site_id);
-      const previous_cursor = options.force_full === true ? undefined : stored_cursor;
+      // A cursor whose snapshot is gone reads in full, as `--full` does: it would otherwise resume
+      // past changes no snapshot holds (issue #725).
+      const resume = await select_resumable_cursor(ctx, SHAREPOINT_KEYS, site_id, stored_cursor, {
+        unit: 'library',
+        force_full: options.force_full === true,
+      });
+      const previous_cursor = resume.previous_cursor;
       const libraries = await this._connector.list_document_libraries(tenant_id, site_id);
       // Same reasoning as the OneDrive twin: a revoked grant is a 403 that
       // `list_document_libraries` has already named, so an empty list is a site with no document
@@ -124,7 +150,12 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       // record which historical versions Graph already handed over, not where
       // the delta stream stopped, and discarding them would re-download every
       // version of every file (issue #161).
-      const versions = await this.load_run_version_collector(ctx, site_id, stored_cursor);
+      const versions = await load_run_version_collector(
+        this._file_indexes,
+        ctx,
+        site_id,
+        resume.watermark_cursor,
+      );
       const scan = await scan_all_libraries({
         connector: this._connector,
         versions,
@@ -156,8 +187,15 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         tracking,
         scan.failed_items,
         versions.watermarks,
+        // The snapshot this run writes, or the one it leaves as the newest when nothing changed.
+        await resolve_saved_cursor_binding(
+          scan.entries.length > 0 ? snapshot_id : undefined,
+          previous_cursor,
+          async () => head,
+        ),
       );
       const warnings = [
+        ...(resume.outlived_warning === undefined ? [] : [resume.outlived_warning]),
         ...build_package_warnings(scan.package_reports),
         ...describe_failed_items(scan.failed_items),
       ];
@@ -177,12 +215,14 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         // failure discards them) are still on the wire and still watermarked:
         // the rows have to land before the cursor that tells the next run to
         // skip those versions, or that history is unreachable forever.
+        lease.assert_held();
         await this._file_indexes.write_run_index(
           ctx,
           site_id,
           snapshot_id,
           build_run_version_indexes(site_id, snapshot_id, [], scan.version_rows),
         );
+        lease.assert_held();
         await this._cursors.save(ctx, cursor);
         result = build_empty_result(
           site_id,
@@ -211,6 +251,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       } else {
         result = await this.finalize_snapshot(
           ctx,
+          lease,
           tenant_id,
           site_id,
           scan,
@@ -235,34 +276,14 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         merge_damaged_manifest_keys(head.unreadable_keys, skipped_manifests),
       );
     } finally {
+      await lease?.release();
       tenant_ctx.destroy();
     }
   }
 
-  /**
-   * Builds the run's version bookkeeping from the delta cursor.
-   *
-   * Steady state costs nothing: the cursor is one object the run already reads,
-   * and it carries the dedup watermarks. Only a cursor written before
-   * watermarks existed falls back to scanning the version index, once, to seed
-   * them; from the next run on that site is on the cheap path (issue #161).
-   */
-  private async load_run_version_collector(
-    ctx: TenantContext,
-    site_id: string,
-    stored_cursor: SharePointDeltaCursor | undefined,
-  ): Promise<RunVersionCollector> {
-    const carried = stored_cursor?.version_watermark_by_file_id;
-    if (carried) return { watermarks: { ...carried }, rows: new Map() };
-    logger.info(`Seeding version dedup watermarks for ${site_id} from the version index`);
-    return {
-      watermarks: await this._file_indexes.load_version_watermarks(ctx, site_id),
-      rows: new Map(),
-    };
-  }
-
   private async finalize_snapshot(
     ctx: Awaited<ReturnType<TenantContextFactory['create']>>,
+    lease: HeldOwnerLease,
     tenant_id: string,
     site_id: string,
     scan: SharePointLibraryScanResult,
@@ -289,6 +310,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       this._file_indexes,
       this._cursors,
       ctx,
+      lease,
       site_id,
       snapshot,
       scan.entries,

@@ -35,6 +35,8 @@ function make_cursor(
     previous_kind_by_file_id: {},
     ...(watermarks !== undefined ? { version_watermark_by_file_id: watermarks } : {}),
     updated_at: '2026-01-01T00:00:00Z',
+    // Saved while the site had no snapshot, and none is stored, so the run resumes it (#725).
+    snapshot_id: null,
   };
 }
 

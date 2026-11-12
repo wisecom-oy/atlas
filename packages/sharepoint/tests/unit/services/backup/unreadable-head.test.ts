@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { SharePointDeltaCursor, SharePointSnapshotManifest } from '@wisecom/atlas-types';
 import {
   make_connector,
+  make_ctx,
   make_cursors,
   make_file_item,
   make_manifests,
@@ -14,6 +15,7 @@ import {
 } from './backup-determinism.fixtures';
 
 const DAMAGED_KEY = 'sharepoint/manifests/site-1/sp-snap-9999-abc.json';
+const OLDER_KEY = 'sharepoint/manifests/site-1/sp-snap-1.json';
 
 const OLDER = {
   snapshot_id: 'sp-snap-1',
@@ -21,8 +23,13 @@ const OLDER = {
   entries: [],
 } as unknown as SharePointSnapshotManifest;
 
+/**
+ * Saved by the run that wrote the damaged manifest. That manifest still exists, so the cursor is
+ * resumed (#725) and the run is incremental.
+ */
 const CURSOR = {
   site_id: 'site-1',
+  snapshot_id: 'sp-snap-9999-abc',
   delta_link_by_drive: { 'drive-1': 'link-1' },
   previous_path_by_file_id: { f1: '/Docs' },
   previous_name_by_file_id: { f1: 'f1.docx' },
@@ -30,6 +37,15 @@ const CURSOR = {
   previous_kind_by_file_id: { f1: 'file' },
   updated_at: '2026-09-01T00:00:00Z',
 } as unknown as SharePointDeltaCursor;
+
+/** A tenant context whose listing holds the site's two manifests. */
+function ctx_listing_both_manifests() {
+  const ctx = make_ctx();
+  vi.mocked(ctx.storage.list).mockImplementation(async (prefix: string) =>
+    prefix.startsWith('sharepoint/manifests/') ? [OLDER_KEY, DAMAGED_KEY] : [],
+  );
+  return ctx;
+}
 
 /** A manifest repository whose newest manifest is damaged and whose older one reads. */
 function manifests_with_damaged_head() {
@@ -61,6 +77,7 @@ describe('SharePoint backup when the newest manifest is unreadable (issue #709)'
       connector: delta_with([make_file_item('f1')]),
       manifests,
       cursors,
+      ctx: ctx_listing_both_manifests(),
     }).backup_site('tenant-1', 'site-1');
 
     expect(result.summary.unreadable_keys).toEqual([DAMAGED_KEY]);
@@ -75,6 +92,7 @@ describe('SharePoint backup when the newest manifest is unreadable (issue #709)'
       connector: delta_with([]),
       manifests: manifests_with_damaged_head(),
       cursors: make_cursors(CURSOR),
+      ctx: ctx_listing_both_manifests(),
     }).backup_site('tenant-1', 'site-1');
 
     expect(result.snapshot).toBeUndefined();
@@ -89,6 +107,7 @@ describe('SharePoint backup when the newest manifest is unreadable (issue #709)'
       connector: delta_with([make_file_item('f1')]),
       manifests,
       cursors: make_cursors(CURSOR),
+      ctx: ctx_listing_both_manifests(),
     }).backup_site('tenant-1', 'site-1');
 
     const lookup = vi.mocked(manifests.find_latest_readable).mock.invocationCallOrder[0]!;
@@ -100,6 +119,7 @@ describe('SharePoint backup when the newest manifest is unreadable (issue #709)'
     const result = await make_service({
       connector: delta_with([make_file_item('f1')]),
       cursors: make_cursors(CURSOR),
+      ctx: ctx_listing_both_manifests(),
     }).backup_site('tenant-1', 'site-1');
 
     expect(result.summary.unreadable_keys).toBeUndefined();

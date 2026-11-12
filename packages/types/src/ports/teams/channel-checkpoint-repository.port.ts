@@ -16,6 +16,7 @@ export interface TeamsChannelCheckpointRepository {
    *
    * @throws UnreadableContentError when the head is damaged. Callers treat that as absent.
    * @throws UnsupportedFormatVersionError when the head was written by a newer format version.
+   *   Callers must not treat that as absent or delete the checkpoint.
    */
   load_head(
     ctx: TenantContext,

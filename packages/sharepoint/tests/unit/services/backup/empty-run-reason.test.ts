@@ -27,6 +27,8 @@ function cursor_knowing_a_file(): SharePointDeltaCursor {
     previous_etag_by_file_id: { f1: 'etag-1' },
     previous_kind_by_file_id: { f1: 'file' },
     updated_at: new Date().toISOString(),
+    // Saved while the site had no snapshot, and none is stored, so the run resumes it (#725).
+    snapshot_id: null,
   };
 }
 
@@ -159,6 +161,7 @@ describe('SharePoint backup with no snapshot to create (issue #405)', () => {
       previous_etag_by_file_id: { sub: 'etag-sub' },
       previous_kind_by_file_id: { sub: 'folder' },
       updated_at: new Date().toISOString(),
+      snapshot_id: null,
     };
     const connector = make_connector({
       fetch_delta: vi.fn().mockResolvedValue({
@@ -188,6 +191,7 @@ describe('SharePoint backup with no snapshot to create (issue #405)', () => {
       previous_etag_by_file_id: { f1: 'etag-f1' },
       previous_kind_by_file_id: {},
       updated_at: new Date().toISOString(),
+      snapshot_id: null,
     };
     const manifests = make_manifests();
     const connector = make_connector({

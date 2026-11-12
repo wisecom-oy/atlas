@@ -31,7 +31,7 @@ Stagger the workloads. Overlapping runs send more Graph API requests at once, wh
 
 Create the log directory once as the service account: `mkdir -p ~/atlas-logs`. Cron runs as that account and cannot write to `/var/log`.
 
-Atlas has no built-in run lock. The two Outlook lines share `outlook.lock` through `flock -n`, so a Sunday full run that starts while the nightly run is still going exits without running and writes nothing to its log. Check for a missed week.
+Atlas refuses a second backup of a mailbox, drive owner, site, or team that is already being backed up: the second run exits `12` (`ATLAS_OWNER_BUSY`) and writes nothing. See [Concurrent operations](/reference/sdk#concurrent-operations). `flock` is still worth keeping, because it stops the overlapping job before it starts. The two Outlook lines share `outlook.lock` through `flock -n`, so a Sunday full run that starts while the nightly run is still going exits without running and writes nothing to its log. Check for a missed week.
 
 Microsoft's [Teams API overview](https://learn.microsoft.com/en-us/graph/api/resources/teams-api-overview?view=graph-rest-1.0) says an app that polls a resource may do so only once a day, and that more frequent updates need change notifications. [INFERENCE] Atlas's Teams delta reads count as polling under that rule, so run Teams backup once a day. The page does not mention delta queries.
 

@@ -3,6 +3,7 @@ import type { TenantContextFactory } from '@wisecom/atlas-types';
 import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
 import { TeamsDeletionService } from '@/services/deletion/deletion.service';
 import { TEAMS_KEYS } from '@/services/shared/storage-keys';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const TEAM = 'a1b2c3d4-e5f6-4789-8abc-0123456789ab';
 const OTHER_TEAM = 'b1b2c3d4-e5f6-4789-8abc-0123456789ab';
@@ -24,7 +25,10 @@ describe('TeamsDeletionService.delete_team_data quarantined copies', () => {
       create_storage_only: async () => harness.ctx,
     } as unknown as TenantContextFactory;
 
-    await new TeamsDeletionService(factory).delete_team_data('tenant-test', TEAM);
+    await new TeamsDeletionService(factory, stub_owner_leases().leases).delete_team_data(
+      'tenant-test',
+      TEAM,
+    );
 
     expect(harness.keys()).toEqual([other]);
   });

@@ -199,9 +199,11 @@ Reports pending file changes and failed-item ledger entries per library, using a
 | Flag                  | Description                                          | Default        |
 | --------------------- | ---------------------------------------------------- | -------------- |
 | `--site <url-or-id>`  | Site                                                 | Required       |
-| `-s, --snapshot <id>` | Delete one snapshot instead of all data for the site | All data       |
+| `-s, --snapshot <id>` | Delete the newest snapshot instead of all data for the site | All data       |
 | `-y, --yes`           | Skip the confirmation prompt                         | `false`        |
 | `-t, --tenant <id>`   | Tenant identifier                                    | Config default |
+
+`-s` accepts only the site's newest snapshot. Every newer snapshot is built on the ones before it, so deleting an older one would silently change them. Atlas refuses that with exit code `11` and deletes nothing. Deleting the newest snapshot also removes the delta cursor, so the next backup reads every library in full and captures again what that snapshot held. See [what `-s` does](/reference/cli#drive-snapshot-delete).
 
 Deletion erases every version of each object. Objects still protected by Object Lock are reported as retained, separately from failures. See [erasure](/security#erasure). To remove all data for a tenant across every workload, use `atlas delete --purge`.
 

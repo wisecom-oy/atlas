@@ -11,6 +11,7 @@ import {
   teams_shard_prefix_for,
   TEAMS_KEYS,
 } from '@/services/shared/storage-keys';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const TEAM = 'a1b2c3d4-e5f6-4789-8abc-0123456789ab';
 const CURSOR_KEY = teams_cursor_key(TEAM, 'channel-1');
@@ -42,9 +43,12 @@ function versioned_storage(refuse: (key: string) => Error | undefined): Deletion
 }
 
 function service_over(storage: DeletionStorage): TeamsDeletionService {
-  return new TeamsDeletionService({
-    create_storage_only: vi.fn(async () => ({ tenant_id: 'tenant-1', storage })),
-  } as unknown as TenantContextFactory);
+  return new TeamsDeletionService(
+    {
+      create_storage_only: vi.fn(async () => ({ tenant_id: 'tenant-1', storage })),
+    } as unknown as TenantContextFactory,
+    stub_owner_leases().leases,
+  );
 }
 
 describe('TeamsDeletionService.delete_team_data survivors', () => {

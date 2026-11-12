@@ -14,6 +14,7 @@ import { with_graph_retry } from '@wisecom/atlas-m365-graph';
 import { SharePointBackupService } from '@/services/backup/backup.service';
 import { SharePointSiteTreeBackupService } from '@/services/backup/site-tree-backup.service';
 import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 /** A Graph call throttled with `Retry-After: 360`, which on its own waits six minutes. */
 function graph_call_parked_in_retry_wait(): Promise<never> {
@@ -35,6 +36,8 @@ const STORED_CURSOR = {
   previous_kind_by_file_id: {},
   version_watermark_by_file_id: {},
   updated_at: '2026-01-01T00:00:00.000Z',
+  // Saved while the site had no snapshot, and none is stored, so the run resumes it (#725).
+  snapshot_id: null,
 } as unknown as SharePointDeltaCursor;
 
 interface Harness {
@@ -45,6 +48,7 @@ interface Harness {
 function make_harness(connector: Record<string, unknown>): Harness {
   const context = {
     storage: {
+      list: vi.fn(async () => []),
       list_stale: vi.fn(async () => []),
       abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     },
@@ -63,6 +67,7 @@ function make_harness(connector: Record<string, unknown>): Harness {
     } as never,
     { write_run_index: vi.fn() } as never,
     { load: vi.fn().mockResolvedValue(STORED_CURSOR), save: cursor_save } as never,
+    stub_owner_leases().leases,
   );
   return { service, cursor_save };
 }

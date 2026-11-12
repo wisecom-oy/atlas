@@ -1,5 +1,6 @@
 import type {
   BackupSyncMode,
+  HeldOwnerLease,
   MailboxDeltaCursorRepository,
   Manifest,
   ManifestRepository,
@@ -93,10 +94,14 @@ export interface MailboxRunOutcome {
  *
  * The cursor is saved after the manifest, never before. A cursor that lands first tells the next
  * run to skip changes no manifest recorded, which is what #339 was.
+ *
+ * Each write is preceded by a lease check, so a run that lost the mailbox to another operation
+ * commits nothing (issue #623).
  */
 export async function persist_mailbox_run(
   deps: MailboxRunPersistence,
   ctx: TenantContext,
+  lease: HeldOwnerLease,
   manifest: Manifest,
   snapshot: Snapshot,
   previous: Manifest | undefined,
@@ -104,9 +109,13 @@ export async function persist_mailbox_run(
 ): Promise<MailboxRunOutcome> {
   const captured_change = entry_count > 0 || (manifest.removed_object_ids?.length ?? 0) > 0;
   const wrote_snapshot = captured_change || previous === undefined;
-  if (wrote_snapshot) await deps.manifests.save(ctx, manifest);
+  if (wrote_snapshot) {
+    lease.assert_held();
+    await deps.manifests.save(ctx, manifest, lease);
+  }
 
   const head_snapshot_id = wrote_snapshot ? manifest.snapshot_id : previous.snapshot_id;
+  lease.assert_held();
   await deps.cursors.save(ctx, {
     owner_id: manifest.owner_id,
     delta_links: manifest.delta_links,

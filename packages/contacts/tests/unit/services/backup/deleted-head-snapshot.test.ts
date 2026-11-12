@@ -11,6 +11,7 @@ import {
 import { stub_tenant_context } from '@wisecom/atlas-types/testing/stub-tenant-context';
 
 import { ContactsBackupService } from '@/services/backup/backup.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 /**
  * Issue #704: after `delete -s` of the newest snapshot the cursor still pointed past the run that
@@ -37,6 +38,7 @@ function harness() {
     connector,
     manifests,
     cursors,
+    stub_owner_leases().leases,
   );
   const run = () => service.backup_contacts('tenant-1', MAILBOX, {});
   return { script, delta_calls, manifests, cursors, run };
