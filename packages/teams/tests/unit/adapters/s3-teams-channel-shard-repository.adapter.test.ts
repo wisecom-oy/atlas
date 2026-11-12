@@ -8,6 +8,7 @@ import {
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { S3TeamsChannelShardRepository } from '@/adapters/s3-teams-channel-shard-repository.adapter';
 import { teams_channel_shard_key } from '@/services/shared/storage-keys';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 const TEAM = '00000000-0000-0000-0000-000000000001';
 const CHANNEL = 'channel-1';
@@ -72,6 +73,68 @@ describe('S3TeamsChannelShardRepository', () => {
 
     expect(second.storage_key).toBe(first.storage_key);
     expect(put).toHaveBeenCalledTimes(1);
+  });
+
+  it('overwrites an existing object that is damaged, and warns with its key', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const store = stub_encrypted_object_store();
+    const bucket = new Map<string, Buffer>();
+    const { ctx, put } = make_ctx(store, bucket);
+    const repository = new S3TeamsChannelShardRepository();
+    const first = await repository.save(ctx, shard());
+    bucket.set(first.storage_key, Buffer.from('damaged in storage, long enough to hold a tag'));
+
+    const second = await repository.save(ctx, shard());
+
+    expect(second).toEqual(first);
+    expect(put).toHaveBeenCalledTimes(2);
+    await expect(repository.load(ctx, first.storage_key)).resolves.toEqual(shard());
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(first.storage_key));
+    warn.mockRestore();
+  });
+
+  it('never overwrites an existing object written by a newer format', async () => {
+    const store = stub_encrypted_object_store();
+    const bucket = new Map<string, Buffer>();
+    const { ctx, put } = make_ctx(store, bucket);
+    const repository = new S3TeamsChannelShardRepository();
+    await repository.save(ctx, shard());
+    ctx.decrypt = () => {
+      throw new UnsupportedFormatVersionError('Unsupported content envelope version 2');
+    };
+
+    const save = repository.save(ctx, shard());
+
+    await expect(save).rejects.toBeInstanceOf(UnsupportedFormatVersionError);
+    expect(put).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not overwrite when the existing object cannot be fetched', async () => {
+    const store = stub_encrypted_object_store();
+    const bucket = new Map<string, Buffer>();
+    const { ctx, put } = make_ctx(store, bucket);
+    const repository = new S3TeamsChannelShardRepository();
+    await repository.save(ctx, shard());
+    vi.mocked(ctx.storage.get).mockRejectedValueOnce(new Error('connection reset'));
+
+    await expect(repository.save(ctx, shard())).rejects.toThrow('connection reset');
+    expect(put).toHaveBeenCalledTimes(1);
+  });
+
+  it('raises UnsupportedFormatVersionError when the envelope is from a newer format', async () => {
+    const store = stub_encrypted_object_store();
+    const bucket = new Map<string, Buffer>();
+    const { ctx } = make_ctx(store, bucket);
+    const repository = new S3TeamsChannelShardRepository();
+    const ref = await repository.save(ctx, shard());
+    ctx.decrypt = () => {
+      throw new UnsupportedFormatVersionError('Unsupported content envelope version 2');
+    };
+
+    const load = repository.load(ctx, ref.storage_key);
+
+    await expect(load).rejects.toBeInstanceOf(UnsupportedFormatVersionError);
+    await expect(load).rejects.not.toBeInstanceOf(UnreadableContentError);
   });
 
   it('raises UnreadableContentError for a shard copied under another channel key', async () => {

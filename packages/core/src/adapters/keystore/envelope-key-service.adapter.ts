@@ -8,7 +8,11 @@ import {
   type DecipherGCM,
   type Hmac,
 } from 'node:crypto';
-import { ConfigError, WrongPassphraseError } from '@wisecom/atlas-types';
+import {
+  ConfigError,
+  UnsupportedFormatVersionError,
+  WrongPassphraseError,
+} from '@wisecom/atlas-types';
 import {
   DEFAULT_KDF_STRATEGY,
   KDF_STRATEGIES,
@@ -82,12 +86,25 @@ export class EnvelopeKeyService {
    * the versioned header but was written for another scope.
    *
    * A blob with no header predates the binding and is decrypted without AAD.
+   *
+   * A version byte this build does not know raises `UnsupportedFormatVersionError`, unless the
+   * blob still authenticates as the current version: then the byte was damaged in storage, the
+   * plaintext is genuine, and it is returned with a warning (see `decrypt_as_current_version`).
    */
   decrypt(data: Buffer, dek: Buffer, storage_key: string): Buffer {
     if (!has_content_header(data)) return aes_gcm_decrypt(data, dek);
-    const header = read_content_header(data);
-    const aad = content_aad(header, content_scope(storage_key));
-    return aes_gcm_decrypt(data.subarray(CONTENT_HEADER_LENGTH), dek, aad);
+    const scope = content_scope(storage_key);
+    let header: Buffer;
+    try {
+      header = read_content_header(data);
+    } catch (err) {
+      if (!(err instanceof UnsupportedFormatVersionError)) throw err;
+      const recovered = decrypt_as_current_version(data, dek, scope);
+      if (recovered === undefined) throw err;
+      warn_version_byte_was_damaged(storage_key);
+      return recovered;
+    }
+    return aes_gcm_decrypt(data.subarray(CONTENT_HEADER_LENGTH), dek, content_aad(header, scope));
   }
 
   /**
@@ -209,6 +226,31 @@ export class EnvelopeKeyService {
       kek.fill(0);
     }
   }
+}
+
+/**
+ * Decrypts a headed blob with the header this build writes in the AAD, whatever its own version
+ * byte says. Returns `undefined` when the tag does not authenticate that way.
+ *
+ * This is not a downgrade path. An object a newer Atlas wrote was authenticated under its own
+ * header, so it can never authenticate under the version 1 AAD and stays refused. Only an object
+ * written as the current version, whose version byte changed in storage, passes.
+ */
+function decrypt_as_current_version(data: Buffer, dek: Buffer, scope: string): Buffer | undefined {
+  const aad = content_aad(build_content_header(), scope);
+  try {
+    return aes_gcm_decrypt(data.subarray(CONTENT_HEADER_LENGTH), dek, aad);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Tells the operator an object was read despite a damaged version byte, and how to repair it. */
+function warn_version_byte_was_damaged(storage_key: string): void {
+  logger.warn(
+    `The envelope version byte of ${storage_key} is damaged, but the object still authenticated ` +
+      `as the current version and was read. Re-run the backup or rewrite the object to repair it.`,
+  );
 }
 
 /** AES-256-GCM encrypt. Returns: [IV (12)] [auth tag (16)] [ciphertext]. */

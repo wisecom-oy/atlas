@@ -1,5 +1,9 @@
 import type { TenantContext } from '@wisecom/atlas-types';
-import { StorageError, UnreadableContentError } from '@wisecom/atlas-types';
+import {
+  StorageError,
+  UnreadableContentError,
+  UnsupportedFormatVersionError,
+} from '@wisecom/atlas-types';
 import { is_absent_object_error } from '@/services/shared/absent-object';
 
 /** A decrypted state object and the ETag it was read at, for a compare-and-swap write. */
@@ -13,7 +17,7 @@ export interface EncryptedStateSnapshot<T> {
  *
  * A fetch failure raises `StorageError`, and a body that fails to decrypt or parse raises
  * `UnreadableContentError`. Reading either as "no state yet" lets the next save overwrite the
- * real state (issue #438).
+ * real state (issue #438). An object a newer Atlas wrote raises `UnsupportedFormatVersionError`.
  */
 export async function load_encrypted_json<T>(
   ctx: TenantContext,
@@ -78,11 +82,17 @@ async function fetch_state<R>(
   }
 }
 
-/** Decrypts and parses a state payload, raising `UnreadableContentError` when either step fails. */
+/**
+ * Decrypts and parses a state payload, raising `UnreadableContentError` when either step fails.
+ *
+ * `UnsupportedFormatVersionError` passes through unchanged: the object is intact, and a caller
+ * that starts over from an unreadable state object would overwrite what a newer Atlas wrote.
+ */
 function decrypt_state<T>(ctx: TenantContext, key: string, payload: Buffer): T {
   try {
     return JSON.parse(ctx.decrypt(payload, key).toString('utf-8')) as T;
   } catch (err) {
+    if (err instanceof UnsupportedFormatVersionError) throw err;
     throw new UnreadableContentError(`The state object at ${key} is corrupt or tampered`, {
       cause: err,
     });

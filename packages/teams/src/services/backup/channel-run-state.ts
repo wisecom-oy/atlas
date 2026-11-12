@@ -3,7 +3,6 @@ import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   TEAMS_FORMAT_VERSION,
   UnreadableContentError,
-  UnsupportedFormatVersionError,
   type FailedItemLedger,
   type TeamsChannelCheckpointHead,
   type TeamsChannelCheckpointHostedEntry,
@@ -164,7 +163,9 @@ interface LoadedCheckpoint {
 
 /**
  * Loads the channel's checkpoint when it can continue this run. Any mismatch, unreadable part, or
- * missing segment deletes the checkpoint and returns undefined, so the read starts fresh.
+ * missing segment deletes the checkpoint and returns undefined, so the read starts fresh. A part
+ * written by a newer Atlas format is intact, so it is never deleted: its
+ * `UnsupportedFormatVersionError` propagates and stops the run.
  */
 async function load_checkpoint(
   scope: BackupRunScope,
@@ -192,7 +193,7 @@ async function load_checkpoint(
     );
     return { head, segments, hosted_entries };
   } catch (err) {
-    if (err instanceof UnreadableContentError || err instanceof UnsupportedFormatVersionError) {
+    if (err instanceof UnreadableContentError) {
       return discard_checkpoint(scope, channel_id, err.message);
     }
     throw err;

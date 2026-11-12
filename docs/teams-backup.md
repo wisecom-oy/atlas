@@ -196,7 +196,7 @@ Each inline image is journaled as its own small encrypted object under `hosted/`
 A crash can repeat the page that was in flight when it stopped. Graph reads for that page run again, but its content is not stored twice and its images are not downloaded twice.
 :::
 
-A checkpoint resumes only when it matches the run: the same baseline shard and the same stored delta link. A `--full` run resumes only a full-read checkpoint. A run without `--full` also resumes a full-read checkpoint, which is what a rejected delta link leaves behind. A checkpoint that does not match, or whose parts cannot be read, is deleted with a warning, and the channel is read from its start.
+A checkpoint resumes only when it matches the run: the same baseline shard and the same stored delta link. A `--full` run resumes only a full-read checkpoint. A run without `--full` also resumes a full-read checkpoint, which is what a rejected delta link leaves behind. A checkpoint that does not match, or whose parts cannot be read, is deleted with a warning, and the channel is read from its start. A checkpoint written by a newer Atlas format is intact, so it is kept: the team's backup stops with exit `9` (`ATLAS_FORMAT_UNSUPPORTED`) until Atlas is upgraded.
 
 Checkpoints are written without the run's Object Lock retention (`--retention-days`), because they are rewritten after every page and deleted when the read finishes.
 
@@ -276,6 +276,20 @@ An index with a higher `format_version` is reported as newer-format instead. It 
 `quarantine` moves the damaged index to `_quarantine/` with its bytes unchanged, so later `status`, `list-snapshots`, and backup runs stop reporting it. It refuses an index that reads cleanly. The snapshot's shards and blobs stay in storage. The next backup compares against the newest readable index, which is older. Each channel whose cursor no longer matches that index is read in full, as described in [How a run finds changes](#how-a-run-finds-changes), so no `--full` run is needed. See [Damaged manifests](/reference/cli#damaged-manifests-and-version-indexes) for the refusals and Object Lock behaviour.
 
 A damaged channel cursor is not quarantined. `status` names it in a warning, and the next backup reads that channel in full and rewrites the cursor.
+
+### Unreadable channel shards
+
+```bash
+atlas teams backup --team <team-id> --channel <channel-id> --full
+```
+
+A shard is unreadable when it is missing, cannot be decrypted or parsed, or does not match the team, channel, and content name in its key. A backup without `--full` needs the shard the latest index names as its baseline, so it fails that channel, keeps the channel's previous index entry, and exits `2`. The channel error names the shard's key and the command above. Shards are not quarantined.
+
+With `--full`, Atlas warns with the shard's key, reads the channel from Graph as a channel with no previous shard, and writes a new shard and index entry. A shard is stored under the HMAC of its content, so a rebuilt shard with the same content has the same key. Atlas loads an existing shard before it skips the write, and overwrites one that is unreadable.
+
+The new shard holds what Graph returns in that run. Threads that only the unreadable shard recorded, such as roots already removed from Teams, are not carried forward. They remain in older snapshots whose shards are intact. A snapshot that names the unreadable shard stays unreadable for that channel unless the rebuilt shard has the same content.
+
+A storage error while loading the shard is not treated as damage: the channel fails with the storage error, and `--full` does not rebuild it. A shard written by a newer Atlas format is never rebuilt or overwritten. It stops the team's backup with exit `9` (`ATLAS_FORMAT_UNSUPPORTED`), also under `--full`.
 
 ### Files folder
 

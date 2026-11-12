@@ -110,6 +110,8 @@ Because one DEK encrypts the whole tenant, the GCM tag alone proves only that by
 | Copy one owner's delta cursor over another's                  | Rejected: the cursor names its owner, and load checks it     |
 | Replay an older ciphertext of the same object                 | Not prevented. Object Lock and versioning handle this        |
 
+The version byte is read before the tag is checked, so a bit flipped in that one byte would make an intact object look like one a newer Atlas wrote. When the byte holds a version this build does not know, Atlas checks the tag with the current header as associated data. A match proves the object was written as the current version and the byte changed in storage: the object is read, and a warning names its key so it can be rewritten. No match means the object is refused with `ATLAS_FORMAT_UNSUPPORTED`. This is not a downgrade path, because an object a newer Atlas wrote was authenticated under its own header and cannot pass the check. Streamed reads of large files do not make this second check and refuse the object.
+
 | Data                                           | Encrypted | Notes                                                                                     |
 | ---------------------------------------------- | --------- | ----------------------------------------------------------------------------------------- |
 | Email messages                                 | Yes       | RFC 5322 MIME, or legacy Graph JSON, under `data/{owner_id}/{content_name}`               |

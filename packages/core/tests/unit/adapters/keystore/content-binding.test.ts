@@ -1,8 +1,14 @@
 import { createCipheriv, randomBytes } from 'node:crypto';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { UnsupportedFormatVersionError } from '@wisecom/atlas-types';
 import { EnvelopeKeyService } from '@/adapters/keystore/envelope-key-service.adapter';
-import { CONTENT_HEADER_LENGTH, CONTENT_MAGIC } from '@/adapters/keystore/content-envelope';
+import {
+  CONTENT_HEADER_LENGTH,
+  CONTENT_MAGIC,
+  content_aad,
+  content_scope,
+} from '@/adapters/keystore/content-envelope';
+import { logger } from '@/utils/logger';
 
 /**
  * Issue #350: one DEK covers a whole tenant and nothing tied a ciphertext to the object it belongs
@@ -51,8 +57,7 @@ describe('content scope binding (issue #350)', () => {
 
   it('refuses a version this build does not know', () => {
     const { svc, dek } = service();
-    const stored = svc.encrypt(Buffer.from('bound'), dek, OWNER_A);
-    stored[CONTENT_MAGIC.length] = 99;
+    const stored = encrypt_as_version(Buffer.from('bound'), dek, OWNER_A, 99);
 
     expect(() => svc.decrypt(stored, dek, OWNER_A)).toThrow(/Unsupported content envelope version/);
     // Typed, so readers fail on it rather than skip or quarantine it as damage (issue #631).
@@ -95,6 +100,73 @@ describe('content scope binding (issue #350)', () => {
     expect(() => Buffer.concat([wrong_scope.update(body), wrong_scope.final()])).toThrow();
   });
 });
+
+describe('damaged envelope version byte', () => {
+  it('reads a current-format object whose version byte was flipped, with a warning', () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const { svc, dek } = service();
+    const plaintext = Buffer.from('written as the current version');
+    const stored = svc.encrypt(plaintext, dek, OWNER_A);
+    stored[CONTENT_MAGIC.length] ^= 0x02;
+
+    expect(svc.decrypt(stored, dek, OWNER_A)).toEqual(plaintext);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(OWNER_A));
+    warn.mockRestore();
+  });
+
+  it('does not warn when the version byte is intact', () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const { svc, dek } = service();
+    const stored = svc.encrypt(Buffer.from('intact'), dek, OWNER_A);
+
+    svc.decrypt(stored, dek, OWNER_A);
+
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('still refuses an object authenticated under a newer header', () => {
+    // A genuine future-version object carries its own header in the AAD, so it never
+    // authenticates as the current version: the recovery is not a downgrade path.
+    const { svc, dek } = service();
+    const newer = encrypt_as_version(Buffer.from('written by a newer Atlas'), dek, OWNER_A, 2);
+
+    expect(() => svc.decrypt(newer, dek, OWNER_A)).toThrow(UnsupportedFormatVersionError);
+  });
+
+  it('refuses an object with a flipped version byte and a flipped ciphertext byte', () => {
+    const { svc, dek } = service();
+    const stored = svc.encrypt(Buffer.from('damaged twice'), dek, OWNER_A);
+    stored[CONTENT_MAGIC.length] ^= 0x02;
+    stored[stored.length - 1] ^= 0x01;
+
+    expect(() => svc.decrypt(stored, dek, OWNER_A)).toThrow(UnsupportedFormatVersionError);
+  });
+
+  it('refuses a flipped version byte on an object read from another scope', () => {
+    const { svc, dek } = service();
+    const stored = svc.encrypt(Buffer.from("owner a's file"), dek, OWNER_A);
+    stored[CONTENT_MAGIC.length] ^= 0x02;
+
+    expect(() => svc.decrypt(stored, dek, OWNER_B)).toThrow(UnsupportedFormatVersionError);
+  });
+});
+
+/** A headed envelope authenticated under the header of `version`, as that version would write it. */
+function encrypt_as_version(
+  plaintext: Buffer,
+  dek: Buffer,
+  storage_key: string,
+  version: number,
+): Buffer {
+  const header = Buffer.concat([CONTENT_MAGIC, Buffer.of(version)]);
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', dek, iv, { authTagLength: 16 });
+  cipher.setAAD(content_aad(header, content_scope(storage_key)));
+  const body = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  return Buffer.concat([header, iv, cipher.getAuthTag(), body]);
+}
 
 /** The envelope as it was written before the scope binding: IV, auth tag, ciphertext, no AAD. */
 function legacy_encrypt(plaintext: Buffer, dek: Buffer): Buffer {
