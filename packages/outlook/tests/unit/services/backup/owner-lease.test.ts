@@ -59,14 +59,40 @@ describe('Outlook backup under the mailbox lease (issue #623)', () => {
 
   it('releases the lease when the run fails', async () => {
     const h = create_mailbox_sync_harness();
-    vi.mocked(h.mock_connector.list_mail_folders).mockRejectedValue(new Error('graph unavailable'));
+    vi.mocked(h.mock_cursors.load).mockRejectedValue(new Error('storage unavailable'));
 
-    await expect(h.service.sync_mailbox('t', MAILBOX)).rejects.toThrow('graph unavailable');
+    await expect(h.service.sync_mailbox('t', MAILBOX)).rejects.toThrow('storage unavailable');
 
     expect(h.leases.events).toEqual(['acquire', 'release']);
   });
 
+  it('never takes the lease when the folder selectors match nothing (issue #707)', async () => {
+    const h = create_mailbox_sync_harness();
+
+    const run = h.service.sync_mailbox('t', MAILBOX, { folder_filter: ['NoSuchFolder'] });
+
+    await expect(run).rejects.toThrow('"NoSuchFolder"');
+    expect(h.leases.events).toEqual([]);
+  });
+
   it('releases the lease when the run is cancelled inside a Graph call', async () => {
+    const h = create_mailbox_sync_harness();
+    const abort = new AbortController();
+    vi.mocked(h.mock_connector.fetch_delta).mockImplementation(async () => {
+      abort.abort();
+      throw abort.signal.reason;
+    });
+
+    const result = await h.service.sync_mailbox('t', MAILBOX, { abort_signal: abort.signal });
+
+    // An interrupted folder keeps its previous delta link (#673); the lease still ends released.
+    expect(result.interrupted).toBe(true);
+    expect(h.leases.events[0]).toBe('acquire');
+    expect(h.leases.events.at(-1)).toBe('release');
+    expect(h.leases.held()).toBe(0);
+  });
+
+  it('takes no lease and saves no cursor when cancelled while folders are listed', async () => {
     const h = create_mailbox_sync_harness();
     const abort = new AbortController();
     vi.mocked(h.mock_connector.list_mail_folders).mockImplementation(async () => {
@@ -78,6 +104,6 @@ describe('Outlook backup under the mailbox lease (issue #623)', () => {
 
     expect(result.interrupted).toBe(true);
     expect(h.mock_cursors.save).not.toHaveBeenCalled();
-    expect(h.leases.events).toEqual(['acquire', 'release']);
+    expect(h.leases.events).toEqual([]);
   });
 });
