@@ -2,10 +2,12 @@ import type { SnapshotSummary, TenantContext } from '@wisecom/atlas-types';
 import { StorageError } from '@wisecom/atlas-types';
 import { is_absent_object_error } from '@/services/shared/absent-object';
 import {
+  build_snapshot_summary_document,
   parse_snapshot_summaries,
-  serialize_snapshot_summaries,
+  require_snapshot_summary_document,
 } from '@/services/shared/snapshot-summary-document';
 import type { SnapshotSummaryLayout } from '@/services/shared/snapshot-summary-layout';
+import { write_encrypted_json } from '@/services/shared/stored-json-writer';
 
 /** An owner's stored summary rows and the ETag they were read at, for a conditional rewrite. */
 export interface StoredSnapshotSummaries<T> {
@@ -43,9 +45,14 @@ export async function load_snapshot_summaries<TManifest, TSummary extends Snapsh
 }
 
 /**
- * Encrypts and writes an owner's summary index. `etag` makes the write a compare-and-swap on the
- * object read; without one the write is create-only. Either way a concurrent writer surfaces as a
- * precondition failure (HTTP 412) instead of being overwritten silently.
+ * Writes an owner's summary index through the guarded writer. `etag` makes the write a
+ * compare-and-swap on the object read; without one it writes only onto an absent key. Either way a
+ * concurrent writer surfaces as a precondition failure (HTTP 412) instead of being overwritten
+ * silently.
+ *
+ * The body is refused before upload when the reader would treat it as absent. It is not read
+ * back: every reader reconciles the rows with a listing of the manifests and treats a summary that
+ * is absent, damaged or foreign as empty, so nothing trusts the object without that fallback.
  */
 export async function write_snapshot_summaries<TManifest, TSummary extends SnapshotSummary>(
   ctx: TenantContext,
@@ -54,9 +61,18 @@ export async function write_snapshot_summaries<TManifest, TSummary extends Snaps
   summaries: readonly TSummary[],
   etag: string | undefined,
 ): Promise<void> {
-  const key = layout.summary_key(owner_id);
-  const body = ctx.encrypt(serialize_snapshot_summaries(owner_id, summaries), key);
-  await ctx.storage.put(key, body, undefined, undefined, etag, etag === undefined);
+  await write_encrypted_json(
+    ctx,
+    {
+      key: layout.summary_key(owner_id),
+      label: `${layout.label} snapshot summary`,
+      reader_check: (parsed) => require_snapshot_summary_document(owner_id, parsed),
+      write: 'overwrite',
+      expected_etag: etag ?? null,
+      confirm_read_back: false,
+    },
+    build_snapshot_summary_document(owner_id, summaries),
+  );
 }
 
 /** Decrypts and parses a stored summary, reading anything unusable as no rows. */

@@ -96,7 +96,7 @@ These codes name the failed stage, not always bad credentials. DNS, TLS, and tra
 
 The key stage makes at most one storage `GET` and opens the key locally with AES-256-GCM. It never creates a missing key, writes an object, or logs key material. A fresh tenant with no key passes this stage, and the first backup creates the key.
 
-`validate()` does not check write permissions, Object Lock readiness, or workload-specific Graph consent. Use `checkStorage()` for Object Lock readiness. See [Security](/security#kek-derivation-scrypt) for passphrase guidance.
+`validate()` does not check write permissions, Object Lock readiness, or workload-specific Graph consent. Use `checkStorage()` for Object Lock readiness and for the conditional writes the [owner lease](#concurrent-operations) relies on. See [Security](/security#kek-derivation-scrypt) for passphrase guidance.
 
 ## Logging
 
@@ -286,6 +286,10 @@ const newest = snapshots[0]; // { snapshotId, createdAt, manifestKey, entryCount
 A summary row stands in for its manifest without decrypting it, so a manifest damaged after its row was written is still listed. A manifest that has no row and cannot be decrypted is reported through the partial result described in [Damaged stored objects](#damaged-stored-objects). Run `verify` to check manifests at rest.
 
 
+Both `deleteSnapshot` methods accept only the newest snapshot of the owner or site. A drive snapshot stores only the changes of its own run, so newer snapshots are built on it. Any other snapshot rejects with `SnapshotNotNewestError` (`ATLAS_SNAPSHOT_NOT_NEWEST`): `err.snapshot_id` names the refused snapshot, `err.newer_snapshot_ids` the ones to delete first, and nothing is deleted. When a manifest of the owner or site is unreadable the order cannot be checked, and the call rejects with `UnreadableObjectsError` naming the manifest to quarantine. The check decrypts the manifests, so `deleteSnapshot` needs the tenant's data key, which `deleteOwnerData` and `deleteSiteData` do not. A successful `deleteSnapshot` also removes the delta cursor, so the next `backup` reads every drive or library in full and captures again what the deleted snapshot held. The run's version index is kept, so `listFileVersions` and `restoreVersion` still offer the versions it recorded.
+
+A `backup` whose stored cursor names a snapshot that no longer exists, after a quarantine or an interrupted delete, reads in full the same way and reports why in `summary.warnings`. Until that run, `checkStatus` does not replay the cursor's links and reports `isUpToDate: false`.
+
 ### Status results
 
 `checkMailboxStatus`, `onedrive.checkStatus`, and `sharepoint.checkStatus` reject with `AuthError` (`ATLAS_AUTH_DENIED`) when Graph answers the delta peek with `401` or `403`. `checkMailboxStatus` rejects with `MailboxNotLicensedError` for an unlicensed mailbox. A permission problem is never reported as pending changes.
@@ -381,7 +385,7 @@ See [Calendar backup](/calendar-backup) for the storage layout and restore behav
 | Method                                   | Description                                                                                                              |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `validate()`                             | Checks storage, the passphrase, and Graph access. See [Validation](#validation)                                          |
-| `checkStorage(request?)`                 | Reports bucket reachability, versioning, Object Lock support, default retention, and the resolved retention              |
+| `checkStorage(request?)`                 | Reports bucket reachability, versioning, Object Lock support, default retention, the resolved retention, and `conditionalWrites`, always present: `{ support: 'supported' | 'ignored' | 'not_probed', detail?: string }`, whether the backend refuses a create-only write and a stale compare-and-swap. The probe writes and removes one object under `_meta/storage-check/` |
 | `getBucketStats()`                       | Logical totals across the tenant: mailboxes, snapshots, messages, and sizes                                              |
 | `getStorageUsage(options?)`              | Bytes the bucket physically holds. See [Storage usage](#storage-usage)                                                   |
 | `resolveUser(email)`                     | Resolves an address to an Entra object ID through Graph                                                                  |
@@ -961,7 +965,39 @@ const throttleCoordinator: ThrottleCoordinator = {
 const atlas = createAtlasInstance({ ...config, throttleCoordinator });
 ```
 
-The sequential loop above is the recommended default. Atlas has no scheduler and no run lock, so running operations at the same time is the host's decision, and the host owns the rules below.
+The sequential loop above is the recommended default. Atlas has no scheduler, so running operations at the same time is the host's decision. Atlas refuses the one overlap that damages backup state, two operations on the same mailbox, drive owner, site or team, and the host owns the remaining rules below.
+
+**One operation per owner.** Every backup, deletion and quarantine takes a lease on its owner before it reads any stored state, and holds it until it ends. A second operation on that owner rejects with `OwnerBusyError` (`ATLAS_OWNER_BUSY`, CLI exit `12`) before it writes anything:
+
+```typescript
+import { OwnerBusyError } from '@wisecom/atlas-sdk';
+
+try {
+  await atlas.onedrive.backup(ownerId);
+} catch (err) {
+  if (!(err instanceof OwnerBusyError)) throw err;
+  // err.held_by_operation: 'backup' | 'delete' | 'quarantine', err.lease_expires_at: ISO 8601
+  await requeue(ownerId, { notBefore: err.lease_expires_at });
+}
+```
+
+| Property | Value                                                                                                                                                                                                 |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Object   | One plain JSON object per workload and owner, not encrypted, so operations without the tenant key can take it. See [Owner leases](/operations/storage-layout#owner-leases) for the keys and what it reveals |
+| Scope    | A workload and an owner. Mail, contacts, calendar and OneDrive of one user are four leases, so they do not block each other, and neither do two owners                                                |
+| Body     | A random ID generated for the run, the operation (`backup`, `delete`, `quarantine`), `acquired_at` and `expires_at`. No host name, user name or process ID                                            |
+| Acquire  | A create-only write (`If-None-Match: *`), then a read to confirm the stored holder is this run: one `PUT` and one `GET`                                                                               |
+| Lifetime | 5 minutes after the last write                                                                                                                                                                        |
+| Renewal  | Every 60 seconds: one `GET`, then one `PUT` with `If-Match` on the ETag just read. The timer does not keep the Node.js process alive                                                                  |
+| Release  | When the operation ends with a result, an error or a cancellation: one `GET`, and one `DELETE` if the lease is still this run's. If the delete is refused, one `PUT` with `If-Match` marks the lease released, and the next operation takes it at once. A failed release is logged and never replaces the operation's result |
+
+The lease adds requests per run and per minute, never per object.
+
+A process that is killed cannot release its lease. The owner then stays busy until the lease expires, at most 5 minutes after the last renewal, and `lease_expires_at` on the error says when. The next operation replaces an expired lease with a compare-and-swap, so of several waiting runs exactly one starts. A lease object that is not valid lease JSON is replaced the same way. One written by a newer Atlas is never replaced: the operation rejects with `ATLAS_FORMAT_UNSUPPORTED`.
+
+A run that holds a lease checks it before each write that advances durable state: the manifest or index, the delta cursor, a Teams checkpoint, a deletion. The check reads no storage. If a renewal found another holder or no lease, or the lease ran out because storage was unreachable for its whole lifetime, the run rejects with `OwnerLeaseLostError` and commits nothing further. `OwnerLeaseLostError` is an `OwnerBusyError` with the same code and exit status, because the remedy is the same. Content objects the run already uploaded stay in the bucket and deduplicate in the next run. A failed renewal alone loses nothing: Atlas retries it every minute, and the check starts failing 30 seconds before the unrenewed expiry.
+
+A SharePoint backup with `includeSubsites: true` takes one lease per site. A busy subsite does not stop the others: its result has `summary.healthy: false` and the busy error in `summary.errors`. A busy root site rejects the call. `atlas teams backup --all` and the tenant-wide Outlook backup report a busy team or mailbox as that owner's failure and continue.
 
 **What Atlas makes safe.** Operations on different resources of one tenant can run at once, on one instance or in separate processes against the same bucket. Content, manifests, delta cursors, version indexes and staging objects are keyed by mailbox, drive owner or site. The tenant-wide objects are written safely:
 
@@ -970,15 +1006,19 @@ The sequential loop above is the recommended default. Atlas has no scheduler and
 | `_meta/dek.enc`          | Created with `If-None-Match: *`. A losing bootstrap adopts the stored key. Rehydrate and replicate write it conditionally and reject with `DekWriteConflictError` (`ATLAS_STORAGE_FAILURE`) when a different key won the race |
 | `identity-registry.json` | Every write is a compare-and-swap on the ETag. A losing writer re-reads and re-applies its change, up to 8 attempts                                                                                                           |
 | The tenant bucket        | A run that loses the `CreateBucket` race uses the bucket the other run created                                                                                                                                                |
-| Object Lock retention    | Applied to each object a run writes. No run changes the bucket's own lock configuration                                                                                                                                       |
+| Object Lock retention    | Applied to each object a run writes. No run changes the bucket's own lock configuration. An owner lease is never written with retention                                                                                       |
+| Per-owner state          | Delta cursors, the Outlook `latest.json` pointer, version indexes, staging objects and Teams checkpoints are written only by the run that holds the owner's lease                                                             |
 
-The compare-and-swap writes need a backend that honours `If-Match` and `If-None-Match`. See [Storage](/self-hosting/storage#the-identity-registry-under-concurrent-runs).
+The conditional writes, the lease included, need a backend that honours `If-Match` and `If-None-Match`. `checkStorage()` and `atlas storage-check` probe both. See [Storage](/self-hosting/storage#owner-leases-and-conditional-writes).
 
 **What the host must guarantee.**
 
-- Never run two operations on the same mailbox, drive owner, site or team at once. Their cursors and staging objects collide. Each team's delta cursors live in one object, so concurrent backups of one team overwrite each other's cursors. A SharePoint backup with `includeSubsites: true` also covers each subsite, so it must not overlap a backup of one of those subsites.
-- Restore, deletion, purge and key re-wrap assume nothing else is writing to the tenant. Run them alone.
-- Let in-flight operations finish or cancel them before calling `dispose()`. Disposal does not wait for them.
+- Tenant-wide operations take no lease: `purgeTenantData()`, key re-wrap, `replicateSnapshot`, `replicateAll` and rehydration. Run them while no backup, deletion or quarantine of that tenant is running.
+- Restore, save, verify, status and the listings only read, so they take no lease and can run next to a backup of the same owner. A deletion or quarantine running at the same time can remove the snapshot they are reading.
+- Keep the clocks of hosts that share a bucket within a few minutes of each other. Expiry compares the `expires_at` one host wrote with another host's clock. A host whose clock is ahead by more than the time left on a live lease, 4 to 5 minutes in steady state, sees it as expired and takes over a running operation. The displaced run notices at its next renewal, within 60 seconds, and stops before its next commit, but both ran for that long.
+- On a backend that ignores write conditions, two runs can both take the same lease. Each finds out at its next renewal, so the overlap is bounded at 60 seconds but not prevented. Schedule one operation per owner yourself until `checkStorage()` reports `conditionalWrites.support: 'supported'`.
+- The lease only excludes hosts that take it. A host running an Atlas version from before the lease does not see it, so finish upgrading every host that writes to a bucket before relying on it.
+- Let in-flight operations finish or cancel them before calling `dispose()`. Disposal does not wait for them, and an operation cut off this way leaves its lease to expire.
 
 **Throttling.** Before every HTTP attempt made through a Graph connector, Atlas calls `wait(pool, scope?)` on the instance's throttle coordinator. On every 429, it calls `raise(pool, retry_after_ms, scope?)`, with Graph's `Retry-After` or 30 seconds when there is none. The pool is one of the `GraphServicePool` values: `outlook`, `sharepoint_onedrive`, `identity`, or `teams`. The `teams` pool has its own cooldown, so a Teams throttle does not pause mail or drive requests. The optional `scope` is a `ThrottleScope`, `{ ownerId }`. Outlook requests set it to the normalized mailbox owner id, and Teams requests set it to the normalized team id. Listing the tenant's teams carries no scope. Drive and identity requests pass no scope. Mailbox backup and restore, mailbox discovery, user lookups, every Teams call, and every OneDrive and SharePoint connector call are coordinated. User lookups are also retried like every other Graph call; before 6.1.0 a throttled lookup failed the operation outright. Drive file downloads from pre-authenticated URLs, whole or chunked, and resumable upload chunks use a plain `fetch`, so Atlas coordinates them on the `sharepoint_onedrive` pool too: each attempt waits, and a 429 or 503 with `Retry-After` raises that pool's cooldown. Their own retry backoff still applies on top. The default coordinator keeps one in-memory cooldown per pool, plus one per mailbox for the `outlook` pool and one per team for the `teams` pool. A 429 on one mailbox pauses only that mailbox's requests, and a 429 on one team pauses only that team's requests. A 429 on a drive pauses its other drive and site requests, while the other pools keep running. A coordinator written against the two-argument signature (`wait(pool)`, `raise(pool, retry_after_ms)`) keeps working. JavaScript ignores the extra argument, so such a coordinator treats every Outlook or Teams 429 as pool-wide.
 
@@ -1343,11 +1383,15 @@ try {
 | `ObjectLockUnsupportedError`        | `ATLAS_CONFIG_INVALID`       | Immutability requested, but the bucket has no Object Lock                                                                                 |
 | `ObjectLockModeRejectedError`       | `ATLAS_CONFIG_INVALID`       | The backend rejected the requested retention mode                                                                                         |
 | `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | A conditional write lost a race (HTTP 412)                                                                                                |
+| `StoredObjectConflictError`         | `ATLAS_STORAGE_FAILURE`      | A create-only manifest or index write found a different object under its key and left it in place. Its `key` is set. A new run uses a new snapshot ID |
+| `RefusedWriteError`                 | `ATLAS_WRITE_REFUSED`        | Atlas refused to store a manifest, index, or cursor it built: too large for one JSON document, rejected by its own reader's checks, or not decrypting back. Nothing was written. Its `key` is set. See [Refused and unconfirmed metadata writes](/troubleshooting#refused-and-unconfirmed-metadata-writes) |
 | `UnreadableContentError`            | `ATLAS_CONTENT_UNREADABLE`   | Stored data or MIME content could not be decoded. Not exported                                                                            |
 | `UnreadableObjectsError`            | `ATLAS_CONTENT_UNREADABLE`   | Named manifests or version indexes could not be read. See `unreadable_keys` and [Damaged stored objects](#damaged-stored-objects)         |
 | `UnsupportedFormatVersionError`     | `ATLAS_FORMAT_UNSUPPORTED`   | Stored Teams content was written by a newer Atlas format. Upgrade Atlas. Not exported                                                     |
 | `DekOverwriteRefusedError`          | `ATLAS_KEY_CONFLICT`         | Rehydration refused to replace a different data key on a primary that holds other objects. Retrying cannot succeed. Not exported          |
-| `SnapshotNotNewestError`            | `ATLAS_SNAPSHOT_NOT_NEWEST`  | Outlook `deleteSnapshot` refused a snapshot that newer snapshots are built on. See `snapshot_id` and `newer_snapshot_ids`                 |
+| `SnapshotNotNewestError`            | `ATLAS_SNAPSHOT_NOT_NEWEST`  | Outlook, OneDrive, or SharePoint `deleteSnapshot` refused a snapshot that newer snapshots are built on. See `snapshot_id` and `newer_snapshot_ids` |
+| `OwnerBusyError`                    | `ATLAS_OWNER_BUSY`           | Another backup, deletion, or quarantine holds the mailbox, drive owner, site, or team. Nothing was written. See `workload`, `owner_id`, `held_by_operation`, `lease_expires_at`, and [Concurrent operations](#concurrent-operations) |
+| `OwnerLeaseLostError`               | `ATLAS_OWNER_BUSY`           | A subclass of `OwnerBusyError`: this run held the owner's lease and lost it before a commit point, so it stopped without writing the manifest, cursor, or deletion that followed |
 
 Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK error is available for logging. Branching does not depend on it.
 
@@ -1370,7 +1414,7 @@ Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK err
 - **Shared enums and requests:** `ObjectLockMode`, `ObjectLockRequest`, `BackupSyncMode`, `RehydrationWorkload`, `GraphServicePool`
 - **Graph cost types:** `OperationCost`, `ServicePoolCost`, `GraphServiceLimits`
 - **Quarantine:** `QuarantineResult`
-- **Errors:** `AtlasError`, `AtlasErrorCode`, `AuthError`, `MailboxNotLicensedError`, `NotFoundError`, `ThrottledError`, `WrongPassphraseError`, `ObjectLockRetainedError`, `StorageError`, `ConfigError`, `UnreadableObjectsError`, `SnapshotNotNewestError`, `ObjectLockVersioningDisabledError`, `ObjectLockUnsupportedError`, `ObjectLockModeRejectedError`, `PreconditionFailedError`
+- **Errors:** `AtlasError`, `AtlasErrorCode`, `AuthError`, `MailboxNotLicensedError`, `NotFoundError`, `ThrottledError`, `WrongPassphraseError`, `ObjectLockRetainedError`, `StorageError`, `ConfigError`, `UnreadableObjectsError`, `SnapshotNotNewestError`, `StoredObjectConflictError`, `RefusedWriteError`, `OwnerBusyError`, `OwnerLeaseLostError`, `ObjectLockVersioningDisabledError`, `ObjectLockUnsupportedError`, `ObjectLockModeRejectedError`, `PreconditionFailedError`
 
 ## See also
 

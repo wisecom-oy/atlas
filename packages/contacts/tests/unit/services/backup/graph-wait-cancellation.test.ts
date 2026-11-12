@@ -16,6 +16,7 @@ import {
 import { stub_tenant_context } from '@wisecom/atlas-types/testing/stub-tenant-context';
 
 import { ContactsBackupService } from '@/services/backup/backup.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const MAILBOX = '00000000-0000-0000-0000-00000000abcd';
 
@@ -48,6 +49,7 @@ describe('Contacts backup cancelled during a Graph retry wait (issue #673)', () 
       connector,
       memory_manifests(),
       cursors,
+      stub_owner_leases().leases,
     );
     vi.spyOn(connector, 'fetch_contact_delta').mockImplementation(graph_call_parked_in_retry_wait);
     const controller = new AbortController();

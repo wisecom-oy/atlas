@@ -3,8 +3,9 @@ import {
   begin_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
-import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
+import { attach_run_retention } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
+import { run_with_owner_lease } from '@wisecom/atlas-core/services/lease/run-with-owner-lease';
 import { cursor_describes_head } from '@wisecom/atlas-core/services/shared/delta-cursor-binding';
 import { inject, injectable } from 'inversify';
 import type {
@@ -19,6 +20,8 @@ import type {
   ContactsManifestRepository,
   ContactsSnapshotManifest,
   GraphContactFolder,
+  HeldOwnerLease,
+  OwnerLeasePort,
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
@@ -26,6 +29,7 @@ import {
   CONTACTS_CONNECTOR_TOKEN,
   CONTACTS_DELTA_CURSOR_REPOSITORY_TOKEN,
   CONTACTS_MANIFEST_REPOSITORY_TOKEN,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { resolve_backup_progress } from '@/services/backup/backup-progress';
@@ -54,9 +58,15 @@ export class ContactsBackupService implements ContactsBackupUseCase {
     private readonly _manifests: ContactsManifestRepository,
     @inject(CONTACTS_DELTA_CURSOR_REPOSITORY_TOKEN)
     private readonly _cursors: ContactsDeltaCursorRepository,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
   ) {}
 
-  /** Backs up the mailbox's contacts; returns the new snapshot, or none when nothing changed. */
+  /**
+   * Backs up the mailbox's contacts; returns the new snapshot, or none when nothing changed. The
+   * run holds the mailbox's contacts lease from before it reads the cursor until it ends.
+   *
+   * @throws OwnerBusyError when another operation holds the mailbox's contacts backup.
+   */
   async backup_contacts(
     tenant_id: string,
     mailbox_id: string,
@@ -75,11 +85,18 @@ export class ContactsBackupService implements ContactsBackupUseCase {
     if (begin_operation_progress(options, 'backup', 'contacts')) return cancelled();
     const tenant_ctx = await this._tenant_factory.create(tenant_id);
     try {
-      const ctx = await lock_run_writes(tenant_ctx, options.object_lock_request);
-      return await run_cancellable(
-        options,
-        () => this.run_backup(ctx, tenant_id, mailbox, options),
-        cancelled,
+      return await run_with_owner_lease(
+        this._leases,
+        tenant_ctx,
+        { workload: 'contacts', owner_id: mailbox, operation: 'backup' },
+        async (lease) => {
+          const ctx = await attach_run_retention(tenant_ctx, options.object_lock_request);
+          return run_cancellable(
+            options,
+            () => this.run_backup(ctx, lease, tenant_id, mailbox, options),
+            cancelled,
+          );
+        },
       );
     } finally {
       tenant_ctx.destroy();
@@ -88,6 +105,7 @@ export class ContactsBackupService implements ContactsBackupUseCase {
 
   private async run_backup(
     ctx: TenantContext,
+    lease: HeldOwnerLease,
     tenant_id: string,
     mailbox_id: string,
     options: ContactsBackupOptions,
@@ -114,6 +132,7 @@ export class ContactsBackupService implements ContactsBackupUseCase {
     );
     reporter.finish(folders.length);
     return this.persist_snapshot(ctx, {
+      lease,
       tenant_id,
       mailbox_id,
       folders,
@@ -132,6 +151,9 @@ export class ContactsBackupService implements ContactsBackupUseCase {
    * folder failed. A failed folder keeps its entries from that older manifest, so the snapshot would
    * roll it back past the unreadable one: items added since missing, deleted ones back. Without a
    * cursor the next run reads every folder in full again (issue #631).
+   *
+   * Each write is preceded by a lease check, so a run that lost the mailbox to another operation
+   * commits nothing (issue #623).
    */
   private async persist_snapshot(
     ctx: TenantContext,
@@ -164,8 +186,12 @@ export class ContactsBackupService implements ContactsBackupUseCase {
             entries: loop.entries,
           })
         : undefined;
-    if (snapshot !== undefined) await this._manifests.save(ctx, snapshot);
+    if (snapshot !== undefined) {
+      run.lease.assert_held();
+      await this._manifests.save(ctx, snapshot);
+    }
     if (writable) {
+      run.lease.assert_held();
       const head_snapshot_id = snapshot?.snapshot_id ?? previous?.snapshot_id;
       const cursor: ContactsDeltaCursor = {
         mailbox_id,
@@ -204,6 +230,7 @@ export class ContactsBackupService implements ContactsBackupUseCase {
 }
 
 interface PersistInput {
+  readonly lease: HeldOwnerLease;
   readonly tenant_id: string;
   readonly mailbox_id: string;
   readonly folders: readonly GraphContactFolder[];

@@ -11,6 +11,7 @@ import {
 import { stub_tenant_context } from '@wisecom/atlas-types/testing/stub-tenant-context';
 
 import { ContactsBackupService } from '@/services/backup/backup.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const MAILBOX = '00000000-0000-0000-0000-00000000abcd';
 const DAMAGED_KEY = `contacts/manifests/${MAILBOX}/ct-snap-9999-abc.json`;
@@ -24,6 +25,7 @@ function harness() {
     connector,
     manifests,
     cursors,
+    stub_owner_leases().leases,
   );
   const run = () => service.backup_contacts('tenant-1', MAILBOX);
   return { script, delta_calls, manifests, cursors, run };

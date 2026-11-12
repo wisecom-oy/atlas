@@ -89,6 +89,7 @@ export function build_catalog_harness(): CatalogTestHarness {
 
   const mock_manifests: ManifestRepository = {
     save: vi.fn(),
+    forget_snapshot_summary: vi.fn(),
     find_by_snapshot: vi.fn().mockResolvedValue(undefined),
     list_by_owner: vi.fn().mockResolvedValue([]),
     find_latest_readable: vi.fn().mockResolvedValue(latest_readable(undefined)),

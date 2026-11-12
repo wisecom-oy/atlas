@@ -9,8 +9,9 @@
  * different cursor shape, and is not required for the cost this removes.
  */
 
-import type { OneDriveDeltaItem } from '@wisecom/atlas-types';
+import type { OneDriveDeltaCursor, OneDriveDeltaItem } from '@wisecom/atlas-types';
 import type { OneDriveDeltaResult } from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 /**
  * Normalises a caller-supplied folder path to the shape `parent_path` carries:
@@ -24,6 +25,27 @@ export function normalize_folder_scope(raw: string | undefined): string | undefi
   const with_leading = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
   const without_trailing = with_leading.endsWith('/') ? with_leading.slice(0, -1) : with_leading;
   return without_trailing.normalize('NFC');
+}
+
+/**
+ * Whether the run's folder scope differs from the one the stored cursor was advanced under,
+ * logging the re-crawl it causes.
+ *
+ * A delta link records how far the drive was consumed, not how far the scope was, so resuming one
+ * under a different scope would skip changes the previous run filtered out.
+ */
+export function has_folder_scope_changed(
+  stored_cursor: Pick<OneDriveDeltaCursor, 'folder_scope'> | undefined,
+  folder_scope: string | undefined,
+): boolean {
+  const scope_changed = (stored_cursor?.folder_scope ?? undefined) !== folder_scope;
+  if (scope_changed && stored_cursor !== undefined) {
+    logger.info(
+      `Folder scope changed (${stored_cursor.folder_scope ?? 'whole drive'} -> ` +
+        `${folder_scope ?? 'whole drive'}); re-crawling instead of resuming the delta link`,
+    );
+  }
+  return scope_changed;
 }
 
 /**

@@ -1,13 +1,14 @@
 import 'reflect-metadata';
 
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AuthError, MailboxNotLicensedError } from '@wisecom/atlas-types';
 import {
   graph_error,
   stub_graph_client,
   type GraphCall,
 } from '@wisecom/atlas-types/testing/stub-graph-client';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 import { GraphContactsConnector } from '@/adapters/graph-contacts-connector.adapter';
 
@@ -47,6 +48,26 @@ describe('GraphContactsConnector delta reads', () => {
     await expect(connector.fetch_contact_delta('tenant-1', MAILBOX, FOLDER)).rejects.toThrow(
       'did not advance',
     );
+  });
+
+  it('skips contacts Graph returns without a usable id, and warns how many', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const { connector } = connector_with(() => ({
+      value: [
+        { displayName: 'no id' },
+        { id: '', displayName: 'empty id' },
+        { '@removed': { reason: 'deleted' } },
+        { id: 'kept' },
+      ],
+      '@odata.deltaLink': 'https://graph.example.com/delta-end',
+    }));
+
+    const result = await connector.fetch_contact_delta('tenant-1', MAILBOX, FOLDER);
+
+    expect(result.upserted).toEqual([{ id: 'kept' }]);
+    expect(result.removed_ids).toEqual([]);
+    expect(warn).toHaveBeenCalledWith('Skipped 3 contact(s) that Graph returned without an id');
+    warn.mockRestore();
   });
 
   it('separates @removed entries into removed_ids', async () => {

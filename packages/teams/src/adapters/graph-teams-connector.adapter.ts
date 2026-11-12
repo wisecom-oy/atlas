@@ -11,6 +11,7 @@ import type {
   TeamsMessageLocator,
   TeamsRootFetchResult,
 } from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import { graph_teams_call, read_all_pages } from '@/adapters/graph-teams-request';
 import { graph_status_of } from '@/services/shared/graph-error-status';
 import {
@@ -65,13 +66,22 @@ export class GraphTeamsConnector implements TeamsConnector {
     return items;
   }
 
-  /** Lists the team's channels. */
+  /**
+   * Lists the team's channels. A channel Graph returns without an id is skipped with a warning:
+   * its shard, cursor and index row are all keyed by that id.
+   */
   async list_channels(_tenant_id: string, team_id: string): Promise<TeamsGraphResource[]> {
     const { items } = await read_all_pages<TeamsGraphResource>(
       this._client,
       `/teams/${encodeURIComponent(team_id)}/channels`,
     );
-    return items;
+    const channels = items.filter((channel) => typeof channel.id === 'string' && channel.id !== '');
+    if (channels.length < items.length) {
+      logger.warn(
+        `Skipped ${items.length - channels.length} channel(s) that Graph returned without an id`,
+      );
+    }
+    return channels;
   }
 
   /** Lists a channel's members. */

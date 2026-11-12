@@ -148,6 +148,7 @@ describe('tenant-wide workload rehydration', () => {
   it('rehydrate_all_owners recovers every owner found on the replica', async () => {
     const manifests: OneDriveManifestRepository = {
       save: vi.fn(),
+      forget_snapshot_summary: vi.fn(),
       find_by_snapshot: vi.fn(),
       find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
       list_snapshots_by_owner: vi.fn(),
@@ -195,6 +196,7 @@ describe('tenant-wide workload rehydration', () => {
     );
     const manifests: OneDriveManifestRepository = {
       save: vi.fn(),
+      forget_snapshot_summary: vi.fn(),
       find_by_snapshot: vi.fn(),
       find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
       list_snapshots_by_owner: vi.fn(),
@@ -239,6 +241,7 @@ describe('tenant-wide workload rehydration', () => {
   it('rehydrate_all_owners returns an empty result when the replica holds no OneDrive data', async () => {
     const manifests: OneDriveManifestRepository = {
       save: vi.fn(),
+      forget_snapshot_summary: vi.fn(),
       find_by_snapshot: vi.fn(),
       find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
       list_snapshots_by_owner: vi.fn(),
@@ -283,6 +286,7 @@ describe('tenant-wide workload rehydration', () => {
 
     const manifests: SharePointManifestRepository = {
       save: vi.fn(),
+      forget_snapshot_summary: vi.fn(),
       find_by_snapshot: vi.fn(),
       find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
       list_snapshots_by_site: vi.fn(),

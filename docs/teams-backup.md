@@ -196,7 +196,7 @@ Each inline image is journaled as its own small encrypted object under `hosted/`
 A crash can repeat the page that was in flight when it stopped. Graph reads for that page run again, but its content is not stored twice and its images are not downloaded twice.
 :::
 
-A checkpoint resumes only when it matches the run: the same baseline shard and the same stored delta link. A `--full` run resumes only a full-read checkpoint. A run without `--full` also resumes a full-read checkpoint, which is what a rejected delta link leaves behind. A checkpoint that does not match, or whose parts cannot be read, is deleted with a warning, and the channel is read from its start.
+A checkpoint resumes only when it matches the run: the same baseline shard and the same stored delta link. A `--full` run resumes only a full-read checkpoint. A run without `--full` also resumes a full-read checkpoint, which is what a rejected delta link leaves behind. A checkpoint that does not match, or whose parts cannot be read, is deleted with a warning, and the channel is read from its start. A checkpoint written by a newer Atlas format is intact, so it is kept: the team's backup stops with exit `9` (`ATLAS_FORMAT_UNSUPPORTED`) until Atlas is upgraded.
 
 Checkpoints are written without the run's Object Lock retention (`--retention-days`), because they are rewritten after every page and deleted when the read finishes.
 
@@ -277,6 +277,20 @@ An index with a higher `format_version` is reported as newer-format instead. It 
 
 A damaged channel cursor is not quarantined. `status` names it in a warning, and the next backup reads that channel in full and rewrites the cursor.
 
+### Unreadable channel shards
+
+```bash
+atlas teams backup --team <team-id> --channel <channel-id> --full
+```
+
+A shard is unreadable when it is missing, cannot be decrypted or parsed, or does not match the team, channel, and content name in its key. A backup without `--full` needs the shard the latest index names as its baseline, so it fails that channel, keeps the channel's previous index entry, and exits `2`. The channel error names the shard's key and the command above. Shards are not quarantined.
+
+With `--full`, Atlas warns with the shard's key, reads the channel from Graph as a channel with no previous shard, and writes a new shard and index entry. A shard is stored under the HMAC of its content, so a rebuilt shard with the same content has the same key. Atlas loads an existing shard before it skips the write, and overwrites one that is unreadable.
+
+The new shard holds what Graph returns in that run. Threads that only the unreadable shard recorded, such as roots already removed from Teams, are not carried forward. They remain in older snapshots whose shards are intact. A snapshot that names the unreadable shard stays unreadable for that channel unless the rebuilt shard has the same content.
+
+A storage error while loading the shard is not treated as damage: the channel fails with the storage error, and `--full` does not rebuild it. A shard written by a newer Atlas format is never rebuilt or overwritten. It stops the team's backup with exit `9` (`ATLAS_FORMAT_UNSUPPORTED`), also under `--full`.
+
 ### Files folder
 
 Atlas keeps each channel's files folder result from the previous run, including an unavailable one. A forced full read is what looks it up again. After granting `Files.Read.All`, run:
@@ -325,7 +339,7 @@ The stored snapshot keeps the raw Graph objects, inline images with their conten
 
 ## SDK usage
 
-The SDK exposes the same operations on `atlas.teams`. Options and results use camelCase. `backup` takes one team per call and returns one result. The CLI loops over `--team` and `--all`. Never run two operations on one team at once. See [Concurrent operations](/reference/sdk#concurrent-operations).
+The SDK exposes the same operations on `atlas.teams`. Options and results use camelCase. `backup` takes one team per call and returns one result. The CLI loops over `--team` and `--all`. A backup, deletion, or quarantine of a team holds that team's lease, so a second one rejects with `OwnerBusyError` (`ATLAS_OWNER_BUSY`) and writes nothing. See [Concurrent operations](/reference/sdk#concurrent-operations).
 
 `backup` accepts `concurrency`, the number of channels backed up at once (1 to 16, default 4). The result's `summary` reports `elapsedMs`, one entry per channel in `channels` (`channelId`, `outcome`, `readMode`, `rootsApplied`, `resumedFromCheckpoint`, `elapsedMs`), and `requests.messages` and `requests.default` with `requests`, `throttled`, and `achievedRps`. Each `processing` progress event names the channel that finished in `current` and carries `etaMs`, an estimate of the time left based on the channels finished so far.
 
@@ -333,7 +347,7 @@ To back up many teams, run several `backup` calls at once, one per team. All cal
 
 - Give them a shared `throttleCoordinator`. For `teams` requests its `wait` and `raise` receive the team ID as `scope.ownerId`, so a cooldown applies to one team.
 - Set `teamsPacingShare` on each instance to its share of the tenant budget, for example `0.25` for four processes. Pacing state lives in each process, so without it four processes would together send up to four times the tenant rate. Team and channel budgets stay whole.
-- Run only one operation per team at a time, for example with a lease keyed by the team ID. Two runs on one team would also split its channel budget.
+- Schedule one operation per team at a time. Atlas refuses the second with `OwnerBusyError`, so an overlap costs a failed run rather than a lost cursor or checkpoint, and the refused run can be retried after `lease_expires_at`.
 
 See [Concurrent operations](/reference/sdk#concurrent-operations).
 

@@ -2,6 +2,7 @@
 // manifests they build differ in their identity fields and in what each provider records per
 // entry, so the shared version would be generic over almost every line.
 import type {
+  HeldOwnerLease,
   NoSnapshotReason,
   SharePointBackupResult,
   SharePointChangeType,
@@ -109,6 +110,39 @@ export function build_snapshot_manifest(
   };
 }
 
+/** The change-tracking maps a cursor carries from one run to the next. */
+type CursorTracking = Pick<
+  SharePointDeltaCursor,
+  | 'previous_path_by_file_id'
+  | 'previous_name_by_file_id'
+  | 'previous_etag_by_file_id'
+  | 'previous_kind_by_file_id'
+>;
+
+/**
+ * Builds the delta cursor a run saves. `snapshot_id` is the snapshot the run wrote or left as the
+ * newest, or `null` when the site has none: the next run resumes the cursor only while that
+ * snapshot's manifest still exists (issue #725).
+ */
+export function build_delta_cursor(
+  site_id: string,
+  delta_link_by_drive: Record<string, string>,
+  tracking: CursorTracking,
+  failed_items: NonNullable<SharePointDeltaCursor['failed_items']>,
+  version_watermark_by_file_id: NonNullable<SharePointDeltaCursor['version_watermark_by_file_id']>,
+  snapshot_id: string | null,
+): SharePointDeltaCursor {
+  return {
+    site_id,
+    delta_link_by_drive,
+    ...tracking,
+    version_watermark_by_file_id,
+    failed_items,
+    updated_at: new Date().toISOString(),
+    snapshot_id,
+  };
+}
+
 /**
  * Builds the result of a run that created no snapshot. `cursor_updated` says whether the run saved
  * its delta cursor: a run cancelled before its scan finished writes none (issue #693).
@@ -205,24 +239,30 @@ export function build_run_version_indexes(
   }));
 }
 
-/** Saves snapshot manifest, the run's single version index object, and the delta cursor. */
+/**
+ * Saves snapshot manifest, the run's single version index object, and the delta cursor. Each
+ * write is preceded by a lease check, so a run that lost its site commits nothing (issue #623).
+ */
 export async function persist_snapshot_backup(
   manifests: SharePointManifestRepository,
   file_indexes: SharePointFileVersionIndexRepository,
   cursors: SharePointDeltaCursorRepository,
   ctx: TenantContext,
+  lease: HeldOwnerLease,
   site_id: string,
   snapshot: SharePointSnapshotManifest,
   entries: SharePointManifestEntry[],
   cursor: SharePointDeltaCursor,
   collected_rows: Map<string, SharePointFileVersionRecord[]>,
 ): Promise<void> {
-  await manifests.save(ctx, snapshot);
+  lease.assert_held();
+  await manifests.save(ctx, snapshot, lease);
   await file_indexes.write_run_index(
     ctx,
     site_id,
     snapshot.snapshot_id,
     build_run_version_indexes(site_id, snapshot.snapshot_id, entries, collected_rows),
   );
+  lease.assert_held();
   await cursors.save(ctx, cursor);
 }

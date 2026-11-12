@@ -84,6 +84,15 @@ function warn_what_was_lost(spec: QuarantineCommandSpec, kind: string): void {
       'The next backup compares against the newest readable snapshot index, which is older. ' +
         'Channels whose cursor no longer matches that index are read in full.',
     );
+  } else if (spec.workload === 'onedrive' || spec.workload === 'sharepoint') {
+    // The cursor names the snapshot it was saved with, so a backup notices by itself when the
+    // newest one is gone. An older one leaves a hole no cursor points at (issue #725).
+    logger.warn(
+      'If this was the newest snapshot, the next backup reads every drive in full by itself and ' +
+        'captures the changes it recorded again. If newer snapshots exist, they no longer include ' +
+        `those changes: run one \`atlas ${spec.workload} backup --full\` so the newest snapshot ` +
+        'holds every current file.',
+    );
   } else {
     logger.warn(
       'Snapshots taken after this one no longer include the changes it recorded. Run one ' +

@@ -10,6 +10,7 @@ import {
   teams_cursor_key,
   TEAMS_KEYS,
 } from '@/services/shared/storage-keys';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const TEAM = 'aaaaaaaa-1111-2222-3333-444444444444';
 const OLD_SNAPSHOT = 'teams-snap-1000-aaaaaa';
@@ -39,7 +40,7 @@ async function rig() {
   await indexes.save(harness.ctx, index(OLD_SNAPSHOT, 1000));
   await indexes.save(harness.ctx, index(NEW_SNAPSHOT, 2000));
   const factory = { create: async () => harness.ctx } as unknown as TenantContextFactory;
-  const service = new TeamsQuarantineService(factory, indexes);
+  const service = new TeamsQuarantineService(factory, indexes, stub_owner_leases().leases);
   const damage = (key: string, bytes = Buffer.from('garbage')): void => harness.set_raw(key, bytes);
   return { harness, indexes, service, damage };
 }

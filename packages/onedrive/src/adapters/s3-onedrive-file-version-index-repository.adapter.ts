@@ -16,6 +16,7 @@ import { later_watermark } from '@wisecom/atlas-drive/versioning/version-waterma
 import {
   read_merged_version_indexes,
   read_version_index_object_if_present,
+  write_run_version_index,
   type MergedVersionIndexes,
 } from '@wisecom/atlas-drive/versioning/version-index-store';
 
@@ -83,7 +84,7 @@ export class S3OneDriveFileVersionIndexRepository implements OneDriveFileVersion
     validate_key_segment(snapshot_id);
     const payload: RunIndexPayload = { owner_id, snapshot_id, indexes };
     const key = onedrive_run_index_key(owner_id, snapshot_id);
-    await ctx.storage.put(key, ctx.encrypt(Buffer.from(JSON.stringify(payload), 'utf-8'), key));
+    await write_run_version_index(ctx, { key, provider: 'OneDrive', payload });
   }
 
   /** Lists per-file version histories for an owner, naming the index objects it could not read. */

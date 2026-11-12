@@ -18,6 +18,7 @@ import {
 import { BACKUP_AT, TEAM_ID } from './channel-backup-processor-harness';
 import { channel_output } from './backup-service-harness';
 import { InMemoryTeamsChannelCheckpointRepository } from '@wisecom/atlas-types/testing/in-memory-teams-channel-checkpoint-repository';
+import { stub_held_owner_lease } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const CTX = {} as TenantContext;
 const TEAM: TeamsGraphResource = { id: TEAM_ID, displayName: 'Team' };
@@ -53,6 +54,7 @@ function ports(): SnapshotPorts {
     indexes: { save: vi.fn(async () => undefined) } as unknown as TeamsIndexRepository,
     cursors: { save: vi.fn(async () => undefined) } as unknown as TeamsChannelCursorRepository,
     checkpoints: new InMemoryTeamsChannelCheckpointRepository(),
+    lease: stub_held_owner_lease(),
   };
 }
 
