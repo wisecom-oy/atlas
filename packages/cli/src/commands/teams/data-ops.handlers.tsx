@@ -1,7 +1,7 @@
 import type { Container } from 'inversify';
 import { Box } from 'ink';
 import { logger } from '@wisecom/atlas-core';
-import { report_unreadable_keys } from '@/command-unreadable-objects';
+import { report_unreadable_keys, report_unsupported_keys } from '@/command-unreadable-objects';
 import type {
   TeamsDeletionUseCase,
   TeamsStatusUseCase,
@@ -116,11 +116,12 @@ export async function execute_teams_status(
   await render_static_view(<DataTable columns={status_columns} rows={rows} />);
   for (const team of teams) warn_team_status(team);
   report_unreadable_keys(teams.flatMap((team) => team.unreadable_index_keys));
+  report_unsupported_keys(teams.flatMap((team) => team.unsupported_keys));
 }
 
 /**
- * Warns about one team's damaged cursors, newer-format objects, and failed roots, which the table
- * omits. Damaged indexes are reported for the whole tenant afterwards, with exit 9.
+ * Warns about one team's damaged cursors and failed roots, which the table omits. Damaged indexes
+ * and newer-format objects are reported for the whole tenant afterwards, with exit 9.
  */
 function warn_team_status(team: TeamsTeamStatus): void {
   const name = team.team_display_name ?? team.team_id;
@@ -131,11 +132,6 @@ function warn_team_status(team: TeamsTeamStatus): void {
     logger.warn(
       `${name}: ${cursor_keys.length} channel cursor(s) could not be read; ` +
         `the next backup reads those channels in full: ${cursor_keys.join(', ')}`,
-    );
-  }
-  if (team.unsupported_keys.length > 0) {
-    logger.warn(
-      `${name}: ${team.unsupported_keys.length} Teams object(s) use a newer format and were skipped: ${team.unsupported_keys.join(', ')}`,
     );
   }
   if (team.failed_root_count > 0) {

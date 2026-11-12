@@ -8,6 +8,9 @@ import { UnreadableObjectsError } from '@wisecom/atlas-types';
  */
 export const EXIT_CONTENT_UNREADABLE = 9;
 
+/** Exit code for stored content a newer Atlas format wrote, the `ATLAS_FORMAT_UNSUPPORTED` category. */
+export const EXIT_FORMAT_UNSUPPORTED = 9;
+
 /**
  * Workload command that owns a storage key, by key prefix. Teams quarantines snapshot indexes
  * only, so its channel cursors and shards get no command.
@@ -40,6 +43,22 @@ export function report_unreadable_keys(keys: readonly string[] | undefined): voi
   );
   log_quarantine_hint(keys);
   if (!process.exitCode) process.exitCode = EXIT_CONTENT_UNREADABLE;
+}
+
+/**
+ * Names each stored object a command skipped because a newer Atlas format wrote it, and sets exit
+ * 9 (`ATLAS_FORMAT_UNSUPPORTED`) unless an earlier failure already chose a code, so an index this
+ * build cannot read never yields a clean exit. The object is intact, so no quarantine command is
+ * printed: the fix is an upgrade.
+ */
+export function report_unsupported_keys(keys: readonly string[] | undefined): void {
+  if (keys === undefined || keys.length === 0) return;
+  for (const key of keys) logger.warn(`  Newer-format stored object: ${key}`);
+  logger.warn(
+    `${keys.length} stored object(s) were written by a newer Atlas format and were skipped. ` +
+      `Upgrade Atlas to read them -- exit ${EXIT_FORMAT_UNSUPPORTED}`,
+  );
+  if (!process.exitCode) process.exitCode = EXIT_FORMAT_UNSUPPORTED;
 }
 
 /** Prints the quarantine command for each key a workload can quarantine. */

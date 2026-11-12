@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { Container } from 'inversify';
 import { logger } from '@wisecom/atlas-core';
 import { execute_teams_list_snapshots } from '@/commands/teams/command.handlers';
-import { EXIT_CONTENT_UNREADABLE } from '@/command-unreadable-objects';
+import { EXIT_CONTENT_UNREADABLE, EXIT_FORMAT_UNSUPPORTED } from '@/command-unreadable-objects';
 import {
   TEAMS_BACKUP_USE_CASE_TOKEN,
   TEAMS_CATALOG_USE_CASE_TOKEN,
@@ -70,7 +70,7 @@ describe('teams list-snapshots listing', () => {
     expect(process.exitCode).toBe(EXIT_CONTENT_UNREADABLE);
   });
 
-  it('warns and names the keys of indexes written in a newer format', async () => {
+  it('names indexes written in a newer format, says to upgrade, and exits 9', async () => {
     const listing: TeamsSnapshotListing = {
       indexes: [],
       unreadable_keys: [],
@@ -81,7 +81,9 @@ describe('teams list-snapshots listing', () => {
     await execute_teams_list_snapshots(container, { tenant: TENANT, team: 'team-a' });
 
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(UNSUPPORTED_KEY));
-    // A newer-format index is intact; the fix is an upgrade, not a quarantine.
-    expect(process.exitCode).toBeUndefined();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Upgrade Atlas'));
+    // A newer-format index is intact: the fix is an upgrade, so no quarantine hint, but never exit 0.
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(EXIT_FORMAT_UNSUPPORTED);
   });
 });

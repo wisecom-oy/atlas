@@ -115,7 +115,7 @@ After the counters, the run lists each channel with its outcome (`completed`, `i
 
 ### list-snapshots
 
-Lists the snapshots stored for one team, newest first. An index Atlas cannot read is named with its storage key and the `atlas teams quarantine` command, the rest of the list still prints, and the command exits `9`. One written by a newer Atlas format is named in a warning. See [Unreadable snapshots](#unreadable-snapshots).
+Lists the snapshots stored for one team, newest first. An index Atlas cannot read is named with its storage key and the `atlas teams quarantine` command, the rest of the list still prints, and the command exits `9`. One written by a newer Atlas format is named in a warning to upgrade Atlas, and the command also exits `9`. See [Unreadable snapshots](#unreadable-snapshots).
 
 ```bash
 atlas teams list-snapshots --team <team-id>
@@ -146,7 +146,7 @@ A message or image that cannot be read is listed in the command output, and the 
 
 ### status
 
-Shows, for each team with a snapshot, the newest snapshot's creation time (`Last snapshot`) and ID. A run that wrote no index does not change it. Below the table, a warning names each team's unreadable objects, its newer-format objects, and its channel roots that failed in a previous run. `Failed roots` counts the team's failed-root ledger entries across its channel cursors, including `PERMANENTLY SKIPPED` roots. `Pending rechecks` counts hosted content roots still waiting for a recheck. A root that reached the five-attempt cap is not counted.
+Shows, for each team with a snapshot, the newest snapshot's creation time (`Last snapshot`) and ID. A run that wrote no index does not change it. Below the table, warnings name each team's damaged channel cursors and its channel roots that failed in a previous run. Damaged snapshot indexes and newer-format objects are named after them, and either makes the command exit `9`. `Failed roots` counts the team's failed-root ledger entries across its channel cursors, including `PERMANENTLY SKIPPED` roots. `Pending rechecks` counts hosted content roots still waiting for a recheck. A root that reached the five-attempt cap is not counted.
 
 ```bash
 atlas teams status
@@ -271,7 +271,7 @@ atlas teams quarantine --key teams/manifests/<team-id>/<snapshot-id>.json
 
 An index is unreadable when it cannot be decrypted or parsed, when its team or snapshot ID does not match its key, or when its `created_at` is not a valid timestamp. `status` and `list-snapshots` skip it, name its key with the `atlas teams quarantine` command, and exit `9` (`ATLAS_CONTENT_UNREADABLE`). A backup that skips one newer than the latest readable index does the same, and warns that its baseline is an older snapshot. A channel failure in the same run keeps exit `2`, and the key is still named. A team that fails outright after reading its indexes also names the key, and the failure's own exit code applies. When no readable index exists at all, the backup warns `No readable snapshot exists; every channel is read in full`. This can follow a bucket wipe that Object Lock partly blocked, which leaves legacy manifests behind.
 
-An index with a higher `format_version` is reported as newer-format instead. It is intact, so `quarantine` refuses it. If it is newer than the latest readable index, the backup refuses to write for that team until Atlas is upgraded.
+An index with a higher `format_version` is reported as newer-format instead. It is intact, so `quarantine` refuses it. `status` and `list-snapshots` name it, say to upgrade Atlas, and exit `9` (`ATLAS_FORMAT_UNSUPPORTED`). If it is newer than the latest readable index, the backup refuses to write for that team until Atlas is upgraded, also with exit `9`, so it never overwrites the index or treats it as absent.
 
 `quarantine` moves the damaged index to `_quarantine/` with its bytes unchanged, so later `status`, `list-snapshots`, and backup runs stop reporting it. It refuses an index that reads cleanly. The snapshot's shards and blobs stay in storage. The next backup compares against the newest readable index, which is older. Each channel whose cursor no longer matches that index is read in full, as described in [How a run finds changes](#how-a-run-finds-changes), so no `--full` run is needed. See [Damaged manifests](/reference/cli#damaged-manifests-and-version-indexes) for the refusals and Object Lock behaviour.
 

@@ -4,8 +4,10 @@ import { logger } from '@wisecom/atlas-core';
 import { execute_teams_backup } from '@/commands/teams/command.handlers';
 import { EXIT_PARTIAL } from '@/command-run-outcome';
 import { EXIT_CONTENT_UNREADABLE } from '@/command-unreadable-objects';
+import { handle_fatal_error } from '@/fatal-error';
 import {
   attach_unreadable_keys,
+  UnsupportedFormatVersionError,
   TEAMS_BACKUP_USE_CASE_TOKEN,
   TEAMS_CATALOG_USE_CASE_TOKEN,
   type TeamsBackupResult,
@@ -137,6 +139,23 @@ describe('teams backup with a damaged snapshot index', () => {
     ).rejects.toBe(failure);
 
     expect(errors).toContain(`  ${HINT}`);
+  });
+
+  it('stops on a newer-format index with exit 9 and no quarantine hint', async () => {
+    const refusal = new UnsupportedFormatVersionError(
+      '1 Teams snapshot index(es) were written by a newer Atlas format; upgrade Atlas before backing up this team',
+    );
+    backup_team.mockRejectedValueOnce(refusal);
+
+    const thrown = await execute_teams_backup(container, {
+      tenant: TENANT,
+      team: ['team-a'],
+    }).catch((err: unknown) => err);
+    handle_fatal_error(thrown);
+
+    expect(thrown).toBe(refusal);
+    expect(process.exitCode).toBe(9);
+    expect(errors.join('\n')).not.toContain('quarantine');
   });
 
   it('stays healthy with exit 0 when every index reads', async () => {

@@ -3,7 +3,7 @@ import { Container } from 'inversify';
 import { logger } from '@wisecom/atlas-core';
 import { render_static_view } from '@/ui/render';
 import { execute_teams_status } from '@/commands/teams/data-ops.handlers';
-import { EXIT_CONTENT_UNREADABLE } from '@/command-unreadable-objects';
+import { EXIT_CONTENT_UNREADABLE, EXIT_FORMAT_UNSUPPORTED } from '@/command-unreadable-objects';
 import {
   TEAMS_STATUS_USE_CASE_TOKEN,
   type TeamsStatusUseCase,
@@ -54,18 +54,26 @@ describe('teams status warnings', () => {
     vi.restoreAllMocks();
   });
 
-  it('warns with the keys of unreadable cursors and newer-format objects, exiting 0 (P9)', async () => {
-    check_teams_status.mockResolvedValueOnce([
-      team({ unreadable_keys: [CURSOR_KEY], unsupported_keys: [UNSUPPORTED_KEY] }),
-    ]);
+  it('warns with the key of an unreadable cursor and exits 0 (P9)', async () => {
+    check_teams_status.mockResolvedValueOnce([team({ unreadable_keys: [CURSOR_KEY] })]);
 
     await execute_teams_status(container, { tenant: TENANT });
 
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(CURSOR_KEY));
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(UNSUPPORTED_KEY));
     // The next backup rewrites a damaged cursor, so there is nothing to quarantine.
     expect(logger.error).not.toHaveBeenCalled();
     expect(process.exitCode).toBeUndefined();
+  });
+
+  it('names a newer-format object, says to upgrade, and exits 9 without a quarantine hint', async () => {
+    check_teams_status.mockResolvedValueOnce([team({ unsupported_keys: [UNSUPPORTED_KEY] })]);
+
+    await execute_teams_status(container, { tenant: TENANT });
+
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(UNSUPPORTED_KEY));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Upgrade Atlas'));
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(EXIT_FORMAT_UNSUPPORTED);
   });
 
   it('names a damaged index of any team with the quarantine command and exits 9 (issue #694)', async () => {

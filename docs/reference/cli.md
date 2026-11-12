@@ -1111,7 +1111,7 @@ Ctrl+C stops the run and exits `2`. The interrupted root is not recorded as a fa
 
 **`atlas teams list-snapshots`**
 
-Snapshot indexes Atlas cannot read are skipped and named with their storage keys and the `atlas teams quarantine` command, and the command exits `9`. Indexes written by a newer Atlas format are named in a warning and exit `0`, since the fix is an upgrade. See [Unreadable snapshots](../teams-backup.md#unreadable-snapshots).
+Snapshot indexes Atlas cannot read are skipped and named with their storage keys and the `atlas teams quarantine` command, and the command exits `9`. Indexes written by a newer Atlas format are named in a warning that says to upgrade Atlas, and the command exits `9` (`ATLAS_FORMAT_UNSUPPORTED`). They are intact, so no quarantine command is printed. See [Unreadable snapshots](../teams-backup.md#unreadable-snapshots).
 
 | Option              | Description                        |
 | ------------------- | ---------------------------------- |
@@ -1142,7 +1142,7 @@ Writes one snapshot as a zip archive that opens in a browser. It reads storage o
 
 **`atlas teams status`**
 
-Prints one row per team, with the newest readable snapshot, its channel count, `Failed roots`, and `Pending rechecks`. See [Failed channels](../teams-backup.md#failed-channels) for what those counts mean. A damaged snapshot index of any team is named with the `atlas teams quarantine` command, and the command exits `9`. A damaged channel cursor is a warning only, because the next backup rewrites it.
+Prints one row per team, with the newest readable snapshot, its channel count, `Failed roots`, and `Pending rechecks`. See [Failed channels](../teams-backup.md#failed-channels) for what those counts mean. A damaged snapshot index of any team is named with the `atlas teams quarantine` command, and the command exits `9`. An index or cursor written by a newer Atlas format is named with a warning to upgrade, and the command also exits `9`. A damaged channel cursor is a warning only, because the next backup rewrites it.
 
 | Option              | Description                        |
 | ------------------- | ---------------------------------- |

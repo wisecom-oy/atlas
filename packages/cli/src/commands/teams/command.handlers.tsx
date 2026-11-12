@@ -17,7 +17,7 @@ import {
 import { resolve_channel_concurrency } from '@wisecom/atlas-teams';
 import { build_object_lock_request } from '@/command-object-lock';
 import { EXIT_PARTIAL, report_run_outcome } from '@/command-run-outcome';
-import { report_unreadable_keys } from '@/command-unreadable-objects';
+import { report_unreadable_keys, report_unsupported_keys } from '@/command-unreadable-objects';
 import { install_interrupt_gate } from '@/adapters/interrupt-gate';
 import { release_throttle_cooldowns_if_cancelled } from '@/adapters/throttle-cooldown-release';
 import { resolve_tenant_id } from '@/commands/sharepoint/command.handlers';
@@ -107,11 +107,7 @@ export async function execute_teams_list_snapshots(
 
   await render_static_view(<Banner title={banner_title('teams', 'Snapshots')} />);
   report_unreadable_keys(listing.unreadable_keys);
-  if (listing.unsupported_keys.length > 0) {
-    logger.warn(
-      `${listing.unsupported_keys.length} snapshot index(es) use a newer format and are not listed: ${listing.unsupported_keys.join(', ')}`,
-    );
-  }
+  report_unsupported_keys(listing.unsupported_keys);
   if (snapshots.length === 0) {
     logger.info('No snapshots found.');
     return;
