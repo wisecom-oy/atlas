@@ -20,7 +20,13 @@ describe('Outlook operation cancellation', () => {
       {} as never,
       stub_owner_leases().leases,
     );
-    const restore = new RestoreService(factory, {} as never, {} as never, {} as never);
+    const restore = new RestoreService(
+      factory,
+      {} as never,
+      {} as never,
+      {} as never,
+      stub_owner_leases().leases,
+    );
     const save = new SaveService(factory, {} as never, {} as never);
 
     const results = await Promise.all([

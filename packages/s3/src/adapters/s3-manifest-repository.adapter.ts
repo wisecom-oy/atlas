@@ -95,8 +95,15 @@ export class S3ManifestRepository implements ManifestRepository {
     ctx: TenantContext,
     owner_id: string,
     snapshot_id: string,
+    lease?: HeldOwnerLease,
   ): Promise<void> {
-    await forget_snapshot_summary_or_warn(ctx, OUTLOOK_SUMMARY_LAYOUT, owner_id, snapshot_id);
+    await forget_snapshot_summary_or_warn(
+      ctx,
+      OUTLOOK_SUMMARY_LAYOUT,
+      owner_id,
+      snapshot_id,
+      lease,
+    );
   }
 
   /** Lists one owner's snapshots from its summary index, decrypting only rowless manifests. */

@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import 'reflect-metadata';
 
 import { describe, expect, it } from 'vitest';
@@ -31,7 +32,12 @@ async function restore_with(
   const { ctx } = stub_tenant_context(objects);
   const manifests = memory_manifests();
   await manifests.save(ctx, contacts_snapshot(entries));
-  const service = new ContactsRestoreService(tenant_factory_for(ctx), target.connector, manifests);
+  const service = new ContactsRestoreService(
+    tenant_factory_for(ctx),
+    target.connector,
+    manifests,
+    stub_owner_leases().leases,
+  );
   return service.restore_contacts('tenant-1', CONTACTS_MAILBOX, {
     snapshot_id: CONTACTS_SNAPSHOT,
     ...options,
@@ -183,6 +189,7 @@ describe('ContactsRestoreService', () => {
       tenant_factory_for(ctx),
       target.connector,
       memory_manifests(),
+      stub_owner_leases().leases,
     );
 
     await expect(

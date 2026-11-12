@@ -3,6 +3,7 @@
  * AES-GCM authentication aborts the rollback as a key error instead of being skipped while every
  * other version is attempted with the same key.
  */
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, expect, it, vi } from 'vitest';
 import { WrongPassphraseError, type TenantContext } from '@wisecom/atlas-types';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
@@ -46,6 +47,7 @@ function make_deps(failing: readonly string[]) {
     tenant_factory: {
       create_readonly: vi.fn().mockResolvedValue(ctx),
     } as unknown as TenantContextFactory,
+    leases: stub_owner_leases().leases,
     connector,
     list_indexes: vi.fn().mockResolvedValue(readable_indexes([index('file-1'), index('file-2')])),
     download_blob: vi.fn(async (_ctx: TenantContext, version: DriveFileVersionRecord) => {

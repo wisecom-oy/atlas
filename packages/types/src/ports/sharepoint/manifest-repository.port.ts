@@ -24,8 +24,16 @@ export interface SharePointManifestRepository {
     lease?: HeldOwnerLease,
   ): Promise<void>;
 
-  /** Drops a removed snapshot's row from the site's summary index; logs instead of failing. */
-  forget_snapshot_summary(ctx: TenantContext, site_id: string, snapshot_id: string): Promise<void>;
+  /**
+   * Drops a removed snapshot's row from the summary index; logs instead of failing. `lease` is
+   * checked right before the write, and a lost one is raised.
+   */
+  forget_snapshot_summary(
+    ctx: TenantContext,
+    site_id: string,
+    snapshot_id: string,
+    lease?: HeldOwnerLease,
+  ): Promise<void>;
 
   /**
    * Finds a manifest for a site by snapshot ID.

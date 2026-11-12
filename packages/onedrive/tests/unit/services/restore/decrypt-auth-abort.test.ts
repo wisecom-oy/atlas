@@ -3,6 +3,7 @@
  * restore moved on, so a key that did not fit the snapshot produced one warning per file and a
  * partial summary. The first failed tag now aborts the restore as a key error.
  */
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
@@ -76,7 +77,11 @@ function make_harness(damaged: readonly string[]) {
     ...drive_chain_reads('onedrive'),
   } as unknown as OneDriveManifestRepository;
 
-  return { store, connector, service: new OneDriveRestoreService(factory, connector, manifests) };
+  return {
+    store,
+    connector,
+    service: new OneDriveRestoreService(factory, connector, manifests, stub_owner_leases().leases),
+  };
 }
 
 describe('OneDrive restore after a decrypt authentication failure', () => {

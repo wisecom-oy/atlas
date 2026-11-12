@@ -4,6 +4,7 @@
  * the matches and names the rest.
  */
 import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { NotFoundError } from '@wisecom/atlas-types';
@@ -66,7 +67,8 @@ function make_service(): { service: OneDriveRestoreService; connector: OneDriveC
     list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
     ...drive_chain_reads('onedrive'),
   } as unknown as OneDriveManifestRepository;
-  return { service: new OneDriveRestoreService(factory, connector, manifests), connector };
+  const leases = stub_owner_leases().leases;
+  return { service: new OneDriveRestoreService(factory, connector, manifests, leases), connector };
 }
 
 describe('OneDrive restore with a file filter that matches nothing (issue #707)', () => {

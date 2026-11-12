@@ -67,8 +67,9 @@ export class S3OneDriveManifestRepository implements OneDriveManifestRepository 
     ctx: TenantContext,
     owner_id: string,
     snapshot_id: string,
+    lease?: HeldOwnerLease,
   ): Promise<void> {
-    await forget_snapshot_summary_or_warn(ctx, SUMMARY_LAYOUT, owner_id, snapshot_id);
+    await forget_snapshot_summary_or_warn(ctx, SUMMARY_LAYOUT, owner_id, snapshot_id, lease);
   }
 
   /** Lists an owner's snapshots from its summary index, decrypting only rowless manifests. */

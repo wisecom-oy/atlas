@@ -1,4 +1,5 @@
 import type {
+  HeldOwnerLease,
   OwnerLeasePort,
   OwnerLeaseWorkload,
   QuarantinedObjectKind,
@@ -30,9 +31,11 @@ export interface QuarantineTarget {
   /**
    * Runs once the object has moved, for state that described it. Contacts and Calendar drop the
    * mailbox's delta cursor there, since its links may describe the snapshot just moved aside.
-   * Outlook, OneDrive and SharePoint drop a moved manifest's row from the summary index.
+   * Outlook, OneDrive and SharePoint drop a moved manifest's row from the summary index. The
+   * lease is checked before the hook runs and passed in for any write the hook makes (#623).
    */
-  readonly after_move?: ((ctx: TenantContext, storage_key: string) => Promise<void>) | undefined;
+  readonly after_move?:
+    ((ctx: TenantContext, storage_key: string, lease: HeldOwnerLease) => Promise<void>) | undefined;
 }
 
 /**
@@ -80,7 +83,8 @@ export async function quarantine_unreadable_object(
         const reason = await read_damage_reason(ctx, target, storage_key);
         lease.assert_held();
         const quarantine_key = await move_aside(ctx, storage_key);
-        await target.after_move?.(ctx, storage_key);
+        lease.assert_held();
+        await target.after_move?.(ctx, storage_key, lease);
         return { storage_key, quarantine_key, kind, reason };
       },
     );

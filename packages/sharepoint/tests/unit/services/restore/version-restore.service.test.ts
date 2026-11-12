@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apply_overrides, type Overrides } from '@wisecom/atlas-types/testing/apply-overrides';
@@ -80,6 +81,7 @@ describe('SharePointVersionRestoreService', () => {
       mocks.tenant_factory,
       mocks.connector,
       mocks.indexes,
+      stub_owner_leases().leases,
     );
   });
 

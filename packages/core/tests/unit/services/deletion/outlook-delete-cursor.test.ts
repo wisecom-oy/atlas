@@ -110,7 +110,12 @@ describe('Outlook deletion and the delta cursor', () => {
     expect(bucket.keys.has(`manifests/${OWNER}/snap-2.json`)).toBe(false);
     expect(bucket.keys.has(CURSOR_KEY)).toBe(false);
     expect(bucket.keys.has(`manifests/${OWNER}/snap-1.json`)).toBe(true);
-    expect(manifests.forget_snapshot_summary).toHaveBeenCalledWith(bucket.ctx, OWNER, 'snap-2');
+    expect(manifests.forget_snapshot_summary).toHaveBeenCalledWith(
+      bucket.ctx,
+      OWNER,
+      'snap-2',
+      expect.objectContaining({ assert_held: expect.any(Function) }),
+    );
   });
 
   it('refuses delete -s of an older snapshot and deletes nothing', async () => {
