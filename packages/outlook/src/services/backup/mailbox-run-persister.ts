@@ -11,6 +11,7 @@ import {
   resolve_saved_delta_links,
   resolve_sync_mode,
 } from '@/services/backup/snapshot-manifest-builder';
+import { resumable_delta_links } from '@/services/shared/resumable-delta-links';
 
 export interface MailboxResumeState {
   /** The head manifest, for the stale-delta safeguard and the quiet-run decision. */
@@ -31,8 +32,12 @@ export interface MailboxResumeState {
  *
  * A damaged head manifest no longer stops the mailbox's backups (issue #631). The newest readable
  * manifest stands in for it, which is safe because an Outlook manifest holds only its own run's
- * changes: nothing is built on the head's entries, the cursor still says where the delta stopped,
- * and an older `total_objects` only makes the stale-delta safeguard more willing to re-read.
+ * changes: nothing is built on the head's entries, and an older `total_objects` only makes the
+ * stale-delta safeguard more willing to re-read.
+ *
+ * The cursor's links are resumed only while the cursor names the head as its snapshot. A cursor
+ * left behind by a deleted or quarantined snapshot, or by `delete -m`, would skip every change that
+ * snapshot recorded, so the run reads every folder in full instead (issues #703, #704).
  */
 export async function resolve_resume_state(
   deps: MailboxRunPersistence,
@@ -53,7 +58,7 @@ export async function resolve_resume_state(
   const latest = await deps.manifests.find_latest_readable(ctx, owner_id);
   const previous = latest.manifest;
   const cursor = await deps.cursors.load(ctx, owner_id);
-  const saved_links = cursor?.delta_links ?? resolve_saved_delta_links(previous);
+  const saved_links = resumable_delta_links(cursor, previous, resolve_saved_delta_links);
 
   return {
     previous,
@@ -101,15 +106,17 @@ export async function persist_mailbox_run(
   const wrote_snapshot = captured_change || previous === undefined;
   if (wrote_snapshot) await deps.manifests.save(ctx, manifest);
 
+  const head_snapshot_id = wrote_snapshot ? manifest.snapshot_id : previous.snapshot_id;
   await deps.cursors.save(ctx, {
     owner_id: manifest.owner_id,
     delta_links: manifest.delta_links,
     updated_at: new Date().toISOString(),
+    snapshot_id: head_snapshot_id,
   });
 
   return {
     snapshot: mark_snapshot_completed(
-      wrote_snapshot ? snapshot : { ...snapshot, id: previous.snapshot_id },
+      wrote_snapshot ? snapshot : { ...snapshot, id: head_snapshot_id },
       entry_count,
     ),
     wrote_snapshot,

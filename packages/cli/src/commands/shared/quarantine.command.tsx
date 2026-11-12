@@ -15,7 +15,7 @@ type ContainerFactory = () => Container;
 /** The workload a `quarantine` subcommand belongs to, and where its use case is bound. */
 export interface QuarantineCommandSpec {
   /** Command group name, e.g. `onedrive`. */
-  readonly workload: Exclude<BannerScope, 'teams' | 'tenant'>;
+  readonly workload: Exclude<BannerScope, 'tenant'>;
   /** What the command accepts, for its description, e.g. `manifest or version index`. */
   readonly object_noun: string;
   readonly token: symbol;
@@ -79,6 +79,11 @@ function warn_what_was_lost(spec: QuarantineCommandSpec, kind: string): void {
     );
   } else if (spec.workload === 'contacts' || spec.workload === 'calendar') {
     logger.warn('The delta cursor was removed, so the next backup reads the mailbox in full.');
+  } else if (spec.workload === 'teams') {
+    logger.warn(
+      'The next backup compares against the newest readable snapshot index, which is older. ' +
+        'Channels whose cursor no longer matches that index are read in full.',
+    );
   } else {
     logger.warn(
       'Snapshots taken after this one no longer include the changes it recorded. Run one ' +

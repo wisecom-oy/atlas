@@ -20,6 +20,9 @@ const ATLAS_EXIT_CODES = {
   // The destination holds a different data key that may protect existing backups. Every rerun is
   // refused the same way until an operator purges that bucket (issue #659).
   ATLAS_KEY_CONFLICT: 10,
+  // Newer snapshots depend on the one asked for. Rerunning is refused the same way until they are
+  // deleted first, so it is an operator decision, not a retry (issue #704).
+  ATLAS_SNAPSHOT_NOT_NEWEST: 11,
 } satisfies Record<AtlasErrorCode, number>;
 
 const NETWORK_CODES: Readonly<Record<string, true>> = {

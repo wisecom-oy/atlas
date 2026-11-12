@@ -79,7 +79,7 @@ describe('load_team_baseline', () => {
       hosted_recheck: {},
     });
     expect(baseline.warnings).toEqual([]);
-    expect(baseline.errors).toEqual([]);
+    expect(baseline.unreadable_keys).toEqual([]);
   });
 
   it('returns no previous entry and no delta link for a channel the latest index lacks', async () => {
@@ -193,9 +193,8 @@ describe('load_team_baseline', () => {
     );
 
     expect(baseline.previous?.snapshot_id).toBe('snap-1');
-    expect(baseline.errors).toEqual([
-      'Snapshot teams-snap-1000-aaaaaa could not be read; its channels were not compared',
-    ]);
+    // Issue #694: named as a key for `quarantine`, not as a run error that exits 2.
+    expect(baseline.unreadable_keys).toEqual(['teams-snap-1000-aaaaaa']);
     expect(baseline.warnings).toEqual([
       'The baseline is an older snapshot because a newer one could not be read',
     ]);

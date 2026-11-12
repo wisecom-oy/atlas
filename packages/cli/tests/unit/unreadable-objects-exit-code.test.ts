@@ -3,9 +3,11 @@ import { UnreadableObjectsError } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core';
 import {
   EXIT_CONTENT_UNREADABLE,
+  EXIT_FORMAT_UNSUPPORTED,
   quarantine_command_for,
   read_listing,
   report_unreadable_keys,
+  report_unsupported_keys,
 } from '@/command-unreadable-objects';
 import { handle_fatal_error } from '@/fatal-error';
 
@@ -68,7 +70,30 @@ describe('reporting unreadable stored objects', () => {
     expect(quarantine_command_for('calendar/manifests/m/cal-snap-1-a.json')).toMatch(
       /^atlas calendar /,
     );
-    expect(quarantine_command_for('teams/manifests/t/teams-snap-1-a.json')).toBeUndefined();
+    expect(quarantine_command_for('teams/manifests/t/teams-snap-1-a.json')).toBe(
+      'atlas teams quarantine --key teams/manifests/t/teams-snap-1-a.json',
+    );
+  });
+
+  it('names newer-format keys without a quarantine command and exits 9 unless a code is set', () => {
+    const warnings: string[] = [];
+    vi.spyOn(logger, 'warn').mockImplementation((message: string) => {
+      warnings.push(message);
+    });
+
+    report_unsupported_keys([KEY]);
+    expect(process.exitCode).toBe(EXIT_FORMAT_UNSUPPORTED);
+    expect(warnings.join('\n')).toContain(KEY);
+    expect(warnings.join('\n')).not.toContain('quarantine');
+
+    process.exitCode = 2;
+    report_unsupported_keys([KEY]);
+    expect(process.exitCode).toBe(2);
+  });
+
+  it('gives Teams channel cursors and shards no quarantine command (issue #694)', () => {
+    expect(quarantine_command_for('teams/_meta/t/channels/c.json')).toBeUndefined();
+    expect(quarantine_command_for('teams/shards/t/c/s.json')).toBeUndefined();
   });
 
   it('returns the rows a listing could read along with the keys it skipped', async () => {

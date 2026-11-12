@@ -24,14 +24,14 @@ The split keeps the passphrase out of the data path. The DEK is random, so its s
 
 Atlas uses scrypt, a memory-hard function that makes GPU and ASIC guessing expensive. Parameters for new DEK wraps:
 
-| Parameter           | Value           | Purpose                                                                                                                      |
-| ------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| N (cost)            | 65536           | CPU and memory cost (2^16)                                                                                                   |
-| r (block size)      | 8               | Memory multiplier                                                                                                            |
-| p (parallelism)     | 1               | Sequential derivation                                                                                                        |
-| Salt                | 32 random bytes | Fresh on every wrap, including re-wraps. Combined with the tenant ID so the same passphrase yields different KEKs per tenant |
-| Output              | 32 bytes        | AES-256 key                                                                                                                  |
-| Minimum N on unwrap | 16384           | Blobs with weaker parameters are rejected                                                                                    |
+| Parameter           | Value                  | Purpose                                                                  |
+| ------------------- | ---------------------- | ------------------------------------------------------------------------ |
+| N (cost)            | 65536                  | CPU and memory cost (2^16)                                               |
+| r (block size)      | 8                      | Memory multiplier                                                        |
+| p (parallelism)     | 1                      | Sequential derivation                                                    |
+| Salt                | 32 random bytes        | Fresh on every wrap, including re-wraps. Combined with the tenant ID so the same passphrase yields different KEKs per tenant |
+| Output              | 32 bytes               | AES-256 key                                                              |
+| Minimum N on unwrap | 16384                  | Blobs with weaker parameters are rejected                                |
 
 A re-wrap picks up the current parameters automatically. Until then, a tenant keeps the parameters it was created with.
 
@@ -102,34 +102,34 @@ Each object gets a fresh random 12-byte IV. Reusing an IV under the same key wou
 
 Because one DEK encrypts the whole tenant, the GCM tag alone proves only that bytes came from that tenant's key. Atlas binds the header and the object's scope as associated data, so a ciphertext decrypts only where it was written. The scope is the key's directory: `onedrive/data/{owner_id}/`, `contacts/data/{owner_id}/`, `calendar/data/{owner_id}/`, `manifests/{owner_id}/`, or `_meta/replication/{owner}/{snapshot}/`.
 
-| Attack                                               | Result                                                                                                         |
-| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Move an object over another owner's or purpose's key | Decryption fails: the scope no longer matches                                                                  |
-| Strip or lower the version header                    | Decryption fails: the header is authenticated                                                                  |
-| Move an object within its own directory              | Not prevented. The manifest checksum comparison detects it                                                     |
-| Copy one owner's delta cursor over another's         | Rejected: the cursor names its owner, and load checks it                                                       |
-| Copy one owner's snapshot summary over another's     | Ignored: the summary names its owner, and the read falls back to decrypting the manifests                      |
-| Edit a summary row to point at another manifest      | Not possible without the DEK. A row is also used only when its manifest key matches its own owner and snapshot |
-| Replay an older ciphertext of the same object        | Not prevented. Object Lock and versioning handle this                                                          |
+| Attack                                                        | Result                                                       |
+| ------------------------------------------------------------- | ------------------------------------------------------------ |
+| Move an object over another owner's or purpose's key          | Decryption fails: the scope no longer matches                |
+| Strip or lower the version header                             | Decryption fails: the header is authenticated                |
+| Move an object within its own directory                       | Not prevented. The manifest checksum comparison detects it   |
+| Copy one owner's delta cursor over another's                  | Rejected: the cursor names its owner, and load checks it     |
+| Copy one owner's snapshot summary over another's              | Ignored: the summary names its owner, and the read falls back to decrypting the manifests |
+| Edit a summary row to point at another manifest               | Not possible without the DEK. A row is also used only when its manifest key matches its own owner and snapshot |
+| Replay an older ciphertext of the same object                 | Not prevented. Object Lock and versioning handle this        |
 
-| Data                                           | Encrypted | Notes                                                                                                                          |
-| ---------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Email messages                                 | Yes       | RFC 5322 MIME, or legacy Graph JSON, under `data/{owner_id}/{content_name}`                                                    |
-| Attachments                                    | Yes       | Legacy JSON entries only, under `attachments/{owner_id}/{content_name}`. MIME embeds them                                      |
-| Manifests                                      | Yes       | Subjects, senders, folder names, delta URLs, checksums                                                                         |
-| Snapshot summary indexes                       | Yes       | Snapshot IDs, times, totals, and owner labels, under `_meta/outlook-manifests/owners` and `onedrive/_meta`, `sharepoint/_meta` |
-| OneDrive file blobs                            | Yes       | `onedrive/data/{owner_id}/{content_name}`                                                                                      |
-| OneDrive manifests, indexes, and delta state   | Yes       | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                                                       |
-| Teams message blobs and inline images          | Yes       | `teams/data/{team_id}/{content_name}`, `teams/data/{team_id}/hosted/{content_name}`                                            |
-| Teams indexes, channel shards, and delta state | Yes       | `teams/manifests`, `teams/shards`, `teams/_meta`                                                                               |
-| Contacts data, photos, and manifests           | Yes       | `contacts/data`, `contacts/photos`, `contacts/manifests`, `contacts/_meta`                                                     |
-| Calendar events, attachments, and manifests    | Yes       | `calendar/data`, `calendar/attachments`, `calendar/manifests`, `calendar/_meta`                                                |
-| Wrapped DEK                                    | Yes       | `_meta/dek.enc`, encrypted with the KEK                                                                                        |
-| S3 object metadata                             | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access                                                     |
-| OneDrive manifests, indexes, and delta state   | Yes       | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                                                       |
-| Contacts data, photos, and manifests           | Yes       | `contacts/data`, `contacts/photos`, `contacts/manifests`, `contacts/_meta`                                                     |
-| Wrapped DEK                                    | Yes       | `_meta/dek.enc`, encrypted with the KEK                                                                                        |
-| S3 object metadata                             | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access                                                     |
+| Data                                           | Encrypted | Notes                                                                                     |
+| ---------------------------------------------- | --------- | ----------------------------------------------------------------------------------------- |
+| Email messages                                 | Yes       | RFC 5322 MIME, or legacy Graph JSON, under `data/{owner_id}/{content_name}`               |
+| Attachments                                    | Yes       | Legacy JSON entries only, under `attachments/{owner_id}/{content_name}`. MIME embeds them |
+| Manifests                                      | Yes       | Subjects, senders, folder names, delta URLs, checksums                                    |
+| Snapshot summary indexes                       | Yes       | Snapshot IDs, times, totals, and owner labels, under `_meta/outlook-manifests/owners`, `onedrive/_meta`, and `sharepoint/_meta` |
+| OneDrive file blobs                            | Yes       | `onedrive/data/{owner_id}/{content_name}`                                                 |
+| OneDrive manifests, indexes, and delta state   | Yes       | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                  |
+| Teams message blobs and inline images          | Yes       | `teams/data/{team_id}/{content_name}`, `teams/data/{team_id}/hosted/{content_name}`       |
+| Teams indexes, channel shards, and delta state | Yes       | `teams/manifests`, `teams/shards`, `teams/_meta`                                          |
+| Contacts data, photos, and manifests           | Yes       | `contacts/data`, `contacts/photos`, `contacts/manifests`, `contacts/_meta`                |
+| Calendar events, attachments, and manifests    | Yes       | `calendar/data`, `calendar/attachments`, `calendar/manifests`, `calendar/_meta`           |
+| Wrapped DEK                                    | Yes       | `_meta/dek.enc`, encrypted with the KEK                                                   |
+| S3 object metadata                             | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access                |
+| OneDrive manifests, indexes, and delta state | Yes     | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                              |
+| Contacts data, photos, and manifests       | Yes       | `contacts/data`, `contacts/photos`, `contacts/manifests`, `contacts/_meta`                            |
+| Wrapped DEK                                | Yes       | `_meta/dek.enc`, encrypted with the KEK                                               |
+| S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access            |
 
 Apart from `x-message-id`, objects store no item IDs, version IDs, or plaintext checksums in unencrypted metadata. Those live inside encrypted manifests and version indexes. Mailbox objects written before keyed naming also carry `x-plaintext-sha256`; see below.
 
@@ -181,12 +181,12 @@ The check runs once per target per run, before the first snapshot is copied. It 
 
 Rehydration copies the replica's wrapped key to primary, and replication copies the primary's key to a new target. Every such write is conditional, so a key another process stores after Atlas checks the bucket is never replaced:
 
-| Primary holds                        | Rehydration does                                                               |
-| ------------------------------------ | ------------------------------------------------------------------------------ |
-| No `_meta/dek.enc`                   | Writes the source key create-only, with `If-None-Match: *`                     |
-| The source key                       | Nothing                                                                        |
-| A different key and nothing else     | Replaces it with `If-Match` on the ETag read before the bucket was found empty |
-| A different key and any other object | Nothing, aborts with `DekOverwriteRefusedError`                                |
+| Primary holds                                  | Rehydration does                                                                |
+| ---------------------------------------------- | ------------------------------------------------------------------------------- |
+| No `_meta/dek.enc`                             | Writes the source key create-only, with `If-None-Match: *`                      |
+| The source key                                 | Nothing                                                                         |
+| A different key and nothing else               | Replaces it with `If-Match` on the ETag read before the bucket was found empty  |
+| A different key and any other object           | Nothing, aborts with `DekOverwriteRefusedError`                                 |
 
 A different key with nothing else beside it is one Atlas generated on a bucket that never received data, for example by a backup that failed before its first upload. Replication writes a target's key only when the target has none, create-only.
 
@@ -196,11 +196,11 @@ When a conditional write is refused with `412 Precondition Failed`, Atlas reads 
 
 Atlas checks integrity at three independent layers:
 
-| Layer         | Mechanism                      | What it catches                                | When                              |
-| ------------- | ------------------------------ | ---------------------------------------------- | --------------------------------- |
-| **Plaintext** | SHA-256 in the manifest        | Corruption before encryption, application bugs | Backup, verify, save              |
-| **Transport** | `Content-MD5` on every S3 PUT  | Network corruption in flight                   | Every upload; S3 rejects mismatch |
-| **At rest**   | AES-256-GCM authentication tag | Tampering or corruption in storage             | Every decrypt                     |
+| Layer         | Mechanism                           | What it catches                                          | When                              |
+| ------------- | ----------------------------------- | -------------------------------------------------------- | --------------------------------- |
+| **Plaintext** | SHA-256 in the manifest             | Corruption before encryption, application bugs           | Backup, verify, save              |
+| **Transport** | `Content-MD5` on every S3 PUT       | Network corruption in flight                             | Every upload; S3 rejects mismatch |
+| **At rest**   | AES-256-GCM authentication tag      | Tampering or corruption in storage                       | Every decrypt                     |
 
 `atlas outlook verify` downloads each encrypted object, decrypts it, hashes the plaintext, and compares the result with the manifest checksum using a constant-time comparison (`timingSafeEqual`). For MIME entries this covers attachments, because they are part of the hashed message. Legacy JSON attachments are separate objects and are protected only by GCM during decrypt. They are not hashed against the manifest.
 
@@ -208,11 +208,11 @@ Atlas checks integrity at three independent layers:
 
 A valid tag proves the bytes were produced under the tenant DEK. It does not prove they belong at that key, which is why the scope binding above exists. Restore therefore compares the manifest checksum before anything acts on the bytes:
 
-| Path                       | Checked before                                                                                                               |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Outlook message restore    | `POST /messages`, for MIME and legacy JSON entries                                                                           |
-| Outlook attachment restore | Each attachment upload                                                                                                       |
-| Drive file restore         | The upload, buffered or streamed                                                                                             |
+| Path                       | Checked before                                                |
+| -------------------------- | ------------------------------------------------------------- |
+| Outlook message restore    | `POST /messages`, for MIME and legacy JSON entries            |
+| Outlook attachment restore | Each attachment upload                                        |
+| Drive file restore         | The upload, buffered or streamed                              |
 | Snapshot manifests         | Atlas rebuilds the key from the manifest's own `owner_id` or `site_id` and `snapshot_id`, and compares it to the key it read |
 
 An entry with no recorded checksum is refused rather than restored unverified. A manifest planted under another snapshot's key is reported as unreadable, by key, never skipped in silence. Listings, status, and backups go on without it and exit `9`. A restore refuses when the snapshot it resolves may depend on it, because leaving it out would restore a drive or mailbox that never existed. See [Damaged manifests and version indexes](/troubleshooting#damaged-manifests-and-version-indexes).
@@ -225,12 +225,12 @@ An attacker with write access to the bucket can still make a manifest unreadable
 
 A GCM failure must never look like a successful empty result. Each object type reports it as a failure:
 
-| Object                  | Reported as                                                                                                                                                                                                                                  |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Outlook attachment      | An error on the restore result, counted in `attachment_error_count`                                                                                                                                                                          |
-| Drive file in an export | An error and an integrity failure                                                                                                                                                                                                            |
+| Object                  | Reported as                                                       |
+| ----------------------- | ----------------------------------------------------------------- |
+| Outlook attachment      | An error on the restore result, counted in `attachment_error_count` |
+| Drive file in an export | An error and an integrity failure                                 |
 | Snapshot manifest       | `UnreadableObjectsError` naming the key, raised by a read of that snapshot or of a chain that needs it, and reported by every listing that skips it. Only a genuinely absent object reads as absent. A storage outage stays a `StorageError` |
-| Version index           | The same, from `list-versions`, `restore-version`, and `verify`. A seeding scan of version watermarks logs it and captures those versions again                                                                                              |
+| Version index           | The same, from `list-versions`, `restore-version`, and `verify`. A seeding scan of version watermarks logs it and captures those versions again |
 
 Verification counts an entry as soon as it claims a stored blob. An entry that names a blob without a checksum is a verification failure. Tombstones are the only entries without a blob, so they are not counted.
 
@@ -250,12 +250,12 @@ A drive export does that in two passes for files larger than 4 MiB. The first pa
 
 Integrity checks prove that archived bytes match what Atlas stored. Fidelity asks which bytes Atlas stored in the first place, which determines whether an archived message still has evidentiary value after the mailbox is gone.
 
-| Artifact                                                                          | Fidelity                                                                                    |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Archived object, and the `.eml` that `atlas outlook save` writes for a MIME entry | **Byte-exact**. The RFC 5322 message as Exchange received it                                |
-| `.eml` for a legacy JSON entry                                                    | **Reconstructed** from the stored JSON at export time                                       |
-| Message recreated by `atlas outlook restore`                                      | **Reconstructed** from the archived MIME. The original `Received` chain is not carried over |
-| Snapshots taken before MIME storage                                               | **Reconstructed** from Graph's JSON projection                                              |
+| Artifact                                                               | Fidelity                                                                          |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Archived object, and the `.eml` that `atlas outlook save` writes for a MIME entry | **Byte-exact**. The RFC 5322 message as Exchange received it       |
+| `.eml` for a legacy JSON entry                                         | **Reconstructed** from the stored JSON at export time                             |
+| Message recreated by `atlas outlook restore`                           | **Reconstructed** from the archived MIME. The original `Received` chain is not carried over |
+| Snapshots taken before MIME storage                                    | **Reconstructed** from Graph's JSON projection                                    |
 
 ### The archived object is the original message
 
@@ -263,14 +263,14 @@ Each new or changed message is fetched as RFC 5322 MIME with `GET /users/{id}/me
 
 Stored MIME keeps the following:
 
-| Recovered content                          | What it answers                                                                 |
-| ------------------------------------------ | ------------------------------------------------------------------------------- |
-| `Received:` chain                          | Chain of custody: which servers handled the message, in what order              |
-| `Authentication-Results`, `DKIM-Signature` | Whether the message is authentic. DKIM verifies only against the original bytes |
-| `In-Reply-To`, `References`                | Threading in any mail client                                                    |
-| Multipart structure and transfer encodings | Byte-level attestation                                                          |
-| S/MIME signed and encrypted payloads       | Signature verification and decryption                                           |
-| Custom `X-` and mailing-list headers       | Gateway, DLP, and list-server annotations                                       |
+| Recovered content                                           | What it answers                                                                                     |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `Received:` chain                                           | Chain of custody: which servers handled the message, in what order                                  |
+| `Authentication-Results`, `DKIM-Signature`                  | Whether the message is authentic. DKIM verifies only against the original bytes                     |
+| `In-Reply-To`, `References`                                 | Threading in any mail client                                                                        |
+| Multipart structure and transfer encodings                  | Byte-level attestation                                                                              |
+| S/MIME signed and encrypted payloads                        | Signature verification and decryption                                                               |
+| Custom `X-` and mailing-list headers                        | Gateway, DLP, and list-server annotations                                                           |
 
 There is no `--fidelity` flag. MIME is the only format for new snapshots, so the weaker format cannot be selected by accident.
 
@@ -280,11 +280,11 @@ If Graph cannot return MIME for an item, that single message is stored as legacy
 
 On the JSON path, attachments are separate objects, and all three Graph types are captured:
 
-| Graph type            | What Atlas stores                                                                              |
-| --------------------- | ---------------------------------------------------------------------------------------------- |
-| `fileAttachment`      | The file bytes, inline or fetched from `/$value`                                               |
-| `itemAttachment`      | The item's bytes from `/$value`: MIME for a message, iCal for an invite, vCard for a contact   |
-| `referenceAttachment` | The link as a one-line `text/uri-list`. Graph returns `405` for a fetch, so there are no bytes |
+| Graph type            | What Atlas stores                                                                                  |
+| --------------------- | -------------------------------------------------------------------------------------------------- |
+| `fileAttachment`      | The file bytes, inline or fetched from `/$value`                                                   |
+| `itemAttachment`      | The item's bytes from `/$value`: MIME for a message, iCal for an invite, vCard for a contact       |
+| `referenceAttachment` | The link as a one-line `text/uri-list`. Graph returns `405` for a fetch, so there are no bytes     |
 
 The content type comes from the bytes that arrive, not the attachment's name. An invite mislabeled as mail would open as broken mail. A reference attachment points at a file in OneDrive or SharePoint, which those workloads back up separately.
 
@@ -298,17 +298,17 @@ Atlas does not import archived MIME back into Exchange. Graph's MIME import alwa
 
 `atlas outlook restore` parses the MIME and recreates each message through Graph's JSON create path. The result is normal mail with its original timestamps. The restored copy does not carry the original `Received` chain.
 
-| Restored as                                   | Taken from the MIME                                                                                                                                                  |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Subject, body, addresses, `internetMessageId` | The matching headers and parts. Bcc survives on Sent Items copies                                                                                                    |
-| Received and sent times                       | `Date`                                                                                                                                                               |
-| Importance                                    | `Importance`, or `X-Priority` (1 and 2 high, 3 normal, 4 and 5 low)                                                                                                  |
-| Categories                                    | `Keywords`, where Exchange wrote them                                                                                                                                |
-| Threading                                     | `In-Reply-To`, `References`, `Thread-Index`, set as MAPI properties                                                                                                  |
-| Reactions                                     | Not in the MIME. Captured separately at backup and written back as the same MAPI properties                                                                          |
-| Follow-up flag                                | Not in the MIME, which carries at most `X-Message-Flag`. Status (`flagged` or `complete`) with start, due and completed dates, recorded from the delta item's `flag` |
-| Pin                                           | Not in the MIME. The renew times `SystemTime 0x0F02` and `0x0F01`, captured with the reactions and written back unchanged                                            |
-| Attachments, inline or regular                | The body parts. Inline means `Content-Disposition: inline`, or no disposition with a matching `Content-ID`                                                           |
+| Restored as                                        | Taken from the MIME                                                            |
+| -------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Subject, body, addresses, `internetMessageId`      | The matching headers and parts. Bcc survives on Sent Items copies              |
+| Received and sent times                            | `Date`                                                                         |
+| Importance                                         | `Importance`, or `X-Priority` (1 and 2 high, 3 normal, 4 and 5 low)            |
+| Categories                                         | `Keywords`, where Exchange wrote them                                          |
+| Threading                                          | `In-Reply-To`, `References`, `Thread-Index`, set as MAPI properties            |
+| Reactions                                          | Not in the MIME. Captured separately at backup and written back as the same MAPI properties |
+| Follow-up flag                                     | Not in the MIME, which carries at most `X-Message-Flag`. Status (`flagged` or `complete`) with start, due and completed dates, recorded from the delta item's `flag` |
+| Pin                                                | Not in the MIME. The renew times `SystemTime 0x0F02` and `0x0F01`, captured with the reactions and written back unchanged |
+| Attachments, inline or regular                     | The body parts. Inline means `Content-Disposition: inline`, or no disposition with a matching `Content-ID` |
 
 Graph's create call accepts only `x-` headers, so threading uses MAPI properties. Read state is set to read, so a restore does not leave thousands of unread items.
 
@@ -381,7 +381,7 @@ A copy of held mail in your storage lives outside the Microsoft 365 retention ma
 - **The copy outlives the hold.** Releasing a litigation hold does not touch the Atlas snapshot. Delete the copy with `atlas outlook delete` when your retention schedule requires it.
 - **The copy is discoverable.** Content in your bucket can be compelled from your bucket, even after it is gone from the tenant.
 - **Object Lock makes it undeletable on purpose.** A snapshot written with `--retention-days` cannot be deleted before retention expires, including by you. Combining Object Lock with purged mail is a deliberate decision.
-  :::
+:::
 
 Entries are marked in the manifest, so the snapshot itself shows which content came from Recoverable Items. Restore excludes marked entries unless `--include-recoverable-items` is passed to `restore` or `save`. Graph has no path back into Recoverable Items, so restored items appear as normal visible mail. A restored purged message becomes live again.
 
@@ -416,13 +416,13 @@ To protect archive content, move it back to the primary mailbox or adjust the re
 
 A restored file contains the original bytes, verified against the manifest checksum. Other document properties differ:
 
-| Property                            | Captured | Restored                                |
-| ----------------------------------- | -------- | --------------------------------------- |
-| File content                        | Yes      | Yes, byte for byte                      |
-| Original created and modified times | Yes      | Yes, through the `fileSystemInfo` facet |
-| `createdBy` and `lastModifiedBy`    | Yes      | No. Kept for audit only                 |
-| Version authors                     | Yes      | No. Kept for audit only                 |
-| Sharing permissions and links       | No       | No                                      |
+| Property                                 | Captured | Restored                                       |
+| ---------------------------------------- | -------- | ---------------------------------------------- |
+| File content                             | Yes      | Yes, byte for byte                             |
+| Original created and modified times      | Yes      | Yes, through the `fileSystemInfo` facet        |
+| `createdBy` and `lastModifiedBy`         | Yes      | No. Kept for audit only                        |
+| Version authors                          | Yes      | No. Kept for audit only                        |
+| Sharing permissions and links            | No       | No                                             |
 
 Graph exposes two timestamp pairs. The `driveItem` values are set by the service, so a restored file always shows the restore time there. The `fileSystemInfo` facet holds client-reported values and is writable on upload, so Atlas restores through it. Each manifest entry records both pairs. A resumable upload carries the timestamps with the upload. A small `PUT /content` carries only bytes, so Atlas follows it with a best-effort `PATCH`. If that patch fails, the file keeps restore-time timestamps and the run logs the failure.
 
@@ -446,12 +446,12 @@ A contacts restore only creates contacts and folders. It never overwrites or del
 
 An SDK host can pass `onStorageRequest` to receive one event per S3 request. See [Storage request events](/reference/storage-request-events). Hosts often export these to metrics systems that are less protected than the backup bucket, so the event carries only values that identify nothing:
 
-| Contained                                                                           | Never contained                                     |
-| ----------------------------------------------------------------------------------- | --------------------------------------------------- |
-| S3 command and SDK method names                                                     | Object keys, listing prefixes, upload IDs           |
-| `workload` and `keyClass`, from an allowlist over the leading key segments          | Bucket names, which contain the tenant ID           |
-| `target`: `primary` or the host-chosen replication `targetId`                       | Endpoint hostnames, URLs, credentials, signatures   |
-| Timings, attempt count, retry delay, payload byte count, HTTP status, S3 error code | Tenant, mailbox, owner, or site IDs, content hashes |
+| Contained                                                                                  | Never contained                                    |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------- |
+| S3 command and SDK method names                                                            | Object keys, listing prefixes, upload IDs          |
+| `workload` and `keyClass`, from an allowlist over the leading key segments                 | Bucket names, which contain the tenant ID          |
+| `target`: `primary` or the host-chosen replication `targetId`                              | Endpoint hostnames, URLs, credentials, signatures  |
+| Timings, attempt count, retry delay, payload byte count, HTTP status, S3 error code        | Tenant, mailbox, owner, or site IDs, content hashes |
 
 Keys are never classified by pattern-matching their contents. A known leading segment such as `data` or `manifests` maps to a class, and anything else becomes `other`. An unexpected key layout therefore cannot leak an identifier into a label.
 
@@ -466,11 +466,11 @@ ATLAS_S3_ENDPOINT="http://localhost:9000"    # local MinIO only
 
 Atlas accepts plain `http://` endpoints because local MinIO needs them. Content stays protected over HTTP, since every object is AES-256-GCM ciphertext and SigV4 signs requests without sending the secret key. Traffic around the content is visible to anyone on the network path:
 
-| Exposed over plain HTTP   | Why it matters                                                                                                         |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Object keys               | Keys carry Entra object IDs and content hashes                                                                         |
-| Access key ID             | Identifies the account. The secret key is not sent                                                                     |
-| Request pattern           | Which owners are backed up, when, and how much data                                                                    |
+| Exposed over plain HTTP   | Why it matters                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------ |
+| Object keys               | Keys carry Entra object IDs and content hashes                                             |
+| Access key ID             | Identifies the account. The secret key is not sent                                         |
+| Request pattern           | Which owners are backed up, when, and how much data                                        |
 | Unauthenticated responses | A forged `200` to `PutObject` makes a backup report success for an object never stored. Only a later `verify` finds it |
 
 Atlas warns once per run for each plain `http://` endpoint whose host is not loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`). This covers the primary and replication targets. It does not refuse the endpoint, because a self-hosted setup may terminate TLS on a trusted network. Use `https://` for any endpoint on another machine.
@@ -483,13 +483,13 @@ Microsoft Graph is stricter. Atlas refuses to call Graph at all when `NODE_TLS_R
 
 Atlas separates read and write storage access, so an operator who only browses never needs write credentials:
 
-| Command class                                                                                                                                                                                                                      | Required S3 actions                                                                                            | Provisioning |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------ |
-| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `contacts list`, `calendar list`, `sharepoint list`, `teams list-snapshots`, `teams verify`, `teams status`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                | None         |
-| Storage usage: `stats storage`                                                                                                                                                                                                     | Read-only actions plus `s3:ListBucketVersions`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts` | None         |
-| Restore and save: `restore`, `restore-version`, `save`                                                                                                                                                                             | Read-only actions. The writes go to Microsoft 365 or a local file, not to the bucket                           | None         |
-| Delete and replicate: `delete`, `replicate`, `keys rewrap`                                                                                                                                                                         | Read-only actions plus `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`                             | None         |
-| Provisioning: `backup`, `teams backup`, `rehydrate`                                                                                                                                                                                | All of the above plus `s3:CreateBucket` and lifecycle or lock configuration                                    | Yes          |
+| Command class                                                                                                                                                                                                     | Required S3 actions                                                                                                                       | Provisioning |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `contacts list`, `calendar list`, `sharepoint list`, `teams list-snapshots`, `teams verify`, `teams status`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                                           | None         |
+| Storage usage: `stats storage`                                                                                                                                                                                    | Read-only actions plus `s3:ListBucketVersions`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts`                            | None         |
+| Restore and save: `restore`, `restore-version`, `save`                                                                                                                                                            | Read-only actions. The writes go to Microsoft 365 or a local file, not to the bucket                                                      | None         |
+| Delete and replicate: `delete`, `replicate`, `keys rewrap`                                                                                                                                                        | Read-only actions plus `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`                                                        | None         |
+| Provisioning: `backup`, `teams backup`, `rehydrate`                                                                                                                                                               | All of the above plus `s3:CreateBucket` and lifecycle or lock configuration                                                               | Yes          |
 
 Only the provisioning row creates a bucket or writes `_meta/dek.enc`. Every other command fails with `No backups found for tenant <id>` (exit `7`) when the tenant has no bucket, or, for commands that decrypt, no data key. A mistyped tenant ID or profile therefore leaves nothing behind.
 

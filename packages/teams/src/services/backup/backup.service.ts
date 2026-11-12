@@ -1,4 +1,3 @@
-import { describe_failed_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { run_with_abort_signal } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import {
@@ -8,10 +7,8 @@ import {
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { inject, injectable } from 'inversify';
 import type {
-  FailedItemLedger,
   TeamsBackupOptions,
   TeamsBackupResult,
-  TeamsBackupSummary,
   TeamsBackupUseCase,
   TeamsChannelCheckpointRepository,
   TeamsChannelCursorRepository,
@@ -29,25 +26,25 @@ import {
   TEAMS_CONNECTOR_TOKEN,
   TEAMS_INDEX_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
+  attach_unreadable_keys,
 } from '@wisecom/atlas-types';
 import { create_backup_counters, type BackupRunScope } from '@/services/backup/backup-run-scope';
 import { build_channel_run_reports } from '@/services/backup/backup-run-report';
-import type { ChannelBackupOutput } from '@/services/backup/channel-backup-processor';
+import {
+  empty_result,
+  pending_failed_roots,
+  summarize_run,
+  type RunReport,
+} from '@/services/backup/backup-run-summary';
 import {
   merge_channel_entries,
   split_owned_channels,
 } from '@/services/backup/channel-entry-merger';
-import {
-  process_channels,
-  select_channels,
-  type ChannelRunState,
-} from '@/services/backup/channel-run-loop';
-import { load_team_baseline, type TeamsBaseline } from '@/services/backup/team-baseline-loader';
+import { process_channels, select_channels } from '@/services/backup/channel-run-loop';
+import { load_team_baseline } from '@/services/backup/team-baseline-loader';
 import {
   persist_team_snapshot,
   save_channel_shards,
-  type ChannelSave,
-  type SnapshotPersistResult,
 } from '@/services/backup/team-snapshot-persister';
 import { resolve_channel_concurrency } from '@/services/backup/resolve-channel-concurrency';
 import {
@@ -63,10 +60,9 @@ interface RunSettings {
   readonly concurrency: number;
   /** The tenant context without the run's Object Lock, for checkpoint writes. */
   readonly checkpoint_ctx?: TenantContext | undefined;
+  /** Damaged newer indexes the baseline skipped, filled once it loads, for the failure path. */
+  readonly unreadable_keys: string[];
 }
-
-/** Summary fields the run measures itself: wall-clock time, channel outcomes, request counts. */
-type RunReport = Pick<TeamsBackupSummary, 'elapsed_ms' | 'channels' | 'requests'>;
 
 @injectable()
 export class TeamsBackupService implements TeamsBackupUseCase {
@@ -84,7 +80,9 @@ export class TeamsBackupService implements TeamsBackupUseCase {
 
   /**
    * Backs up changed channel messages of a team and records an index of the result. A channel that
-   * fails keeps its previous entry and cursor, and the run is reported as unhealthy.
+   * fails keeps its previous entry and cursor, and the run is reported as unhealthy. A run that
+   * throws after loading its baseline rethrows the same error, carrying the damaged index keys it
+   * found (`attached_unreadable_keys`), so the caller can still name them (issue #694).
    */
   async backup_team(
     tenant_id: string,
@@ -95,6 +93,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     const settings: RunSettings = {
       stats: new TeamsRequestStats(),
       concurrency: resolve_channel_concurrency(options.concurrency),
+      unreadable_keys: [],
     };
     if (begin_operation_progress(options, 'backup', 'teams')) {
       finish_operation_progress(options, 'backup', 'teams', 0, 0);
@@ -112,6 +111,8 @@ export class TeamsBackupService implements TeamsBackupUseCase {
           }),
         ),
       );
+    } catch (err) {
+      throw attach_unreadable_keys(err, settings.unreadable_keys);
     } finally {
       tenant_ctx.destroy();
     }
@@ -137,6 +138,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
       team_id,
       owned.map((channel) => channel.id),
     );
+    append_all(settings.unreadable_keys, baseline.unreadable_keys);
     emit_backup_progress(options, 'processing', 0);
     const roots_applied = new Map<string, number>();
     const scope: BackupRunScope = {
@@ -164,7 +166,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
       concurrency: settings.concurrency,
     });
     state.interrupted = state.interrupted || scope.should_interrupt();
-    apply_baseline_findings(state, baseline);
+    append_all(state.warnings, baseline.warnings);
     append_all(state.errors, missing_channel_errors(options.channel_id, all_channels, team_id));
     const saves = await save_channel_shards(ctx, this._shards, state.results);
     const channels = merge_channel_entries({
@@ -212,6 +214,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
         roots_applied,
       ),
       requests: settings.stats.snapshot(elapsed_ms),
+      ...(baseline.unreadable_keys.length > 0 ? { unreadable_keys: baseline.unreadable_keys } : {}),
     };
     return {
       team_id,
@@ -237,85 +240,6 @@ function emit_backup_progress(
   processed: number,
 ): void {
   emit_operation_progress(options, { operation: 'backup', workload: 'teams', phase, processed });
-}
-
-/** Adds the baseline's load errors and warnings to the run state. */
-function apply_baseline_findings(state: ChannelRunState, baseline: TeamsBaseline): void {
-  append_all(state.errors, baseline.errors);
-  append_all(state.warnings, baseline.warnings);
-}
-
-/**
- * The failed roots the team still owes. A channel this run backed up reports its own ledger. Any
- * other channel keeps the failed roots stored in its cursor, so a channel the run did not reach
- * still counts against health.
- */
-function pending_failed_roots(
-  channels: TeamsGraphResource[],
-  results: ReadonlyMap<string, ChannelBackupOutput>,
-  baseline: TeamsBaseline,
-): FailedItemLedger {
-  const merged: FailedItemLedger = {};
-  for (const channel of channels) {
-    const ledger =
-      results.get(channel.id)?.failed_roots ??
-      baseline.channels.get(channel.id)?.failed_roots ??
-      {};
-    for (const [root_id, record] of Object.entries(ledger)) {
-      merged[`${channel.id}/${root_id}`] = record;
-    }
-  }
-  return merged;
-}
-
-/** The result of a run that another run already holds. It backed up nothing and is interrupted. */
-function empty_result(team_id: string): TeamsBackupResult {
-  return {
-    team_id,
-    snapshot: undefined,
-    interrupted: true,
-    summary: {
-      channels_scanned: 0,
-      ...create_backup_counters(),
-      cursor_updated: false,
-      snapshot_created: false,
-      errors: [],
-      warnings: [],
-      healthy: false,
-      elapsed_ms: 0,
-      channels: [],
-      requests: new TeamsRequestStats().snapshot(0),
-    },
-  };
-}
-
-/**
- * Builds the run summary from the channel loop state and the index step's result. A run is healthy
- * only when it finished, failed no channel, and left no failed root behind. Only a healthy run
- * reports why it wrote no index.
- */
-function summarize_run(
-  scope: BackupRunScope,
-  state: ChannelRunState,
-  failed_roots: FailedItemLedger,
-  ownership_warnings: string[],
-  persisted: SnapshotPersistResult,
-  saves: readonly ChannelSave[],
-  report: RunReport,
-): TeamsBackupSummary {
-  const healthy =
-    !state.interrupted && state.errors.length === 0 && Object.keys(failed_roots).length === 0;
-  return {
-    channels_scanned: state.attempted,
-    ...scope.counters,
-    cursor_updated: saves.length > 0,
-    snapshot_created: persisted.index !== undefined,
-    no_snapshot_reason: healthy ? persisted.no_snapshot_reason : undefined,
-    errors: state.errors,
-    warnings: [...ownership_warnings, ...state.warnings, ...describe_failed_items(failed_roots)],
-    healthy,
-    ...report,
-  };
 }
 
 /** Reports a requested channel id that the team does not list. */

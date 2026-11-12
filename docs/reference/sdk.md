@@ -231,28 +231,30 @@ Method names mirror the CLI: `atlas outlook backup` maps to `atlas.outlook.backu
 
 ### Outlook
 
-| Method                                | CLI equivalent             | Description                                                                                                       |
-| ------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `backup(mailboxId, options?)`         | `atlas outlook backup -m`  | Back up one mailbox                                                                                               |
-| `verify(snapshotId, options?)`        | `atlas outlook verify`     | Verify the restorable state, including attachments and the delta chain. `{ fast: true }` checks existence only    |
-| `restore(snapshotId, options?)`       | `atlas outlook restore -s` | Restore from a snapshot                                                                                           |
-| `restoreMailbox(mailboxId, options?)` | `atlas outlook restore -m` | Restore all snapshots for a mailbox                                                                               |
-| `save(snapshotId, options?)`          | `atlas outlook save -s`    | Export a snapshot as an EML zip                                                                                   |
-| `saveMailbox(mailboxId, options?)`    | `atlas outlook save -m`    | Export all snapshots as an EML zip                                                                                |
-| `listMailboxes()`                     | `atlas outlook list`       | List backed-up mailboxes                                                                                          |
-| `listSnapshots(mailboxId)`            | _(none)_                   | List a mailbox's snapshot manifests, entries included. Decrypts every manifest                                    |
+| Method                                | CLI equivalent             | Description                                                                                                    |
+| ------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `backup(mailboxId, options?)`         | `atlas outlook backup -m`  | Back up one mailbox                                                                                            |
+| `verify(snapshotId, options?)`        | `atlas outlook verify`     | Verify the restorable state, including attachments and the delta chain. `{ fast: true }` checks existence only |
+| `restore(snapshotId, options?)`       | `atlas outlook restore -s` | Restore from a snapshot                                                                                        |
+| `restoreMailbox(mailboxId, options?)` | `atlas outlook restore -m` | Restore all snapshots for a mailbox                                                                            |
+| `save(snapshotId, options?)`          | `atlas outlook save -s`    | Export a snapshot as an EML zip                                                                                |
+| `saveMailbox(mailboxId, options?)`    | `atlas outlook save -m`    | Export all snapshots as an EML zip                                                                             |
+| `listMailboxes()`                     | `atlas outlook list`       | List backed-up mailboxes                                                                                       |
+| `listSnapshots(mailboxId)`            | _(none)_                   | List a mailbox's snapshot manifests, entries included. Decrypts every manifest                                 |
 | `listSnapshotSummaries(mailboxId)`    | `atlas outlook list -m`    | List a mailbox's snapshots from its summary index, without entries. See [Snapshot summaries](#snapshot-summaries) |
-| `getSnapshotDetail(snapshotId)`       | _(none)_                   | Read one snapshot manifest, including folders and entries                                                         |
-| `readMessage(snapshotId, messageRef)` | `atlas outlook read`       | Read one message                                                                                                  |
-| `checkMailboxStatus(mailboxId)`       | `atlas outlook status`     | Delta peek for pending changes. Does not advance the stored cursor. See [status results](#status-results)         |
-| `listAvailableMailboxes(options?)`    | _(discovery)_              | List tenant mailboxes through Graph                                                                               |
-| `deleteMailboxData(mailboxId)`        | `atlas outlook delete -m`  | Delete all data for a mailbox                                                                                     |
-| `deleteSnapshot(snapshotId)`          | `atlas outlook delete -s`  | Delete one snapshot manifest                                                                                      |
-| `purgeTenantData()`                   | `atlas delete --purge`     | Delete the entire tenant bucket, all workloads                                                                    |
-| `getMailboxStats(mailboxId)`          | `atlas stats -m`           | Mailbox-level statistics                                                                                          |
-| `quarantine(storageKey)`              | `atlas outlook quarantine` | Move an unreadable manifest aside. See [Damaged stored objects](#damaged-stored-objects)                          |
+| `getSnapshotDetail(snapshotId)`       | _(none)_                   | Read one snapshot manifest, including folders and entries                                                      |
+| `readMessage(snapshotId, messageRef)` | `atlas outlook read`       | Read one message                                                                                               |
+| `checkMailboxStatus(mailboxId)`       | `atlas outlook status`     | Delta peek for pending changes. Does not advance the stored cursor. See [status results](#status-results)      |
+| `listAvailableMailboxes(options?)`    | _(discovery)_              | List tenant mailboxes through Graph                                                                            |
+| `deleteMailboxData(mailboxId)`        | `atlas outlook delete -m`  | Delete all data for a mailbox                                                                                  |
+| `deleteSnapshot(snapshotId)`          | `atlas outlook delete -s`  | Delete the mailbox's newest snapshot manifest. Rejects any other with `SnapshotNotNewestError`                  |
+| `purgeTenantData()`                   | `atlas delete --purge`     | Delete the entire tenant bucket, all workloads                                                                 |
+| `getMailboxStats(mailboxId)`          | `atlas stats -m`           | Mailbox-level statistics                                                                                       |
+| `quarantine(storageKey)`              | `atlas outlook quarantine` | Move an unreadable manifest aside. See [Damaged stored objects](#damaged-stored-objects)                       |
 
 `restore`, `save`, and `verify` read a snapshot together with every older snapshot of the mailbox. `restoreMailbox` and `saveMailbox` read every snapshot in the date range. A message that a backup recorded as deleted, in `removed_object_ids`, is left out of every older snapshot in that set. Runs that were interrupted, filtered by folder, excluded Junk Email, or hit a folder error record no removals. See [Delta sync](/operations/delta-sync#deleted-and-moved-messages-outlook).
+
+`deleteSnapshot` rejects with `SnapshotNotNewestError` (`ATLAS_SNAPSHOT_NOT_NEWEST`) when newer snapshots of the mailbox exist, because they are built on the one named and would lose the messages it recorded. `err.snapshot_id` names the refused snapshot and `err.newer_snapshot_ids` the ones to delete first. Nothing is deleted. When a manifest of the mailbox is unreadable it rejects with `UnreadableObjectsError` instead, naming the manifest to quarantine. A successful `deleteSnapshot` also removes the delta cursor, and `deleteMailboxData` removes the cursor and the deleted snapshots' replication records, so the next backup does not resume past the deleted data. The contacts and calendar `deleteSnapshot` remove that mailbox's cursor too.
 
 `MailboxSummary.totalObjects` from `listMailboxes()` counts the messages in the latest snapshot's chain, after those removals. `Manifest.totalObjects` is a high-water mark, the largest message count any single run of the mailbox stored, and never decreases. The stale-delta safeguard reads it to tell an unchanged mailbox from one never backed up.
 
@@ -282,6 +284,7 @@ const newest = snapshots[0]; // { snapshotId, createdAt, manifestKey, entryCount
 | `siteUrl`, `siteDisplayName`     | SharePoint           | Site labels recorded at backup time                               |
 
 A summary row stands in for its manifest without decrypting it, so a manifest damaged after its row was written is still listed. A manifest that has no row and cannot be decrypted is reported through the partial result described in [Damaged stored objects](#damaged-stored-objects). Run `verify` to check manifests at rest.
+
 
 ### Status results
 
@@ -316,11 +319,12 @@ See [OneDrive backup](/onedrive-backup) and [SharePoint backup](/sharepoint-back
 | -------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `listTeams()`                          | `atlas teams list-teams`                       | Teams the application can read, as Graph returns them                                                                                                                                 |
 | `backup(teamId, options?)`             | `atlas teams backup --team <id>`               | Back up one team's channels. `options.channelId` limits the run to one channel. `options.concurrency` sets the channels backed up at once, 1 to 16, default 4                         |
-| `listSnapshots(teamId)`                | `atlas teams list-snapshots --team <id>`       | Snapshot manifests for one team, as `{ manifests, unreadableKeys }`                                                                                                                   |
+| `listSnapshots(teamId)`                | `atlas teams list-snapshots --team <id>`       | Snapshot indexes for one team, as `{ indexes, unreadableKeys, unsupportedKeys }`                                                                                                      |
 | `verify(teamId, snapshotId, options?)` | `atlas teams verify --team <id> -s <snapshot>` | Check each channel shard and every blob it references: decrypt, then compare the blob's SHA-256. `options.fast` checks existence only                                                 |
 | `save(teamId, options)`                | `atlas teams save --team <id> -s <snapshot>`   | Export one snapshot as a zip archive. `options.snapshotId` selects it, `options.channelId` limits it to one channel, `options.output` takes a writable stream instead of `outputPath` |
 | `status()`                             | `atlas teams status`                           | Newest snapshot for each team in the tenant: creation time and ID                                                                                                                     |
 | `delete(teamId, snapshotId?)`          | `atlas teams delete --team <id>`               | Delete all backed-up data for a team, or only one snapshot's index                                                                                                                    |
+| `quarantine(storageKey)`               | `atlas teams quarantine --key <key>`           | Move an unreadable snapshot index aside. See [Damaged stored objects](#damaged-stored-objects)                                                                                        |
 
 ```typescript
 const run = await atlas.teams.backup(teamId);
@@ -332,7 +336,7 @@ if (run.snapshot) {
 }
 ```
 
-`run.summary` reports the run's counters, camelCased: `threadsChanged`, `messagesStored`, `messagesDeduplicated`, `hostedContentStored`, and `threadsDeleted`. It also reports `elapsedMs`, a `channels` entry per channel (`channelId`, `outcome`, `readMode`, `rootsApplied`, `resumedFromCheckpoint`, `elapsedMs`), and `requests.messages` and `requests.default` with `requests`, `throttled`, and `achievedRps`. Each `processing` progress event of a Teams backup carries `etaMs`, the estimated time left. `status()` returns `failedRootCount` and `pendingRecheckCount` for each team, the values behind the `Failed roots` and `Pending rechecks` columns of `atlas teams status`. See [Teams backup](../teams-backup.md#backup) for what each counter means and [Pacing](../teams-backup.md#pacing) for running many teams.
+`run.summary` reports the run's counters, camelCased: `threadsChanged`, `messagesStored`, `messagesDeduplicated`, `hostedContentStored`, and `threadsDeleted`. It also reports `elapsedMs`, a `channels` entry per channel (`channelId`, `outcome`, `readMode`, `rootsApplied`, `resumedFromCheckpoint`, `elapsedMs`), and `requests.messages` and `requests.default` with `requests`, `throttled`, and `achievedRps`. Each `processing` progress event of a Teams backup carries `etaMs`, the estimated time left. `status()` returns `failedRootCount` and `pendingRecheckCount` for each team, the values behind the `Failed roots` and `Pending rechecks` columns of `atlas teams status`. `summary.unreadableKeys` names snapshot indexes newer than the run's baseline that could not be read; the run still finishes and `summary.healthy` reflects channel failures only. See [Teams backup](../teams-backup.md#backup) for what each counter means and [Pacing](../teams-backup.md#pacing) for running many teams.
 
 ### Contacts
 
@@ -1287,20 +1291,21 @@ for (const key of status.unreadableKeys ?? []) {
 }
 ```
 
-A snapshot manifest or a OneDrive or SharePoint version index can exist and still fail to decrypt, parse, or name the key it sits under. Atlas reports each one by storage key with code `ATLAS_CONTENT_UNREADABLE`, and never as an empty result:
+A snapshot manifest, a Teams snapshot index, or a OneDrive or SharePoint version index can exist and still fail to decrypt, parse, or name the key it sits under. Atlas reports each one by storage key with code `ATLAS_CONTENT_UNREADABLE`, and never as an empty result:
 
-| Call                                                 | What it returns                                                                                                                                                                              |
-| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `listSnapshots`, `listMailboxes`, `listFileVersions` | Rejects with `UnreadableObjectsError`. `unreadable_keys` names the damaged objects. `partial_result` holds everything that could be read, in the camelCase shape the call returns on success |
-| `checkStatus`, `checkMailboxStatus`                  | Resolves. `unreadableKeys` names the damaged manifests, and `lastSnapshotId` is the newest readable one                                                                                      |
-| `backup`                                             | Resolves. `summary.unreadableKeys` names the damaged manifests the run skipped                                                                                                               |
-| OneDrive and SharePoint `restore`, `save`, `verify`  | Resolve with `unreadableKeys` when the damaged manifest is newer than the target. Reject with `UnreadableObjectsError` when the target's chain may need it                                   |
-| Outlook `restore`, `save`, `verify`, `readMessage`   | Reject with `UnreadableObjectsError` while any manifest of the mailbox is damaged                                                                                                            |
-| `restoreVersion`                                     | Rejects with `UnreadableObjectsError` while any version index object of the owner or site is damaged                                                                                         |
+| Call                                                 | What it returns                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `listSnapshots`, `listMailboxes`, `listFileVersions` | Rejects with `UnreadableObjectsError`. `unreadable_keys` names the damaged objects. `partial_result` holds everything that could be read, in the camelCase shape the call returns on success                                                                                           |
+| `checkStatus`, `checkMailboxStatus`                  | Resolves. `unreadableKeys` names the damaged manifests, and `lastSnapshotId` is the newest readable one                                                                                                                                                                                |
+| `backup`                                             | Resolves. `summary.unreadableKeys` names the damaged manifests the run skipped                                                                                                                                                                                                         |
+| OneDrive and SharePoint `restore`, `save`, `verify`  | Resolve with `unreadableKeys` when the damaged manifest is newer than the target. Reject with `UnreadableObjectsError` when the target's chain may need it                                                                                                                             |
+| Outlook `restore`, `save`, `verify`, `readMessage`   | Reject with `UnreadableObjectsError` while any manifest of the mailbox is damaged                                                                                                                                                                                                      |
+| `restoreVersion`                                     | Rejects with `UnreadableObjectsError` while any version index object of the owner or site is damaged                                                                                                                                                                                   |
+| Teams `listSnapshots`, `status`                      | Resolve. `listSnapshots` names the damaged snapshot indexes in `unreadableKeys`. `status` names damaged indexes and channel cursors in `unreadableKeys`, and the indexes alone in `unreadableIndexKeys`; only those need `quarantine`, since the next backup rewrites a damaged cursor |
 
 The listings reject rather than resolve because their result is an array, which has nowhere to carry the keys without a breaking change. The error's own fields are snake_case, like `retry_after_ms` on `ThrottledError`.
 
-`quarantine(storageKey)` exists on `atlas.outlook`, `atlas.onedrive`, `atlas.sharepoint`, `atlas.contacts`, and `atlas.calendar`. It moves the object to `_quarantine/{storageKey}` and resolves with `{ storageKey, quarantineKey, kind, reason }`, where `kind` is `manifest` or `version_index`. It rejects with `NotFoundError` when nothing is stored at the key or the object reads cleanly, and with `ObjectLockRetainedError` when retention refuses the removal, in which case the quarantined copy stays next to the original. See [Damaged manifests and version indexes](../troubleshooting.md#damaged-manifests-and-version-indexes) for why some restores refuse and how to recover.
+`quarantine(storageKey)` exists on `atlas.outlook`, `atlas.onedrive`, `atlas.sharepoint`, `atlas.contacts`, `atlas.calendar`, and `atlas.teams`. Teams accepts snapshot index keys only (`teams/manifests/{team_id}/{snapshot_id}.json`). It moves the object to `_quarantine/{storageKey}` and resolves with `{ storageKey, quarantineKey, kind, reason }`, where `kind` is `manifest` or `version_index`. It rejects with `NotFoundError` when nothing is stored at the key or the object reads cleanly, and with `ObjectLockRetainedError` when retention refuses the removal, in which case the quarantined copy stays next to the original. See [Damaged manifests and version indexes](../troubleshooting.md#damaged-manifests-and-version-indexes) for why some restores refuse and how to recover.
 
 ## Errors
 
@@ -1342,6 +1347,7 @@ try {
 | `UnreadableObjectsError`            | `ATLAS_CONTENT_UNREADABLE`   | Named manifests or version indexes could not be read. See `unreadable_keys` and [Damaged stored objects](#damaged-stored-objects)         |
 | `UnsupportedFormatVersionError`     | `ATLAS_FORMAT_UNSUPPORTED`   | Stored Teams content was written by a newer Atlas format. Upgrade Atlas. Not exported                                                     |
 | `DekOverwriteRefusedError`          | `ATLAS_KEY_CONFLICT`         | Rehydration refused to replace a different data key on a primary that holds other objects. Retrying cannot succeed. Not exported          |
+| `SnapshotNotNewestError`            | `ATLAS_SNAPSHOT_NOT_NEWEST`  | Outlook `deleteSnapshot` refused a snapshot that newer snapshots are built on. See `snapshot_id` and `newer_snapshot_ids`                 |
 
 Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK error is available for logging. Branching does not depend on it.
 
@@ -1364,7 +1370,7 @@ Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK err
 - **Shared enums and requests:** `ObjectLockMode`, `ObjectLockRequest`, `BackupSyncMode`, `RehydrationWorkload`, `GraphServicePool`
 - **Graph cost types:** `OperationCost`, `ServicePoolCost`, `GraphServiceLimits`
 - **Quarantine:** `QuarantineResult`
-- **Errors:** `AtlasError`, `AtlasErrorCode`, `AuthError`, `MailboxNotLicensedError`, `NotFoundError`, `ThrottledError`, `WrongPassphraseError`, `ObjectLockRetainedError`, `StorageError`, `ConfigError`, `UnreadableObjectsError`, `ObjectLockVersioningDisabledError`, `ObjectLockUnsupportedError`, `ObjectLockModeRejectedError`, `PreconditionFailedError`
+- **Errors:** `AtlasError`, `AtlasErrorCode`, `AuthError`, `MailboxNotLicensedError`, `NotFoundError`, `ThrottledError`, `WrongPassphraseError`, `ObjectLockRetainedError`, `StorageError`, `ConfigError`, `UnreadableObjectsError`, `SnapshotNotNewestError`, `ObjectLockVersioningDisabledError`, `ObjectLockUnsupportedError`, `ObjectLockModeRejectedError`, `PreconditionFailedError`
 
 ## See also
 

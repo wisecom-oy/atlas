@@ -7,6 +7,7 @@ import type {
   TeamsStatusUseCase,
   TeamsDeletionUseCase,
   TeamsSaveUseCase,
+  QuarantineUseCase,
 } from '@wisecom/atlas-types';
 import {
   TEAMS_BACKUP_USE_CASE_TOKEN,
@@ -15,6 +16,7 @@ import {
   TEAMS_STATUS_USE_CASE_TOKEN,
   TEAMS_DELETION_USE_CASE_TOKEN,
   TEAMS_SAVE_USE_CASE_TOKEN,
+  TEAMS_QUARANTINE_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
 import { camelize } from '@wisecom/atlas-types/public/case-convert';
 import { run_with_cost_tracking } from '@wisecom/atlas-core/services/shared/graph-request-context';
@@ -28,6 +30,7 @@ export function create_teams_api(tenant_id: string, container: Container): Teams
   const status = container.get<TeamsStatusUseCase>(TEAMS_STATUS_USE_CASE_TOKEN);
   const deletion = container.get<TeamsDeletionUseCase>(TEAMS_DELETION_USE_CASE_TOKEN);
   const save = container.get<TeamsSaveUseCase>(TEAMS_SAVE_USE_CASE_TOKEN);
+  const quarantine = container.get<QuarantineUseCase>(TEAMS_QUARANTINE_USE_CASE_TOKEN);
 
   return {
     async backup(team_id, options) {
@@ -71,6 +74,9 @@ export function create_teams_api(tenant_id: string, container: Container): Teams
           adapt_required_operation_options(options, 'teams.save()'),
         ),
       );
+    },
+    async quarantine(storage_key) {
+      return camelize(await quarantine.quarantine_unreadable_object(tenant_id, storage_key));
     },
   };
 }

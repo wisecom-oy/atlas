@@ -2,6 +2,7 @@ import {
   delete_scopes,
   delete_snapshot_manifest,
 } from '@wisecom/atlas-core/services/deletion/shared/prefix-deleter';
+import { quarantined_copies_of } from '@wisecom/atlas-core/services/quarantine/stored-object-quarantine';
 import type { DeletionResult } from '@wisecom/atlas-types';
 import type { TeamsDeletionUseCase, TenantContextFactory } from '@wisecom/atlas-types';
 import { TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
@@ -24,7 +25,8 @@ export class TeamsDeletionService implements TeamsDeletionUseCase {
   ) {}
 
   /**
-   * Deletes every blob, index, shard, and channel cursor of a team. Objects that Object Lock
+   * Deletes every blob, index, shard, and channel cursor of a team, and the quarantined copies of
+   * its indexes, which still list its channels (issue #694). Objects that Object Lock
    * retains or that fail to delete are counted in the result; callers report them, as for every
    * other workload.
    */
@@ -39,6 +41,7 @@ export class TeamsDeletionService implements TeamsDeletionUseCase {
       TEAMS_KEYS.manifest_prefix_for(normalized_team_id),
       teams_shard_prefix_for(normalized_team_id),
       TEAMS_KEYS.data_prefix_for(normalized_team_id),
+      ...quarantined_copies_of([TEAMS_KEYS.manifest_prefix_for(normalized_team_id)]),
     ]);
   }
 

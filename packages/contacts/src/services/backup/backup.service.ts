@@ -5,6 +5,7 @@ import {
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
+import { cursor_describes_head } from '@wisecom/atlas-core/services/shared/delta-cursor-binding';
 import { inject, injectable } from 'inversify';
 import type {
   ContactFolderRecord,
@@ -165,10 +166,12 @@ export class ContactsBackupService implements ContactsBackupUseCase {
         : undefined;
     if (snapshot !== undefined) await this._manifests.save(ctx, snapshot);
     if (writable) {
+      const head_snapshot_id = snapshot?.snapshot_id ?? previous?.snapshot_id;
       const cursor: ContactsDeltaCursor = {
         mailbox_id,
         delta_link_by_folder: loop.delta_link_by_folder,
         updated_at: created_at.toISOString(),
+        ...(head_snapshot_id !== undefined ? { snapshot_id: head_snapshot_id } : {}),
       };
       await this._cursors.save(ctx, cursor);
     }
@@ -212,8 +215,10 @@ interface PersistInput {
 }
 
 /**
- * Decides which previous state a run may build on. Links are only trusted when the previous
- * manifest exists, since the links describe the state that manifest captured. A damaged newer
+ * Decides which previous state a run may build on. Links are only trusted while the cursor still
+ * describes the previous manifest, since the links describe the state that manifest captured. A
+ * cursor bound to a snapshot that was since deleted would skip the changes only that snapshot
+ * recorded (issue #704). A damaged newer
  * manifest counts as untrusted too: the cursor's links describe the state it captured, which is
  * unreadable, so building on an older manifest with those links would drop every change between
  * the two. The run reads every folder in full instead and writes a fresh snapshot (issue #631).
@@ -223,7 +228,8 @@ function loop_state(
   cursor: ContactsDeltaCursor | undefined,
   read_in_full: boolean,
 ): FolderLoopState {
-  const trusted = previous !== undefined && !read_in_full;
+  const trusted =
+    !read_in_full && cursor_describes_head(cursor?.snapshot_id, previous?.snapshot_id);
   const links = trusted ? (cursor?.delta_link_by_folder ?? {}) : {};
   return {
     previous_entries: previous?.entries ?? [],

@@ -47,7 +47,7 @@ function make_inputs(
   options: ChannelRunInputs['options'] = {},
 ): ChannelRunInputs {
   return {
-    baseline: { previous: undefined, channels: new Map(), errors: [], warnings: [] },
+    baseline: { previous: undefined, channels: new Map(), unreadable_keys: [], warnings: [] },
     shards: { load: vi.fn(), save: vi.fn() } as unknown as TeamsChannelShardRepository,
     options,
     concurrency,
