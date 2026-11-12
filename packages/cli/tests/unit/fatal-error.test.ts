@@ -5,10 +5,13 @@ import {
   MailboxNotLicensedError,
   NotFoundError,
   ObjectLockRetainedError,
+  RefusedWriteError,
   SnapshotNotNewestError,
   StorageError,
+  StoredObjectConflictError,
   ThrottledError,
   UnreadableContentError,
+  UnreadableObjectsError,
   WrongPassphraseError,
 } from '@wisecom/atlas-types';
 import { DekOverwriteRefusedError } from '@wisecom/atlas-core/services/replication/dek-rehydration-validator';
@@ -150,6 +153,30 @@ describe('fatal CLI errors', () => {
     const output = diagnostics.join('\n');
     expect(output).toContain('Atlas code: ATLAS_SNAPSHOT_NOT_NEWEST');
     expect(output).toContain('Delete the newer snapshots first');
+  });
+
+  it('reports a refused metadata write as a general failure, with no quarantine hint', () => {
+    // The reader's rejection is the cause, but nothing was stored: there is no object to move.
+    const key = 'contacts/manifests/owner-1/ct-snap-1000-abc.json';
+    const reader_rejection = new UnreadableObjectsError('The contacts manifest is not a manifest', [
+      key,
+    ]);
+    handle_fatal_error(
+      new RefusedWriteError(key, 'contacts manifest', 'its reader would reject it', {
+        cause: reader_rejection,
+      }),
+    );
+    expect(process.exitCode).toBe(1);
+    const output = diagnostics.join('\n');
+    expect(output).toContain('Atlas code: ATLAS_WRITE_REFUSED');
+    expect(output).toContain('Nothing was written');
+    expect(output).not.toContain('quarantine');
+  });
+
+  it('reports a create-only conflict as a storage failure', () => {
+    handle_fatal_error(new StoredObjectConflictError('manifests/owner-1/snap-1.json', 'manifest'));
+    expect(process.exitCode).toBe(1);
+    expect(diagnostics.join('\n')).toContain('Atlas code: ATLAS_STORAGE_FAILURE');
   });
 
   it('classifies AWS server errors as retryable without treating every 5xx as transient', () => {

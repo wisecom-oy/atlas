@@ -5,6 +5,7 @@ import {
   UnsupportedFormatVersionError,
 } from '@wisecom/atlas-types';
 import { is_absent_object_error } from '@/services/shared/absent-object';
+import type { StoredJsonReaderCheck } from '@/services/shared/stored-json-writer';
 
 /** A decrypted state object and the ETag it was read at, for a compare-and-swap write. */
 export interface EncryptedStateSnapshot<T> {
@@ -41,10 +42,25 @@ export async function load_encrypted_json_bound_to_key<T>(
   key_of: (value: T) => string,
 ): Promise<T | undefined> {
   const value = await load_encrypted_json<T>(ctx, key);
-  if (value === undefined || body_names_key(value, key, key_of)) return value;
+  if (value !== undefined) require_state_names_key(value, key, key_of);
+  return value;
+}
+
+/** Raises `UnreadableContentError` unless `key_of` rebuilds `key` from the parsed state body. */
+export function require_state_names_key<T>(
+  value: T,
+  key: string,
+  key_of: (value: T) => string,
+): void {
+  if (body_names_key(value, key, key_of)) return;
   throw new UnreadableContentError(
     `The state object at ${key} belongs to a different owner than its key names`,
   );
+}
+
+/** The check {@link load_encrypted_json_bound_to_key} applies, for the writer of the same object. */
+export function state_names_key_check<T>(key_of: (value: T) => string): StoredJsonReaderCheck {
+  return (parsed, key) => require_state_names_key(parsed as T, key, key_of);
 }
 
 /** Whether `key_of` rebuilds `key` from the body; a body it cannot read names no key. */

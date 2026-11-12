@@ -1322,6 +1322,8 @@ try {
 | `ObjectLockUnsupportedError`        | `ATLAS_CONFIG_INVALID`       | Immutability requested, but the bucket has no Object Lock                                                                                 |
 | `ObjectLockModeRejectedError`       | `ATLAS_CONFIG_INVALID`       | The backend rejected the requested retention mode                                                                                         |
 | `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | A conditional write lost a race (HTTP 412)                                                                                                |
+| `StoredObjectConflictError`         | `ATLAS_STORAGE_FAILURE`      | A create-only manifest or index write found a different object under its key and left it in place. Its `key` is set. A new run uses a new snapshot ID |
+| `RefusedWriteError`                 | `ATLAS_WRITE_REFUSED`        | Atlas refused to store a manifest, index, or cursor it built: too large for one JSON document, rejected by its own reader's checks, or not decrypting back. Nothing was written. Its `key` is set. See [Refused and unconfirmed metadata writes](/troubleshooting#refused-and-unconfirmed-metadata-writes) |
 | `UnreadableContentError`            | `ATLAS_CONTENT_UNREADABLE`   | Stored data or MIME content could not be decoded. Not exported                                                                            |
 | `UnreadableObjectsError`            | `ATLAS_CONTENT_UNREADABLE`   | Named manifests or version indexes could not be read. See `unreadable_keys` and [Damaged stored objects](#damaged-stored-objects)         |
 | `UnsupportedFormatVersionError`     | `ATLAS_FORMAT_UNSUPPORTED`   | Stored Teams content was written by a newer Atlas format. Upgrade Atlas. Not exported                                                     |
@@ -1349,7 +1351,7 @@ Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK err
 - **Shared enums and requests:** `ObjectLockMode`, `ObjectLockRequest`, `BackupSyncMode`, `RehydrationWorkload`, `GraphServicePool`
 - **Graph cost types:** `OperationCost`, `ServicePoolCost`, `GraphServiceLimits`
 - **Quarantine:** `QuarantineResult`
-- **Errors:** `AtlasError`, `AtlasErrorCode`, `AuthError`, `MailboxNotLicensedError`, `NotFoundError`, `ThrottledError`, `WrongPassphraseError`, `ObjectLockRetainedError`, `StorageError`, `ConfigError`, `UnreadableObjectsError`, `SnapshotNotNewestError`, `ObjectLockVersioningDisabledError`, `ObjectLockUnsupportedError`, `ObjectLockModeRejectedError`, `PreconditionFailedError`
+- **Errors:** `AtlasError`, `AtlasErrorCode`, `AuthError`, `MailboxNotLicensedError`, `NotFoundError`, `ThrottledError`, `WrongPassphraseError`, `ObjectLockRetainedError`, `StorageError`, `ConfigError`, `UnreadableObjectsError`, `SnapshotNotNewestError`, `StoredObjectConflictError`, `RefusedWriteError`, `ObjectLockVersioningDisabledError`, `ObjectLockUnsupportedError`, `ObjectLockModeRejectedError`, `PreconditionFailedError`
 
 ## See also
 

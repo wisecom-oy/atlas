@@ -8,6 +8,7 @@ import type {
 import { UnreadableContentError, UnsupportedFormatVersionError } from '@wisecom/atlas-types';
 import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
 import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
+import { write_encrypted_json_text } from '@wisecom/atlas-core/services/shared/stored-json-writer';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { canonical_json } from '@/services/shared/canonical-json';
 import { assert_shard_shape } from '@/services/shared/teams-object-shape';
@@ -39,17 +40,33 @@ async function read_plaintext(ctx: TenantContext, key: string): Promise<Buffer> 
   }
 }
 
-/** Parses a shard body and checks its format version and shape before any field is trusted. */
-function parse_shard(key: string, plaintext: Buffer): TeamsChannelShard {
-  let body: unknown;
+/** Parses a shard's plaintext as JSON; nothing in the body is trusted yet. */
+function parse_shard_json(key: string, plaintext: Buffer): unknown {
   try {
-    body = JSON.parse(plaintext.toString('utf-8'));
+    return JSON.parse(plaintext.toString('utf-8')) as unknown;
   } catch (err) {
     throw new UnreadableContentError(`The Teams channel shard at ${key} is not valid JSON`, {
       cause: err,
     });
   }
+}
+
+/**
+ * The format version, shape and identity checks of a parsed shard body and the plaintext it was
+ * parsed from, shared by reader and writer.
+ */
+function require_shard_under_key(
+  ctx: TenantContext,
+  key: string,
+  body: unknown,
+  plaintext: Buffer,
+): TeamsChannelShard {
   assert_shard_shape(key, body);
+  if (!names_key(ctx, body, plaintext, key)) {
+    throw new UnreadableContentError(
+      `The Teams channel shard at ${key} does not match its team, channel, or content name`,
+    );
+  }
   return body;
 }
 
@@ -80,13 +97,27 @@ export class S3TeamsChannelShardRepository implements TeamsChannelShardRepositor
    * object is loaded with the checks `load` applies before it is trusted, and a damaged one is
    * overwritten: skipping the write would leave the damage in place for every later run. One
    * written by a newer Atlas format raises `UnsupportedFormatVersionError` and is not overwritten.
+   *
+   * The write is refused when `load` would reject the shard. It is an overwrite because it may
+   * replace a damaged object, and it is not read back: a run writes one shard per changed channel.
    */
   async save(ctx: TenantContext, shard: TeamsChannelShard): Promise<TeamsStoredBlobRef> {
-    const plaintext = Buffer.from(canonical_json(shard));
+    const json_text = canonical_json(shard);
+    const plaintext = Buffer.from(json_text);
     const { checksum, content_name } = compute_content_digests(ctx, plaintext);
     const key = teams_channel_shard_key(shard.team_id, shard.channel_id, content_name);
     if (!(await this.holds_readable_shard(ctx, key))) {
-      await ctx.storage.put(key, ctx.encrypt(plaintext, key));
+      await write_encrypted_json_text(
+        ctx,
+        {
+          key,
+          label: 'Teams channel shard',
+          reader_check: (parsed) => require_shard_under_key(ctx, key, parsed, plaintext),
+          write: 'overwrite',
+          confirm_read_back: false,
+        },
+        json_text,
+      );
     }
     return { storage_key: key, checksum, size_bytes: plaintext.length };
   }
@@ -107,12 +138,7 @@ export class S3TeamsChannelShardRepository implements TeamsChannelShardRepositor
   /** Loads one shard, raising when it is missing, damaged, newer-format, or misnamed. */
   async load(ctx: TenantContext, storage_key: string): Promise<TeamsChannelShard> {
     const plaintext = await read_plaintext(ctx, storage_key);
-    const shard = parse_shard(storage_key, plaintext);
-    if (!names_key(ctx, shard, plaintext, storage_key)) {
-      throw new UnreadableContentError(
-        `The Teams channel shard at ${storage_key} does not match its team, channel, or content name`,
-      );
-    }
-    return shard;
+    const body = parse_shard_json(storage_key, plaintext);
+    return require_shard_under_key(ctx, storage_key, body, plaintext);
   }
 }

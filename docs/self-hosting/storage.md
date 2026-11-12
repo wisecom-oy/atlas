@@ -265,6 +265,26 @@ Add a bucket policy that blocks overwrites of the key object, so a buggy or outd
 Older MinIO releases, some Ceph RGW versions, and various emulators silently ignore unknown conditional headers. On those backends the create-only guarantee does not hold. Test it by writing the same key twice with `If-None-Match: *`. The second write must fail with 412. After bootstrap, Atlas also reads back the stored key and uses it, so concurrent bootstraps still converge when the header is ignored.
 :::
 
+## Create-only snapshot objects and the read-back
+
+```
+onedrive/manifests/<owner-id>/od-snap-1767225600000-a1b2c3.json   # PUT with If-None-Match: *, then one GET
+onedrive/_meta/<owner-id>/delta.json                              # plain PUT, then one GET
+```
+
+Snapshot manifests, the version index of a OneDrive or SharePoint run, and Teams snapshot indexes are never rewritten, so Atlas writes them with the same `If-None-Match: *` condition as the data key above. This adds no backend requirement: a store that honours the header for `_meta/dek.enc` honours it here. On a store that ignores it, the write behaves like the unconditional `PUT` earlier releases sent, and a snapshot ID collision overwrites instead of failing. Delta cursors are overwritten by every run and carry no condition.
+
+After the upload, Atlas reads each manifest, run index, Teams index, and delta cursor back and compares it with what it sent. That is one `GET` of the object's own size per object, a fixed number per run that does not grow with the number of items:
+
+| Workload                 | Extra `GET` requests per mailbox, owner, site, or team per run |
+| ------------------------ | -------------------------------------------------------------- |
+| Outlook                  | 2: manifest and cursor                                         |
+| OneDrive, SharePoint     | 3: manifest, version index, and cursor                         |
+| Contacts, Calendar       | 2: manifest and cursor                                         |
+| Teams                    | 1: snapshot index                                              |
+
+A run that changed nothing writes no snapshot and reads back only its cursor. The read-back needs no new permission, because backups already read from the bucket. See [Metadata is checked before and after it is stored](/security#metadata-is-checked-before-and-after-it-is-stored) for what each step proves.
+
 ## The identity registry under concurrent runs
 
 ```

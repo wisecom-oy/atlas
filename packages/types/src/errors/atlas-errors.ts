@@ -14,6 +14,7 @@ export type AtlasErrorCode =
   | 'ATLAS_FORMAT_UNSUPPORTED'
   | 'ATLAS_KEY_CONFLICT'
   | 'ATLAS_SNAPSHOT_NOT_NEWEST'
+  | 'ATLAS_WRITE_REFUSED'
   | 'ATLAS_CONFIG_INVALID';
 
 /**
@@ -136,6 +137,49 @@ export class SnapshotNotNewestError extends AtlasError {
 export class StorageError extends AtlasError {
   constructor(message: string, options?: { cause?: unknown }) {
     super('ATLAS_STORAGE_FAILURE', message, options);
+  }
+}
+
+/**
+ * A create-only write found a different object already stored under its key, and left it in place.
+ *
+ * A `StorageError` like the refused conditional write it comes from. The key belongs to a snapshot
+ * or run, so the next run writes under a new one and a rerun is the remedy.
+ */
+export class StoredObjectConflictError extends StorageError {
+  constructor(
+    readonly key: string,
+    label: string,
+    options?: { cause?: unknown },
+  ) {
+    super(
+      `The ${label} at ${key} already exists and holds a different object. ` +
+        'It was not overwritten.',
+      options,
+    );
+  }
+}
+
+/**
+ * Atlas built a metadata object it could not store safely and refused before writing anything:
+ * the object is too large for one JSON document, fails the checks its own reader applies, or does
+ * not decrypt back to what was encrypted.
+ *
+ * A writer-side defect, never storage damage. No object exists at `key`, so it is neither
+ * `StorageError` nor `UnreadableObjectsError`, whose remedy is `quarantine`.
+ */
+export class RefusedWriteError extends AtlasError {
+  constructor(
+    readonly key: string,
+    label: string,
+    reason: string,
+    options?: { cause?: unknown },
+  ) {
+    super(
+      'ATLAS_WRITE_REFUSED',
+      `Refusing to write the ${label} at ${key}: ${reason}. Nothing was written.`,
+      options,
+    );
   }
 }
 

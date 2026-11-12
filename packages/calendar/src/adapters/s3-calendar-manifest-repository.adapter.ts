@@ -2,6 +2,7 @@ import {
   find_latest_readable_full_snapshot,
   list_readable_full_snapshots,
   read_full_snapshot_manifest,
+  save_full_snapshot_manifest,
   type FullSnapshotManifestLayout,
 } from '@wisecom/atlas-core/services/shared/full-snapshot-manifest-store';
 import type {
@@ -26,10 +27,9 @@ const LAYOUT: FullSnapshotManifestLayout = {
 /** Persists calendar snapshot manifests as encrypted JSON in S3. */
 @injectable()
 export class S3CalendarManifestRepository implements CalendarManifestRepository {
-  /** Encrypts and stores one snapshot manifest. */
+  /** Stores one snapshot manifest: create-only, checked as its reader checks it, and read back. */
   async save(ctx: TenantContext, manifest: CalendarSnapshotManifest): Promise<void> {
-    const key = calendar_manifest_key(manifest.mailbox_id, manifest.snapshot_id);
-    await ctx.storage.put(key, ctx.encrypt(Buffer.from(JSON.stringify(manifest)), key));
+    await save_full_snapshot_manifest(ctx, LAYOUT, manifest);
   }
 
   /** Loads one snapshot's manifest, or undefined when it does not exist; raises when damaged. */

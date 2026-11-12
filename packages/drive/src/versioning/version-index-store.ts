@@ -2,6 +2,7 @@ import type { TenantContext } from '@wisecom/atlas-types';
 import { UnreadableObjectsError, UnsupportedFormatVersionError } from '@wisecom/atlas-types';
 import { read_each_readable } from '@wisecom/atlas-core/services/shared/readable-object-listing';
 import { is_json_record } from '@wisecom/atlas-core/services/shared/stored-json-reader';
+import { write_encrypted_json } from '@wisecom/atlas-core/services/shared/stored-json-writer';
 import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
 import type { DriveFileVersionIndexView, DriveFileVersionRecord } from '@/drive-ports';
@@ -69,11 +70,49 @@ export async function read_version_index_object(
       cause: err,
     });
   }
+  return require_version_indexes(parsed, key);
+}
+
+/**
+ * The shape check of a parsed index object, shared by reader and writer. Returns its per-file
+ * indexes, from the per-run payload or the legacy per-file form.
+ */
+export function require_version_indexes(parsed: unknown, key: string): DriveFileVersionIndexView[] {
   const indexes = is_json_record(parsed) && 'indexes' in parsed ? parsed.indexes : [parsed];
   if (!Array.isArray(indexes) || !indexes.every(is_file_version_index)) {
     throw new UnreadableObjectsError(`The version index holds no version index rows`, [key]);
   }
   return indexes;
+}
+
+/** One run's version index object as stored. */
+export interface RunVersionIndexWrite {
+  readonly key: string;
+  /** Provider name for operator-facing messages, e.g. `OneDrive`. */
+  readonly provider: string;
+  /** The stored body: the owning segment, the snapshot id, and `indexes`. */
+  readonly payload: unknown;
+}
+
+/**
+ * Encrypts and uploads one run's index object. The write is create-only, refused when
+ * {@link require_version_indexes} would reject the body, and read back once it lands.
+ */
+export async function write_run_version_index(
+  ctx: TenantContext,
+  run_index: RunVersionIndexWrite,
+): Promise<void> {
+  await write_encrypted_json(
+    ctx,
+    {
+      key: run_index.key,
+      label: `${run_index.provider} version index`,
+      reader_check: require_version_indexes,
+      write: 'create_only',
+      confirm_read_back: true,
+    },
+    run_index.payload,
+  );
 }
 
 /** Whether a parsed value is one file's version index: a file id and a list of rows. */

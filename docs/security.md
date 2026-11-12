@@ -220,6 +220,47 @@ Two limits remain. Neither check stops replay of an older valid ciphertext for t
 
 An attacker with write access to the bucket can still make a manifest unreadable, and `quarantine` then removes its run from later points in time for OneDrive, SharePoint, and Outlook. That needs the same access as deleting the manifest outright, and the damage is reported by key on every run until an operator acts. Quarantine never deletes the bytes, and Object Lock keeps a retained version in place. Check bucket versioning for an intact earlier version before quarantining.
 
+### Metadata is checked before and after it is stored
+
+```
+Refusing to write the contacts manifest at contacts/manifests/<mailbox-id>/ct-snap-1767225600000-a1b2c3.json: its reader would reject it (The contacts manifest is not a manifest: ...). Nothing was written.
+```
+
+A snapshot manifest, version index, Teams index, or delta cursor is the only record of what a run stored. The delta cursor then moves past the changes that record describes, so a metadata object that cannot be read back later loses them. Before 7.0 these objects were serialised, encrypted, and uploaded with no check, and a bad one was only found by a later read. Every one of them now goes through a single writer that runs these steps in order:
+
+| Step            | What it does                                                                                                                              | What it catches                                                                      |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Serialise       | Writes the object as one JSON document                                                                                                    | An object past the V8 string limit of about 512 MB. There is no lower size ceiling   |
+| Reader check    | Parses the document back and applies the checks the reader of that object applies: required fields, the owner and snapshot its key names, a parseable `created_at` | A defect in Atlas or an item Graph returned malformed, before it becomes a stored object every command reports as damaged |
+| Decrypt back    | Encrypts with AES-256-GCM, decrypts the ciphertext in memory, and compares it with the plaintext                                          | A memory or CPU fault between serialisation and upload                               |
+| Conditional PUT | Writes an object that is never rewritten with `If-None-Match: *`                                                                          | A snapshot ID collision or a second writer replacing a manifest                      |
+| Read back       | Reads the object with one `GET` and compares it byte for byte with the ciphertext sent                                                    | A write the backend acknowledged but stored differently, or a concurrent overwrite   |
+
+The first three steps fail with `RefusedWriteError` (`ATLAS_WRITE_REFUSED`) and store nothing. It is a defect on the writing side, not damage in storage, so it is never reported as an unreadable object and there is nothing to quarantine. A cursor is saved only after its manifest, so a refused manifest leaves the cursor where it was and the next run reads the same changes again.
+
+Which objects get the last two steps:
+
+| Object                                                                              | Create-only | Read back |
+| ----------------------------------------------------------------------------------- | ----------- | --------- |
+| Outlook, OneDrive, SharePoint, contacts, and calendar snapshot manifests            | Yes         | Yes       |
+| OneDrive and SharePoint version index of a run                                      | Yes         | Yes       |
+| Teams snapshot index                                                                | Yes         | Yes       |
+| Outlook, OneDrive, SharePoint, contacts, and calendar delta cursors                 | No          | Yes       |
+| Outlook manifest pointers, Teams channel shards, cursors, and checkpoints, replication status | No | No        |
+
+The read-back is limited to objects a run writes once, so a run makes at most three extra `GET` requests per mailbox, owner, site, or team. Teams writes one shard and one cursor per changed channel and checkpoint objects per page, so those are checked and decrypted back but not read back.
+
+The storage client retries a `PUT` whose response was lost, and the retry then meets the object the first attempt stored and is refused with `412 Precondition Failed`. Atlas reads the stored object in that case. Each encryption uses a fresh random IV, so a byte-identical ciphertext can only be this write and the run continues. Anything else fails with `StoredObjectConflictError` and the stored object is left as it is.
+
+What these checks do not cover:
+
+- **Content.** Message, file, and attachment objects are not JSON metadata. They stay covered by the three layers above.
+- **Values that are well formed but wrong.** The reader check is exactly as strict as the reader. The Outlook, OneDrive, and SharePoint readers check a manifest's identity, its `entries` list, and its date, not each entry, so a wrong field inside an entry passes both.
+- **Changes after the read-back.** An attacker with write access can still replace or damage the object later. Object Lock and versioning address that.
+- **Backends that ignore conditional headers.** There the create-only write overwrites like any other. The tenant key bootstrap relies on the same header, see [Storage](/self-hosting/storage#protecting-the-tenant-data-key).
+
+See [Refused and unconfirmed metadata writes](/troubleshooting#refused-and-unconfirmed-metadata-writes) for each message.
+
 ### Authentication failures are reported everywhere
 
 A GCM failure must never look like a successful empty result. Each object type reports it as a failure:

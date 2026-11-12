@@ -1,12 +1,13 @@
 import 'reflect-metadata';
 
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   graph_error,
   stub_graph_client,
   type GraphCall,
 } from '@wisecom/atlas-types/testing/stub-graph-client';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 import { fetch_calendar_delta } from '@/adapters/graph-calendar-delta';
 
@@ -141,5 +142,25 @@ describe('fetch_calendar_delta change classification', () => {
 
     expect(result.upserted).toEqual([{ id: 'e2', subject: 'v2' }]);
     expect(result.removed_ids).toEqual(['e1']);
+  });
+
+  it('skips events Graph returns without a usable id, and warns how many', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const { client } = client_for(() => ({
+      value: [
+        { subject: 'no id' },
+        { id: '', subject: 'empty id' },
+        { '@removed': { reason: 'deleted' } },
+        { id: 'e1', subject: 'kept' },
+      ],
+      '@odata.deltaLink': FRESH_LINK,
+    }));
+
+    const result = await fetch_calendar_delta(client, MAILBOX, CALENDAR);
+
+    expect(result.upserted).toEqual([{ id: 'e1', subject: 'kept' }]);
+    expect(result.removed_ids).toEqual([]);
+    expect(warn).toHaveBeenCalledWith('Skipped 3 event(s) that Graph returned without an id');
+    warn.mockRestore();
   });
 });

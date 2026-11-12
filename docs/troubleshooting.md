@@ -332,6 +332,35 @@ john.doe@example.com is not in the identity registry of tenant <source>, and the
 
 The warning appears when the address is not in the registry. The object ID Graph returned belongs to the other tenant, so a lookup for a backed-up owner finds no snapshots. Pass the owner's Entra object ID instead, which `atlas list-users -t <source>` lists. Restore targets (`-T`, `--target-owner`) always resolve through Graph alone, so they name users of the tenant being restored into.
 
+## Refused and unconfirmed metadata writes
+
+```
+Refusing to write the OneDrive manifest at onedrive/manifests/<owner-id>/od-snap-1767225600000-a1b2c3.json: its reader would reject it (...). Nothing was written.
+```
+
+```
+The OneDrive manifest at onedrive/manifests/<owner-id>/od-snap-1767225600000-a1b2c3.json already exists and holds a different object. It was not overwritten.
+```
+
+```
+The OneDrive delta cursor at onedrive/_meta/<owner-id>/delta.json was written, but reading it back returned different bytes than were sent
+```
+
+Atlas checks every manifest, index, and cursor before it uploads it, writes snapshot objects create-only, and reads the important ones back. See [Metadata is checked before and after it is stored](/security#metadata-is-checked-before-and-after-it-is-stored) for the steps. Each message names the object and the step that failed:
+
+| Message                                                    | Error and exit                                         | Meaning                                                                                                                                                 | What to do                                                                                                                                                              |
+| ---------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Refusing to write ... its reader would reject it`         | `RefusedWriteError`, `ATLAS_WRITE_REFUSED`, exit `1`   | The object Atlas built fails the checks its own reader applies. Storing it would have produced a damaged manifest                                       | Rerun the backup. If it repeats, report it with the message. It names the key and the failed check, never content                                                        |
+| `Refusing to write ... too large to store as one JSON document` | The same                                          | One manifest or index passed the JSON string limit of about 512 MB                                                                                      | Rerunning gives the same result. Report it with the message                                                                                                              |
+| `Refusing to write ... decrypts to different bytes`, `does not decrypt` | The same                                  | The ciphertext did not decrypt back to what was encrypted, which points at faulty memory or CPU on the host                                             | Rerun. If it repeats, test the host's memory before trusting any backup made on it                                                                                      |
+| `already exists and holds a different object`              | `StoredObjectConflictError`, `ATLAS_STORAGE_FAILURE`, exit `1` | Another object sits under this run's snapshot ID. Two runs for the same owner at the same time is the likely cause                                | Rerun. A new run uses a new snapshot ID. Run one backup per mailbox, owner, site, or team at a time                                                                      |
+| `was written, but reading it back returned different bytes` | `StorageError`, `ATLAS_STORAGE_FAILURE`, exit `1`     | Storage returned something other than what was sent: a backend fault, or for a cursor, another run writing the same cursor                              | Rerun. Check `status` afterwards. If the object is reported damaged, follow [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes) or [Delta cursor or identity registry cannot be read](#delta-cursor-or-identity-registry-cannot-be-read) |
+| `was written but could not be read back to confirm it`     | The same                                               | The upload succeeded and the confirming `GET` failed. The cause is attached                                                                             | Rerun once storage responds                                                                                                                                             |
+
+A manifest or index that fails stops the run before the delta cursor of that mailbox, owner, or site is saved. The next run starts from the previous cursor and reads the same changes again, and content already uploaded deduplicates. When the cursor is the object that failed its read-back, its manifest is already stored. A delta cursor names the snapshot it was saved with, so a cursor left behind the newest manifest makes the next run read in full.
+
+A refused write stores nothing, so `quarantine` does not apply to it.
+
 ## Damaged manifests and version indexes
 
 ```
