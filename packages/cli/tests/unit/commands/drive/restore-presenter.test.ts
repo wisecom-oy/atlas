@@ -63,3 +63,28 @@ describe('report_drive_restore unreadable keys', () => {
     expect(process.exitCode).toBeUndefined();
   });
 });
+
+describe('report_drive_restore unmatched file filters (issue #707)', () => {
+  it('names each unmatched value, exits 2 and does not report success', async () => {
+    await report_drive_restore(
+      'Restore',
+      summary({ unmatched_file_filters: ['/no/such.txt'] }),
+      [],
+    );
+
+    const lines = error_spy.mock.calls.map((call: unknown[]) => String(call[0]));
+    expect(lines.some((line: string) => line.includes('"/no/such.txt"'))).toBe(true);
+    expect(process.exitCode).toBe(2);
+    expect(logger.success).not.toHaveBeenCalled();
+  });
+
+  it('keeps exit 1 when the restore also had errors', async () => {
+    await report_drive_restore(
+      'Restore',
+      summary({ unmatched_file_filters: ['/no/such.txt'], errors: ['file-1: upload failed'] }),
+      [],
+    );
+
+    expect(process.exitCode).toBe(1);
+  });
+});

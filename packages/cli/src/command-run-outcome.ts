@@ -72,3 +72,17 @@ export function report_skipped_items(skipped: number, item_noun: string): void {
   logger.error(`${item_noun}s skipped: ${skipped} -- exit ${EXIT_PARTIAL}`);
   process.exitCode = EXIT_PARTIAL;
 }
+
+/**
+ * Names each `--file-filter` value that matched no file while other values did, and exits partial
+ * unless a stronger code is already set. A filter that matched nothing at all is a NotFoundError
+ * from the service instead (issue #707).
+ */
+export function report_unmatched_file_filters(unmatched: readonly string[] | undefined): void {
+  if (!unmatched || unmatched.length === 0) return;
+  for (const value of unmatched) {
+    logger.error(`  File filter "${value}" matched no file in the snapshot`);
+  }
+  logger.error(`File filters unmatched: ${unmatched.length} -- exit ${EXIT_PARTIAL}`);
+  if (!process.exitCode) process.exitCode = EXIT_PARTIAL;
+}

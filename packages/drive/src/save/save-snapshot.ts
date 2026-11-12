@@ -26,7 +26,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import type { DriveManifestEntry, DriveWorkload } from '@/drive-ports';
-import { filter_drive_entries } from '@/shared/entry-filter';
+import { select_drive_entries, with_unmatched_file_filters } from '@/shared/entry-filter';
 import { with_unreadable_keys } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
 import {
   load_drive_chain_entries,
@@ -79,12 +79,12 @@ export async function save_drive_snapshot<TManifest extends DriveChainManifest>(
         owner_id,
         options.snapshot_id,
       );
-      const restorable = filter_drive_entries(
+      const selection = select_drive_entries(
         restorable_entries(chain.entries),
         options.file_filter,
       );
 
-      if (restorable.length === 0) {
+      if (selection.entries.length === 0) {
         const interrupted = finish_operation_progress(options, 'save', workload, 0, 0);
         await settle_empty_save_target(target, interrupted);
         return with_unreadable_keys(
@@ -94,13 +94,16 @@ export async function save_drive_snapshot<TManifest extends DriveChainManifest>(
       }
 
       return with_unreadable_keys(
-        await write_drive_snapshot_to_archive(
-          workload,
-          ctx,
-          target,
-          resolved_output_path,
-          restorable,
-          options,
+        with_unmatched_file_filters(
+          await write_drive_snapshot_to_archive(
+            workload,
+            ctx,
+            target,
+            resolved_output_path,
+            selection.entries,
+            options,
+          ),
+          selection.unmatched_filters,
         ),
         chain.unreadable_keys,
       );

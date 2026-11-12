@@ -30,7 +30,10 @@ import {
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { download_and_decrypt_blob } from '@/services/restore/blob-restore';
 import { DriveDecryptAuthError } from '@wisecom/atlas-drive/restore/decrypt-auth-error';
-import { filter_drive_entries } from '@wisecom/atlas-drive/shared/entry-filter';
+import {
+  select_drive_entries,
+  with_unmatched_file_filters,
+} from '@wisecom/atlas-drive/shared/entry-filter';
 import { onedrive_manifest_lookup } from '@/services/shared/manifest-lookup';
 import { build_drive_router } from '@/services/restore/drive-router';
 import {
@@ -92,6 +95,12 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
         options.snapshot_id,
       );
 
+      // Before the drive listing, so a file filter that matches nothing fails without a Graph call.
+      const selection = select_drive_entries(
+        restorable_entries(chain.entries),
+        options.file_filter,
+      );
+      const restorable = selection.entries;
       const target_owner = options.target_owner_id ?? owner_id;
       const drives = await this._connector.list_drives(tenant_id, target_owner);
       const [primary_drive] = drives;
@@ -100,10 +109,6 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       }
 
       const conflict = options.conflict_behavior ?? 'rename';
-      const restorable = filter_drive_entries(
-        restorable_entries(chain.entries),
-        options.file_filter,
-      );
       assert_renameable(options.rename_to, restorable.length);
       const restore_root = resolve_restore_root(options);
       const folder_ids = new Map<string, string>();
@@ -178,14 +183,17 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       );
 
       return with_unreadable_keys(
-        {
-          snapshot_id: options.snapshot_id,
-          files_restored,
-          folders_created,
-          files_skipped,
-          errors,
-          interrupted,
-        },
+        with_unmatched_file_filters(
+          {
+            snapshot_id: options.snapshot_id,
+            files_restored,
+            folders_created,
+            files_skipped,
+            errors,
+            interrupted,
+          },
+          selection.unmatched_filters,
+        ),
         chain.unreadable_keys,
       );
     } finally {

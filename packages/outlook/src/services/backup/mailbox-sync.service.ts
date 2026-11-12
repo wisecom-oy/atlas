@@ -87,6 +87,12 @@ export class MailboxSyncService implements BackupUseCase {
   ): Promise<SyncResult> {
     await assert_mailbox_exists(this._connector, tenant_id, owner_id);
     const mailbox_purpose = await this._connector.get_mailbox_purpose?.(tenant_id, owner_id);
+    // Before the tenant context, so selectors that match no folder fail before storage is touched.
+    const folder_selection = await resolve_backup_folders(this._connector, tenant_id, owner_id, {
+      folder_filter: options.folder_filter,
+      exclude_junk: options.exclude_junk,
+      include_recoverable_items: options.include_recoverable_items,
+    });
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       await warn_if_replica(ctx);
@@ -107,13 +113,8 @@ export class MailboxSyncService implements BackupUseCase {
           options.force_full === true,
         );
 
-      const folder_selection = await resolve_backup_folders(this._connector, tenant_id, owner_id, {
-        folder_filter: options.folder_filter,
-        exclude_junk: options.exclude_junk,
-        include_recoverable_items: options.include_recoverable_items,
-      });
       const folders = folder_selection.folders;
-      const warnings = [...folder_selection.warnings];
+      const warnings: string[] = [];
       const excluded_folders = folder_selection.excluded;
       const progress = resolve_progress_reporter(options, folders);
       const global_total = folders.reduce((sum, f) => sum + f.total_item_count, 0);
@@ -134,7 +135,8 @@ export class MailboxSyncService implements BackupUseCase {
       let deduplicated = 0;
       let attachments_stored = 0;
       let reactions_not_captured = 0;
-      const folder_errors: string[] = [];
+      // A selector that matched nothing leaves the run incomplete while others still matched.
+      const folder_errors: string[] = [...folder_selection.selector_errors];
 
       for (let i = 0; i < folders.length; i++) {
         if (should_interrupt()) break;

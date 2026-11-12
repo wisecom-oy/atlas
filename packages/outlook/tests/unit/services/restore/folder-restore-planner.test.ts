@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { MailboxConnector, Manifest, RestoreConnector } from '@wisecom/atlas-types';
-import { build_folder_map, ensure_subfolder } from '@/services/restore/folder-restore-planner';
+import {
+  build_folder_map,
+  ensure_subfolder,
+  list_known_folders,
+} from '@/services/restore/folder-restore-planner';
 
 function make_restore_connector(): RestoreConnector {
   let counter = 0;
@@ -170,5 +174,26 @@ describe('build_folder_map', () => {
     );
 
     expect(vi.mocked(connector.create_mail_folder).mock.calls.map((c) => c[2])).toEqual(['Drafts']);
+  });
+});
+
+describe('list_known_folders', () => {
+  it('keeps the recorded path and takes a missing well-known role from the live listing', async () => {
+    const connector = {
+      list_mail_folders: vi
+        .fn()
+        .mockResolvedValue([
+          { folder_id: 'f-inbox', folder_path: 'Saapuneet', well_known_name: 'inbox' },
+        ]),
+    } as unknown as MailboxConnector;
+    const recorded = { folders: [{ folder_id: 'f-inbox', folder_path: 'Old Inbox' }] };
+
+    const folders = await list_known_folders(connector, 't', 'user@test.com', [
+      recorded as unknown as Manifest,
+    ]);
+
+    expect(folders).toEqual([
+      { folder_id: 'f-inbox', folder_path: 'Old Inbox', well_known_name: 'inbox' },
+    ]);
   });
 });

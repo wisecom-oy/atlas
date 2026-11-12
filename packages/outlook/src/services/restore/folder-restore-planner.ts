@@ -1,9 +1,14 @@
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailFolder, MailFolderListOptions } from '@wisecom/atlas-types';
 import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
+import { NotFoundError } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { FOLDER_PATH_SEPARATOR } from '@/adapters/graph-folder-tree-enumerator';
-import { folder_matches_selector } from '@/services/shared/folder-selector';
+import {
+  describe_unmatched_folder_selector,
+  select_folders,
+  type SelectableFolder,
+} from '@/services/shared/folder-selector';
 
 const UNKNOWN_FOLDER_NAME = 'Unknown';
 
@@ -25,25 +30,54 @@ export async function build_folder_map(
   recorded: readonly Manifest[] = [],
   listing?: MailFolderListOptions,
 ): Promise<Map<string, string>> {
-  const map = collect_recorded_folder_paths(recorded);
+  const folders = await list_known_folders(connector, tenant_id, owner_id, recorded, listing);
+  return new Map(folders.map((folder) => [folder.folder_id, folder.folder_path]));
+}
+
+/**
+ * Lists every folder the manifests record or the live mailbox holds, once per folder_id, with the
+ * path and well-known role a folder selector matches. The rules are those of {@link build_folder_map}.
+ * A recorded folder from before roles were tagged takes its role from the live listing.
+ */
+export async function list_known_folders(
+  connector: MailboxConnector,
+  tenant_id: string,
+  owner_id: string,
+  recorded: readonly Manifest[] = [],
+  listing?: MailFolderListOptions,
+): Promise<SelectableFolder[]> {
+  const known = collect_recorded_folders(recorded);
   const live = listing
     ? await connector.list_mail_folders(tenant_id, owner_id, listing)
     : await connector.list_mail_folders(tenant_id, owner_id);
   for (const f of live) {
-    if (!map.has(f.folder_id)) map.set(f.folder_id, f.folder_path);
-  }
-  return map;
-}
-
-/** Maps each folder the manifests record to its path, the first manifest naming a folder winning. */
-function collect_recorded_folder_paths(manifests: readonly Manifest[]): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const manifest of manifests) {
-    for (const folder of manifest.folders ?? []) {
-      if (!map.has(folder.folder_id)) map.set(folder.folder_id, folder.folder_path);
+    const seen = known.get(f.folder_id);
+    if (!seen) known.set(f.folder_id, to_selectable_folder(f));
+    else if (!seen.well_known_name && f.well_known_name) {
+      known.set(f.folder_id, { ...seen, well_known_name: f.well_known_name });
     }
   }
-  return map;
+  return [...known.values()];
+}
+
+/** Collects each folder the manifests record, the first manifest naming a folder winning. */
+function collect_recorded_folders(manifests: readonly Manifest[]): Map<string, SelectableFolder> {
+  const known = new Map<string, SelectableFolder>();
+  for (const manifest of manifests) {
+    for (const folder of manifest.folders ?? []) {
+      if (!known.has(folder.folder_id)) known.set(folder.folder_id, to_selectable_folder(folder));
+    }
+  }
+  return known;
+}
+
+/** Keeps the fields a folder selector reads. */
+function to_selectable_folder(folder: SelectableFolder): SelectableFolder {
+  return {
+    folder_id: folder.folder_id,
+    folder_path: folder.folder_path,
+    ...(folder.well_known_name ? { well_known_name: folder.well_known_name } : {}),
+  };
 }
 
 /** Creates the `Restore-{timestamp}` root folder in the target mailbox. */
@@ -120,23 +154,19 @@ export function group_entries_by_folder(entries: ManifestEntry[]): Map<string, M
 }
 
 /**
- * Filters entries to a folder selected by path (`Inbox/Projects`) or bare name
- * (`Projects`), including everything nested beneath the match.
+ * Filters entries to a folder selected by path (`Inbox/Projects`), bare name
+ * (`Projects`) or well-known name (`inbox`), including everything nested beneath
+ * the match. Throws `NotFoundError` when the selector names no known folder, so a
+ * mistyped `--folder` fails instead of restoring or saving nothing (issue #707).
  */
 export function filter_entries_by_folder_name(
   entries: ManifestEntry[],
   folder_name: string,
-  folder_map: Map<string, string>,
+  folders: readonly SelectableFolder[],
 ): ManifestEntry[] {
-  const target_ids = new Set<string>();
-  for (const [fid, path] of folder_map) {
-    if (folder_matches_selector(path, folder_name)) target_ids.add(fid);
-  }
-
+  const target_ids = new Set(select_folders(folders, folder_name).map((f) => f.folder_id));
   if (target_ids.size === 0) {
-    const available = [...folder_map.values()].join(', ');
-    logger.warn(`Folder "${folder_name}" not found. Available: ${available}`);
-    return [];
+    throw new NotFoundError(describe_unmatched_folder_selector(folder_name, folders));
   }
 
   return entries.filter((e) => e.folder_id !== undefined && target_ids.has(e.folder_id));

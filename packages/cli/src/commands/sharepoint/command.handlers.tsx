@@ -26,7 +26,12 @@ import { KeyValueList } from '@/ui/components/key-value-list';
 import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary';
 import { render_static_view } from '@/ui/render';
 import { build_object_lock_request } from '@/command-object-lock';
-import { EXIT_PARTIAL, report_run_outcome, report_skipped_items } from '@/command-run-outcome';
+import {
+  EXIT_PARTIAL,
+  report_run_outcome,
+  report_skipped_items,
+  report_unmatched_file_filters,
+} from '@/command-run-outcome';
 import { run_interruptible } from '@/adapters/interruptible-run';
 import {
   DRIVE_RESTORE_INTERRUPT_MESSAGE,
@@ -298,6 +303,7 @@ export async function execute_sharepoint_save(
   );
   report_skipped_items(result.files_skipped, 'File');
   report_unreadable_keys(result.unreadable_keys);
+  report_unmatched_file_filters(result.unmatched_file_filters);
   if (result.integrity_failures.length > 0)
     logger.warn(`Integrity failures: ${result.integrity_failures.length}`);
   if (result.errors.length > 0) {

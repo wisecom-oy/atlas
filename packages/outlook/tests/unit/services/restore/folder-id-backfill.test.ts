@@ -102,11 +102,11 @@ describe('backfill_missing_folder_ids', () => {
       'k-mime': MIME_BODY,
       'k-json': JSON_BODY,
     });
-    const folder_map = new Map<string, string>([[INBOX_ID, 'Inbox']]);
+    const known_folders = [{ folder_id: INBOX_ID, folder_path: 'Inbox' }];
 
     const entries = [mime, json, stamped];
     await backfill_missing_folder_ids(ctx, entries);
-    const selected = filter_entries_by_folder_name(entries, 'Inbox', folder_map);
+    const selected = filter_entries_by_folder_name(entries, 'Inbox', known_folders);
 
     expect(selected.map((e: ManifestEntry) => e.object_id)).toEqual(['json-1', 'json-2']);
   });
