@@ -14,6 +14,8 @@ import {
 import { inject, injectable } from 'inversify';
 import { classify_empty_run } from '@wisecom/atlas-drive/backup/empty-run-classifier';
 import { append_recrawl_tombstones } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
+import { merge_damaged_manifest_keys } from '@wisecom/atlas-drive/backup/damaged-manifest-report';
+import { build_tracking_state } from '@/services/backup/file-tracking-state';
 import {
   resolve_saved_cursor_binding,
   select_resumable_cursor,
@@ -51,7 +53,6 @@ import {
   build_snapshot_manifest,
   persist_snapshot_backup,
 } from '@/services/backup/backup-builders';
-import type { FileTrackingState } from '@/services/backup/library-item-processor';
 import { load_run_version_collector } from '@/services/versioning/run-version-collector';
 import {
   scan_all_libraries,
@@ -113,6 +114,8 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       // runs on one tenant would overwrite each other's bucket setting (#551).
       const ctx = await attach_run_retention(tenant_ctx, options.object_lock_request);
       const stored_cursor = await this._cursors.load(ctx, site_id);
+      // Read before this run saves a manifest, which would become the head and hide a damaged one.
+      const head = await this._manifests.find_latest_readable(ctx, site_id);
       // A cursor whose snapshot is gone reads in full, as `--full` does: it would otherwise resume
       // past changes no snapshot holds (issue #725).
       const resume = await select_resumable_cursor(ctx, SHAREPOINT_KEYS, site_id, stored_cursor, {
@@ -137,7 +140,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       const delta_link_by_drive: Record<string, string> = {
         ...(previous_cursor?.delta_link_by_drive ?? {}),
       };
-      const tracking = this.build_tracking_state(previous_cursor);
+      const tracking = build_tracking_state(previous_cursor);
 
       await cleanup_stale_staging(ctx, site_id);
 
@@ -188,7 +191,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         await resolve_saved_cursor_binding(
           scan.entries.length > 0 ? snapshot_id : undefined,
           previous_cursor,
-          () => this._manifests.find_latest_readable(ctx, site_id),
+          async () => head,
         ),
       );
       const warnings = [
@@ -241,7 +244,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
             ? await classify_empty_run({
                 previous_kind_by_file_id: tracking.previous_kind_by_file_id,
                 files_processed: scan.files_processed,
-                find_latest_snapshot: () => this._manifests.find_latest_readable(ctx, site_id),
+                find_latest_snapshot: async () => head,
               })
             : undefined,
         );
@@ -268,23 +271,16 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         phase: scan.interrupted ? 'interrupted' : 'completed',
         processed: scan.items_processed,
       });
-      return with_summary_unreadable_keys(result, skipped_manifests);
+      return with_summary_unreadable_keys(
+        result,
+        merge_damaged_manifest_keys(head.unreadable_keys, skipped_manifests),
+      );
     } finally {
       await lease?.release();
       tenant_ctx.destroy();
     }
   }
 
-  private build_tracking_state(
-    previous_cursor: SharePointDeltaCursor | undefined,
-  ): FileTrackingState {
-    return {
-      previous_path_by_file_id: { ...(previous_cursor?.previous_path_by_file_id ?? {}) },
-      previous_name_by_file_id: { ...(previous_cursor?.previous_name_by_file_id ?? {}) },
-      previous_etag_by_file_id: { ...(previous_cursor?.previous_etag_by_file_id ?? {}) },
-      previous_kind_by_file_id: { ...(previous_cursor?.previous_kind_by_file_id ?? {}) },
-    };
-  }
   private async finalize_snapshot(
     ctx: Awaited<ReturnType<TenantContextFactory['create']>>,
     lease: HeldOwnerLease,

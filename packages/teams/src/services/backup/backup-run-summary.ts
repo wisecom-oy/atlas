@@ -81,6 +81,7 @@ export function summarize_run(
 ): TeamsBackupSummary {
   const healthy =
     !state.interrupted && state.errors.length === 0 && Object.keys(failed_roots).length === 0;
+  const repaired = shards_repaired_in_place(saves);
   return {
     channels_scanned: state.attempted,
     ...scope.counters,
@@ -90,6 +91,17 @@ export function summarize_run(
     errors: state.errors,
     warnings: [...ownership_warnings, ...state.warnings, ...describe_failed_items(failed_roots)],
     healthy,
+    ...(repaired.length > 0 ? { repaired_shard_keys: repaired } : {}),
     ...report,
   };
+}
+
+/**
+ * Keys of unreadable shards this run rewrote at the same key: a rebuilt channel whose new shard
+ * has the content name of the damaged one. A rebuild under a new key is recorded by the new index.
+ */
+export function shards_repaired_in_place(saves: readonly ChannelSave[]): string[] {
+  return saves
+    .filter(({ entry, output }) => entry.shard_key === output.unreadable_shard_key)
+    .map(({ entry }) => entry.shard_key);
 }

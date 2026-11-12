@@ -86,3 +86,19 @@ export function report_unmatched_file_filters(unmatched: readonly string[] | und
   logger.error(`File filters unmatched: ${unmatched.length} -- exit ${EXIT_PARTIAL}`);
   if (!process.exitCode) process.exitCode = EXIT_PARTIAL;
 }
+
+/**
+ * Prints a drive backup's verdict line. A damaged stored object makes the run UNHEALTHY even when
+ * every item landed, as Teams does since #722: a HEALTHY line beside exit 9 hid the damage
+ * (issue #709). An unhealthy run exits partial. A run whose only finding is a damaged object keeps
+ * the exit 9 that `report_unreadable_keys` sets.
+ */
+export function report_backup_verdict(healthy: boolean, found_unreadable: boolean): void {
+  if (healthy && !found_unreadable) {
+    logger.success('Status: HEALTHY');
+    return;
+  }
+  logger.error('Status: UNHEALTHY');
+  // A ledger-only run has no error entry, so the verdict sets the exit code itself (#583).
+  if (!healthy) process.exitCode = EXIT_PARTIAL;
+}

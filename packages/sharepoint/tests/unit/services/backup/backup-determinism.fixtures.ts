@@ -109,9 +109,10 @@ export function make_service(
     manifests?: SharePointManifestRepository;
     file_indexes?: SharePointFileVersionIndexRepository;
     cursors?: SharePointDeltaCursorRepository;
+    ctx?: TenantContext;
   } = {},
 ): SharePointBackupService {
-  const ctx = make_ctx();
+  const ctx = overrides.ctx ?? make_ctx();
   const factory: TenantContextFactory = {
     create: vi.fn().mockResolvedValue(ctx),
     create_readonly: vi.fn().mockResolvedValue(ctx),

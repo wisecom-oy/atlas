@@ -265,7 +265,7 @@ Other content the service refuses to serve is handled as follows:
 Each backup ends with a health status:
 
 - **HEALTHY.** Every file's primary content was backed up in every library.
-- **UNHEALTHY.** At least one file failed, a library crashed, or an encryption error occurred. The run exits with code `2` for a partial run. A hard failure that aborts the run exits with code `1`.
+- **UNHEALTHY.** At least one file failed, a library crashed, or an encryption error occurred. The run exits with code `2` for a partial run. A hard failure that aborts the run exits with code `1`. A newest snapshot manifest that cannot be read also makes the run UNHEALTHY. When it is the only finding, the run names it and exits `9`, see [Damaged manifests](/troubleshooting#damaged-manifests-and-version-indexes).
 
 A version that fails to download for an unexpected reason (throttling, `403 accessDenied`, a transient fault) makes the run UNHEALTHY. A version Graph reports as gone (`404` or `410`, purged by the site's retention policy) is counted as `unavailable` and does not affect health. Only the HTTP status of the response decides this. An error whose message text happens to contain "404" or "Not Found" is an ordinary failure, and the version is downloaded again by the next backup that picks up a change to the file.
 
