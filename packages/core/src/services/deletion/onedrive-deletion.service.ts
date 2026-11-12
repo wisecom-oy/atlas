@@ -2,11 +2,16 @@ import { normalize_owner_id } from '@/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type {
   OneDriveDeletionUseCase,
+  OneDriveManifestRepository,
   TenantContextFactory,
   DeletionResult,
 } from '@wisecom/atlas-types';
-import { TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
-import { delete_scopes, delete_snapshot_manifest } from '@/services/deletion/shared/prefix-deleter';
+import {
+  ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
+  TENANT_CONTEXT_FACTORY_TOKEN,
+} from '@wisecom/atlas-types';
+import { delete_scopes } from '@/services/deletion/shared/prefix-deleter';
+import { delete_newest_drive_snapshot } from '@/services/deletion/drive-snapshot-deleter';
 import { abort_staging_uploads } from '@/services/deletion/shared/staging-upload-purge';
 import { quarantined_copies_of } from '@/services/quarantine/stored-object-quarantine';
 
@@ -14,6 +19,8 @@ import { quarantined_copies_of } from '@/services/quarantine/stored-object-quara
 export class OneDriveDeletionService implements OneDriveDeletionUseCase {
   constructor(
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
+    @inject(ONEDRIVE_MANIFEST_REPOSITORY_TOKEN)
+    private readonly _manifests: OneDriveManifestRepository,
   ) {}
 
   /**
@@ -42,8 +49,10 @@ export class OneDriveDeletionService implements OneDriveDeletionUseCase {
   }
 
   /**
-   * Deletes a single OneDrive snapshot manifest. Blob objects are retained because
-   * other snapshots may reference the same content-addressed keys.
+   * Deletes the owner's newest OneDrive snapshot: its manifest and the delta cursor. Blob objects
+   * are retained because other snapshots may reference the same content-addressed keys. Any other
+   * snapshot is refused with `SnapshotNotNewestError`; see `delete_newest_drive_snapshot` (issue
+   * #725). Reading the manifests to check the order needs the tenant key.
    */
   async delete_snapshot(
     tenant_id: string,
@@ -51,12 +60,19 @@ export class OneDriveDeletionService implements OneDriveDeletionUseCase {
     snapshot_id: string,
   ): Promise<DeletionResult> {
     owner_id = normalize_owner_id(owner_id);
-    const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
-    return delete_snapshot_manifest(
-      storage,
-      `onedrive/manifests/${owner_id}/${snapshot_id}.json`,
-      'OneDrive',
-      snapshot_id,
-    );
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
+    try {
+      return await delete_newest_drive_snapshot(ctx, {
+        workload: 'onedrive',
+        label: 'OneDrive',
+        owner_id,
+        snapshot_id,
+        wording: { owner: 'OneDrive', records: 'files', delete_all_flag: '-o' },
+        find_snapshot: () => this._manifests.find_by_snapshot(ctx, owner_id, snapshot_id),
+        list_owner_manifests: () => this._manifests.list_snapshots_by_owner(ctx, owner_id),
+      });
+    } finally {
+      ctx.destroy();
+    }
   }
 }

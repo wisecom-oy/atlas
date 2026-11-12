@@ -1,6 +1,10 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
-import type { ManifestRepository, TenantContextFactory } from '@wisecom/atlas-types';
+import type {
+  ManifestRepository,
+  OneDriveManifestRepository,
+  TenantContextFactory,
+} from '@wisecom/atlas-types';
 import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
 import { DeletionService } from '@/services/deletion/deletion.service';
 import { OneDriveDeletionService } from '@/services/deletion/onedrive-deletion.service';
@@ -38,7 +42,8 @@ describe('owner erasure covers quarantined copies', () => {
       `_quarantine/onedrive/index/${OWNER}/runs/od-snap-1-abc.json`,
     ]);
 
-    await new OneDriveDeletionService(factory).delete_owner_data('t', OWNER);
+    const manifests = {} as OneDriveManifestRepository;
+    await new OneDriveDeletionService(factory, manifests).delete_owner_data('t', OWNER);
 
     expect(harness.keys()).toEqual([]);
   });

@@ -10,7 +10,6 @@ import { randomBytes } from 'node:crypto';
 import {
   begin_operation_progress,
   emit_operation_progress,
-  finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { inject, injectable } from 'inversify';
 import { classify_empty_run } from '@wisecom/atlas-drive/backup/empty-run-classifier';
@@ -43,13 +42,20 @@ import {
 } from '@/services/backup/backup-builders';
 import type { RunVersionCollector } from '@/services/versioning/version-sync';
 import { scan_all_drives } from '@/services/backup/backup-drive-processor';
-import type { PackageReportTotals } from '@/services/backup/package-report';
+import { build_package_warnings } from '@/services/backup/package-report';
+import { interrupted_before_scan } from '@/services/backup/interrupted-scan-result';
 import { cleanup_stale_staging } from '@/services/backup/large-file-pipeline';
 import {
+  has_folder_scope_changed,
   is_path_within_folder_scope,
   normalize_folder_scope,
 } from '@/services/backup/folder-scope';
 import { append_recrawl_tombstones } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
+import {
+  resolve_saved_cursor_binding,
+  select_resumable_cursor,
+} from '@wisecom/atlas-drive/shared/cursor-snapshot-binding';
+import { ONEDRIVE_KEYS } from '@/services/shared/storage-keys';
 import { build_version_errors } from '@wisecom/atlas-drive/backup/version-failure-errors';
 import { describe_failed_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -98,17 +104,14 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       const ctx = await lock_run_writes(tenant_ctx, options.object_lock_request);
       const stored_cursor = await this._cursors.load(ctx, owner_id);
       const folder_scope = normalize_folder_scope(options.folder_scope);
-      // A delta link records how far the drive was consumed, not how far the scope was, so
-      // resuming one under a different scope would skip changes the previous run filtered out.
-      const scope_changed = (stored_cursor?.folder_scope ?? undefined) !== folder_scope;
-      if (scope_changed && stored_cursor !== undefined) {
-        logger.info(
-          `Folder scope changed (${stored_cursor.folder_scope ?? 'whole drive'} -> ` +
-            `${folder_scope ?? 'whole drive'}); re-crawling instead of resuming the delta link`,
-        );
-      }
-      const previous_cursor =
-        options.force_full === true || scope_changed ? undefined : stored_cursor;
+      // A changed scope or a cursor whose snapshot is gone reads in full, as `--full` does: either
+      // would otherwise resume past changes no snapshot holds (issue #725).
+      const resume = await select_resumable_cursor(ctx, ONEDRIVE_KEYS, owner_id, stored_cursor, {
+        unit: 'drive',
+        force_full: options.force_full === true,
+        scope_changed: has_folder_scope_changed(stored_cursor, folder_scope),
+      });
+      const previous_cursor = resume.previous_cursor;
       const drives = await this._connector.list_drives(tenant_id, owner_id);
       // An empty list is what Graph answers for an owner whose OneDrive was never provisioned.
       // A revoked grant is a 403, which `list_drives` has already turned into the permission
@@ -151,8 +154,13 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       // record which historical versions Graph already handed over, not where
       // the delta stream stopped, and discarding them would re-download every
       // version of every file (issue #161).
-      const versions = await this.load_run_version_collector(ctx, owner_id, stored_cursor);
-      const warnings: string[] = [];
+      const versions = await this.load_run_version_collector(
+        ctx,
+        owner_id,
+        resume.watermark_cursor,
+      );
+      const warnings: string[] =
+        resume.outlived_warning === undefined ? [] : [resume.outlived_warning];
       const version_stats = {
         total_versions_stored,
         total_versions_unavailable,
@@ -210,6 +218,12 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         failed_items: scan_result.failed_items,
         ...(folder_scope !== undefined ? { folder_scope } : {}),
         updated_at: new Date().toISOString(),
+        // The snapshot this run writes, or the one it leaves as the newest when nothing changed.
+        snapshot_id: await resolve_saved_cursor_binding(
+          scan_result.entries.length > 0 ? snapshot_id : undefined,
+          previous_cursor,
+          () => this._manifests.find_latest_readable(ctx, owner_id),
+        ),
       };
 
       // Version downloads that failed for an unexpected reason leave history out
@@ -333,23 +347,4 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       rows: new Map(),
     };
   }
-}
-
-/** A run cancelled before its scan finished: no snapshot, and the delta cursor is untouched. */
-function interrupted_before_scan(
-  owner_id: string,
-  options: OneDriveBackupOptions,
-): OneDriveBackupResult {
-  finish_operation_progress(options, 'backup', 'onedrive', 0, 0, true);
-  return build_empty_result(owner_id, 0, 0, 0, 0, 0, 0, [], [], true, false, false);
-}
-
-/** Renders OneNote accounting as backup warnings: one summary line, then any incomplete notebooks. */
-function build_package_warnings(report: PackageReportTotals): string[] {
-  if (report.notebooks_detected === 0) return [];
-  return [
-    `OneNote notebooks detected: ${report.notebooks_detected} ` +
-      `(${report.section_files_backed_up} section file(s) backed up as ordinary files).`,
-    ...report.warnings,
-  ];
 }

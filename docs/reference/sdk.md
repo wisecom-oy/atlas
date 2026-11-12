@@ -261,6 +261,10 @@ Method names mirror the CLI: `atlas outlook backup` maps to `atlas.outlook.backu
 
 `atlas.onedrive` and `atlas.sharepoint` expose the same operations per drive owner or site: `backup`, `verify`, `restore`, `restoreVersion`, `save`, `listSnapshots`, `listFileVersions`, `replicateSnapshot`, `replicateAll`, `rehydrateSnapshot`, `checkStatus`, `getStats`, `quarantine(storageKey)`, and a delete method. The delete methods are `deleteOwnerData(ownerId)` and `deleteSnapshot(ownerId, snapshotId)` on OneDrive, and `deleteSiteData(siteId)` and `deleteSnapshot(siteId, snapshotId)` on SharePoint. SharePoint also provides `listSites()`, `resolveSite(urlOrId)`, and `rehydrateSite`. OneDrive provides `rehydrateOwner`.
 
+Both `deleteSnapshot` methods accept only the newest snapshot of the owner or site. A drive snapshot stores only the changes of its own run, so newer snapshots are built on it. Any other snapshot rejects with `SnapshotNotNewestError` (`ATLAS_SNAPSHOT_NOT_NEWEST`): `err.snapshot_id` names the refused snapshot, `err.newer_snapshot_ids` the ones to delete first, and nothing is deleted. When a manifest of the owner or site is unreadable the order cannot be checked, and the call rejects with `UnreadableObjectsError` naming the manifest to quarantine. The check decrypts the manifests, so `deleteSnapshot` needs the tenant's data key, which `deleteOwnerData` and `deleteSiteData` do not. A successful `deleteSnapshot` also removes the delta cursor, so the next `backup` reads every drive or library in full and captures again what the deleted snapshot held. The run's version index is kept, so `listFileVersions` and `restoreVersion` still offer the versions it recorded.
+
+A `backup` whose stored cursor names a snapshot that no longer exists, after a quarantine or an interrupted delete, reads in full the same way and reports why in `summary.warnings`. Until that run, `checkStatus` does not replay the cursor's links and reports `isUpToDate: false`.
+
 ### Status results
 
 `checkMailboxStatus`, `onedrive.checkStatus`, and `sharepoint.checkStatus` reject with `AuthError` (`ATLAS_AUTH_DENIED`) when Graph answers the delta peek with `401` or `403`. `checkMailboxStatus` rejects with `MailboxNotLicensedError` for an unlicensed mailbox. A permission problem is never reported as pending changes.
@@ -1322,7 +1326,7 @@ try {
 | `UnreadableObjectsError`            | `ATLAS_CONTENT_UNREADABLE`   | Named manifests or version indexes could not be read. See `unreadable_keys` and [Damaged stored objects](#damaged-stored-objects)         |
 | `UnsupportedFormatVersionError`     | `ATLAS_FORMAT_UNSUPPORTED`   | Stored Teams content was written by a newer Atlas format. Upgrade Atlas. Not exported                                                     |
 | `DekOverwriteRefusedError`          | `ATLAS_KEY_CONFLICT`         | Rehydration refused to replace a different data key on a primary that holds other objects. Retrying cannot succeed. Not exported          |
-| `SnapshotNotNewestError`            | `ATLAS_SNAPSHOT_NOT_NEWEST`  | Outlook `deleteSnapshot` refused a snapshot that newer snapshots are built on. See `snapshot_id` and `newer_snapshot_ids`                 |
+| `SnapshotNotNewestError`            | `ATLAS_SNAPSHOT_NOT_NEWEST`  | Outlook, OneDrive, or SharePoint `deleteSnapshot` refused a snapshot that newer snapshots are built on. See `snapshot_id` and `newer_snapshot_ids` |
 
 Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK error is available for logging. Branching does not depend on it.
 

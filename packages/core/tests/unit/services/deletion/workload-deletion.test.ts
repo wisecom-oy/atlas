@@ -10,6 +10,8 @@ import { SharePointDeletionService } from '@/services/deletion/sharepoint-deleti
 import {
   NotFoundError,
   ObjectLockRetainedError,
+  ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
+  SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
   type TenantContextFactory,
 } from '@wisecom/atlas-types';
@@ -42,12 +44,23 @@ describe('workload deletion', () => {
     storage = make_storage();
     factory = {
       create: vi.fn(),
-      create_readonly: vi.fn(),
+      // delete -s reads the owner's manifests to check the snapshot is the newest (issue #725).
+      create_readonly: vi.fn().mockResolvedValue({ tenant_id: 't', storage, destroy: vi.fn() }),
       create_storage_only: vi.fn().mockResolvedValue({ tenant_id: 't', storage }),
     };
+    const snap = { snapshot_id: 'snap', created_at: new Date('2026-03-01T10:00:00Z') };
+    const find_by_snapshot = vi.fn(async (_ctx: unknown, _owner: string, id: string) =>
+      id === 'snap' ? snap : undefined,
+    );
 
     const container = new Container();
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(factory);
+    container
+      .bind(ONEDRIVE_MANIFEST_REPOSITORY_TOKEN)
+      .toConstantValue({ find_by_snapshot, list_snapshots_by_owner: vi.fn(async () => [snap]) });
+    container
+      .bind(SHAREPOINT_MANIFEST_REPOSITORY_TOKEN)
+      .toConstantValue({ find_by_snapshot, list_snapshots_by_site: vi.fn(async () => [snap]) });
     container.bind(OneDriveDeletionService).toSelf();
     container.bind(SharePointDeletionService).toSelf();
 

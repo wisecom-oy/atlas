@@ -93,23 +93,41 @@ export class ObjectLockRetainedError extends AtlasError {
   }
 }
 
+/** How a refused snapshot delete names the chain it protects. Defaults to an Outlook mailbox. */
+export interface SnapshotChainWording {
+  /** What owns the chain, e.g. `mailbox`, `OneDrive`, `site`. */
+  readonly owner: string;
+  /** What a snapshot records, e.g. `messages`, `files`. */
+  readonly records: string;
+  /** The CLI flag that deletes the whole backup when given without `-s`, e.g. `-m`. */
+  readonly delete_all_flag: string;
+}
+
+const MAILBOX_CHAIN_WORDING: SnapshotChainWording = {
+  owner: 'mailbox',
+  records: 'messages',
+  delete_all_flag: '-m',
+};
+
 /**
- * A snapshot delete was refused because newer snapshots are built on it. An Outlook manifest holds
- * only its own run's changes, so the messages and removals it recorded exist in no later manifest;
- * deleting it would silently change every newer snapshot (issue #704).
+ * A snapshot delete was refused because newer snapshots are built on it. An Outlook, OneDrive or
+ * SharePoint manifest holds only its own run's changes, so the items and removals it recorded
+ * exist in no later manifest; deleting it would silently change every newer snapshot (issues
+ * #704, #725).
  */
 export class SnapshotNotNewestError extends AtlasError {
   constructor(
     readonly snapshot_id: string,
     readonly newer_snapshot_ids: readonly string[],
-    options?: { cause?: unknown },
+    options?: { cause?: unknown; wording?: SnapshotChainWording },
   ) {
+    const { owner, records, delete_all_flag } = options?.wording ?? MAILBOX_CHAIN_WORDING;
     super(
       'ATLAS_SNAPSHOT_NOT_NEWEST',
       `Refusing to delete snapshot ${snapshot_id}: ${newer_snapshot_ids.length} newer ` +
-        `snapshot(s) of this mailbox include the messages it recorded. Delete the newer ` +
-        `snapshots first, newest first, or delete the whole mailbox backup with -m.`,
-      options,
+        `snapshot(s) of this ${owner} include the ${records} it recorded. Delete the newer ` +
+        `snapshots first, newest first, or delete the whole ${owner} backup with ${delete_all_flag}.`,
+      options?.cause === undefined ? undefined : { cause: options.cause },
     );
   }
 }

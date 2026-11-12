@@ -35,6 +35,8 @@ const STORED_CURSOR = {
   previous_kind_by_file_id: {},
   version_watermark_by_file_id: {},
   updated_at: '2026-01-01T00:00:00.000Z',
+  // Saved while the site had no snapshot, and none is stored, so the run resumes it (#725).
+  snapshot_id: null,
 } as unknown as SharePointDeltaCursor;
 
 interface Harness {
@@ -45,6 +47,7 @@ interface Harness {
 function make_harness(connector: Record<string, unknown>): Harness {
   const context = {
     storage: {
+      list: vi.fn(async () => []),
       list_stale: vi.fn(async () => []),
       abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     },

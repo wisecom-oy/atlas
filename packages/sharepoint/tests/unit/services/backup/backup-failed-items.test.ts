@@ -48,6 +48,8 @@ function make_previous_cursor(failed_items: FailedItemLedger): SharePointDeltaCu
     previous_kind_by_file_id: {},
     failed_items,
     updated_at: '2026-01-02T00:00:00.000Z',
+    // Saved while the site had no snapshot, and none is stored, so the run resumes it (#725).
+    snapshot_id: null,
   };
 }
 

@@ -58,7 +58,7 @@ exit "$status"
 | `8`  | `ATLAS_OBJECT_LOCK_RETAINED`                                                                                                                                    | Respect retention or legal hold. Repeating the same deletion cannot bypass it.                                                                                                                                         |
 | `9`  | `ATLAS_CONTENT_UNREADABLE`, `ATLAS_FORMAT_UNSUPPORTED`, or a command that skipped a damaged manifest or version index and named it |  The stored bytes cannot be parsed back, or were written by a newer Atlas format. Repeating the command will not help. For a newer format, upgrade Atlas. For a named manifest or version index, see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes). Otherwise extract the raw content with `save`. |
 | `10` | `ATLAS_KEY_CONFLICT`: `rehydrate` found a different data key on primary next to other objects, so it refused to replace a key that may protect existing backups | Repeating the command will not help. Confirm primary's content is disposable, run `atlas delete --purge`, then rehydrate into the empty bucket.                                                                        |
-| `11` | `ATLAS_SNAPSHOT_NOT_NEWEST`: `outlook delete -s` named a snapshot that newer snapshots of the mailbox are built on | Repeating the command will not help. Delete the newer snapshots first, newest first, or delete the whole mailbox backup with `-m`. |
+| `11` | `ATLAS_SNAPSHOT_NOT_NEWEST`: `outlook delete -s`, `onedrive delete -s`, or `sharepoint delete -s` named a snapshot that newer snapshots of the same mailbox, owner, or site are built on | Repeating the command will not help. Delete the newer snapshots first, newest first, or delete the whole backup of that mailbox, owner, or site by leaving out `-s`. |
 
 Fatal exceptions map to these categories. Failures the command reports itself stay `1`: failed verification, `storage-check` reporting an unready bucket, and `config validate` reporting a failed probe. Per-item failures already reported as partial stay `2`, and their messages are not reclassified.
 
@@ -639,7 +639,7 @@ The move copies the bytes unchanged to `_quarantine/{key}`, reads the copy back,
 
 Object Lock is respected. In a versioned bucket, removing the original writes a delete marker and the retained version stays, recoverable by version ID until retention ends. A backend that refuses the removal exits `8` (`ATLAS_OBJECT_LOCK_RETAINED`): the quarantined copy exists, the original stays in place, and commands keep naming it until retention allows the removal.
 
-Quarantining an Outlook, OneDrive, or SharePoint manifest drops that run's changes from every later point in time, because each manifest holds only its own run's delta. The command warns and recommends one `backup --full`, so the newest snapshot holds every current item again. Contacts and Calendar snapshots are complete on their own, so only the quarantined snapshot is lost. Quarantine also removes the mailbox's delta cursor, whose links may describe the quarantined snapshot, so the next backup reads every folder or calendar in full instead of building on an older snapshot with them.
+Quarantining an Outlook, OneDrive, or SharePoint manifest drops that run's changes from every later point in time, because each manifest holds only its own run's delta. The command warns and recommends one `backup --full`, so the newest snapshot holds every current item again. For OneDrive and SharePoint that manual run is needed only when newer snapshots exist. The delta cursor records the snapshot it was saved with, so after the newest manifest is quarantined the next backup finds that snapshot gone, reads every drive or library in full by itself, and warns that it did. A cursor written before 7.0 records no snapshot, so until a 7.0 backup has run for that owner or site, run `backup --full` after any quarantine. Contacts and Calendar snapshots are complete on their own, so only the quarantined snapshot is lost. Quarantine also removes the mailbox's delta cursor, whose links may describe the quarantined snapshot, so the next backup reads every folder or calendar in full instead of building on an older snapshot with them.
 
 Quarantining a Teams snapshot index makes the next backup compare against the newest readable index, which is older. Each channel cursor is bound to the shard its index entry named, so a channel whose cursor pointed at the quarantined index's shard is read in full, and a channel unchanged since the older index resumes its delta read. No `--full` run is needed. A damaged channel cursor is not quarantined: `status` names it in a warning, and the next backup reads that channel in full and rewrites the cursor.
 
@@ -895,14 +895,23 @@ Reports pending file changes and failed items per drive by replaying the saved d
 
 **`atlas onedrive delete`**
 
-Deletes the owner's OneDrive backups behind the same confirmation prompt as the Outlook delete. Without `-s`, it removes the owner's `manifests`, `data`, `index`, `_meta`, and `staging` prefixes. The staging prefix is included so an interrupted large-file upload does not leave content behind in the bucket. With `-s`, only that snapshot's manifest is removed. The blobs stay, because other snapshots may reference them.
+Deletes the owner's OneDrive backups behind the same confirmation prompt as the Outlook delete. Without `-s`, it removes the owner's `manifests`, `data`, `index`, `_meta`, and `staging` prefixes. The staging prefix is included so an interrupted large-file upload does not leave content behind in the bucket. With `-s`, the owner's newest snapshot manifest and the delta cursor are removed. The blobs stay, because other snapshots may reference them.
 
-| Option                | Description                                       |
-| --------------------- | ------------------------------------------------- |
-| `-o, --owner <id>`    | User email or Entra object ID (required)          |
-| `-s, --snapshot <id>` | Delete only this snapshot instead of every backup |
-| `-y, --yes`           | Skip the confirmation prompt                      |
-| `-t, --tenant <id>`   | Override the tenant ID from config                |
+| Option                | Description                                                           |
+| --------------------- | --------------------------------------------------------------------- |
+| `-o, --owner <id>`    | User email or Entra object ID (required)                              |
+| `-s, --snapshot <id>` | Delete the owner's newest snapshot instead of every backup, see below |
+| `-y, --yes`           | Skip the confirmation prompt                                          |
+| `-t, --tenant <id>`   | Override the tenant ID from config                                    |
+
+<a id="drive-snapshot-delete"></a>`-s` behaves the same for OneDrive and SharePoint:
+
+- **Only the newest snapshot is accepted.** Each snapshot stores only the changes of its own run, and every newer snapshot is built from the whole chain before it. Deleting an older link would drop the files it recorded from every later snapshot and bring back the ones it recorded as deleted. Atlas refuses that with `SnapshotNotNewestError` (`ATLAS_SNAPSHOT_NOT_NEWEST`, exit `11`) and deletes nothing. To remove an older snapshot, delete the newer ones first, newest first, or delete the whole backup by leaving out `-s`.
+- **A damaged manifest blocks the delete.** A manifest's creation time is inside its ciphertext, so the order cannot be checked while one of the owner's or site's manifests is unreadable. The delete exits `9` and names the manifest, which you move aside with [`quarantine`](#damaged-manifests-and-version-indexes) before retrying. Checking the order decrypts the manifests, so `delete -s` needs the encryption passphrase and the tenant's data key.
+- **The next backup reads every drive or library in full.** The delta cursor points past the deleted run, so it is removed with the manifest. The next backup lists every file that exists, stores an entry for each, and records a deletion for each file the remaining snapshots list that is gone. Unchanged content is not uploaded again, because blobs are stored once per content. A cursor left behind anyway, for example by an interrupted delete, records the snapshot it was saved with. A backup resumes it only while that snapshot's manifest still exists, and otherwise reads in full and says so in a warning.
+- **The run's version index stays.** `index/{owner}/runs/{snapshot}.json` holds the historical file versions Graph handed over during that run. The full run that follows does not fetch versions of a file whose content is already stored, so deleting the index would lose them. `list-versions` and `restore-version` keep offering the versions it recorded.
+
+A snapshot deleted with a release before 7.0 left its cursor behind, and a cursor written by those releases records no snapshot. If you deleted the newest snapshot of an owner or site that way and other snapshots remain, run one `backup --full` for it.
 
 ::: tip Permissions
 Backup and read operations need the application permissions `Files.Read.All` and `User.Read.All`. Restore also needs `Files.ReadWrite.All`. See the [OneDrive backup](/onedrive-backup) page for storage layout.
@@ -1057,18 +1066,20 @@ Reports pending file changes and failed items per document library from the save
 
 A drive is up to date only when both columns are `0`. A file in the ledger is missing from the backup even when delta reports nothing new, because delta never re-presents an unchanged item. A ledger entry for a drive that no longer exists still counts toward the overall verdict.
 
+When the delta cursor has outlived the snapshot it was saved with, the next backup reads in full instead of resuming it, so status does not replay its links either. Every drive is then reported as not backed up and not up to date.
+
 A Graph `401` or `403` stops the command with exit code `4` (`ATLAS_AUTH_DENIED`). Any other failure marks the drive `peek failed` with the error class and message, and the owner or site is reported as not up to date.
 
 **`atlas sharepoint delete`**
 
-Deletes the site's SharePoint backups behind a confirmation prompt. Without `-s`, it removes the site's `manifests`, `data`, `index`, `_meta`, and `staging` prefixes. With `-s`, only that snapshot's manifest is removed, and the shared blobs stay.
+Deletes the site's SharePoint backups behind a confirmation prompt. Without `-s`, it removes the site's `manifests`, `data`, `index`, `_meta`, and `staging` prefixes. With `-s`, the site's newest snapshot manifest and the delta cursor are removed, and the shared blobs stay. Any other snapshot is refused with exit `11`, and the next backup reads every library in full. See [what `-s` does](#drive-snapshot-delete).
 
-| Option                | Description                                       |
-| --------------------- | ------------------------------------------------- |
-| `--site <url-or-id>`  | SharePoint site URL or Graph site ID (required)   |
-| `-s, --snapshot <id>` | Delete only this snapshot instead of every backup |
-| `-y, --yes`           | Skip the confirmation prompt                      |
-| `-t, --tenant <id>`   | Override the tenant ID from config                |
+| Option                | Description                                                          |
+| --------------------- | -------------------------------------------------------------------- |
+| `--site <url-or-id>`  | SharePoint site URL or Graph site ID (required)                      |
+| `-s, --snapshot <id>` | Delete the site's newest snapshot instead of every backup, see above |
+| `-y, --yes`           | Skip the confirmation prompt                                         |
+| `-t, --tenant <id>`   | Override the tenant ID from config                                   |
 
 ::: tip Permissions
 Backup and verification need the application permissions `Sites.Read.All` and `Files.Read.All`. Restore also needs `Sites.ReadWrite.All`.

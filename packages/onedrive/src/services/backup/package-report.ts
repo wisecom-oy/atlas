@@ -22,6 +22,16 @@ export function accumulate_package_report(
   append_all(totals.warnings, report.warnings);
 }
 
+/** Renders OneNote accounting as backup warnings: one summary line, then any incomplete notebooks. */
+export function build_package_warnings(report: PackageReportTotals): string[] {
+  if (report.notebooks_detected === 0) return [];
+  return [
+    `OneNote notebooks detected: ${report.notebooks_detected} ` +
+      `(${report.section_files_backed_up} section file(s) backed up as ordinary files).`,
+    ...report.warnings,
+  ];
+}
+
 /** Marks unprocessed delta items incomplete when a drive is interrupted. */
 export function summarize_processed_package_items(
   items: readonly OneDriveDeltaItem[],

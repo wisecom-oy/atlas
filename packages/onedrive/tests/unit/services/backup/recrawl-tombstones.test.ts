@@ -16,6 +16,7 @@ import type {
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { list_one_drive_snapshot } from '@wisecom/atlas-types/testing/stub-drive-snapshot-listing';
 
 const OWNER_ID = 'owner-1';
 
@@ -114,7 +115,7 @@ function run_backup(deltas: Record<string, DriveDelta>, options: RunOptions = {}
     storage: {
       exists: async () => false,
       put: async () => undefined,
-      list: async () => [],
+      list: list_one_drive_snapshot(),
       list_stale: async () => [],
       abort_incomplete_uploads: async () => 0,
     },

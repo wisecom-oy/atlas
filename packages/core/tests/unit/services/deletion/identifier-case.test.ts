@@ -5,7 +5,11 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import 'reflect-metadata';
 import { Container } from 'inversify';
-import { TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
+import {
+  ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
+  SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
+  TENANT_CONTEXT_FACTORY_TOKEN,
+} from '@wisecom/atlas-types';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import { OneDriveDeletionService } from '@/services/deletion/onedrive-deletion.service';
 import { SharePointDeletionService } from '@/services/deletion/sharepoint-deletion.service';
@@ -34,17 +38,25 @@ function make_storage(): RecordingStorage {
 describe('deletion prefixes ignore identifier case', () => {
   let storage: RecordingStorage;
   let container: Container;
+  let find_by_snapshot: Mock;
 
   beforeEach(() => {
     storage = make_storage();
     const factory = {
       create: vi.fn(),
-      create_readonly: vi.fn(),
+      create_readonly: vi.fn().mockResolvedValue({ storage, destroy: vi.fn() }),
       create_storage_only: vi.fn().mockResolvedValue({ storage }),
     } as unknown as TenantContextFactory;
+    const snap = { snapshot_id: 'snap-1', created_at: new Date('2026-03-01T10:00:00Z') };
+    find_by_snapshot = vi.fn().mockResolvedValue(snap);
 
     container = new Container();
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(factory);
+    container.bind(ONEDRIVE_MANIFEST_REPOSITORY_TOKEN).toConstantValue({
+      find_by_snapshot,
+      list_snapshots_by_owner: vi.fn().mockResolvedValue([snap]),
+    });
+    container.bind(SHAREPOINT_MANIFEST_REPOSITORY_TOKEN).toConstantValue({});
     container.bind(OneDriveDeletionService).toSelf();
     container.bind(SharePointDeletionService).toSelf();
   });
@@ -81,6 +93,10 @@ describe('deletion prefixes ignore identifier case', () => {
 
     await container.get(OneDriveDeletionService).delete_snapshot('t', UPPER, 'snap-1');
 
-    expect(swept()).toEqual([`onedrive/manifests/${LOWER}/snap-1.json`]);
+    expect(find_by_snapshot).toHaveBeenCalledWith(expect.anything(), LOWER, 'snap-1');
+    expect(swept()).toEqual([
+      `onedrive/manifests/${LOWER}/snap-1.json`,
+      `onedrive/_meta/${LOWER}/delta.json`,
+    ]);
   });
 });

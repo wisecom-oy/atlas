@@ -109,6 +109,39 @@ export function build_snapshot_manifest(
   };
 }
 
+/** The change-tracking maps a cursor carries from one run to the next. */
+type CursorTracking = Pick<
+  SharePointDeltaCursor,
+  | 'previous_path_by_file_id'
+  | 'previous_name_by_file_id'
+  | 'previous_etag_by_file_id'
+  | 'previous_kind_by_file_id'
+>;
+
+/**
+ * Builds the delta cursor a run saves. `snapshot_id` is the snapshot the run wrote or left as the
+ * newest, or `null` when the site has none: the next run resumes the cursor only while that
+ * snapshot's manifest still exists (issue #725).
+ */
+export function build_delta_cursor(
+  site_id: string,
+  delta_link_by_drive: Record<string, string>,
+  tracking: CursorTracking,
+  failed_items: NonNullable<SharePointDeltaCursor['failed_items']>,
+  version_watermark_by_file_id: NonNullable<SharePointDeltaCursor['version_watermark_by_file_id']>,
+  snapshot_id: string | null,
+): SharePointDeltaCursor {
+  return {
+    site_id,
+    delta_link_by_drive,
+    ...tracking,
+    version_watermark_by_file_id,
+    failed_items,
+    updated_at: new Date().toISOString(),
+    snapshot_id,
+  };
+}
+
 /**
  * Builds the result of a run that created no snapshot. `cursor_updated` says whether the run saved
  * its delta cursor: a run cancelled before its scan finished writes none (issue #693).

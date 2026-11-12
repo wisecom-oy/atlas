@@ -2,11 +2,16 @@ import { normalize_owner_id } from '@/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type {
   SharePointDeletionUseCase,
+  SharePointManifestRepository,
   TenantContextFactory,
   DeletionResult,
 } from '@wisecom/atlas-types';
-import { TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
-import { delete_scopes, delete_snapshot_manifest } from '@/services/deletion/shared/prefix-deleter';
+import {
+  SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
+  TENANT_CONTEXT_FACTORY_TOKEN,
+} from '@wisecom/atlas-types';
+import { delete_scopes } from '@/services/deletion/shared/prefix-deleter';
+import { delete_newest_drive_snapshot } from '@/services/deletion/drive-snapshot-deleter';
 import { abort_staging_uploads } from '@/services/deletion/shared/staging-upload-purge';
 import { quarantined_copies_of } from '@/services/quarantine/stored-object-quarantine';
 
@@ -14,6 +19,8 @@ import { quarantined_copies_of } from '@/services/quarantine/stored-object-quara
 export class SharePointDeletionService implements SharePointDeletionUseCase {
   constructor(
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
+    @inject(SHAREPOINT_MANIFEST_REPOSITORY_TOKEN)
+    private readonly _manifests: SharePointManifestRepository,
   ) {}
 
   /**
@@ -45,8 +52,10 @@ export class SharePointDeletionService implements SharePointDeletionUseCase {
   }
 
   /**
-   * Deletes a single SharePoint snapshot manifest. Blob objects are retained because
-   * other snapshots may reference the same content-addressed keys.
+   * Deletes the site's newest SharePoint snapshot: its manifest and the delta cursor. Blob objects
+   * are retained because other snapshots may reference the same content-addressed keys. Any other
+   * snapshot is refused with `SnapshotNotNewestError`; see `delete_newest_drive_snapshot` (issue
+   * #725). Reading the manifests to check the order needs the tenant key.
    */
   async delete_snapshot(
     tenant_id: string,
@@ -54,12 +63,19 @@ export class SharePointDeletionService implements SharePointDeletionUseCase {
     snapshot_id: string,
   ): Promise<DeletionResult> {
     site_id = normalize_owner_id(site_id);
-    const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
-    return delete_snapshot_manifest(
-      storage,
-      `sharepoint/manifests/${site_id}/${snapshot_id}.json`,
-      'SharePoint',
-      snapshot_id,
-    );
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
+    try {
+      return await delete_newest_drive_snapshot(ctx, {
+        workload: 'sharepoint',
+        label: 'SharePoint',
+        owner_id: site_id,
+        snapshot_id,
+        wording: { owner: 'site', records: 'files', delete_all_flag: '--site' },
+        find_snapshot: () => this._manifests.find_by_snapshot(ctx, site_id, snapshot_id),
+        list_owner_manifests: () => this._manifests.list_snapshots_by_site(ctx, site_id),
+      });
+    } finally {
+      ctx.destroy();
+    }
   }
 }

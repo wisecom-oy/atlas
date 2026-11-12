@@ -14,6 +14,11 @@ import {
 import { inject, injectable } from 'inversify';
 import { classify_empty_run } from '@wisecom/atlas-drive/backup/empty-run-classifier';
 import { append_recrawl_tombstones } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
+import {
+  resolve_saved_cursor_binding,
+  select_resumable_cursor,
+} from '@wisecom/atlas-drive/shared/cursor-snapshot-binding';
+import { SHAREPOINT_KEYS } from '@/services/shared/storage-keys';
 import { build_version_errors } from '@wisecom/atlas-drive/backup/version-failure-errors';
 import type {
   SharePointBackupOptions,
@@ -34,12 +39,10 @@ import {
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
-import {
-  describe_failed_items,
-  type FailedItemLedger,
-} from '@wisecom/atlas-core/services/shared/failed-item-ledger';
+import { describe_failed_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
+  build_delta_cursor,
   build_empty_result,
   build_package_warnings,
   build_run_version_indexes,
@@ -96,7 +99,13 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       // runs on one tenant would overwrite each other's bucket setting (#551).
       const ctx = await lock_run_writes(tenant_ctx, options.object_lock_request);
       const stored_cursor = await this._cursors.load(ctx, site_id);
-      const previous_cursor = options.force_full === true ? undefined : stored_cursor;
+      // A cursor whose snapshot is gone reads in full, as `--full` does: it would otherwise resume
+      // past changes no snapshot holds (issue #725).
+      const resume = await select_resumable_cursor(ctx, SHAREPOINT_KEYS, site_id, stored_cursor, {
+        unit: 'library',
+        force_full: options.force_full === true,
+      });
+      const previous_cursor = resume.previous_cursor;
       const libraries = await this._connector.list_document_libraries(tenant_id, site_id);
       // Same reasoning as the OneDrive twin: a revoked grant is a 403 that
       // `list_document_libraries` has already named, so an empty list is a site with no document
@@ -124,7 +133,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       // record which historical versions Graph already handed over, not where
       // the delta stream stopped, and discarding them would re-download every
       // version of every file (issue #161).
-      const versions = await this.load_run_version_collector(ctx, site_id, stored_cursor);
+      const versions = await this.load_run_version_collector(ctx, site_id, resume.watermark_cursor);
       const scan = await scan_all_libraries({
         connector: this._connector,
         versions,
@@ -150,14 +159,21 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         processed: scan.items_processed,
       });
       scan.interrupted ||= options.should_interrupt?.() === true;
-      const cursor = this.build_cursor(
+      const cursor = build_delta_cursor(
         site_id,
         delta_link_by_drive,
         tracking,
         scan.failed_items,
         versions.watermarks,
+        // The snapshot this run writes, or the one it leaves as the newest when nothing changed.
+        await resolve_saved_cursor_binding(
+          scan.entries.length > 0 ? snapshot_id : undefined,
+          previous_cursor,
+          () => this._manifests.find_latest_readable(ctx, site_id),
+        ),
       );
       const warnings = [
+        ...(resume.outlived_warning === undefined ? [] : [resume.outlived_warning]),
         ...build_package_warnings(scan.package_reports),
         ...describe_failed_items(scan.failed_items),
       ];
@@ -244,25 +260,6 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       previous_name_by_file_id: { ...(previous_cursor?.previous_name_by_file_id ?? {}) },
       previous_etag_by_file_id: { ...(previous_cursor?.previous_etag_by_file_id ?? {}) },
       previous_kind_by_file_id: { ...(previous_cursor?.previous_kind_by_file_id ?? {}) },
-    };
-  }
-
-  private build_cursor(
-    site_id: string,
-    delta_link_by_drive: Record<string, string>,
-    tracking: FileTrackingState,
-    failed_items: FailedItemLedger,
-    version_watermark_by_file_id: NonNullable<
-      SharePointDeltaCursor['version_watermark_by_file_id']
-    >,
-  ): SharePointDeltaCursor {
-    return {
-      site_id,
-      delta_link_by_drive,
-      ...tracking,
-      version_watermark_by_file_id,
-      failed_items,
-      updated_at: new Date().toISOString(),
     };
   }
 
