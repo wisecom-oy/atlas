@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TeamsChannelIndexEntry, TeamsSnapshotIndex } from '@wisecom/atlas-types';
+import {
+  attached_unreadable_keys,
+  StorageError,
+  type TeamsChannelIndexEntry,
+  type TeamsSnapshotIndex,
+} from '@wisecom/atlas-types';
 import { backup_channel } from '@/services/backup/channel-backup-processor';
 import { TEAMS_KEYS } from '@/services/shared/storage-keys';
 import { channel_output, make_ports, TEAM_ID } from './backup-service-harness';
@@ -67,6 +72,30 @@ describe('TeamsBackupService with a damaged newer index (issue #694)', () => {
     expect(result.summary.unreadable_keys).toEqual([DAMAGED_KEY]);
     expect(result.summary.errors).toEqual(['Channel channel-2: boom']);
     expect(result.summary.healthy).toBe(false);
+  });
+
+  it('rethrows a later failure unchanged, carrying the damaged key it had found', async () => {
+    const ports = make_ports({ previous: older_index(), unreadable_keys: [DAMAGED_KEY] });
+    const failure = new StorageError('shard write refused');
+    ports.shards.save.mockRejectedValue(failure);
+
+    const thrown = await ports.service
+      .backup_team('tenant-1', TEAM_ID, {})
+      .catch((err: unknown) => err);
+
+    expect(thrown).toBe(failure);
+    expect(attached_unreadable_keys(thrown)).toEqual([DAMAGED_KEY]);
+  });
+
+  it('attaches nothing to a failure when every index reads', async () => {
+    const ports = make_ports({ previous: older_index() });
+    ports.shards.save.mockRejectedValue(new StorageError('shard write refused'));
+
+    const thrown = await ports.service
+      .backup_team('tenant-1', TEAM_ID, {})
+      .catch((err: unknown) => err);
+
+    expect(attached_unreadable_keys(thrown)).toEqual([]);
   });
 
   it('carries no unreadable_keys when every index reads', async () => {

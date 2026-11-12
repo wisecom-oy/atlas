@@ -9,6 +9,7 @@ import type {
   TeamsCatalogUseCase,
 } from '@wisecom/atlas-types';
 import {
+  attached_unreadable_keys,
   AuthError,
   TEAMS_BACKUP_USE_CASE_TOKEN,
   TEAMS_CATALOG_USE_CASE_TOKEN,
@@ -229,6 +230,11 @@ async function run_team_backups(
       run.found_unreadable ||= (result.summary.unreadable_keys?.length ?? 0) > 0;
       if (result.interrupted || base_options.should_interrupt?.()) break;
     } catch (thrown) {
+      // A team that failed after its baseline loaded still names the damaged indexes it skipped.
+      // The failure's own exit code is set afterwards and replaces exit 9.
+      const unreadable_keys = attached_unreadable_keys(thrown);
+      report_unreadable_keys(unreadable_keys);
+      run.found_unreadable ||= unreadable_keys.length > 0;
       if (base_options.abort_signal?.aborted) {
         run.all_healthy = false;
         run.interrupted = true;

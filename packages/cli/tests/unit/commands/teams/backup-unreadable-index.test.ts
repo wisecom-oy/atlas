@@ -5,6 +5,7 @@ import { execute_teams_backup } from '@/commands/teams/command.handlers';
 import { EXIT_PARTIAL } from '@/command-run-outcome';
 import { EXIT_CONTENT_UNREADABLE } from '@/command-unreadable-objects';
 import {
+  attach_unreadable_keys,
   TEAMS_BACKUP_USE_CASE_TOKEN,
   TEAMS_CATALOG_USE_CASE_TOKEN,
   type TeamsBackupResult,
@@ -111,6 +112,31 @@ describe('teams backup with a damaged snapshot index', () => {
 
     expect(errors).toContain(`  ${HINT}`);
     expect(process.exitCode).toBe(EXIT_PARTIAL);
+  });
+
+  it('names the damaged key of a team that threw and keeps exit 2 for the failed team', async () => {
+    backup_team
+      .mockRejectedValueOnce(
+        attach_unreadable_keys(new Error('shard write refused'), [DAMAGED_KEY]),
+      )
+      .mockResolvedValueOnce({ ...result([]), team_id: 'team-b' });
+
+    await execute_teams_backup(container, { tenant: TENANT, team: ['team-a', 'team-b'] });
+
+    expect(errors).toContain(`  ${HINT}`);
+    expect(errors).toContain('  team error: team-a: shard write refused');
+    expect(process.exitCode).toBe(EXIT_PARTIAL);
+  });
+
+  it('names the damaged key before rethrowing the failure of a single team', async () => {
+    const failure = attach_unreadable_keys(new Error('shard write refused'), [DAMAGED_KEY]);
+    backup_team.mockRejectedValueOnce(failure);
+
+    await expect(
+      execute_teams_backup(container, { tenant: TENANT, team: ['team-a'] }),
+    ).rejects.toBe(failure);
+
+    expect(errors).toContain(`  ${HINT}`);
   });
 
   it('stays healthy with exit 0 when every index reads', async () => {
