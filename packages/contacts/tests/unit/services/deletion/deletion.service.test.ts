@@ -72,11 +72,20 @@ describe('ContactsDeletionService', () => {
     expect(objects[`contacts/photos/${MAILBOX}/p1`]).toBeDefined();
   });
 
+  it('removes the delta cursor with the snapshot so the next backup reads in full (#704)', async () => {
+    const objects = seeded_objects();
+
+    await build_service(objects).delete_snapshot('tenant-1', MAILBOX, SNAPSHOT);
+
+    expect(objects[`contacts/_meta/${MAILBOX}/delta.json`]).toBeUndefined();
+  });
+
   it('throws NotFoundError when the snapshot manifest does not exist', async () => {
     const objects = seeded_objects();
 
     await expect(
       build_service(objects).delete_snapshot('tenant-1', MAILBOX, 'ct-snap-missing'),
     ).rejects.toThrow(/No Contacts manifest found for snapshot ct-snap-missing/);
+    expect(objects[`contacts/_meta/${MAILBOX}/delta.json`]).toBeDefined();
   });
 });

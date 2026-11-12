@@ -13,6 +13,7 @@ export type AtlasErrorCode =
   | 'ATLAS_CONTENT_UNREADABLE'
   | 'ATLAS_FORMAT_UNSUPPORTED'
   | 'ATLAS_KEY_CONFLICT'
+  | 'ATLAS_SNAPSHOT_NOT_NEWEST'
   | 'ATLAS_CONFIG_INVALID';
 
 /**
@@ -87,6 +88,27 @@ export class ObjectLockRetainedError extends AtlasError {
     super(
       'ATLAS_OBJECT_LOCK_RETAINED',
       `Object ${key} is protected by Object Lock retention or a legal hold and was not deleted.`,
+      options,
+    );
+  }
+}
+
+/**
+ * A snapshot delete was refused because newer snapshots are built on it. An Outlook manifest holds
+ * only its own run's changes, so the messages and removals it recorded exist in no later manifest;
+ * deleting it would silently change every newer snapshot (issue #704).
+ */
+export class SnapshotNotNewestError extends AtlasError {
+  constructor(
+    readonly snapshot_id: string,
+    readonly newer_snapshot_ids: readonly string[],
+    options?: { cause?: unknown },
+  ) {
+    super(
+      'ATLAS_SNAPSHOT_NOT_NEWEST',
+      `Refusing to delete snapshot ${snapshot_id}: ${newer_snapshot_ids.length} newer ` +
+        `snapshot(s) of this mailbox include the messages it recorded. Delete the newer ` +
+        `snapshots first, newest first, or delete the whole mailbox backup with -m.`,
       options,
     );
   }

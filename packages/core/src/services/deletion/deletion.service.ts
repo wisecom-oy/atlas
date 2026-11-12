@@ -15,6 +15,7 @@ import {
 } from '@/services/deletion/shared/prefix-deleter';
 import { logger } from '@/utils/logger';
 import { quarantined_copies_of } from '@/services/quarantine/stored-object-quarantine';
+import { assert_outlook_snapshot_is_newest } from '@/services/deletion/outlook-snapshot-order-guard';
 
 /**
  * The wrapped DEK, deleted last so a blocked purge stays recoverable.
@@ -25,6 +26,19 @@ import { quarantined_copies_of } from '@/services/quarantine/stored-object-quara
  */
 const DEK_KEY = '_meta/dek.enc';
 const OUTLOOK_MANIFEST_POINTER_PREFIX = '_meta/outlook-manifests';
+
+/** The mailbox's delta cursor, written by `S3MailboxDeltaCursorRepository`. */
+function outlook_cursor_key(owner_id: string): string {
+  return `_meta/outlook-cursors/${owner_id}.json`;
+}
+
+/**
+ * Replication status records of the given Outlook snapshots. Only these snapshots' folders: the
+ * `_meta/replication/{owner_id}/` tree is shared with the OneDrive backup of the same user.
+ */
+function replication_status_prefixes(owner_id: string, snapshot_ids: Iterable<string>): string[] {
+  return [...snapshot_ids].map((snapshot_id) => `_meta/replication/${owner_id}/${snapshot_id}/`);
+}
 
 @injectable()
 export class DeletionService implements DeletionUseCase {
@@ -60,6 +74,8 @@ export class DeletionService implements DeletionUseCase {
       manifest_prefix,
       ...snapshot_pointers,
       `${OUTLOOK_MANIFEST_POINTER_PREFIX}/owners/${owner_id}/`,
+      outlook_cursor_key(owner_id),
+      ...replication_status_prefixes(owner_id, snapshot_ids),
       `data/${owner_id}/`,
       `attachments/${owner_id}/`,
       ...quarantined_copies_of([manifest_prefix]),
@@ -67,10 +83,14 @@ export class DeletionService implements DeletionUseCase {
   }
 
   /**
-   * Deletes a single snapshot manifest. Data objects are intentionally kept
-   * because delta manifests are not self-contained -- other manifests in the
-   * chain may reference the same objects. Use `delete_mailbox_data` to remove
-   * all objects for a mailbox, or `purge_tenant` for everything.
+   * Deletes the mailbox's newest snapshot manifest, then its pointers and the delta cursor.
+   *
+   * Data objects are intentionally kept because delta manifests are not self-contained: other
+   * manifests in the chain may reference the same objects. Any other snapshot is refused with
+   * `SnapshotNotNewestError`, since newer snapshots fold in the changes it recorded (issue #704).
+   * The cursor goes because it points past the deleted run; without it the next backup resumes
+   * from the remaining head manifest's own links. Use `delete_mailbox_data` to remove all objects
+   * for a mailbox, or `purge_tenant` for everything.
    */
   async delete_snapshot(tenant_id: string, snapshot_id: string): Promise<DeletionResult> {
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
@@ -80,6 +100,7 @@ export class DeletionService implements DeletionUseCase {
       if (!manifest) {
         throw new NotFoundError(`No manifest found for snapshot ${snapshot_id}`);
       }
+      await assert_outlook_snapshot_is_newest(this._manifests, ctx, manifest);
 
       const key = `manifests/${manifest.owner_id}/${manifest.snapshot_id}.json`;
       const manifest_summary = await delete_scopes(ctx.storage, [key]);
@@ -93,6 +114,7 @@ export class DeletionService implements DeletionUseCase {
       const pointer_summary = await delete_scopes(ctx.storage, [
         `${OUTLOOK_MANIFEST_POINTER_PREFIX}/snapshots/${snapshot_id}.json`,
         `${OUTLOOK_MANIFEST_POINTER_PREFIX}/owners/${manifest.owner_id}/latest.json`,
+        outlook_cursor_key(manifest.owner_id),
       ]);
       return merge_deletion_results(manifest_summary, pointer_summary);
     } finally {

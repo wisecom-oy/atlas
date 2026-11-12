@@ -5,6 +5,7 @@ import {
   MailboxNotLicensedError,
   NotFoundError,
   ObjectLockRetainedError,
+  SnapshotNotNewestError,
   StorageError,
   ThrottledError,
   UnreadableContentError,
@@ -141,6 +142,14 @@ describe('fatal CLI errors', () => {
     handle_fatal_error(new DekOverwriteRefusedError('tenant-example'));
     expect(process.exitCode).toBe(10);
     expect(diagnostics.join('\n')).toContain('Atlas code: ATLAS_KEY_CONFLICT');
+  });
+
+  it('gives a refused delete of a snapshot newer ones depend on its own exit category (#704)', () => {
+    handle_fatal_error(new SnapshotNotNewestError('snap-1', ['snap-2']));
+    expect(process.exitCode).toBe(11);
+    const output = diagnostics.join('\n');
+    expect(output).toContain('Atlas code: ATLAS_SNAPSHOT_NOT_NEWEST');
+    expect(output).toContain('Delete the newer snapshots first');
   });
 
   it('classifies AWS server errors as retryable without treating every 5xx as transient', () => {

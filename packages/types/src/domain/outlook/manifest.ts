@@ -180,4 +180,9 @@ export interface MailboxDeltaCursor {
   /** Delta link per Graph folder id, for folders whose last pass completed. */
   readonly delta_links: Record<string, string>;
   readonly updated_at: string;
+  /**
+   * The head snapshot when the cursor was saved. The links are resumed only while it is still the
+   * newest readable manifest (issues #703, #704). Absent on cursors written before 7.0.
+   */
+  readonly snapshot_id?: string;
 }

@@ -163,6 +163,7 @@ export {
   StorageError,
   ConfigError,
   UnreadableObjectsError,
+  SnapshotNotNewestError,
 } from '@wisecom/atlas-types';
 export type { AtlasErrorCode } from '@wisecom/atlas-types';
 export {
