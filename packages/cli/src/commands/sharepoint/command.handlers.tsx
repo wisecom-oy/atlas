@@ -26,7 +26,11 @@ import { KeyValueList } from '@/ui/components/key-value-list';
 import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary';
 import { render_static_view } from '@/ui/render';
 import { build_object_lock_request } from '@/command-object-lock';
-import { EXIT_PARTIAL, report_run_outcome, report_skipped_items } from '@/command-run-outcome';
+import {
+  report_backup_verdict,
+  report_run_outcome,
+  report_skipped_items,
+} from '@/command-run-outcome';
 import { run_interruptible } from '@/adapters/interruptible-run';
 import {
   DRIVE_RESTORE_INTERRUPT_MESSAGE,
@@ -157,15 +161,12 @@ export async function execute_sharepoint_backup(
   }
 
   // Per-site reporting already listed the errors and set the partial-run exit
-  // code; all that is left is the verdict over the whole site tree.
-  if (results.every((r) => r.summary.healthy)) {
-    logger.success('Status: HEALTHY');
-    return;
-  }
-
-  logger.error('Status: UNHEALTHY');
-  // A ledger-only run has no error entry, so the verdict sets the exit code itself (#583).
-  process.exitCode = EXIT_PARTIAL;
+  // code, and named each site's damaged manifests with exit 9; all that is left is the verdict
+  // over the whole site tree.
+  report_backup_verdict(
+    results.every((r) => r.summary.healthy),
+    results.some((r) => (r.summary.unreadable_keys?.length ?? 0) > 0),
+  );
 }
 
 /** Renders the per-site section of a backup run. */

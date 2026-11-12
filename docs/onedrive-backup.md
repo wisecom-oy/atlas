@@ -226,7 +226,7 @@ atlas onedrive restore-version -o user@example.com \
 Each backup ends with a health status:
 
 - **HEALTHY.** Every file's primary content was backed up. The snapshot and delta state are safe to rely on.
-- **UNHEALTHY.** At least one file failed, or a library-level error occurred. The run exits with code `2` for a partial run. A hard failure that aborts the run exits with code `1`.
+- **UNHEALTHY.** At least one file failed, or a library-level error occurred. The run exits with code `2` for a partial run. A hard failure that aborts the run exits with code `1`. A newest snapshot manifest that cannot be read also makes the run UNHEALTHY. When it is the only finding, the run names it and exits `9`, see [Damaged manifests](/troubleshooting#damaged-manifests-and-version-indexes).
 
 Warnings, such as advisory OneNote notes, print as `[!]` lines and leave the exit code at `0`.
 

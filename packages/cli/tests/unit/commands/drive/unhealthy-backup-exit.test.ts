@@ -8,6 +8,7 @@ import {
   USER_IDENTITY_RESOLVER_TOKEN,
 } from '@wisecom/atlas-types';
 import { EXIT_PARTIAL } from '@/command-run-outcome';
+import { EXIT_CONTENT_UNREADABLE } from '@/command-unreadable-objects';
 import { execute_onedrive_backup } from '@/commands/onedrive/command.handlers';
 import { execute_sharepoint_backup } from '@/commands/sharepoint/command.handlers';
 
@@ -19,7 +20,7 @@ const TENANT = 'tenant-example';
  * A run whose only problem is a file still in the failed-item ledger: the service reports it as a
  * warning and holds `healthy` false, with no error entry (#583).
  */
-function summary(healthy: boolean) {
+function summary(healthy: boolean, unreadable_keys?: string[]) {
   return {
     files_changed: 0,
     files_stored: 0,
@@ -32,13 +33,17 @@ function summary(healthy: boolean) {
     errors: [],
     warnings: healthy ? [] : ['file-1: download failed (attempt 1/5)'],
     healthy,
+    ...(unreadable_keys !== undefined && { unreadable_keys }),
   };
 }
+
+/** A newest manifest the run could not read (issue #709). */
+const DAMAGED = ['drive/manifests/owner-1/snap-9999-abc.json'];
 
 const workloads = [
   {
     name: 'OneDrive',
-    run: (container: Container, healthy: boolean) => {
+    run: (container: Container, healthy: boolean, unreadable_keys?: string[]) => {
       // An owner id without `@` never reaches Graph, but the handler resolves the resolver first.
       container.bind(USER_IDENTITY_RESOLVER_TOKEN).toConstantValue({ resolve_user: vi.fn() });
       container.bind(ONEDRIVE_BACKUP_USE_CASE_TOKEN).toConstantValue({
@@ -46,7 +51,7 @@ const workloads = [
           owner_id: 'owner-1',
           snapshot: undefined,
           interrupted: false,
-          summary: { drives_scanned: 1, ...summary(healthy) },
+          summary: { drives_scanned: 1, ...summary(healthy, unreadable_keys) },
         }),
       });
       return execute_onedrive_backup(container, { tenant: TENANT, owner: 'owner-1' });
@@ -54,7 +59,7 @@ const workloads = [
   },
   {
     name: 'SharePoint',
-    run: (container: Container, healthy: boolean) => {
+    run: (container: Container, healthy: boolean, unreadable_keys?: string[]) => {
       container.bind(SHAREPOINT_CONNECTOR_TOKEN).toConstantValue({
         resolve_site: vi.fn().mockResolvedValue({
           site_id: 'site-1',
@@ -68,7 +73,7 @@ const workloads = [
             site_id: 'site-1',
             snapshot: undefined,
             interrupted: false,
-            summary: { libraries_scanned: 1, ...summary(healthy) },
+            summary: { libraries_scanned: 1, ...summary(healthy, unreadable_keys) },
           },
         ]),
       });
@@ -103,5 +108,20 @@ describe.each(workloads)('$name backup exit code', ({ run }) => {
 
     expect(logger.success).toHaveBeenCalledWith('Status: HEALTHY');
     expect(process.exitCode).toBeUndefined();
+  });
+
+  it('reports UNHEALTHY and exits 9 when the only finding is a damaged manifest (#709)', async () => {
+    await run(new Container(), true, DAMAGED);
+
+    expect(logger.success).not.toHaveBeenCalledWith('Status: HEALTHY');
+    expect(logger.error).toHaveBeenCalledWith('Status: UNHEALTHY');
+    expect(process.exitCode).toBe(EXIT_CONTENT_UNREADABLE);
+  });
+
+  it('keeps the partial exit when the run is also unhealthy (#709)', async () => {
+    await run(new Container(), false, DAMAGED);
+
+    expect(logger.error).toHaveBeenCalledWith('Status: UNHEALTHY');
+    expect(process.exitCode).toBe(EXIT_PARTIAL);
   });
 });
