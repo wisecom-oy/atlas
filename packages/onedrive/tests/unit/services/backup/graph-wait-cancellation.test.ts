@@ -11,7 +11,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { with_graph_retry } from '@wisecom/atlas-m365-graph';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
-import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 /** A Graph call throttled with `Retry-After: 360`, which on its own waits six minutes. */
 function graph_call_parked_in_retry_wait(): Promise<never> {
@@ -57,6 +57,7 @@ function make_harness(connector: Record<string, unknown>): Harness {
     connector as never,
     {
       list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
+      find_latest_readable: async () => latest_readable(),
     } as never,
     { write_run_index: vi.fn() } as never,
     { load: vi.fn().mockResolvedValue(STORED_CURSOR), save: cursor_save } as never,

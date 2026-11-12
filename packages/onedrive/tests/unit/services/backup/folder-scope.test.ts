@@ -16,7 +16,7 @@ import type {
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { is_within_folder_scope, normalize_folder_scope } from '@/services/backup/folder-scope';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
-import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 const DRIVE_ID = 'd1';
 const OWNER_ID = 'owner-1';
@@ -128,6 +128,7 @@ function make_harness(options: {
     {
       save: vi.fn(),
       list_readable_snapshots_by_owner: async () => readable_manifests([]),
+      find_latest_readable: async () => latest_readable(),
     } as never,
     { load_version_watermarks: vi.fn().mockResolvedValue({}), write_run_index: vi.fn() } as never,
     {

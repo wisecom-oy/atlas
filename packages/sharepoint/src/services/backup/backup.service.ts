@@ -14,6 +14,7 @@ import {
 import { inject, injectable } from 'inversify';
 import { classify_empty_run } from '@wisecom/atlas-drive/backup/empty-run-classifier';
 import { append_recrawl_tombstones } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
+import { merge_damaged_manifest_keys } from '@wisecom/atlas-drive/backup/damaged-manifest-report';
 import { build_version_errors } from '@wisecom/atlas-drive/backup/version-failure-errors';
 import type {
   SharePointBackupOptions,
@@ -34,10 +35,7 @@ import {
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
-import {
-  describe_failed_items,
-  type FailedItemLedger,
-} from '@wisecom/atlas-core/services/shared/failed-item-ledger';
+import { describe_failed_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   build_empty_result,
@@ -46,7 +44,7 @@ import {
   build_snapshot_manifest,
   persist_snapshot_backup,
 } from '@/services/backup/backup-builders';
-import type { FileTrackingState } from '@/services/backup/library-item-processor';
+import { build_delta_cursor, build_tracking_state } from '@/services/backup/delta-cursor-state';
 import type { RunVersionCollector } from '@/services/versioning/version-sync';
 import {
   scan_all_libraries,
@@ -96,6 +94,8 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       // runs on one tenant would overwrite each other's bucket setting (#551).
       const ctx = await lock_run_writes(tenant_ctx, options.object_lock_request);
       const stored_cursor = await this._cursors.load(ctx, site_id);
+      // Read before this run saves a manifest, which would become the head and hide a damaged one.
+      const head = await this._manifests.find_latest_readable(ctx, site_id);
       const previous_cursor = options.force_full === true ? undefined : stored_cursor;
       const libraries = await this._connector.list_document_libraries(tenant_id, site_id);
       // Same reasoning as the OneDrive twin: a revoked grant is a 403 that
@@ -114,7 +114,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       const delta_link_by_drive: Record<string, string> = {
         ...(previous_cursor?.delta_link_by_drive ?? {}),
       };
-      const tracking = this.build_tracking_state(previous_cursor);
+      const tracking = build_tracking_state(previous_cursor);
 
       await cleanup_stale_staging(ctx, site_id);
 
@@ -150,7 +150,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         processed: scan.items_processed,
       });
       scan.interrupted ||= options.should_interrupt?.() === true;
-      const cursor = this.build_cursor(
+      const cursor = build_delta_cursor(
         site_id,
         delta_link_by_drive,
         tracking,
@@ -204,7 +204,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
             ? await classify_empty_run({
                 previous_kind_by_file_id: tracking.previous_kind_by_file_id,
                 files_processed: scan.files_processed,
-                find_latest_snapshot: () => this._manifests.find_latest_readable(ctx, site_id),
+                find_latest_snapshot: async () => head,
               })
             : undefined,
         );
@@ -230,40 +230,13 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         phase: scan.interrupted ? 'interrupted' : 'completed',
         processed: scan.items_processed,
       });
-      return with_summary_unreadable_keys(result, skipped_manifests);
+      return with_summary_unreadable_keys(
+        result,
+        merge_damaged_manifest_keys(head.unreadable_keys, skipped_manifests),
+      );
     } finally {
       tenant_ctx.destroy();
     }
-  }
-
-  private build_tracking_state(
-    previous_cursor: SharePointDeltaCursor | undefined,
-  ): FileTrackingState {
-    return {
-      previous_path_by_file_id: { ...(previous_cursor?.previous_path_by_file_id ?? {}) },
-      previous_name_by_file_id: { ...(previous_cursor?.previous_name_by_file_id ?? {}) },
-      previous_etag_by_file_id: { ...(previous_cursor?.previous_etag_by_file_id ?? {}) },
-      previous_kind_by_file_id: { ...(previous_cursor?.previous_kind_by_file_id ?? {}) },
-    };
-  }
-
-  private build_cursor(
-    site_id: string,
-    delta_link_by_drive: Record<string, string>,
-    tracking: FileTrackingState,
-    failed_items: FailedItemLedger,
-    version_watermark_by_file_id: NonNullable<
-      SharePointDeltaCursor['version_watermark_by_file_id']
-    >,
-  ): SharePointDeltaCursor {
-    return {
-      site_id,
-      delta_link_by_drive,
-      ...tracking,
-      version_watermark_by_file_id,
-      failed_items,
-      updated_at: new Date().toISOString(),
-    };
   }
 
   /**

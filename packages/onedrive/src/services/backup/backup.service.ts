@@ -43,13 +43,14 @@ import {
 } from '@/services/backup/backup-builders';
 import type { RunVersionCollector } from '@/services/versioning/version-sync';
 import { scan_all_drives } from '@/services/backup/backup-drive-processor';
-import type { PackageReportTotals } from '@/services/backup/package-report';
+import { build_package_warnings } from '@/services/backup/package-report';
 import { cleanup_stale_staging } from '@/services/backup/large-file-pipeline';
 import {
   is_path_within_folder_scope,
   normalize_folder_scope,
 } from '@/services/backup/folder-scope';
 import { append_recrawl_tombstones } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
+import { merge_damaged_manifest_keys } from '@wisecom/atlas-drive/backup/damaged-manifest-report';
 import { build_version_errors } from '@wisecom/atlas-drive/backup/version-failure-errors';
 import { describe_failed_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -97,6 +98,8 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       // runs on one tenant would overwrite each other's bucket setting (#551).
       const ctx = await lock_run_writes(tenant_ctx, options.object_lock_request);
       const stored_cursor = await this._cursors.load(ctx, owner_id);
+      // Read before this run saves a manifest, which would become the head and hide a damaged one.
+      const head = await this._manifests.find_latest_readable(ctx, owner_id);
       const folder_scope = normalize_folder_scope(options.folder_scope);
       // A delta link records how far the drive was consumed, not how far the scope was, so
       // resuming one under a different scope would skip changes the previous run filtered out.
@@ -258,7 +261,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
             ? await classify_empty_run({
                 previous_kind_by_file_id: tracking_state.previous_kind_by_file_id,
                 files_processed: scan_result.files_processed,
-                find_latest_snapshot: () => this._manifests.find_latest_readable(ctx, owner_id),
+                find_latest_snapshot: async () => head,
               })
             : undefined,
         );
@@ -305,7 +308,10 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         phase: scan_result.interrupted ? 'interrupted' : 'completed',
         processed,
       });
-      return with_summary_unreadable_keys(result, skipped_manifests);
+      return with_summary_unreadable_keys(
+        result,
+        merge_damaged_manifest_keys(head.unreadable_keys, skipped_manifests),
+      );
     } finally {
       progress?.finish();
       tenant_ctx.destroy();
@@ -342,14 +348,4 @@ function interrupted_before_scan(
 ): OneDriveBackupResult {
   finish_operation_progress(options, 'backup', 'onedrive', 0, 0, true);
   return build_empty_result(owner_id, 0, 0, 0, 0, 0, 0, [], [], true, false, false);
-}
-
-/** Renders OneNote accounting as backup warnings: one summary line, then any incomplete notebooks. */
-function build_package_warnings(report: PackageReportTotals): string[] {
-  if (report.notebooks_detected === 0) return [];
-  return [
-    `OneNote notebooks detected: ${report.notebooks_detected} ` +
-      `(${report.section_files_backed_up} section file(s) backed up as ordinary files).`,
-    ...report.warnings,
-  ];
 }

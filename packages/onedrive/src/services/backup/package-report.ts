@@ -37,3 +37,13 @@ export function summarize_processed_package_items(
   }
   return summarize_package_items(items, incomplete_item_ids);
 }
+
+/** Renders OneNote accounting as backup warnings: one summary line, then any incomplete notebooks. */
+export function build_package_warnings(report: PackageReportTotals): string[] {
+  if (report.notebooks_detected === 0) return [];
+  return [
+    `OneNote notebooks detected: ${report.notebooks_detected} ` +
+      `(${report.section_files_backed_up} section file(s) backed up as ordinary files).`,
+    ...report.warnings,
+  ];
+}

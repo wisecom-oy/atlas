@@ -7,7 +7,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
-import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 // Issue #52: a OneNote notebook root arrives as a folder carrying the `package`
 // facet and its sections arrive as ordinary files. Nothing downloads from the
@@ -75,6 +75,7 @@ function run_backup(
   const manifests = {
     save: vi.fn().mockResolvedValue(undefined),
     list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
+    find_latest_readable: async () => latest_readable(),
   };
   const file_indexes = {
     load_version_watermarks: vi.fn().mockResolvedValue({}),
