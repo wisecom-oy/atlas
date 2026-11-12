@@ -80,6 +80,35 @@ describe.each(Object.entries(DAMAGE))('a %s previous shard (#708)', (_kind, dama
     expect(Object.keys((await latest_shard(env)).threads)).toEqual(['m1']);
   });
 
+  it('reports identical rebuilt content as repaired in place, not as no changes', async () => {
+    const env = await backed_up_env();
+    const key = await latest_shard_key(env);
+    damage(env, key);
+
+    const result = await env.service.backup_team(TENANT, TEAM, { force_full: true });
+
+    expect(result.summary.healthy).toBe(true);
+    expect(result.snapshot).toBeUndefined();
+    expect(result.summary.repaired_shard_keys).toEqual([key]);
+    expect(await latest_shard_key(env)).toBe(key);
+  });
+
+  it('records a rebuild with new content as a new snapshot, not as an in-place repair', async () => {
+    const env = await backed_up_env();
+    const key = await latest_shard_key(env);
+    damage(env, key);
+    vi.mocked(env.connector.list_channel_messages_page).mockResolvedValue({
+      roots: [root(message('m1')), root(message('m2'))],
+    });
+
+    const result = await env.service.backup_team(TENANT, TEAM, { force_full: true });
+
+    expect(result.summary.healthy).toBe(true);
+    expect(result.snapshot).toBeDefined();
+    expect(result.summary.repaired_shard_keys).toBeUndefined();
+    expect(await latest_shard_key(env)).not.toBe(key);
+  });
+
   it('runs cleanly by delta on the run after the rebuild', async () => {
     const env = await backed_up_env();
     damage(env, await latest_shard_key(env));
