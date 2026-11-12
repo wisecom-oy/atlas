@@ -11,7 +11,8 @@ import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 
 /**
  * Issue #705: `--message` with `-m` was accepted and dropped, so `save` and `restore` acted on the
- * whole mailbox. It is refused now before the mailbox is resolved or any use case runs.
+ * whole mailbox, and a blank `--message` with `-s` acted on the whole snapshot. Both are refused
+ * now before the mailbox is resolved or any use case runs.
  */
 const SNAPSHOT = 'snap-example-1';
 const MAILBOX = 'john.doe@example.com';
@@ -103,6 +104,23 @@ describe('outlook --message scope', () => {
       expect(restore_snapshot).not.toHaveBeenCalled();
     },
   );
+
+  // Snapshot mode read a blank selector as "no message" and processed the whole snapshot.
+  it.each([
+    ['save', ''],
+    ['save', '  '],
+    ['restore', ''],
+    ['restore', '  '],
+  ])('refuses %s -s with a blank --message %j', async (command, message) => {
+    await expect(run([command, '-s', SNAPSHOT, '--message', message])).rejects.toThrow(
+      'process.exit',
+    );
+
+    expect(exit_spy).toHaveBeenCalledWith(1);
+    expect(logged_errors()).toContain('--message is empty');
+    expect(save_snapshot).not.toHaveBeenCalled();
+    expect(restore_snapshot).not.toHaveBeenCalled();
+  });
 
   it('saves the one message when save gets -s and -m with --message', async () => {
     await run(['save', '-s', SNAPSHOT, '-m', MAILBOX, '--message', '1']);

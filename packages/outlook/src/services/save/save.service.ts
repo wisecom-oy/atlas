@@ -17,10 +17,11 @@ import {
   count_unique_folders,
 } from '@/services/restore/folder-restore-planner';
 import { folder_listing_for } from '@/services/restore/recoverable-items-filter';
+import { resolve_mailbox_entries } from '@/services/shared/mailbox-entry-resolver';
 import {
+  refuse_blank_message_ref,
   refuse_message_ref_in_mailbox_mode,
-  resolve_mailbox_entries,
-} from '@/services/shared/mailbox-entry-resolver';
+} from '@/services/shared/message-ref-guard';
 import { resolve_snapshot_entries } from '@/services/shared/snapshot-entry-resolver';
 import { backfill_missing_folder_ids } from '@/services/restore/restore-execution-orchestrator';
 import { NoopTransferProgressReporter } from '@/services/shared/noop-transfer-progress-reporter';
@@ -72,6 +73,7 @@ export class SaveService implements SaveUseCase {
   ): Promise<SaveResult> {
     const { target, output_path } = resolve_save_target(options, build_default_output_path);
     try {
+      refuse_blank_message_ref(options.message_ref);
       if (begin_operation_progress(options, 'save', 'outlook')) {
         return await this.finish_empty_result(snapshot_id, options, target);
       }

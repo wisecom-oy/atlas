@@ -325,7 +325,7 @@ atlas outlook restore -m user@company.com -T other@company.com -f Inbox
 | `--target-profile <name>`     | Tenant profile for the writes. Requires `-T`                                 |
 | `--include-recoverable-items` | Also include hard-deleted and hold-retained mail (excluded by default)       |
 
-Exactly one of `--snapshot` or `--mailbox` is required. Passing both exits `1` (see [atlas outlook](#atlas-outlook)). `--message` works in snapshot mode only. With `--mailbox` it exits `1` before any storage read or Graph call, because a `#` index counts one snapshot's messages and mailbox mode merges many. Earlier releases ignored it there and restored the whole mailbox. `-T` works in either mode. In mailbox mode, the newest version of each message wins. Cross-mailbox restores keep the source folder names, and nested folders are recreated under the `Restore-{timestamp}` root. For example, `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026`.
+Exactly one of `--snapshot` or `--mailbox` is required. Passing both exits `1` (see [atlas outlook](#atlas-outlook)). `--message` works in snapshot mode only. With `--mailbox` it exits `1` before any storage read or Graph call, because a `#` index counts one snapshot's messages and mailbox mode merges many. Earlier releases ignored it there and restored the whole mailbox. An empty or whitespace-only `--message` also exits `1`, in either mode, rather than selecting every message. `-T` works in either mode. In mailbox mode, the newest version of each message wins. Cross-mailbox restores keep the source folder names, and nested folders are recreated under the `Restore-{timestamp}` root. For example, `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026`.
 
 Folder names come from the folders each snapshot recorded, newest snapshot first, so a folder deleted, moved, or renamed since the backup restores under its original path and `-f` selects it by that path. The live mailbox names only folders no snapshot records, such as those of snapshots written before Atlas recorded folders. A folder named nowhere restores into `Unknown`. A folder deleted while the restore lists the source mailbox's folders is skipped with a warning and the restore continues.
 
@@ -458,7 +458,7 @@ atlas outlook save -m user@company.com --start-date 2026-01-01 --end-date 2026-0
 
 With both `-s` and `-m`, the named snapshot is exported and `-m` is ignored with a warning (see [atlas outlook](#atlas-outlook)). Earlier releases exported the whole mailbox silently in this case.
 
-`--message` needs `-s`, with or without `-m`. With `-m` alone it exits `1` before any storage read or Graph call, for the same reason as in [restore](#atlas-outlook-restore). Earlier releases ignored it there and exported the whole mailbox.
+`--message` needs `-s`, with or without `-m`. With `-m` alone it exits `1` before any storage read or Graph call, for the same reason as in [restore](#atlas-outlook-restore). Earlier releases ignored it there and exported the whole mailbox. An empty or whitespace-only `--message` also exits `1` rather than exporting every message.
 
 Ctrl+C stops the export and exits `2`. The archive holds the messages written before the stop. A stop during the Graph folder listing, before any message is written, leaves no archive. A second Ctrl+C exits at once with status `130`.
 
