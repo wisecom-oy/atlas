@@ -40,6 +40,7 @@ import type {
 import type { SyncOptions } from '@wisecom/atlas-types/ports/backup/use-case.port';
 import type { RestoreOptions } from '@wisecom/atlas-types';
 import { split_target_tenant, with_restore_side } from '@/target-tenant';
+import { refuse_mailbox_message_ref } from '@/outlook-mailbox-message-ref';
 
 /** Builds the OutlookApi sub-namespace from the DI container. */
 export function create_outlook_api(tenant_id: string, container: Container): OutlookApi {
@@ -115,6 +116,7 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
       return camelize({ ...result, graph_cost: cost_result });
     },
     async restoreMailbox(mailbox, options) {
+      refuse_mailbox_message_ref(options);
       const [result, cost_result] = await run_with_cost_tracking(() =>
         run_restore(options, 'outlook.restoreMailbox()', async (use_case, adapted) =>
           use_case.restore_mailbox(tenant_id, await resolve_object_id(mailbox), adapted),
@@ -129,6 +131,7 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
       return camelize({ ...result, graph_cost: cost_result });
     },
     async saveMailbox(mailbox, options) {
+      refuse_mailbox_message_ref(options);
       const [result, cost_result] = await run_with_cost_tracking(async () =>
         save.save_mailbox(
           tenant_id,

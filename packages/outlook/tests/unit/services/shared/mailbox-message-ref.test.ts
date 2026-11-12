@@ -30,13 +30,16 @@ import {
 const OWNER = 'john.doe@example.com';
 
 describe('refuse_message_ref_in_mailbox_mode', () => {
-  it('accepts options without a message reference', () => {
-    expect(() => refuse_message_ref_in_mailbox_mode({})).not.toThrow();
-    expect(() => refuse_message_ref_in_mailbox_mode({ message_ref: '' })).not.toThrow();
+  it('accepts an absent message reference', () => {
+    expect(() => refuse_message_ref_in_mailbox_mode(undefined)).not.toThrow();
   });
 
   it('refuses a message reference with a ConfigError', () => {
-    expect(() => refuse_message_ref_in_mailbox_mode({ message_ref: '1' })).toThrow(ConfigError);
+    expect(() => refuse_message_ref_in_mailbox_mode('1')).toThrow(ConfigError);
+  });
+
+  it('refuses an empty message reference, which would otherwise widen to the mailbox', () => {
+    expect(() => refuse_message_ref_in_mailbox_mode('')).toThrow(ConfigError);
   });
 });
 
@@ -49,15 +52,18 @@ describe('RestoreService.restore_mailbox with message_ref', () => {
     vi.mocked(harness.mock_manifests.list_by_owner).mockResolvedValue([manifest]);
   });
 
-  it('rejects before reading storage, calling Graph, or writing a message', async () => {
-    await expect(
-      harness.service.restore_mailbox('test-tenant', OWNER, { message_ref: '1' }),
-    ).rejects.toThrow(ConfigError);
+  it.each(['1', ''])(
+    'rejects message_ref %j before reading storage, calling Graph, or writing a message',
+    async (message_ref) => {
+      await expect(
+        harness.service.restore_mailbox('test-tenant', OWNER, { message_ref }),
+      ).rejects.toThrow(ConfigError);
 
-    expect(harness.mock_manifests.list_by_owner).not.toHaveBeenCalled();
-    expect(harness.mock_connector.mailbox_exists).not.toHaveBeenCalled();
-    expect(harness.mock_restore.create_message).not.toHaveBeenCalled();
-  });
+      expect(harness.mock_manifests.list_by_owner).not.toHaveBeenCalled();
+      expect(harness.mock_connector.mailbox_exists).not.toHaveBeenCalled();
+      expect(harness.mock_restore.create_message).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('SaveService.save_mailbox with message_ref', () => {
@@ -81,14 +87,17 @@ describe('SaveService.save_mailbox with message_ref', () => {
     service = container.get(SaveService);
   });
 
-  it('rejects before reading storage and settles the caller stream', async () => {
-    const sink = new PassThrough();
+  it.each(['1', ''])(
+    'rejects message_ref %j before reading storage and settles the caller stream',
+    async (message_ref) => {
+      const sink = new PassThrough();
 
-    await expect(
-      service.save_mailbox('test-tenant', OWNER, { message_ref: '1', output: sink }),
-    ).rejects.toThrow(ConfigError);
+      await expect(
+        service.save_mailbox('test-tenant', OWNER, { message_ref, output: sink }),
+      ).rejects.toThrow(ConfigError);
 
-    expect(mock_manifests.list_by_owner).not.toHaveBeenCalled();
-    expect(sink.destroyed).toBe(true);
-  });
+      expect(mock_manifests.list_by_owner).not.toHaveBeenCalled();
+      expect(sink.destroyed).toBe(true);
+    },
+  );
 });

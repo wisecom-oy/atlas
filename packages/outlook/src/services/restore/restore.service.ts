@@ -192,7 +192,7 @@ export class RestoreService implements RestoreUseCase {
     options: RestoreOptions,
   ): Promise<RestoreResult> {
     owner_id = normalize_owner_id(owner_id);
-    refuse_message_ref_in_mailbox_mode(options);
+    refuse_message_ref_in_mailbox_mode(options.message_ref);
     parse_restore_destination(options.destination);
     if (begin_operation_progress(options, 'restore', 'outlook')) {
       return this.finish_empty_result('mailbox', options);

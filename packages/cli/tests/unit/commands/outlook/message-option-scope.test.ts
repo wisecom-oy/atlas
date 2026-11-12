@@ -73,25 +73,36 @@ describe('outlook --message scope', () => {
   const logged_errors = (): string =>
     error_spy.mock.calls.map((call: unknown[]) => call.join(' ')).join('\n');
 
-  it('refuses save -m with --message before resolving the mailbox', async () => {
-    await expect(run(['save', '-m', MAILBOX, '--message', '1'])).rejects.toThrow('process.exit');
+  // An empty value is still a supplied flag: `--message ''` used to slip past a truthiness check.
+  it.each(['1', ''])(
+    'refuses save -m with --message %j before resolving the mailbox',
+    async (message) => {
+      await expect(run(['save', '-m', MAILBOX, '--message', message])).rejects.toThrow(
+        'process.exit',
+      );
 
-    expect(exit_spy).toHaveBeenCalledWith(1);
-    expect(logged_errors()).toContain('--message selects a message inside one snapshot');
-    expect(resolve_user).not.toHaveBeenCalled();
-    expect(save_mailbox).not.toHaveBeenCalled();
-    expect(save_snapshot).not.toHaveBeenCalled();
-  });
+      expect(exit_spy).toHaveBeenCalledWith(1);
+      expect(logged_errors()).toContain('--message selects a message inside one snapshot');
+      expect(resolve_user).not.toHaveBeenCalled();
+      expect(save_mailbox).not.toHaveBeenCalled();
+      expect(save_snapshot).not.toHaveBeenCalled();
+    },
+  );
 
-  it('refuses restore -m with --message before resolving the mailbox', async () => {
-    await expect(run(['restore', '-m', MAILBOX, '--message', '1'])).rejects.toThrow('process.exit');
+  it.each(['1', ''])(
+    'refuses restore -m with --message %j before resolving the mailbox',
+    async (message) => {
+      await expect(run(['restore', '-m', MAILBOX, '--message', message])).rejects.toThrow(
+        'process.exit',
+      );
 
-    expect(exit_spy).toHaveBeenCalledWith(1);
-    expect(logged_errors()).toContain('needs --snapshot (-s)');
-    expect(resolve_user).not.toHaveBeenCalled();
-    expect(restore_mailbox).not.toHaveBeenCalled();
-    expect(restore_snapshot).not.toHaveBeenCalled();
-  });
+      expect(exit_spy).toHaveBeenCalledWith(1);
+      expect(logged_errors()).toContain('needs --snapshot (-s)');
+      expect(resolve_user).not.toHaveBeenCalled();
+      expect(restore_mailbox).not.toHaveBeenCalled();
+      expect(restore_snapshot).not.toHaveBeenCalled();
+    },
+  );
 
   it('saves the one message when save gets -s and -m with --message', async () => {
     await run(['save', '-s', SNAPSHOT, '-m', MAILBOX, '--message', '1']);

@@ -36,12 +36,11 @@ export interface ResolvedMailboxEntries {
  *
  * A message number indexes one snapshot's listing, and mailbox mode merges many snapshots, so the
  * reference has nothing to resolve against. It used to be accepted and dropped, which widened a
- * one-message restore or save to the whole mailbox (issue #705).
+ * one-message restore or save to the whole mailbox (issue #705). Any supplied value is refused,
+ * the empty string included, because an empty reference widens to the mailbox just the same.
  */
-export function refuse_message_ref_in_mailbox_mode(options: {
-  readonly message_ref?: string;
-}): void {
-  if (!options.message_ref) return;
+export function refuse_message_ref_in_mailbox_mode(message_ref: string | undefined): void {
+  if (message_ref === undefined) return;
   throw new ConfigError(
     'messageRef selects a message inside one snapshot, so it is not accepted for a whole ' +
       'mailbox. Restore or save that message from its snapshot instead.',

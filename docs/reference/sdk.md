@@ -750,7 +750,7 @@ A message whose creation failed has no report. Its failure is in `errors`.
 | `skipIntegrityCheck` | `boolean`  | Skip the SHA-256 check of each object. Default `false`   |
 | `output`             | `Writable` | Stream the archive to this destination instead of a file |
 
-`restoreMailbox` and `saveMailbox` reject `messageRef` with `ConfigError` (`ATLAS_CONFIG_INVALID`) before reading storage or calling Graph, because an index counts the messages of one snapshot and these methods merge every snapshot of the mailbox. `saveMailbox` destroys an `output` stream it rejects. Earlier releases ignored `messageRef` there and processed the whole mailbox.
+`restoreMailbox` and `saveMailbox` reject `messageRef`, including an empty string, with `ConfigError` (`ATLAS_CONFIG_INVALID`) before resolving the mailbox, reading storage, or calling Graph, because an index counts the messages of one snapshot and these methods merge every snapshot of the mailbox. `saveMailbox` destroys an `output` stream it rejects. Earlier releases ignored `messageRef` there and processed the whole mailbox.
 
 Both return a `SaveResult`:
 
