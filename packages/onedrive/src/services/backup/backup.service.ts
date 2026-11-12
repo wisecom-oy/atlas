@@ -53,6 +53,7 @@ import {
   normalize_folder_scope,
 } from '@/services/backup/folder-scope';
 import { append_recrawl_tombstones } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
+import { merge_damaged_manifest_keys } from '@wisecom/atlas-drive/backup/damaged-manifest-report';
 import {
   resolve_saved_cursor_binding,
   select_resumable_cursor,
@@ -117,6 +118,8 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       // runs on one tenant would overwrite each other's bucket setting (#551).
       const ctx = await attach_run_retention(tenant_ctx, options.object_lock_request);
       const stored_cursor = await this._cursors.load(ctx, owner_id);
+      // Read before this run saves a manifest, which would become the head and hide a damaged one.
+      const head = await this._manifests.find_latest_readable(ctx, owner_id);
       const folder_scope = normalize_folder_scope(options.folder_scope);
       // A changed scope or a cursor whose snapshot is gone reads in full, as `--full` does: either
       // would otherwise resume past changes no snapshot holds (issue #725).
@@ -237,7 +240,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         snapshot_id: await resolve_saved_cursor_binding(
           scan_result.entries.length > 0 ? snapshot_id : undefined,
           previous_cursor,
-          () => this._manifests.find_latest_readable(ctx, owner_id),
+          async () => head,
         ),
       };
 
@@ -289,7 +292,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
             ? await classify_empty_run({
                 previous_kind_by_file_id: tracking_state.previous_kind_by_file_id,
                 files_processed: scan_result.files_processed,
-                find_latest_snapshot: () => this._manifests.find_latest_readable(ctx, owner_id),
+                find_latest_snapshot: async () => head,
               })
             : undefined,
         );
@@ -337,7 +340,10 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         phase: scan_result.interrupted ? 'interrupted' : 'completed',
         processed,
       });
-      return with_summary_unreadable_keys(result, skipped_manifests);
+      return with_summary_unreadable_keys(
+        result,
+        merge_damaged_manifest_keys(head.unreadable_keys, skipped_manifests),
+      );
     } finally {
       progress?.finish();
       await lease?.release();
