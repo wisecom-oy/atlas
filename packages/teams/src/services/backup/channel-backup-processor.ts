@@ -25,6 +25,8 @@ export interface ChannelStartState {
   readonly stored_link: string | undefined;
   readonly failed_roots: FailedItemLedger;
   readonly hosted_recheck: HostedRecheck;
+  /** The previous shard's key when it could not be read and this run rebuilds the channel. */
+  readonly unreadable_shard_key?: string | undefined;
 }
 
 /** What one channel backup produced. */
@@ -44,6 +46,8 @@ export interface ChannelBackupOutput {
   readonly hosted_recheck: HostedRecheck;
   readonly errors: string[];
   readonly warnings: string[];
+  /** Carried from the start state, so the new shard replaces a damaged object at the same key. */
+  readonly unreadable_shard_key?: string | undefined;
 }
 
 /** The Files folder fields of a channel shard, as resolved for this run. */
@@ -125,6 +129,7 @@ export async function backup_channel(
     hosted_recheck: run.state.hosted_recheck,
     errors: run.state.errors,
     warnings,
+    unreadable_shard_key: start.unreadable_shard_key,
   };
 }
 

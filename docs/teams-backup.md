@@ -277,6 +277,20 @@ An index with a higher `format_version` is reported as newer-format instead. It 
 
 A damaged channel cursor is not quarantined. `status` names it in a warning, and the next backup reads that channel in full and rewrites the cursor.
 
+### Unreadable channel shards
+
+```bash
+atlas teams backup --team <team-id> --channel <channel-id> --full
+```
+
+A channel shard is unreadable when the object the latest index names for the channel is missing, cannot be decrypted, is not valid JSON, or does not match its team, channel, or content name. A run without `--full` fails that channel with exit `2` and an error that names the key and the command above. It reads no messages for the channel, and the new index keeps the channel's previous entry.
+
+With `--full`, the run warns with the key and reads the channel as if it were new: every root and its replies from Graph, starting from no stored threads. The stored delta link and any checkpoint bound to the damaged shard are discarded, because both describe content the run cannot see. The failed-root ledger and the inline image recheck counts are kept. The channel gets a readable shard and a cursor bound to it, and the next run reads it by delta again. Message blobs that already exist are not written again.
+
+The rebuilt shard holds what Graph returns now. A message that only the damaged shard held, such as one deleted in Teams since, is not in it. Earlier snapshots that name the damaged key still fail `save` and `verify` for that channel. When the rebuilt content maps to the same key, Atlas writes that object again instead of trusting it, which also repairs those earlier snapshots. Otherwise the damaged object stays in storage untouched for inspection.
+
+A storage error while the shard loads, such as a timeout or a dropped connection, is not damage. The channel fails with that error, also under `--full`, and nothing is rebuilt. A shard written by a newer Atlas format is refused as described in [Storage layout](#storage-layout), and `--full` does not rebuild it either.
+
 ### Files folder
 
 Atlas keeps each channel's files folder result from the previous run, including an unavailable one. A forced full read is what looks it up again. After granting `Files.Read.All`, run:

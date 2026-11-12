@@ -2,6 +2,7 @@ import { injectable } from 'inversify';
 import type {
   TeamsChannelShard,
   TeamsChannelShardRepository,
+  TeamsShardSaveOptions,
   TeamsStoredBlobRef,
   TenantContext,
 } from '@wisecom/atlas-types';
@@ -70,12 +71,19 @@ function names_key(
 /** Stores shards under their content HMAC, so an unchanged channel is written once. */
 @injectable()
 export class S3TeamsChannelShardRepository implements TeamsChannelShardRepository {
-  /** Writes the shard unless an object with its content name already exists. */
-  async save(ctx: TenantContext, shard: TeamsChannelShard): Promise<TeamsStoredBlobRef> {
+  /**
+   * Writes the shard unless an object with its content name already exists. An existing object at
+   * `replace_unreadable_key` is written again, because its bytes are known to be damaged.
+   */
+  async save(
+    ctx: TenantContext,
+    shard: TeamsChannelShard,
+    options: TeamsShardSaveOptions = {},
+  ): Promise<TeamsStoredBlobRef> {
     const plaintext = Buffer.from(canonical_json(shard));
     const { checksum, content_name } = compute_content_digests(ctx, plaintext);
     const key = teams_channel_shard_key(shard.team_id, shard.channel_id, content_name);
-    if (!(await ctx.storage.exists(key))) {
+    if (key === options.replace_unreadable_key || !(await ctx.storage.exists(key))) {
       await ctx.storage.put(key, ctx.encrypt(plaintext, key));
     }
     return { storage_key: key, checksum, size_bytes: plaintext.length };

@@ -18,7 +18,7 @@ import { S3TeamsIndexRepository } from '@/adapters/s3-teams-index-repository.ada
 import { TeamsBackupService } from '@/services/backup/backup.service';
 import { make_connector } from './channel-backup-processor-harness';
 
-export const TENANT = 'tenant-test';
+export const TENANT = '00000000-0000-0000-0000-0000000000a1';
 export const TEAM = '00000000-0000-0000-0000-000000000042';
 export const CHANNEL: TeamsGraphResource = { id: 'channel-1', displayName: 'General' };
 export const CHANNEL_ID = 'channel-1';

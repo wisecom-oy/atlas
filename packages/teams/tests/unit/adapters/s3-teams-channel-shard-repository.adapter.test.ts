@@ -74,6 +74,37 @@ describe('S3TeamsChannelShardRepository', () => {
     expect(put).toHaveBeenCalledTimes(1);
   });
 
+  it('rewrites an existing object at the unreadable key it was told to replace (#708)', async () => {
+    const store = stub_encrypted_object_store();
+    const bucket = new Map<string, Buffer>();
+    const { ctx, put } = make_ctx(store, bucket);
+    const repository = new S3TeamsChannelShardRepository();
+    const first = await repository.save(ctx, shard());
+    bucket.set(first.storage_key, Buffer.from('damaged'));
+
+    const second = await repository.save(ctx, shard(), {
+      replace_unreadable_key: first.storage_key,
+    });
+
+    expect(second.storage_key).toBe(first.storage_key);
+    expect(put).toHaveBeenCalledTimes(2);
+    await expect(repository.load(ctx, second.storage_key)).resolves.toEqual(shard());
+  });
+
+  it('still skips an existing object whose key is not the unreadable one', async () => {
+    const store = stub_encrypted_object_store();
+    const bucket = new Map<string, Buffer>();
+    const { ctx, put } = make_ctx(store, bucket);
+    const repository = new S3TeamsChannelShardRepository();
+    await repository.save(ctx, shard());
+
+    await repository.save(ctx, shard(), {
+      replace_unreadable_key: teams_channel_shard_key(TEAM, CHANNEL, 'other'),
+    });
+
+    expect(put).toHaveBeenCalledTimes(1);
+  });
+
   it('raises UnreadableContentError for a shard copied under another channel key', async () => {
     const store = stub_encrypted_object_store();
     const bucket = new Map<string, Buffer>();

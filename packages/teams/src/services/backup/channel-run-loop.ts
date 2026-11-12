@@ -15,8 +15,8 @@ import type { BackupRunScope } from '@/services/backup/backup-run-scope';
 import {
   backup_channel,
   type ChannelBackupOutput,
-  type ChannelStartState,
 } from '@/services/backup/channel-backup-processor';
+import { load_channel_start_state } from '@/services/backup/channel-start-state';
 import type { TeamsBaseline } from '@/services/backup/team-baseline-loader';
 import { error_message } from '@/services/shared/error-message';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
@@ -202,8 +202,13 @@ async function run_channel(
 ): Promise<void> {
   const started = Date.now();
   try {
-    const start = await channel_start_state(scope, channel.id, inputs);
-    const output = await backup_channel(scope, channel, start);
+    const loaded = await load_channel_start_state(
+      scope,
+      channel.id,
+      inputs.baseline,
+      inputs.shards,
+    );
+    const output = await backup_channel(scope, channel, loaded.start);
     state.records.set(channel.id, {
       outcome: channel_outcome(output, channel.id),
       read_mode: output.shard.read_mode,
@@ -211,7 +216,7 @@ async function run_channel(
       elapsed_ms: Date.now() - started,
       output,
       errors: output.errors,
-      warnings: output.warnings,
+      warnings: [...loaded.warnings, ...output.warnings],
     });
   } catch (err) {
     if (err instanceof AuthError || err instanceof UnsupportedFormatVersionError) throw err;
@@ -248,25 +253,5 @@ function unfinished_record(
     output: undefined,
     errors,
     warnings: [],
-  };
-}
-
-/** Loads the channel's previous shard, so unchanged content and the cursor can be compared. */
-async function channel_start_state(
-  scope: BackupRunScope,
-  channel_id: string,
-  inputs: ChannelRunInputs,
-): Promise<ChannelStartState> {
-  const base = inputs.baseline.channels.get(channel_id);
-  const previous_entry = base?.previous_entry;
-  return {
-    previous_entry,
-    previous_shard:
-      previous_entry === undefined
-        ? undefined
-        : await inputs.shards.load(scope.ctx, previous_entry.shard_key),
-    stored_link: base?.delta_link,
-    failed_roots: base?.failed_roots ?? {},
-    hosted_recheck: base?.hosted_recheck ?? {},
   };
 }

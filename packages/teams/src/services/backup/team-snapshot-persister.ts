@@ -57,8 +57,9 @@ export interface SnapshotPersistResult {
 
 /**
  * Saves each processed channel's new shard and returns its index entry. A channel whose content is
- * unchanged keeps its previous entry and saves nothing. Runs before the index, so a failed run
- * leaves no index pointing at a missing shard.
+ * unchanged keeps its previous entry and saves nothing. A rebuilt channel rewrites its damaged
+ * shard when the new content maps to the same key. Runs before the index, so a failed run leaves no
+ * index pointing at a missing shard.
  */
 export async function save_channel_shards(
   ctx: TenantContext,
@@ -67,9 +68,10 @@ export async function save_channel_shards(
 ): Promise<ChannelSave[]> {
   const saves: ChannelSave[] = [];
   for (const [channel_id, output] of results) {
+    const save_options = { replace_unreadable_key: output.unreadable_shard_key };
     const entry =
       output.reused_entry ??
-      build_channel_index_entry(output.shard, await shards.save(ctx, output.shard));
+      build_channel_index_entry(output.shard, await shards.save(ctx, output.shard, save_options));
     saves.push({ channel_id, entry, output });
   }
   return saves;

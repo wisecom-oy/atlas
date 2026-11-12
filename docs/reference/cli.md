@@ -1118,7 +1118,7 @@ atlas teams quarantine --key teams/manifests/<team-id>/<snapshot-id>.json
 | `--team <id>`          | Team to back up. Repeat for several teams                                                                                   |
 | `--all`                | Back up every team the application can read                                                                                 |
 | `--channel <id>`       | Back up only this channel. Requires exactly one `--team`, not allowed with `--all`. Others carry forward                    |
-| `--full`               | Force a full read: ignores saved delta links and cached files folders                                                       |
+| `--full`               | Force a full read: ignores saved delta links and cached files folders, and rebuilds a channel whose previous shard is unreadable |
 | `--concurrency <n>`    | Channels backed up at once within a team, 1 to 16 (default 4). Requests stay paced, see [Pacing](../teams-backup.md#pacing) |
 | `--retention-days <n>` | Lock every object this run writes for `n` days (same semantics as OneDrive)                                                 |
 | `--lock-mode <mode>`   | Object Lock mode, `governance` or `compliance` (default `governance`). Requires `--retention-days`                          |
@@ -1179,7 +1179,7 @@ Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it 
 ::: tip Permissions
 Teams backup uses eight Application permissions. `Files.Read.All` reads each channel's files folder location. `ChannelMessage.Read.All` is a protected API that may need Microsoft approval. See [Azure AD setup](../azure-ad-setup.md#teams-application-permissions).
 
-A run exits `2` when any team is unhealthy: a channel error, a ledger root still listed, or an interrupted run. An unreadable index newer than the latest readable one is damaged storage, not a failed channel. The run finishes against the older index, names the key with the `atlas teams quarantine` command, and exits `9`, unless a failure in the same run already chose `2`. A permanently skipped root keeps its team unhealthy until a forced read (`atlas teams backup --team <team-id> --full`) clears its entry. See [Failed channels](../teams-backup.md#failed-channels).
+A run exits `2` when any team is unhealthy: a channel error, a ledger root still listed, or an interrupted run. An unreadable index newer than the latest readable one is damaged storage, not a failed channel. The run finishes against the older index, names the key with the `atlas teams quarantine` command, and exits `9`, unless a failure in the same run already chose `2`. A permanently skipped root keeps its team unhealthy until a forced read (`atlas teams backup --team <team-id> --full`) clears its entry. A channel whose previous shard is missing or damaged fails with exit `2` until a `--full` run rebuilds it from Graph, see [Unreadable channel shards](../teams-backup.md#unreadable-channel-shards). See [Failed channels](../teams-backup.md#failed-channels).
 :::
 
 ## atlas storage-check

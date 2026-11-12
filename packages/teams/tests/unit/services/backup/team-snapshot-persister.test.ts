@@ -74,11 +74,26 @@ describe('save_channel_shards', () => {
 
     const saves = await save_channel_shards(CTX, shards, new Map([['channel-1', output]]));
 
-    expect(shards.save).toHaveBeenCalledWith(CTX, output.shard);
+    expect(shards.save).toHaveBeenCalledWith(CTX, output.shard, {
+      replace_unreadable_key: undefined,
+    });
     expect(saves[0]?.entry).toMatchObject({
       channel_id: 'channel-1',
       shard_key: 'shard-new',
       shard_checksum: 'sum-new',
+    });
+  });
+
+  it('passes a rebuilt channel unreadable shard key so the save replaces it (#708)', async () => {
+    const output = channel_output('channel-1', { unreadable_shard_key: 'shard-damaged' });
+    const shards = {
+      save: vi.fn(async () => ({ storage_key: 'shard-damaged', checksum: 'sum', size_bytes: 1 })),
+    } as unknown as TeamsChannelShardRepository;
+
+    await save_channel_shards(CTX, shards, new Map([['channel-1', output]]));
+
+    expect(shards.save).toHaveBeenCalledWith(CTX, output.shard, {
+      replace_unreadable_key: 'shard-damaged',
     });
   });
 
