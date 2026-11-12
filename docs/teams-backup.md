@@ -285,7 +285,7 @@ atlas teams backup --team <team-id> --channel <channel-id> --full
 
 A shard is unreadable when it is missing, cannot be decrypted or parsed, or does not match the team, channel, and content name in its key. A backup without `--full` needs the shard the latest index names as its baseline, so it fails that channel, keeps the channel's previous index entry, and exits `2`. The channel error names the shard's key and the command above. Shards are not quarantined.
 
-With `--full`, Atlas warns with the shard's key, reads the channel from Graph as a channel with no previous shard, and writes a new shard and index entry. A shard is stored under the HMAC of its content, so a rebuilt shard with the same content has the same key. Atlas loads an existing shard before it skips the write, and overwrites one that is unreadable.
+With `--full`, Atlas warns with the shard's key, reads the channel from Graph as a channel with no previous shard, and writes a new shard and index entry. A shard is stored under the HMAC of its content, so a rebuilt shard with the same content has the same key. Atlas loads an existing shard before it skips the write, and overwrites one that is unreadable. When the index already names that key and nothing else changed, the run writes no new snapshot and prints `Repaired N unreadable channel shard(s) in place; no new snapshot needed.` with exit `0`.
 
 The new shard holds what Graph returns in that run. Threads that only the unreadable shard recorded, such as roots already removed from Teams, are not carried forward. They remain in older snapshots whose shards are intact. A snapshot that names the unreadable shard stays unreadable for that channel unless the rebuilt shard has the same content.
 

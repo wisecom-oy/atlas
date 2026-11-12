@@ -32,6 +32,12 @@ export interface TeamsBackupSummary {
    * compared against the newest readable index instead; present only when one was skipped (#694).
    */
   readonly unreadable_keys?: string[] | undefined;
+  /**
+   * Channel shards that could not be read and that a `--full` run rewrote at the same key, because
+   * the rebuilt content was identical. The index already names them, so they need no new snapshot;
+   * present only when at least one was repaired (#708).
+   */
+  readonly repaired_shard_keys?: string[] | undefined;
   /** Wall-clock time the run took, from the start of the team backup to its return. */
   readonly elapsed_ms: number;
   /** One report per channel of the team, in the channel listing order. */

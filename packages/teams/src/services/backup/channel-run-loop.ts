@@ -292,6 +292,7 @@ async function channel_start_state(
       previous_entry: undefined,
       previous_shard: undefined,
       stored_link: undefined,
+      unreadable_shard_key: previous_entry.shard_key,
       ...tracking,
     };
   }

@@ -107,6 +107,28 @@ describe('teams backup no-snapshot report', () => {
     expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining(NO_CHANGES));
   });
 
+  it('reports shards repaired in place instead of no changes, and stays healthy (#708)', async () => {
+    vi.spyOn(logger, 'success').mockImplementation(() => {});
+    const result = no_snapshot_result(true);
+    backup_team.mockResolvedValueOnce({
+      ...result,
+      summary: {
+        ...result.summary,
+        no_snapshot_reason: 'no_changes',
+        repaired_shard_keys: ['teams/shards/team-a/channel-1/shard.json'],
+      },
+    });
+
+    await execute_teams_backup(container, { tenant: TENANT, team: ['team-a'] });
+
+    expect(logger.info).toHaveBeenCalledWith(
+      'Repaired 1 unreadable channel shard(s) in place; no new snapshot needed.',
+    );
+    expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining(NO_CHANGES));
+    expect(logger.success).toHaveBeenCalledWith('Status: HEALTHY');
+    expect(process.exitCode).toBeUndefined();
+  });
+
   it('exits partial when the run is unhealthy with no error entries', async () => {
     vi.spyOn(logger, 'error').mockImplementation(() => {});
     const result = no_snapshot_result(false);
