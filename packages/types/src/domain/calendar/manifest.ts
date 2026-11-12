@@ -60,4 +60,9 @@ export interface CalendarDeltaCursor {
   readonly mailbox_id: string;
   readonly delta_link_by_calendar: Readonly<Record<string, string>>;
   readonly updated_at: string;
+  /**
+   * The head snapshot when the cursor was saved. The links are resumed only while it is still the
+   * newest readable manifest (issue #704). Absent on cursors written before 7.0.
+   */
+  readonly snapshot_id?: string;
 }

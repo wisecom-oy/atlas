@@ -246,12 +246,14 @@ Method names mirror the CLI: `atlas outlook backup` maps to `atlas.outlook.backu
 | `checkMailboxStatus(mailboxId)`       | `atlas outlook status`     | Delta peek for pending changes. Does not advance the stored cursor. See [status results](#status-results)      |
 | `listAvailableMailboxes(options?)`    | _(discovery)_              | List tenant mailboxes through Graph                                                                            |
 | `deleteMailboxData(mailboxId)`        | `atlas outlook delete -m`  | Delete all data for a mailbox                                                                                  |
-| `deleteSnapshot(snapshotId)`          | `atlas outlook delete -s`  | Delete one snapshot manifest                                                                                   |
+| `deleteSnapshot(snapshotId)`          | `atlas outlook delete -s`  | Delete the mailbox's newest snapshot manifest. Rejects any other with `SnapshotNotNewestError`                  |
 | `purgeTenantData()`                   | `atlas delete --purge`     | Delete the entire tenant bucket, all workloads                                                                 |
 | `getMailboxStats(mailboxId)`          | `atlas stats -m`           | Mailbox-level statistics                                                                                       |
 | `quarantine(storageKey)`              | `atlas outlook quarantine` | Move an unreadable manifest aside. See [Damaged stored objects](#damaged-stored-objects)                       |
 
 `restore`, `save`, and `verify` read a snapshot together with every older snapshot of the mailbox. `restoreMailbox` and `saveMailbox` read every snapshot in the date range. A message that a backup recorded as deleted, in `removed_object_ids`, is left out of every older snapshot in that set. Runs that were interrupted, filtered by folder, excluded Junk Email, or hit a folder error record no removals. See [Delta sync](/operations/delta-sync#deleted-and-moved-messages-outlook).
+
+`deleteSnapshot` rejects with `SnapshotNotNewestError` (`ATLAS_SNAPSHOT_NOT_NEWEST`) when newer snapshots of the mailbox exist, because they are built on the one named and would lose the messages it recorded. `err.snapshot_id` names the refused snapshot and `err.newer_snapshot_ids` the ones to delete first. Nothing is deleted. When a manifest of the mailbox is unreadable it rejects with `UnreadableObjectsError` instead, naming the manifest to quarantine. A successful `deleteSnapshot` also removes the delta cursor, and `deleteMailboxData` removes the cursor and the deleted snapshots' replication records, so the next backup does not resume past the deleted data. The contacts and calendar `deleteSnapshot` remove that mailbox's cursor too.
 
 `MailboxSummary.totalObjects` from `listMailboxes()` counts the messages in the latest snapshot's chain, after those removals. `Manifest.totalObjects` is a high-water mark, the largest message count any single run of the mailbox stored, and never decreases. The stale-delta safeguard reads it to tell an unchanged mailbox from one never backed up.
 
@@ -1318,6 +1320,7 @@ try {
 | `UnreadableObjectsError`            | `ATLAS_CONTENT_UNREADABLE`   | Named manifests or version indexes could not be read. See `unreadable_keys` and [Damaged stored objects](#damaged-stored-objects)         |
 | `UnsupportedFormatVersionError`     | `ATLAS_FORMAT_UNSUPPORTED`   | Stored Teams content was written by a newer Atlas format. Upgrade Atlas. Not exported                                                     |
 | `DekOverwriteRefusedError`          | `ATLAS_KEY_CONFLICT`         | Rehydration refused to replace a different data key on a primary that holds other objects. Retrying cannot succeed. Not exported          |
+| `SnapshotNotNewestError`            | `ATLAS_SNAPSHOT_NOT_NEWEST`  | Outlook `deleteSnapshot` refused a snapshot that newer snapshots are built on. See `snapshot_id` and `newer_snapshot_ids`                 |
 
 Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK error is available for logging. Branching does not depend on it.
 
@@ -1340,7 +1343,7 @@ Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK err
 - **Shared enums and requests:** `ObjectLockMode`, `ObjectLockRequest`, `BackupSyncMode`, `RehydrationWorkload`, `GraphServicePool`
 - **Graph cost types:** `OperationCost`, `ServicePoolCost`, `GraphServiceLimits`
 - **Quarantine:** `QuarantineResult`
-- **Errors:** `AtlasError`, `AtlasErrorCode`, `AuthError`, `MailboxNotLicensedError`, `NotFoundError`, `ThrottledError`, `WrongPassphraseError`, `ObjectLockRetainedError`, `StorageError`, `ConfigError`, `UnreadableObjectsError`, `ObjectLockVersioningDisabledError`, `ObjectLockUnsupportedError`, `ObjectLockModeRejectedError`, `PreconditionFailedError`
+- **Errors:** `AtlasError`, `AtlasErrorCode`, `AuthError`, `MailboxNotLicensedError`, `NotFoundError`, `ThrottledError`, `WrongPassphraseError`, `ObjectLockRetainedError`, `StorageError`, `ConfigError`, `UnreadableObjectsError`, `SnapshotNotNewestError`, `ObjectLockVersioningDisabledError`, `ObjectLockUnsupportedError`, `ObjectLockModeRejectedError`, `PreconditionFailedError`
 
 ## See also
 

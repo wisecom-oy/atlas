@@ -12,6 +12,7 @@ import {
   MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { peek_folder_or_record_error } from '@/services/status/folder-delta-peek';
+import { resumable_delta_links } from '@/services/shared/resumable-delta-links';
 
 /** The status row for a folder with no saved delta link. */
 function never_backed_up_folder(folder: MailFolder): FolderStatus {
@@ -53,11 +54,12 @@ export class MailboxStatusService implements StatusUseCase {
       // them with the immutable preference would mix ID formats, so peek
       // treats them as "no saved state" — every folder reports pending.
       // Delta links live in the cursor as of #370; a mailbox last backed up by an older release
-      // still has them only in its head manifest.
+      // still has them only in its head manifest. A cursor that outlived its snapshot is not
+      // resumed by the next backup, so every folder reports pending (issues #703, #704).
       const cursor = await this._cursors.load(ctx, owner_id);
-      const saved_links =
-        cursor?.delta_links ??
-        (previous?.id_format === 'immutable' ? (previous?.delta_links ?? {}) : {});
+      const saved_links = resumable_delta_links(cursor, previous, (head) =>
+        head?.id_format === 'immutable' ? head.delta_links : {},
+      );
 
       const all_folders = await this._connector.list_mail_folders(tenant_id, owner_id);
       const folder_statuses = await this.peek_all_folders(

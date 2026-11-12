@@ -39,7 +39,7 @@ case "$status" in
   0) echo "Complete" ;;
   2) echo "Incomplete run: inspect the reported items" >&2 ;;
   3) echo "Transient failure: schedule a later attempt" >&2 ;;
-  4|5|6|7|8|9|10) echo "Operator action required; do not retry unchanged" >&2 ;;
+  4|5|6|7|8|9|10|11) echo "Operator action required; do not retry unchanged" >&2 ;;
   *) echo "Command failed; inspect stderr" >&2 ;;
 esac
 exit "$status"
@@ -58,6 +58,7 @@ exit "$status"
 | `8`  | `ATLAS_OBJECT_LOCK_RETAINED`                                                                                                                                    | Respect retention or legal hold. Repeating the same deletion cannot bypass it.                                                                                                                                         |
 | `9`  | `ATLAS_CONTENT_UNREADABLE`, `ATLAS_FORMAT_UNSUPPORTED`, or a command that skipped a damaged manifest or version index and named it |  The stored bytes cannot be parsed back, or were written by a newer Atlas format. Repeating the command will not help. For a newer format, upgrade Atlas. For a named manifest or version index, see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes). Otherwise extract the raw content with `save`. |
 | `10` | `ATLAS_KEY_CONFLICT`: `rehydrate` found a different data key on primary next to other objects, so it refused to replace a key that may protect existing backups | Repeating the command will not help. Confirm primary's content is disposable, run `atlas delete --purge`, then rehydrate into the empty bucket.                                                                        |
+| `11` | `ATLAS_SNAPSHOT_NOT_NEWEST`: `outlook delete -s` named a snapshot that newer snapshots of the mailbox are built on | Repeating the command will not help. Delete the newer snapshots first, newest first, or delete the whole mailbox backup with `-m`. |
 
 Fatal exceptions map to these categories. Failures the command reports itself stay `1`: failed verification, `storage-check` reporting an unready bucket, and `config validate` reporting a failed probe. Per-item failures already reported as partial stay `2`, and their messages are not reclassified.
 
@@ -480,11 +481,17 @@ atlas outlook delete -m user@company.com -y     # skip the confirmation prompt
 | Option                        | Description                                               |
 | ----------------------------- | --------------------------------------------------------- |
 | `-m, --mailbox <email-or-id>` | Delete all data, attachments, and manifests for a mailbox |
-| `-s, --snapshot <id>`         | Delete one snapshot manifest (data objects retained)      |
+| `-s, --snapshot <id>`         | Delete the mailbox's newest snapshot manifest (data objects retained) |
 | `-y, --yes`                   | Skip the confirmation prompt                              |
 | `-t, --tenant <id>`           | Override the tenant ID from config                        |
 
 Atlas deletes manifests first, then data objects. If a delete is interrupted, the leftover objects are orphan blobs, which are harmless, rather than manifests that point at missing data. `--snapshot` removes only the manifest, because other snapshots may reference the same blobs.
+
+`--mailbox` also removes the mailbox's delta cursor (`_meta/outlook-cursors/`) and the replication status records of the deleted snapshots. Records under `_meta/replication/` that belong to a OneDrive snapshot of the same user stay. The next backup of the mailbox is a full backup.
+
+`--snapshot` accepts only the mailbox's newest snapshot. Each Outlook snapshot stores only the changes of its own run, and every newer snapshot is built from the whole chain before it. Deleting an older link would drop the messages it recorded from every later snapshot and bring back the ones it recorded as deleted. Atlas refuses that with `SnapshotNotNewestError` (`ATLAS_SNAPSHOT_NOT_NEWEST`, exit `11`) and deletes nothing. To remove an older snapshot, delete the newer ones first, newest first, or delete the whole mailbox backup with `--mailbox`. If a manifest of the mailbox cannot be read, the order cannot be checked: the delete is refused with exit `9` and names the damaged manifest, which you move aside with [`atlas outlook quarantine`](#atlas-outlook-quarantine) before retrying.
+
+Deleting the newest snapshot also removes the delta cursor, which points past the deleted run. The next backup resumes from the delta links stored in the remaining newest snapshot, so it captures again every change the deleted snapshot held. A cursor left behind anyway, for example by an interrupted delete, records which snapshot it was saved with, and a backup resumes it only while that snapshot is still the newest readable one. Otherwise every folder is read in full.
 
 Every delete removes the object together with all of its noncurrent versions. In a versioned bucket, a plain key delete only writes a delete marker, and the bytes stay retrievable. Atlas removes the versions too, so a deletion that reports success has erased the data.
 
@@ -657,7 +664,7 @@ Each snapshot manifest is complete, so `restore` and `verify` read one manifest 
 | Option                                       | Commands                                      | Description                                                                           |
 | -------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------- |
 | `-m, --mailbox <email or id>`                | all except quarantine                         | Mailbox by email or Entra object ID (required)                                        |
-| `-s, --snapshot <id>`                        | restore, verify (required); delete (optional) | Snapshot identifier. On `delete` it removes one snapshot instead of every backup      |
+| `-s, --snapshot <id>`                        | restore, verify (required); delete (optional) | Snapshot identifier. On `delete` it removes one snapshot instead of every backup, see below |
 | `-T, --target <email or id>`                 | restore                                       | Target mailbox, defaults to the source mailbox                                        |
 | `--full`                                     | backup                                        | Ignore saved delta state and crawl every contact                                      |
 | `--retention-days <n>`, `--lock-mode <mode>` | backup                                        | Object Lock, as for `atlas outlook backup`. `--lock-mode` requires `--retention-days` |
@@ -666,6 +673,8 @@ Each snapshot manifest is complete, so `restore` and `verify` read one manifest 
 | `-t, --tenant <id>`                          | all                                           | Tenant identifier (defaults to config)                                                |
 | `--target-profile <name>`                    | restore                                       | Tenant profile for the writes. Requires `-T`                                          |
 | `--key <storage-key>`                        | quarantine (required)                         | Storage key a command reported as unreadable. See [Damaged manifests](#damaged-manifests-and-version-indexes) |
+
+`delete -s` removes the snapshot's manifest and the mailbox's delta cursor. Because each manifest is complete, deleting any snapshot leaves the others whole. The next backup reads every folder in full, so it captures again every change the deleted snapshot held instead of resuming past it. `delete -m` removes the cursor with the rest of the mailbox's data. A cursor also records the snapshot it was saved with, and a backup resumes it only while that snapshot is still the newest readable one.
 
 ## atlas calendar
 
@@ -689,7 +698,7 @@ Each snapshot manifest is complete, so `restore` and `verify` read one manifest 
 | Option                                       | Commands                                      | Description                                                                           |
 | -------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------- |
 | `-m, --mailbox <email or id>`                | all except quarantine                         | Mailbox by email or Entra object ID (required)                                        |
-| `-s, --snapshot <id>`                        | restore, verify (required); delete (optional) | Snapshot identifier. On `delete` it removes one snapshot instead of every backup      |
+| `-s, --snapshot <id>`                        | restore, verify (required); delete (optional) | Snapshot identifier. On `delete` it removes one snapshot instead of every backup, see below |
 | `-T, --target <email or id>`                 | restore                                       | Target mailbox, defaults to the source mailbox                                        |
 | `--full`                                     | backup                                        | Ignore saved delta state and re-read every calendar                                   |
 | `--retention-days <n>`, `--lock-mode <mode>` | backup                                        | Object Lock, as for `atlas outlook backup`. `--lock-mode` requires `--retention-days` |
@@ -698,6 +707,8 @@ Each snapshot manifest is complete, so `restore` and `verify` read one manifest 
 | `-t, --tenant <id>`                          | all                                           | Tenant identifier (defaults to config)                                                |
 | `--target-profile <name>`                    | restore                                       | Tenant profile for the writes. Requires `-T`                                          |
 | `--key <storage-key>`                        | quarantine (required)                         | Storage key a command reported as unreadable. See [Damaged manifests](#damaged-manifests-and-version-indexes) |
+
+`delete -s` removes the snapshot's manifest and the mailbox's delta cursor. Because each manifest is complete, deleting any snapshot leaves the others whole. The next backup reads every calendar in full, so it captures again every change the deleted snapshot held instead of resuming past it. `delete -m` removes the cursor with the rest of the mailbox's data. A cursor also records the snapshot it was saved with, and a backup resumes it only while that snapshot is still the newest readable one.
 
 ## atlas onedrive
 
