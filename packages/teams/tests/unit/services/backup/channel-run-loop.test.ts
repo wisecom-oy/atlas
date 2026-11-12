@@ -272,6 +272,7 @@ describe('process_channels with a damaged previous shard', () => {
       previous_entry: undefined,
       previous_shard: undefined,
       stored_link: undefined,
+      unreadable_shard_key: 'shard-1',
       failed_roots: {},
       hosted_recheck: { m1: 2 },
     });

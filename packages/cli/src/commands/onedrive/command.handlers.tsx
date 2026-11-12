@@ -25,7 +25,11 @@ import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary
 import { render_static_view } from '@/ui/render';
 import { create_backup_progress } from '@/ui/dashboards/backup-progress-factory';
 import { build_object_lock_request } from '@/command-object-lock';
-import { EXIT_PARTIAL, report_run_outcome, report_skipped_items } from '@/command-run-outcome';
+import {
+  report_backup_verdict,
+  report_run_outcome,
+  report_skipped_items,
+} from '@/command-run-outcome';
 import {
   require_target_for_profile,
   resolve_restore_container,
@@ -201,13 +205,7 @@ export async function execute_onedrive_backup(
     );
   }
 
-  if (result.summary.healthy) {
-    logger.success('Status: HEALTHY');
-  } else {
-    logger.error('Status: UNHEALTHY');
-    // A ledger-only run has no error entry, so the verdict sets the exit code itself (#583).
-    process.exitCode = EXIT_PARTIAL;
-  }
+  report_backup_verdict(result.summary.healthy, (result.summary.unreadable_keys?.length ?? 0) > 0);
   report_run_outcome(
     {
       errors: result.summary.errors,
