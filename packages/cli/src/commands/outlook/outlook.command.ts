@@ -111,7 +111,7 @@ function register_outlook_restore(group: Command, get_container: ContainerFactor
     .description('Restore emails from a backup snapshot or full mailbox backup')
     .option('-m, --mailbox <email|id>', 'restore from all snapshots for this mailbox')
     .option('-T, --target <email>', 'target mailbox (defaults to source mailbox)')
-    .option('--message <ref>', 'restore a single message by # from atlas list, or full ID')
+    .option('--message <ref>', 'with -s, restore one message by # from atlas list, or full ID')
     .option(
       '--destination <path>',
       'restore under this folder instead of a generated Restore-<timestamp> folder',
@@ -160,7 +160,7 @@ function register_outlook_save(group: Command, get_container: ContainerFactory):
     .command('save')
     .description('Save backed-up emails as EML files in a compressed zip archive')
     .option('-m, --mailbox <email|id>', 'save from all snapshots for this mailbox')
-    .option('--message <ref>', 'save a single message by # from atlas list, or full ID')
+    .option('--message <ref>', 'with -s, save one message by # from atlas list, or full ID')
     .option('--start-date <YYYY-MM-DD>', 'include snapshots created on or after this date')
     .option('--end-date <YYYY-MM-DD>', 'include snapshots created on or before this date')
     .option('--skip-verify', 'skip SHA-256 integrity checks (faster on low-power systems)')

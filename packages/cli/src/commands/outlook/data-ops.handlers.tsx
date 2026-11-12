@@ -10,6 +10,7 @@ import { report_run_outcome } from '@/command-run-outcome';
 import { run_interruptible } from '@/adapters/interruptible-run';
 import type { InterruptGate } from '@/adapters/interrupt-gate';
 import { describe_scope_conflict, resolve_outlook_scope } from '@/commands/outlook/scope';
+import { refuse_message_without_snapshot } from '@/commands/outlook/message-option-scope';
 import {
   confirm_deletion,
   print_delete_result,
@@ -126,6 +127,7 @@ function validate_save_options(options: OutlookSaveOptions): void {
     logger.error('--start-date / --end-date can only be used with --mailbox (-m).');
     process.exit(1);
   }
+  refuse_message_without_snapshot(options);
 }
 
 function parse_date(value: string, label: string): Date {

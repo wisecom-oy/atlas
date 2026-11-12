@@ -16,7 +16,10 @@ import {
   count_unique_folders,
 } from '@/services/restore/folder-restore-planner';
 import { folder_listing_for } from '@/services/restore/recoverable-items-filter';
-import { resolve_mailbox_entries } from '@/services/shared/mailbox-entry-resolver';
+import {
+  refuse_message_ref_in_mailbox_mode,
+  resolve_mailbox_entries,
+} from '@/services/shared/mailbox-entry-resolver';
 import { resolve_snapshot_entries } from '@/services/shared/snapshot-entry-resolver';
 import {
   restore_single_message,
@@ -189,6 +192,7 @@ export class RestoreService implements RestoreUseCase {
     options: RestoreOptions,
   ): Promise<RestoreResult> {
     owner_id = normalize_owner_id(owner_id);
+    refuse_message_ref_in_mailbox_mode(options);
     parse_restore_destination(options.destination);
     if (begin_operation_progress(options, 'restore', 'outlook')) {
       return this.finish_empty_result('mailbox', options);

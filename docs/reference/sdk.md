@@ -672,7 +672,7 @@ const unknown = mailboxes.filter((mb) => mb.hasInPlaceArchive === undefined);
 | Option          | Type          | Description                                                                                                        |
 | --------------- | ------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `folderName`    | `string`      | Restore only this folder and its subfolders (name or path)                                                         |
-| `messageRef`    | `string`      | Restore one message by index or ID                                                                                 |
+| `messageRef`    | `string`      | Restore one message by index or ID. `restore` only: `restoreMailbox` rejects it with `ConfigError`                 |
 | `targetMailbox` | `string`      | Target mailbox for a cross-mailbox restore. An email address is resolved to its Entra object ID first              |
 | `targetTenant`  | `AtlasTenant` | Write the restore into another tenant. Requires `targetMailbox`. See [Cross-tenant restore](#cross-tenant-restore) |
 | `destination`   | `string`      | Folder path to restore under, created if missing. Default: a generated `Restore-<timestamp>` folder                |
@@ -739,12 +739,14 @@ A message whose creation failed has no report. Its failure is in `errors`.
 | Option               | Type       | Description                                              |
 | -------------------- | ---------- | -------------------------------------------------------- |
 | `folderName`         | `string`   | Save only this folder and its subfolders (name or path)  |
-| `messageRef`         | `string`   | Save one message by index or ID                          |
+| `messageRef`         | `string`   | Save one message by index or ID. `save` only             |
 | `startDate`          | `Date`     | Include snapshots on or after this date                  |
 | `endDate`            | `Date`     | Include snapshots on or before this date                 |
 | `outputPath`         | `string`   | Output zip path. Default `Restore-<timestamp>.zip`       |
 | `skipIntegrityCheck` | `boolean`  | Skip the SHA-256 check of each object. Default `false`   |
 | `output`             | `Writable` | Stream the archive to this destination instead of a file |
+
+`restoreMailbox` and `saveMailbox` reject `messageRef` with `ConfigError` (`ATLAS_CONFIG_INVALID`) before reading storage or calling Graph, because an index counts the messages of one snapshot and these methods merge every snapshot of the mailbox. `saveMailbox` destroys an `output` stream it rejects. Earlier releases ignored `messageRef` there and processed the whole mailbox.
 
 Both return a `SaveResult`:
 
