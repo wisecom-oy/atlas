@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TenantContext } from '@wisecom/atlas-types';
+import type { SnapshotSummary, TenantContext } from '@wisecom/atlas-types';
 import { UnreadableObjectsError } from '@wisecom/atlas-types';
 import {
   load_drive_chain_entries,
@@ -33,15 +33,41 @@ function key_of(epoch: number): string {
   return `onedrive/manifests/${OWNER}/od-snap-${epoch}-abc.json`;
 }
 
-/** A lookup over readable snapshots plus the keys of damaged ones. */
+function summary_of(manifest: DriveChainManifest): SnapshotSummary {
+  return {
+    snapshot_id: manifest.snapshot_id,
+    created_at: manifest.created_at,
+    manifest_key: key_of(manifest.created_at.getTime()),
+    entry_count: manifest.entries.length,
+    total_size_bytes: 0,
+  };
+}
+
+/**
+ * A lookup whose summary index lists `readable` plus rows for `damaged_rows`, which fail to
+ * decrypt, and names `unreadable_keys` as rowless manifests that failed to decrypt. `reads`
+ * collects every manifest key the chain reads.
+ */
 function lookup(
   readable: DriveChainManifest[],
   unreadable_keys: string[],
+  damaged_rows: SnapshotSummary[] = [],
+  reads: string[] = [],
 ): DriveManifestLookup<DriveChainManifest> {
   return {
     workload: 'OneDrive',
     find_by_snapshot: async (_ctx, _owner, id) => readable.find((m) => m.snapshot_id === id),
-    list_readable_snapshots: async () => ({ manifests: readable, unreadable_keys }),
+    list_snapshot_summaries: async () => ({
+      summaries: [...readable.map(summary_of), ...damaged_rows],
+      unreadable_keys,
+    }),
+    read_manifest_at: async (_ctx, key) => {
+      reads.push(key);
+      if (damaged_rows.some((row) => row.manifest_key === key)) {
+        throw new UnreadableObjectsError('damaged', [key]);
+      }
+      return readable.find((m) => key_of(m.created_at.getTime()) === key);
+    },
   };
 }
 
@@ -97,6 +123,46 @@ describe('drive chain resolution with a damaged manifest (issue #631)', () => {
     );
 
     await expect(resolve).rejects.toMatchObject({ unreadable_keys: [legacy_key] });
+  });
+
+  it('decrypts only the manifests at or before the target (#625)', async () => {
+    const newer = snapshot(9000, ['c']);
+    const reads: string[] = [];
+
+    await load_drive_chain_entries(
+      lookup([older, target, newer], [], [], reads),
+      CTX,
+      OWNER,
+      target.snapshot_id,
+    );
+
+    expect(reads).toEqual([key_of(1000)]);
+  });
+
+  it('refuses when a manifest the summary places in the chain is damaged, naming it', async () => {
+    const damaged = summary_of(snapshot(2000, []));
+
+    const resolve = load_drive_chain_entries(
+      lookup([older, target], [], [damaged]),
+      CTX,
+      OWNER,
+      target.snapshot_id,
+    );
+
+    await expect(resolve).rejects.toMatchObject({ unreadable_keys: [key_of(2000)] });
+  });
+
+  it('ignores a damaged manifest the summary places after the target', async () => {
+    const damaged = summary_of(snapshot(5000, []));
+
+    const chain = await load_drive_chain_entries(
+      lookup([older, target], [], [damaged]),
+      CTX,
+      OWNER,
+      target.snapshot_id,
+    );
+
+    expect(chain.entries.map((row) => row.entry.file_id).sort()).toEqual(['a', 'b']);
   });
 
   it('reads the epoch from both providers snapshot keys', () => {

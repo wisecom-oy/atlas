@@ -370,6 +370,8 @@ The mailbox overview includes a `Type` column, taken from the newest manifest th
 
 The overview's `Objects` column counts the messages in the latest snapshot's chain, the set `restore -s` reads, so it drops when a backup records deletions. The `Objects` column of `list -m` is each manifest's `total_objects`, a high-water mark: the largest message count any single run of the mailbox stored. It never decreases, because the stale-delta safeguard reads it to tell an unchanged mailbox from one never backed up.
 
+`list -m` reads the mailbox's [snapshot summary index](/operations/storage-layout#snapshot-summary-index) instead of decrypting every manifest. The overview without `-m` still decrypts every manifest in the tenant, because its `Objects` count needs every entry of the chain.
+
 `list -s` shows only the messages recorded by that backup run, not the whole chain that `restore -s` and `save -s` read. Its `#` index is what `--message` resolves against.
 
 ### atlas outlook read
@@ -388,6 +390,8 @@ atlas outlook read -s <snapshot-id> --message 34 --raw > message.eml
 | `--message <ref>`     | Message `#` from `atlas outlook list`, or full Graph message ID (required) |
 | `--raw`               | Output the stored object verbatim instead of the formatted view            |
 | `-t, --tenant <id>`   | Override the tenant ID from config                                         |
+
+A `--message` number decrypts only the snapshot's own manifest. A Graph message ID may name a message carried over from an earlier run, so it reads the snapshot's chain.
 
 With `--raw`, the output depends on the stored format. Messages archived as RFC 5322 MIME, which is what current snapshots write, are written to stdout as the decrypted MIME bytes, with no banner, colour, or added newline. Redirected output is a valid `.eml` file with its original `Received:` chain, `Authentication-Results`, and any S/MIME payload intact. Use it to hand a message to an investigator or to check a DKIM signature.
 
@@ -632,6 +636,8 @@ atlas onedrive backup -o user@company.com --full   # re-establish a complete new
 | `-t, --tenant <id>`   | Override the tenant ID from config                      |
 
 A manifest or version index is damaged when it exists but fails AES-256-GCM authentication, is not JSON, lacks the fields every such object carries, or names another owner or snapshot than its key. `status`, the listings, and every backup that reads the manifest skip it, finish, print each key with the matching `quarantine` command, and exit `9`. Restores refuse only where skipping would change the answer. [Troubleshooting](../troubleshooting.md#damaged-manifests-and-version-indexes) has the per-command table and the reasons.
+
+For Outlook, OneDrive, and SharePoint, `status`, `list -m`, `list-snapshots`, and the drive `stats` answer from the owner's [snapshot summary index](/operations/storage-layout#snapshot-summary-index). They decrypt only manifests the index has no row for, and `status` decrypts only the newest. A manifest damaged after its row was written is therefore not named by them. `verify` decrypts every manifest in the chain it checks and is the command that finds damage at rest, so schedule it alongside backups.
 
 `quarantine` reads the object with the same reader the listings use and refuses unless that read fails. Nothing stored at the key exits `7`, and an object that reads cleanly exits `7` with `reads cleanly` in the message, so a healthy snapshot is never hidden by a typo. A key Atlas would not write exactly as given exits `1` before the tenant is opened: one outside the workload's manifest or version index layout, one with an empty, `.`, or `..` segment, or another spelling of the owner.
 

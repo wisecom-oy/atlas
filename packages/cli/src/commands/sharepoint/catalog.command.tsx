@@ -103,7 +103,9 @@ async function execute_sharepoint_list_snapshots(
   const tenant_id = resolve_tenant_id(container, options);
   const site_id = await resolve_site_id(container, tenant_id, options.site);
   const catalog = container.get<SharePointCatalogUseCase>(SHAREPOINT_CATALOG_USE_CASE_TOKEN);
-  const listing = await read_listing(() => catalog.list_sharepoint_snapshots(tenant_id, site_id));
+  const listing = await read_listing(() =>
+    catalog.list_sharepoint_snapshot_summaries(tenant_id, site_id),
+  );
   const snapshots = listing.result;
   report_unreadable_keys(listing.unreadable_keys);
 

@@ -57,10 +57,25 @@ describe('Outlook catalog with a damaged manifest (issue #631)', () => {
       ]),
     );
 
-    const read = service.read_message('t', 'snap-ok', '1');
+    const read = service.read_message('t', 'snap-ok', 'AAMkAG-carried-message');
 
     await expect(read).rejects.toBeInstanceOf(UnreadableObjectsError);
     await expect(read).rejects.toMatchObject({ unreadable_keys: [DAMAGED] });
     await expect(read).rejects.toThrow(/Snapshot snap-ok cannot be resolved/);
+  });
+
+  it('reads a message by index from the target alone, so older damage does not block it (#625)', async () => {
+    // The target's own entries head its merged chain, so an index never needs older manifests.
+    vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
+      make_manifest({ owner_id: OWNER, snapshot_id: 'snap-ok' }),
+    );
+    vi.mocked(mock_manifests.list_by_owner).mockRejectedValue(
+      new UnreadableObjectsError('1 Outlook manifest(s) of this mailbox could not be read', [
+        DAMAGED,
+      ]),
+    );
+
+    await expect(service.read_message('t', 'snap-ok', '1')).resolves.toBeUndefined();
+    expect(mock_manifests.list_snapshot_summaries).not.toHaveBeenCalled();
   });
 });

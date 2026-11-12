@@ -44,6 +44,7 @@ describe('execute_outlook_read', () => {
     catalog = {
       list_mailboxes: vi.fn().mockResolvedValue([]),
       list_snapshots: vi.fn().mockResolvedValue([]),
+      list_snapshot_summaries: vi.fn().mockResolvedValue([]),
       get_snapshot_detail: vi.fn().mockResolvedValue(undefined),
       read_message: vi.fn().mockResolvedValue(undefined),
     };

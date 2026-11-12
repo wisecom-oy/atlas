@@ -4,7 +4,9 @@ import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { TenantContext, TenantStorageContext } from '@wisecom/atlas-types';
 import type {
   LatestReadableManifest,
+  OutlookSnapshotSummary,
   ReadableManifestListing,
+  ReadableSnapshotSummaries,
   StorageObjectLockPolicy,
 } from '@wisecom/atlas-types';
 import { StorageError, UnreadableContentError } from '@wisecom/atlas-types';
@@ -19,8 +21,14 @@ import {
   outlook_manifest_key,
   read_outlook_manifest,
 } from '@/adapters/outlook-manifest-reader';
+import { list_snapshot_summaries } from '@wisecom/atlas-core/services/shared/snapshot-summary-reader';
+import { record_snapshot_summary_or_warn } from '@wisecom/atlas-core/services/shared/snapshot-summary-writer';
+import {
+  OUTLOOK_MANIFEST_POINTER_PREFIX as MANIFEST_POINTER_PREFIX,
+  OUTLOOK_SUMMARY_LAYOUT,
+  summarize_outlook_manifest,
+} from '@/adapters/outlook-snapshot-summary-layout';
 
-const MANIFEST_POINTER_PREFIX = '_meta/outlook-manifests';
 const MANIFEST_READ_CONCURRENCY = 8;
 
 interface ManifestPointer {
@@ -41,7 +49,7 @@ function snapshot_pointer_key(snapshot_id: string): string {
  */
 @injectable()
 export class S3ManifestRepository implements ManifestRepository {
-  /** Serializes, encrypts, and uploads a manifest. */
+  /** Uploads a manifest, then its pointers, then its row in the mailbox's summary index. */
   async save(ctx: TenantContext, manifest: Manifest): Promise<void> {
     const key = outlook_manifest_key(manifest.owner_id, manifest.snapshot_id);
     const json = Buffer.from(JSON.stringify(manifest));
@@ -60,6 +68,20 @@ export class S3ManifestRepository implements ManifestRepository {
       ctx.storage.put(snapshot_key, ctx.encrypt(pointer_json, snapshot_key)),
       ctx.storage.put(latest_key, ctx.encrypt(pointer_json, latest_key)),
     ]);
+    await record_snapshot_summary_or_warn(
+      ctx,
+      OUTLOOK_SUMMARY_LAYOUT,
+      manifest.owner_id,
+      summarize_outlook_manifest(manifest, key),
+    );
+  }
+
+  /** Lists one owner's snapshots from its summary index, decrypting only rowless manifests. */
+  async list_snapshot_summaries(
+    ctx: TenantContext,
+    owner_id: string,
+  ): Promise<ReadableSnapshotSummaries<OutlookSnapshotSummary>> {
+    return list_snapshot_summaries(ctx, OUTLOOK_SUMMARY_LAYOUT, owner_id);
   }
 
   /** Loads a manifest through its snapshot index, with a legacy layout fallback. */

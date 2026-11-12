@@ -1,3 +1,4 @@
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type {
   OneDriveFileVersionIndex,
@@ -57,6 +58,7 @@ function create_mocks() {
 
   const manifests = {
     list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
+    ...drive_chain_reads('onedrive'),
   } as unknown as OneDriveManifestRepository;
 
   const indexes: OneDriveFileVersionIndexRepository = {

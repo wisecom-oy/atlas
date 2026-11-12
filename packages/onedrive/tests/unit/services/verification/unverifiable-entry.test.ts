@@ -1,3 +1,4 @@
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type {
@@ -83,6 +84,7 @@ function make_service(entries: OneDriveManifestEntry[]): OneDriveVerificationSer
   const manifests = {
     find_by_snapshot: vi.fn().mockResolvedValue(manifest),
     list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([manifest])),
+    ...drive_chain_reads('onedrive'),
     find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
     save: vi.fn(),
   } as unknown as OneDriveManifestRepository;

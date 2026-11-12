@@ -152,6 +152,8 @@ describe('tenant-wide workload rehydration', () => {
       find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
       list_snapshots_by_owner: vi.fn(),
       list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
+      list_snapshot_summaries: vi.fn(),
+      list_all_snapshot_summaries: vi.fn(),
       read_manifest_at: vi.fn(),
       list_all_manifests: vi
         .fn()
@@ -197,6 +199,8 @@ describe('tenant-wide workload rehydration', () => {
       find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
       list_snapshots_by_owner: vi.fn(),
       list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
+      list_snapshot_summaries: vi.fn(),
+      list_all_snapshot_summaries: vi.fn(),
       read_manifest_at: vi.fn(),
       list_all_manifests: vi
         .fn()
@@ -239,6 +243,8 @@ describe('tenant-wide workload rehydration', () => {
       find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
       list_snapshots_by_owner: vi.fn(),
       list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
+      list_snapshot_summaries: vi.fn(),
+      list_all_snapshot_summaries: vi.fn(),
       read_manifest_at: vi.fn(),
       list_all_manifests: vi.fn().mockResolvedValue([]),
     };
@@ -281,6 +287,8 @@ describe('tenant-wide workload rehydration', () => {
       find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
       list_snapshots_by_site: vi.fn(),
       list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests()),
+      list_snapshot_summaries: vi.fn(),
+      list_all_snapshot_summaries: vi.fn(),
       read_manifest_at: vi.fn(),
       list_all_manifests: vi
         .fn()

@@ -2,6 +2,7 @@ import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifi
 import { return_or_raise_partial } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
 import type {
   ReadableManifestListing,
+  ReadableSnapshotSummaries,
   ReadableVersionIndexListing,
   TenantContext,
   TenantContextFactory,
@@ -37,6 +38,31 @@ export async function list_drive_snapshots<TManifest>(
   try {
     const listing = await deps.list_snapshots(ctx, normalize_owner_id(owner_id));
     return return_or_raise_partial(listing.unreadable_keys, listing.manifests);
+  } finally {
+    ctx.destroy();
+  }
+}
+
+/**
+ * Returns the owning segment's snapshots from its summary index, newest first, decrypting only
+ * the manifests the index has no row for (#625).
+ *
+ * @throws UnreadableObjectsError naming each rowless manifest that could not be read, with the
+ *   summaries in `partial_result`.
+ */
+export async function list_drive_snapshot_summaries<TSummary>(
+  tenant_factory: TenantContextFactory,
+  list_summaries: (
+    ctx: TenantContext,
+    owner_id: string,
+  ) => Promise<ReadableSnapshotSummaries<TSummary>>,
+  tenant_id: string,
+  owner_id: string,
+): Promise<TSummary[]> {
+  const ctx = await tenant_factory.create_readonly(tenant_id);
+  try {
+    const listing = await list_summaries(ctx, normalize_owner_id(owner_id));
+    return return_or_raise_partial(listing.unreadable_keys, listing.summaries);
   } finally {
     ctx.destroy();
   }

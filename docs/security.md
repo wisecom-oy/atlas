@@ -108,6 +108,8 @@ Because one DEK encrypts the whole tenant, the GCM tag alone proves only that by
 | Strip or lower the version header                             | Decryption fails: the header is authenticated                |
 | Move an object within its own directory                       | Not prevented. The manifest checksum comparison detects it   |
 | Copy one owner's delta cursor over another's                  | Rejected: the cursor names its owner, and load checks it     |
+| Copy one owner's snapshot summary over another's              | Ignored: the summary names its owner, and the read falls back to decrypting the manifests |
+| Edit a summary row to point at another manifest               | Not possible without the DEK. A row is also used only when its manifest key matches its own owner and snapshot |
 | Replay an older ciphertext of the same object                 | Not prevented. Object Lock and versioning handle this        |
 
 | Data                                           | Encrypted | Notes                                                                                     |
@@ -115,6 +117,7 @@ Because one DEK encrypts the whole tenant, the GCM tag alone proves only that by
 | Email messages                                 | Yes       | RFC 5322 MIME, or legacy Graph JSON, under `data/{owner_id}/{content_name}`               |
 | Attachments                                    | Yes       | Legacy JSON entries only, under `attachments/{owner_id}/{content_name}`. MIME embeds them |
 | Manifests                                      | Yes       | Subjects, senders, folder names, delta URLs, checksums                                    |
+| Snapshot summary indexes                       | Yes       | Snapshot IDs, times, totals, and owner labels, under `_meta/outlook-manifests/owners`, `onedrive/_meta`, and `sharepoint/_meta` |
 | OneDrive file blobs                            | Yes       | `onedrive/data/{owner_id}/{content_name}`                                                 |
 | OneDrive manifests, indexes, and delta state   | Yes       | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                  |
 | Teams message blobs and inline images          | Yes       | `teams/data/{team_id}/{content_name}`, `teams/data/{team_id}/hosted/{content_name}`       |

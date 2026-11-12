@@ -129,6 +129,14 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
         ),
       );
     },
+    async listSnapshotSummaries(site_input) {
+      const resolved_id = await resolve_site_id(site_input);
+      return camelize(
+        await with_camelized_partial_result(() =>
+          catalog.list_sharepoint_snapshot_summaries(tenant_id, resolved_id),
+        ),
+      );
+    },
     async listFileVersions(site_input, file_ref) {
       const site_id = await resolve_site_id(site_input);
       return camelize(

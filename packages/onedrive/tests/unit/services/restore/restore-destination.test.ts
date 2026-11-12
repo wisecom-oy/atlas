@@ -5,6 +5,7 @@
  * fails, it just leaves another suffixed copy beside every original. So the assertions are on where
  * uploads land, not on whether the restore reported success.
  */
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type {
@@ -75,6 +76,7 @@ function make_service(entries: OneDriveManifestEntry[]): {
   const manifests = {
     find_by_snapshot: vi.fn().mockResolvedValue(manifest),
     list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
+    ...drive_chain_reads('onedrive'),
   } as unknown as OneDriveManifestRepository;
 
   return { service: new OneDriveRestoreService(factory, connector, manifests), connector };

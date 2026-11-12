@@ -8,3 +8,4 @@ export type {
   IdentityRegistryEntry,
   IdentityEntryStatus,
 } from './identity-registry';
+export type * from '@/domain/shared/snapshot-summary';

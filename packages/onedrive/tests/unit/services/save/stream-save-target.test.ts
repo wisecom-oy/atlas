@@ -1,3 +1,4 @@
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import type {
@@ -56,6 +57,7 @@ describe('OneDrive save to a stream target', () => {
       {
         find_by_snapshot: vi.fn().mockResolvedValue(manifest),
         list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([manifest])),
+        ...drive_chain_reads('onedrive'),
       } as unknown as OneDriveManifestRepository,
     );
 
