@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { UnreadableContentError, type TeamsCheckpointMode } from '@wisecom/atlas-types';
+import {
+  UnreadableContentError,
+  UnsupportedFormatVersionError,
+  type TeamsCheckpointMode,
+} from '@wisecom/atlas-types';
 import { InMemoryTeamsChannelCheckpointRepository } from '@wisecom/atlas-types/testing/in-memory-teams-channel-checkpoint-repository';
 import type { BackupRunScope } from '@/services/backup/backup-run-scope';
 import {
@@ -117,6 +121,23 @@ describe('open_channel_run checkpoint resume', () => {
     expect(next.state.threads).toEqual({ b: thread_entry('b') });
     expect(await scope.checkpoints.load_head(scope.ctx, scope.team_id, CHANNEL.id)).toBeUndefined();
   });
+
+  it.each(['load_head', 'load_segment', 'load_hosted_entries'] as const)(
+    'stops and keeps a checkpoint whose %s reports a newer format',
+    async (method) => {
+      const scope = scope_over();
+      const first = await open(scope, BASELINE);
+      first.state.threads.a = thread_entry('a');
+      await flush_channel_run(scope, first, { threads: ['a'], seen: ['a'] });
+      const delete_channel = vi.spyOn(scope.checkpoints, 'delete_channel');
+      vi.spyOn(scope.checkpoints, method).mockRejectedValue(
+        new UnsupportedFormatVersionError('written by a newer version'),
+      );
+
+      await expect(open(scope, BASELINE)).rejects.toBeInstanceOf(UnsupportedFormatVersionError);
+      expect(delete_channel).not.toHaveBeenCalled();
+    },
+  );
 
   it('still reads hosted entries an older version journaled inside segments', async () => {
     const scope = scope_over();

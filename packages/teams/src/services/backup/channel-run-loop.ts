@@ -5,9 +5,11 @@ import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/ope
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   AuthError,
+  UnreadableContentError,
   UnsupportedFormatVersionError,
   type TeamsBackupOptions,
   type TeamsChannelRunOutcome,
+  type TeamsChannelShard,
   type TeamsChannelShardRepository,
   type TeamsGraphResource,
 } from '@wisecom/atlas-types';
@@ -15,8 +17,8 @@ import type { BackupRunScope } from '@/services/backup/backup-run-scope';
 import {
   backup_channel,
   type ChannelBackupOutput,
+  type ChannelStartState,
 } from '@/services/backup/channel-backup-processor';
-import { load_channel_start_state } from '@/services/backup/channel-start-state';
 import type { TeamsBaseline } from '@/services/backup/team-baseline-loader';
 import { error_message } from '@/services/shared/error-message';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
@@ -202,13 +204,9 @@ async function run_channel(
 ): Promise<void> {
   const started = Date.now();
   try {
-    const loaded = await load_channel_start_state(
-      scope,
-      channel.id,
-      inputs.baseline,
-      inputs.shards,
-    );
-    const output = await backup_channel(scope, channel, loaded.start);
+    const start_warnings: string[] = [];
+    const start = await channel_start_state(scope, channel.id, inputs, start_warnings);
+    const output = await backup_channel(scope, channel, start);
     state.records.set(channel.id, {
       outcome: channel_outcome(output, channel.id),
       read_mode: output.shard.read_mode,
@@ -216,7 +214,7 @@ async function run_channel(
       elapsed_ms: Date.now() - started,
       output,
       errors: output.errors,
-      warnings: [...loaded.warnings, ...output.warnings],
+      warnings: [...start_warnings, ...output.warnings],
     });
   } catch (err) {
     if (err instanceof AuthError || err instanceof UnsupportedFormatVersionError) throw err;
@@ -254,4 +252,82 @@ function unfinished_record(
     errors,
     warnings: [],
   };
+}
+
+/**
+ * Loads the channel's previous shard, so unchanged content and the cursor can be compared. Under
+ * `--full`, a damaged or missing previous shard gives the start state of a channel that has none:
+ * no entry, no shard and no delta link, so the channel is rebuilt from Graph, its checkpoint no
+ * longer matches, and a new shard is saved (issue #708).
+ */
+async function channel_start_state(
+  scope: BackupRunScope,
+  channel_id: string,
+  inputs: ChannelRunInputs,
+  warnings: string[],
+): Promise<ChannelStartState> {
+  const base = inputs.baseline.channels.get(channel_id);
+  const tracking = {
+    failed_roots: base?.failed_roots ?? {},
+    hosted_recheck: base?.hosted_recheck ?? {},
+  };
+  const previous_entry = base?.previous_entry;
+  if (previous_entry === undefined) {
+    return {
+      previous_entry,
+      previous_shard: undefined,
+      stored_link: base?.delta_link,
+      ...tracking,
+    };
+  }
+  const previous_shard = await load_shard_unless_rebuilding(
+    scope,
+    inputs.shards,
+    channel_id,
+    previous_entry.shard_key,
+    warnings,
+  );
+  if (previous_shard === undefined) {
+    return {
+      previous_entry: undefined,
+      previous_shard: undefined,
+      stored_link: undefined,
+      unreadable_shard_key: previous_entry.shard_key,
+      ...tracking,
+    };
+  }
+  return { previous_entry, previous_shard, stored_link: base?.delta_link, ...tracking };
+}
+
+/**
+ * Loads one shard. A damaged or missing shard fails the channel with the command that rebuilds it,
+ * or under `--full` warns and returns undefined so the run rebuilds it. A shard written by a newer
+ * Atlas format and a storage failure throw unchanged in both cases.
+ */
+async function load_shard_unless_rebuilding(
+  scope: BackupRunScope,
+  shards: TeamsChannelShardRepository,
+  channel_id: string,
+  shard_key: string,
+  warnings: string[],
+): Promise<TeamsChannelShard | undefined> {
+  try {
+    return await shards.load(scope.ctx, shard_key);
+  } catch (err) {
+    if (!(err instanceof UnreadableContentError)) throw err;
+    if (!scope.force_full) {
+      throw new UnreadableContentError(
+        `${err.message}. Rebuild the channel from Graph with: atlas teams backup ` +
+          `--team ${scope.team_id} --channel ${channel_id} --full`,
+        { cause: err },
+      );
+    }
+    const warning =
+      `Channel ${channel_id}: its previous shard ${shard_key} could not be read ` +
+      `(${err.message}); rebuilding the channel from Graph without it. Threads that shard held ` +
+      `and Teams no longer returns are not in the new shard`;
+    logger.warn(warning);
+    warnings.push(warning);
+    return undefined;
+  }
 }

@@ -12,9 +12,10 @@ import type {
 } from '@wisecom/atlas-types';
 import { TeamsBackupService } from '@/services/backup/backup.service';
 import { TEAM_ID } from './backup-service-harness';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 vi.mock('@wisecom/atlas-core/services/shared/run-object-lock', () => ({
-  lock_run_writes: vi.fn(async (ctx: unknown) => ctx),
+  attach_run_retention: vi.fn(async (ctx: unknown) => ctx),
 }));
 
 /** A Graph 429 as the SDK delivers it: a fetch `Headers` object carrying Retry-After. */
@@ -47,6 +48,7 @@ function service_with_throttled_team_get(): TeamsBackupService {
     {} as TeamsChannelShardRepository,
     {} as TeamsChannelCursorRepository,
     {} as TeamsChannelCheckpointRepository,
+    stub_owner_leases().leases,
   );
 }
 

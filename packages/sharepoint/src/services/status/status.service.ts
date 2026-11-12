@@ -15,6 +15,8 @@ import {
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
+import { explain_outlived_cursor } from '@wisecom/atlas-drive/shared/cursor-snapshot-binding';
+import { SHAREPOINT_KEYS } from '@/services/shared/storage-keys';
 
 /** Binds the shared drive status peek to the SharePoint connector, cursor and manifest lookup. */
 @injectable()
@@ -39,7 +41,11 @@ export class SharePointStatusService implements SharePointStatusUseCase {
     site_id = normalize_owner_id(site_id);
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const previous_cursor = await this._cursors.load(ctx, site_id);
+      const stored_cursor = await this._cursors.load(ctx, site_id);
+      // The next backup does not resume a cursor that outlived its snapshot, so neither does the
+      // peek: every library then reports as not backed up (issue #725).
+      const outlived = await explain_outlived_cursor(ctx, SHAREPOINT_KEYS, site_id, stored_cursor);
+      const previous_cursor = outlived === undefined ? stored_cursor : undefined;
       const failed_items = previous_cursor?.failed_items ?? {};
       // A damaged manifest is named in the result instead of failing the site (issue #631).
       const latest = await this._manifests.find_latest_readable(ctx, site_id);

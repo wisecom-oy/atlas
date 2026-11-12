@@ -1,30 +1,20 @@
 import type { TeamsChannelShard, TeamsStoredBlobRef } from '@/domain/teams/manifest';
 import type { TenantContext } from '@/ports/tenant/context.port';
 
-/** How `save` treats an object already stored under the shard's content name. */
-export interface TeamsShardSaveOptions {
-  /**
-   * A shard key this run could not read. When the new shard's content name maps to it, the object
-   * is written again instead of trusted, so a rebuilt channel does not keep pointing at the damage.
-   */
-  readonly replace_unreadable_key?: string | undefined;
-}
-
 /**
  * Channel shards, stored under the HMAC of their canonical JSON so a channel that did not change
  * between snapshots is written once and referenced by every index that lists it.
  */
 export interface TeamsChannelShardRepository {
   /**
-   * Stores a shard under its content name. Writes nothing when an object with that name already
-   * exists, since identical content has identical bytes, unless that name is the
-   * `replace_unreadable_key` the caller found damaged.
+   * Stores a shard under its content name. Writes nothing when a readable object with that name
+   * already exists, since identical content has identical bytes. An existing object that is
+   * damaged is overwritten.
+   *
+   * @throws UnsupportedFormatVersionError when the existing object was written by a newer format
+   *   version. It is not overwritten.
    */
-  save(
-    ctx: TenantContext,
-    shard: TeamsChannelShard,
-    options?: TeamsShardSaveOptions,
-  ): Promise<TeamsStoredBlobRef>;
+  save(ctx: TenantContext, shard: TeamsChannelShard): Promise<TeamsStoredBlobRef>;
 
   /**
    * Loads and verifies a shard: the bytes must match the checksum in the key's content name, and

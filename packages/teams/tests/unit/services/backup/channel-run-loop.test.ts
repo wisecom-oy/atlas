@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AuthError,
+  StorageError,
+  UnreadableContentError,
   UnsupportedFormatVersionError,
   type TeamsChannelShardRepository,
   type TeamsGraphResource,
@@ -217,5 +219,89 @@ describe('process_channels', () => {
       UnsupportedFormatVersionError,
     );
     expect(vi.mocked(backup_channel)).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('process_channels with a damaged previous shard', () => {
+  const previous_entry = {
+    channel_id: 'channel-1',
+    shard_key: 'shard-1',
+    shard_checksum: 'sum-1',
+    thread_count: 0,
+    message_count: 0,
+    size_bytes: 0,
+  };
+
+  const FULL_SCOPE = (): BackupRunScope => ({ ...make_scope(), force_full: true });
+
+  function inputs_with_previous_entry(): ChannelRunInputs {
+    const channels = new Map<string, ChannelBaseline>([
+      [
+        'channel-1',
+        { previous_entry, delta_link: 'stored-link', failed_roots: {}, hosted_recheck: { m1: 2 } },
+      ],
+    ]);
+    return make_inputs({ baseline: { ...make_inputs().baseline, channels } });
+  }
+
+  it('fails the channel without --full and names the command that rebuilds it (#708)', async () => {
+    const inputs = inputs_with_previous_entry();
+    vi.mocked(inputs.shards.load).mockRejectedValue(new UnreadableContentError('is corrupt'));
+    const scope = make_scope();
+
+    const state = await process_channels(scope, [CHANNELS[0]!], inputs);
+
+    expect(vi.mocked(backup_channel)).not.toHaveBeenCalled();
+    expect(state.results.size).toBe(0);
+    expect(state.errors).toEqual([
+      `Channel channel-1: is corrupt. Rebuild the channel from Graph with: atlas teams backup ` +
+        `--team ${scope.team_id} --channel channel-1 --full`,
+    ]);
+  });
+
+  it('under --full starts the channel without a baseline or delta link and warns with the shard key', async () => {
+    const inputs = inputs_with_previous_entry();
+    vi.mocked(inputs.shards.load).mockRejectedValue(new UnreadableContentError('is corrupt'));
+    vi.mocked(backup_channel).mockImplementation(async (_scope, channel) =>
+      output(channel.id, { warnings: ['from the channel'] }),
+    );
+
+    const state = await process_channels(FULL_SCOPE(), [CHANNELS[0]!], inputs);
+
+    expect(vi.mocked(backup_channel).mock.calls[0]?.[2]).toEqual({
+      previous_entry: undefined,
+      previous_shard: undefined,
+      stored_link: undefined,
+      unreadable_shard_key: 'shard-1',
+      failed_roots: {},
+      hosted_recheck: { m1: 2 },
+    });
+    expect(state.errors).toEqual([]);
+    expect([...state.results.keys()]).toEqual(['channel-1']);
+    expect(state.warnings).toHaveLength(2);
+    expect(state.warnings[0]).toContain('shard-1');
+    expect(state.warnings[1]).toBe('from the channel');
+  });
+
+  it('under --full still records a storage failure of the previous shard as a failed channel', async () => {
+    const inputs = inputs_with_previous_entry();
+    vi.mocked(inputs.shards.load).mockRejectedValue(new StorageError('bucket unreachable'));
+
+    const state = await process_channels(FULL_SCOPE(), [CHANNELS[0]!], inputs);
+
+    expect(vi.mocked(backup_channel)).not.toHaveBeenCalled();
+    expect(state.errors).toEqual(['Channel channel-1: bucket unreachable']);
+  });
+
+  it('under --full still rethrows a previous shard written by a newer format', async () => {
+    const inputs = inputs_with_previous_entry();
+    vi.mocked(inputs.shards.load).mockRejectedValue(
+      new UnsupportedFormatVersionError('shard written by a newer version'),
+    );
+
+    await expect(process_channels(FULL_SCOPE(), [CHANNELS[0]!], inputs)).rejects.toBeInstanceOf(
+      UnsupportedFormatVersionError,
+    );
+    expect(vi.mocked(backup_channel)).not.toHaveBeenCalled();
   });
 });

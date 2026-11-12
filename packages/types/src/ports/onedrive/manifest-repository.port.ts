@@ -1,6 +1,7 @@
 import type { OneDriveSnapshotManifest } from '../../domain/onedrive/manifest';
 import type { OneDriveSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type { TenantContext } from '../tenant/context.port';
+import type { HeldOwnerLease } from '@/ports/lease/owner-lease.port';
 import type {
   LatestReadableManifest,
   ReadableManifestListing,
@@ -13,8 +14,18 @@ import type {
  * instead (issue #631).
  */
 export interface OneDriveManifestRepository {
-  /** Persists a snapshot manifest. */
-  save(ctx: TenantContext, manifest: OneDriveSnapshotManifest): Promise<void>;
+  /**
+   * Persists a snapshot manifest, then records it in the owner's summary index. A backup passes
+   * its lease, which is checked again right before the summary write.
+   */
+  save(
+    ctx: TenantContext,
+    manifest: OneDriveSnapshotManifest,
+    lease?: HeldOwnerLease,
+  ): Promise<void>;
+
+  /** Drops a removed snapshot's row from the owner's summary index; logs instead of failing. */
+  forget_snapshot_summary(ctx: TenantContext, owner_id: string, snapshot_id: string): Promise<void>;
 
   /**
    * Finds a manifest for an owner by snapshot ID under that owner's prefix.

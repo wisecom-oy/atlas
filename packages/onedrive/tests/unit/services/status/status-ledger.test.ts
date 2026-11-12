@@ -9,6 +9,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { OneDriveStatusService } from '@/services/status/status.service';
 import { latest_readable } from '@wisecom/atlas-types/testing/readable-listing';
+import { list_one_drive_snapshot } from '@wisecom/atlas-types/testing/stub-drive-snapshot-listing';
 
 const TENANT_ID = 'tenant-1';
 const OWNER_ID = '00000000-0000-0000-0000-000000000001';
@@ -24,7 +25,11 @@ const FAILED = {
 };
 
 function build(fetch_delta: OneDriveConnector['fetch_delta']): OneDriveStatusService {
-  const ctx = { storage: {}, destroy: vi.fn() } as unknown as TenantContext;
+  // One stored snapshot, so the saved cursor is still resumable (issue #725).
+  const ctx = {
+    storage: { list: list_one_drive_snapshot() },
+    destroy: vi.fn(),
+  } as unknown as TenantContext;
   const factory = { create_readonly: vi.fn().mockResolvedValue(ctx) };
   const connector = {
     list_drives: vi.fn().mockResolvedValue([{ drive_id: 'drive-1', drive_name: 'OneDrive' }]),

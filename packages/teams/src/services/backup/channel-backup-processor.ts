@@ -46,7 +46,7 @@ export interface ChannelBackupOutput {
   readonly hosted_recheck: HostedRecheck;
   readonly errors: string[];
   readonly warnings: string[];
-  /** Carried from the start state, so the new shard replaces a damaged object at the same key. */
+  /** Carried from the start state, so the summary can report a shard repaired at the same key. */
   readonly unreadable_shard_key?: string | undefined;
 }
 

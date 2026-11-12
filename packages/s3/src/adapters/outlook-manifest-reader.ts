@@ -34,6 +34,14 @@ export async function read_outlook_manifest(
 ): Promise<Manifest | undefined> {
   const parsed = await read_encrypted_json(ctx, key, 'Outlook manifest');
   if (parsed === undefined) return undefined;
+  return require_outlook_manifest(parsed, key);
+}
+
+/**
+ * The shape, identity and date checks of a parsed manifest body, shared by reader and writer.
+ * Returns the manifest with `created_at` revived as a Date.
+ */
+export function require_outlook_manifest(parsed: unknown, key: string): Manifest {
   if (!has_manifest_fields(parsed)) throw new MalformedManifestError(key);
   if (outlook_manifest_key(parsed.owner_id, parsed.snapshot_id) !== key) {
     throw new MismatchedManifestError(key, parsed.owner_id, parsed.snapshot_id);

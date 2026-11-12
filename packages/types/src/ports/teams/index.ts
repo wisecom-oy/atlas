@@ -13,10 +13,7 @@ export type {
   TeamsSnapshotListing,
   TeamsTeamListing,
 } from '@/ports/teams/index-repository.port';
-export type {
-  TeamsChannelShardRepository,
-  TeamsShardSaveOptions,
-} from '@/ports/teams/channel-shard-repository.port';
+export type { TeamsChannelShardRepository } from '@/ports/teams/channel-shard-repository.port';
 export type {
   TeamsChannelCursorRepository,
   TeamsCursorScan,

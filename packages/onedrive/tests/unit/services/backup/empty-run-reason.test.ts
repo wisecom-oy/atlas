@@ -17,6 +17,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const OWNER_ID = 'owner-1';
 
@@ -30,6 +31,8 @@ function cursor_knowing_a_file(): OneDriveDeltaCursor {
     previous_etag_by_file_id: { f1: 'etag-1' },
     previous_kind_by_file_id: { f1: 'file' },
     updated_at: new Date().toISOString(),
+    // Saved while the owner had no snapshot, and none is stored, so the run resumes it (#725).
+    snapshot_id: null,
   } as OneDriveDeltaCursor;
 }
 
@@ -93,6 +96,7 @@ function make_service(options: {
       load: vi.fn().mockResolvedValue(options.previous_cursor),
       save: vi.fn().mockResolvedValue(undefined),
     } as never,
+    stub_owner_leases().leases,
   );
 
   return { service, manifests };
@@ -172,6 +176,7 @@ describe('OneDrive backup with no snapshot to create (issue #405)', () => {
       previous_etag_by_file_id: { f1: 'etag-1' },
       previous_kind_by_file_id: {},
       updated_at: new Date().toISOString(),
+      snapshot_id: null,
     } as OneDriveDeltaCursor;
     const file: OneDriveDeltaItem = {
       item_id: 'f1',

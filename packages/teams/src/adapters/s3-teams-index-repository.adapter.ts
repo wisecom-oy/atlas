@@ -9,6 +9,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { UnreadableContentError, UnsupportedFormatVersionError } from '@wisecom/atlas-types';
 import { load_encrypted_json } from '@wisecom/atlas-core/services/shared/encrypted-state-reader';
+import { write_encrypted_json } from '@wisecom/atlas-core/services/shared/stored-json-writer';
 import { all_index_keys, team_index_keys, TEAMS_KEYS } from '@/services/shared/storage-keys';
 import { assert_index_shape, type StoredTeamsIndex } from '@/services/shared/teams-object-shape';
 
@@ -37,10 +38,22 @@ function snapshot_epoch(key: string): number {
 /** Persists Teams snapshot indexes as encrypted JSON, one object per snapshot. */
 @injectable()
 export class S3TeamsIndexRepository implements TeamsIndexRepository {
-  /** Encrypts and uploads an index under its team and snapshot key. */
+  /**
+   * Stores an index under its team and snapshot key. The write is create-only, refused when the
+   * reader's checks would reject the body, and read back once it lands.
+   */
   async save(ctx: TenantContext, index: TeamsSnapshotIndex): Promise<void> {
-    const key = TEAMS_KEYS.manifest_key(index.team_id, index.snapshot_id);
-    await ctx.storage.put(key, ctx.encrypt(Buffer.from(JSON.stringify(index)), key));
+    await write_encrypted_json(
+      ctx,
+      {
+        key: TEAMS_KEYS.manifest_key(index.team_id, index.snapshot_id),
+        label: 'Teams snapshot index',
+        reader_check: require_teams_index,
+        write: 'create_only',
+        confirm_read_back: true,
+      },
+      index,
+    );
   }
 
   /**
@@ -151,18 +164,26 @@ export class S3TeamsIndexRepository implements TeamsIndexRepository {
   ): Promise<TeamsSnapshotIndex | undefined> {
     const stored = await load_encrypted_json<unknown>(ctx, key);
     if (stored === undefined) return undefined;
-    assert_index_shape(key, stored);
-    if (!names_key(stored, key)) {
-      throw new UnreadableContentError(
-        `The Teams snapshot index at ${key} names a different team or snapshot than its key`,
-      );
-    }
-    const created_at = new Date(stored.created_at);
-    if (Number.isNaN(created_at.getTime())) {
-      throw new UnreadableContentError(
-        `The Teams snapshot index at ${key} has an unreadable created_at`,
-      );
-    }
-    return { ...stored, created_at };
+    return require_teams_index(stored, key);
   }
+}
+
+/**
+ * The shape, identity and date checks of a parsed index body, shared by reader and writer. Returns
+ * the index with `created_at` revived as a Date.
+ */
+function require_teams_index(stored: unknown, key: string): TeamsSnapshotIndex {
+  assert_index_shape(key, stored);
+  if (!names_key(stored, key)) {
+    throw new UnreadableContentError(
+      `The Teams snapshot index at ${key} names a different team or snapshot than its key`,
+    );
+  }
+  const created_at = new Date(stored.created_at);
+  if (Number.isNaN(created_at.getTime())) {
+    throw new UnreadableContentError(
+      `The Teams snapshot index at ${key} has an unreadable created_at`,
+    );
+  }
+  return { ...stored, created_at };
 }

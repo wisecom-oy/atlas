@@ -1,4 +1,8 @@
-import { load_encrypted_json_bound_to_key } from '@wisecom/atlas-core/services/shared/encrypted-state-reader';
+import {
+  load_encrypted_json_bound_to_key,
+  state_names_key_check,
+} from '@wisecom/atlas-core/services/shared/encrypted-state-reader';
+import { write_encrypted_json } from '@wisecom/atlas-core/services/shared/stored-json-writer';
 import type {
   CalendarDeltaCursor,
   CalendarDeltaCursorRepository,
@@ -15,13 +19,27 @@ export class S3CalendarDeltaCursorRepository implements CalendarDeltaCursorRepos
     return load_encrypted_json_bound_to_key<CalendarDeltaCursor>(
       ctx,
       calendar_delta_cursor_key(mailbox_id),
-      (cursor) => calendar_delta_cursor_key(cursor.mailbox_id),
+      key_cursor_names,
     );
   }
 
-  /** Encrypts and stores the mailbox's delta cursor. */
+  /** Stores the mailbox's delta cursor, overwriting the previous one, and reads it back. */
   async save(ctx: TenantContext, cursor: CalendarDeltaCursor): Promise<void> {
-    const key = calendar_delta_cursor_key(cursor.mailbox_id);
-    await ctx.storage.put(key, ctx.encrypt(Buffer.from(JSON.stringify(cursor)), key));
+    await write_encrypted_json(
+      ctx,
+      {
+        key: calendar_delta_cursor_key(cursor.mailbox_id),
+        label: 'calendar delta cursor',
+        reader_check: state_names_key_check(key_cursor_names),
+        write: 'overwrite',
+        confirm_read_back: true,
+      },
+      cursor,
+    );
   }
+}
+
+/** The key a cursor body claims to live under. */
+function key_cursor_names(cursor: CalendarDeltaCursor): string {
+  return calendar_delta_cursor_key(cursor.mailbox_id);
 }

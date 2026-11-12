@@ -18,6 +18,7 @@ import {
 import { BACKUP_AT, TEAM_ID } from './channel-backup-processor-harness';
 import { channel_output } from './backup-service-harness';
 import { InMemoryTeamsChannelCheckpointRepository } from '@wisecom/atlas-types/testing/in-memory-teams-channel-checkpoint-repository';
+import { stub_held_owner_lease } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const CTX = {} as TenantContext;
 const TEAM: TeamsGraphResource = { id: TEAM_ID, displayName: 'Team' };
@@ -53,6 +54,7 @@ function ports(): SnapshotPorts {
     indexes: { save: vi.fn(async () => undefined) } as unknown as TeamsIndexRepository,
     cursors: { save: vi.fn(async () => undefined) } as unknown as TeamsChannelCursorRepository,
     checkpoints: new InMemoryTeamsChannelCheckpointRepository(),
+    lease: stub_held_owner_lease(),
   };
 }
 
@@ -74,26 +76,11 @@ describe('save_channel_shards', () => {
 
     const saves = await save_channel_shards(CTX, shards, new Map([['channel-1', output]]));
 
-    expect(shards.save).toHaveBeenCalledWith(CTX, output.shard, {
-      replace_unreadable_key: undefined,
-    });
+    expect(shards.save).toHaveBeenCalledWith(CTX, output.shard);
     expect(saves[0]?.entry).toMatchObject({
       channel_id: 'channel-1',
       shard_key: 'shard-new',
       shard_checksum: 'sum-new',
-    });
-  });
-
-  it('passes a rebuilt channel unreadable shard key so the save replaces it (#708)', async () => {
-    const output = channel_output('channel-1', { unreadable_shard_key: 'shard-damaged' });
-    const shards = {
-      save: vi.fn(async () => ({ storage_key: 'shard-damaged', checksum: 'sum', size_bytes: 1 })),
-    } as unknown as TeamsChannelShardRepository;
-
-    await save_channel_shards(CTX, shards, new Map([['channel-1', output]]));
-
-    expect(shards.save).toHaveBeenCalledWith(CTX, output.shard, {
-      replace_unreadable_key: 'shard-damaged',
     });
   });
 

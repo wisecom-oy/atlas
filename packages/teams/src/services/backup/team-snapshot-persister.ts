@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type {
+  HeldOwnerLease,
   NoSnapshotReason,
   TeamsChannelCheckpointRepository,
   TeamsChannelCursorRepository,
@@ -32,6 +33,8 @@ export interface SnapshotPorts {
   readonly checkpoints: TeamsChannelCheckpointRepository;
   /** The context checkpoints are written through, without the run's Object Lock. Defaults to `ctx`. */
   readonly checkpoint_ctx?: TenantContext | undefined;
+  /** The team's lease, checked before the index and before each channel's cursor. */
+  readonly lease: HeldOwnerLease;
 }
 
 /** Everything the snapshot step writes: the team-level content and the processed channels. */
@@ -57,9 +60,8 @@ export interface SnapshotPersistResult {
 
 /**
  * Saves each processed channel's new shard and returns its index entry. A channel whose content is
- * unchanged keeps its previous entry and saves nothing. A rebuilt channel rewrites its damaged
- * shard when the new content maps to the same key. Runs before the index, so a failed run leaves no
- * index pointing at a missing shard.
+ * unchanged keeps its previous entry and saves nothing. Runs before the index, so a failed run
+ * leaves no index pointing at a missing shard.
  */
 export async function save_channel_shards(
   ctx: TenantContext,
@@ -68,10 +70,9 @@ export async function save_channel_shards(
 ): Promise<ChannelSave[]> {
   const saves: ChannelSave[] = [];
   for (const [channel_id, output] of results) {
-    const save_options = { replace_unreadable_key: output.unreadable_shard_key };
     const entry =
       output.reused_entry ??
-      build_channel_index_entry(output.shard, await shards.save(ctx, output.shard, save_options));
+      build_channel_index_entry(output.shard, await shards.save(ctx, output.shard));
     saves.push({ channel_id, entry, output });
   }
   return saves;
@@ -81,7 +82,7 @@ export async function save_channel_shards(
  * Saves the team index when the run changed something, then saves the cursor of every processed
  * channel. Each cursor is bound to its channel's merged shard key, so the next run trusts its delta
  * link only while that shard is the channel's latest. A failed index save leaves the cursors where
- * they were.
+ * they were. A run that lost the team's lease writes neither (issue #623).
  */
 export async function persist_team_snapshot(
   ctx: TenantContext,
@@ -104,10 +105,12 @@ export async function persist_team_snapshot(
       members: input.members,
       channels: input.channels,
     });
+    ports.lease.assert_held();
     await ports.indexes.save(ctx, index);
   }
   const updated_at = input.backup_at.toISOString();
   for (const { channel_id, entry, output } of input.saves) {
+    ports.lease.assert_held();
     await ports.cursors.save(
       ctx,
       build_channel_cursor({
