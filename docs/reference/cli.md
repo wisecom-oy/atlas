@@ -60,7 +60,7 @@ exit "$status"
 | `9`  | `ATLAS_CONTENT_UNREADABLE`, `ATLAS_FORMAT_UNSUPPORTED`, or a command that skipped a damaged manifest or version index and named it                                                                      | The stored bytes cannot be parsed back, or were written by a newer Atlas format. Repeating the command will not help. For a newer format, upgrade Atlas. For a named manifest or version index, see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes). Otherwise extract the raw content with `save`. |
 | `10` | `ATLAS_KEY_CONFLICT`: `rehydrate` found a different data key on primary next to other objects, so it refused to replace a key that may protect existing backups                                         | Repeating the command will not help. Confirm primary's content is disposable, run `atlas delete --purge`, then rehydrate into the empty bucket.                                                                                                                                                                                     |
 | `11` | `ATLAS_SNAPSHOT_NOT_NEWEST`: `outlook delete -s`, `onedrive delete -s`, or `sharepoint delete -s` named a snapshot that newer snapshots of the same mailbox, owner, or site are built on                | Repeating the command will not help. Delete the newer snapshots first, newest first, or delete the whole backup of that mailbox, owner, or site by leaving out `-s`.                                                                                                                                                                |
-| `12` | `ATLAS_OWNER_BUSY`: another backup, restore, deletion, or quarantine holds the lease on the same mailbox, drive owner, site, or team, or this run lost its lease before it could commit                 | Nothing was committed. Retry once the other operation ends. If its process was killed, the lease expires 5 minutes after its last renewal, and the message names that time. See [Another operation holds the owner](/troubleshooting#another-operation-holds-the-owner).                                                            |
+| `12` | `ATLAS_OWNER_BUSY`: another backup, restore, deletion, quarantine, replication, or rehydration holds the lease on the same mailbox, drive owner, site, or team, or this run lost its lease before it could commit                 | Nothing was committed. Retry once the other operation ends. If its process was killed, the lease expires 5 minutes after its last renewal, and the message names that time. See [Another operation holds the owner](/troubleshooting#another-operation-holds-the-owner).                                                            |
 
 Fatal exceptions map to these categories. Failures the command reports itself stay `1`: failed verification, `storage-check` reporting an unready bucket, and `config validate` reporting a failed probe. Per-item failures already reported as partial stay `2`, and their messages are not reclassified.
 
@@ -1430,7 +1430,7 @@ Profile names are lowercase letters, digits, and dashes, up to 32 characters. Pr
 
 ## atlas replicate
 
-Replicate snapshots to a secondary S3-compatible target. Ciphertext is copied as-is, with no decryption. Only unreplicated snapshots and missing objects are transferred. To report progress, use the `status` subcommand. It takes the same scope flags and writes no data.
+Replicate snapshots to a secondary S3-compatible target. Ciphertext is copied as-is, with no decryption. Only unreplicated snapshots and missing objects are transferred. To report progress, use the `status` subcommand. It takes the same scope flags and writes no data. Each `replicate` run takes the owner lease of the mailbox, drive owner or site it copies, in the primary bucket it reads from, so it exits `12` while a backup, deletion, quarantine, restore or rehydration of that owner runs. Target buckets take no lease. See [Concurrent operations](/reference/sdk#concurrent-operations).
 
 ```bash
 atlas replicate -s <snapshot-id> \
@@ -1485,7 +1485,7 @@ Trailing whitespace and the trailing newline are trimmed. If stdin is empty or u
 
 ## atlas rehydrate
 
-Recover snapshots from a replica to primary storage. This is a disaster recovery operation, not a bidirectional sync. Snapshots already on primary are skipped.
+Recover snapshots from a replica to primary storage. This is a disaster recovery operation, not a bidirectional sync. Snapshots already on primary are skipped. Each `rehydrate` run takes the owner lease of the mailbox, drive owner or site it recovers, in primary, so it exits `12` while a backup, deletion, quarantine, restore or replication of that owner runs. `--all` takes no lease. See [Concurrent operations](/reference/sdk#concurrent-operations).
 
 ```bash
 atlas rehydrate -s <snapshot-id> \

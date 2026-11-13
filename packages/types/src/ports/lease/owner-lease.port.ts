@@ -6,9 +6,12 @@ export type OwnerLeaseWorkload =
 
 /**
  * The operations that take the lease: those that write per-owner state, and restore, which reads it
- * while a delete or another restore of the same owner would change what it restores.
+ * while a delete or another restore of the same owner would change what it restores. `replicate`
+ * reads the owner in the primary bucket and records its status there; `rehydrate` writes the
+ * owner's manifests and pointers into the primary bucket.
  */
-export type OwnerLeaseOperation = 'backup' | 'delete' | 'quarantine' | 'restore';
+export type OwnerLeaseOperation =
+  'backup' | 'delete' | 'quarantine' | 'restore' | 'replicate' | 'rehydrate';
 
 /** Which owner an operation needs exclusively, and what the operation is. */
 export interface OwnerLeaseRequest {

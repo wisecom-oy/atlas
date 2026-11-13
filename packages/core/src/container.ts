@@ -30,6 +30,9 @@ import { StorageUsageService } from '@/services/stats/storage-usage.service';
 import { ReplicationService } from '@/services/replication/replication.service';
 import { SharePointReplicationService } from '@/services/replication/sharepoint-replication.service';
 import { OneDriveReplicationService } from '@/services/replication/onedrive-replication.service';
+import { LeasedReplicationService } from '@/services/replication/leased-replication.service';
+import { LeasedSharePointReplicationService } from '@/services/replication/leased-sharepoint-replication.service';
+import { LeasedOneDriveReplicationService } from '@/services/replication/leased-onedrive-replication.service';
 
 export function bind_core_services(container: Container): void {
   container.bind<OwnerLeasePort>(OWNER_LEASE_TOKEN).toConstantValue(new StorageOwnerLeases());
@@ -54,13 +57,17 @@ export function bind_core_services(container: Container): void {
   container.bind(StorageUsageService).toSelf();
   container.bind(STORAGE_USAGE_USE_CASE_TOKEN).toService(StorageUsageService);
   container.bind(ReplicationService).toSelf();
-  container.bind(REPLICATION_USE_CASE_TOKEN).toService(ReplicationService);
   container.bind(SharePointReplicationService).toSelf();
+  container.bind(OneDriveReplicationService).toSelf();
+  // The use cases the rest of the process resolves take the owner lease, then delegate (issue #740).
+  container.bind(LeasedReplicationService).toSelf();
+  container.bind(REPLICATION_USE_CASE_TOKEN).toService(LeasedReplicationService);
+  container.bind(LeasedSharePointReplicationService).toSelf();
   container
     .bind<SharePointReplicationUseCase>(SHAREPOINT_REPLICATION_USE_CASE_TOKEN)
-    .toService(SharePointReplicationService);
-  container.bind(OneDriveReplicationService).toSelf();
+    .toService(LeasedSharePointReplicationService);
+  container.bind(LeasedOneDriveReplicationService).toSelf();
   container
     .bind<OneDriveReplicationUseCase>(ONEDRIVE_REPLICATION_USE_CASE_TOKEN)
-    .toService(OneDriveReplicationService);
+    .toService(LeasedOneDriveReplicationService);
 }
