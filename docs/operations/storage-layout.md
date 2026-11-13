@@ -12,6 +12,7 @@ atlas-{tenant_id}/
 │   ├── dek.enc                                  # wrapped data encryption key
 │   ├── outlook-cursors/{owner_id}.json          # Outlook delta links, one per folder
 │   ├── outlook-leases/{owner_id}.json           # owner lease, present while an operation runs
+│   ├── tenant-lease.json                        # tenant lease, present while a purge or key re-wrap runs
 │   ├── outlook-manifests/
 │   │   ├── owners/{owner_id}/latest.json        # latest manifest key per mailbox
 │   │   ├── owners/{owner_id}/summary.json       # snapshot summary index per mailbox
@@ -88,15 +89,18 @@ _meta/outlook-leases/{owner_id}.json     # Outlook mail
 onedrive/_meta/{owner_id}/lease.json     # also contacts/, calendar/
 sharepoint/_meta/{site_id}/lease.json
 teams/_meta/{team_id}/lease.json
+_meta/tenant-lease.json                  # the whole tenant: purge and key re-wrap
 ```
 
 A backup, deletion, or quarantine holds one lease object for its mailbox, drive owner, site, or team while it runs, so two operations never write the same owner's cursor, pointer, summary index, or checkpoint at once. A restore of a mailbox, drive owner, or site holds the same lease, so a deletion cannot remove the snapshot it is restoring. The object sits next to the owner's delta cursor. See [Concurrent operations](/reference/sdk#concurrent-operations) for the protocol.
+
+A purge or key re-wrap holds the tenant lease, `_meta/tenant-lease.json`, with the tenant ID as its owner ID. It sits directly under `_meta/`, outside every workload's lease prefix, so no owner scan reads it. While it is live, owner operations of the tenant are refused. While any owner lease is live, the purge or re-wrap is refused. The tenant-side check lists each workload's lease prefix and reads only the objects whose keys are exactly an owner lease, so cursors, snapshot indexes, and other `_meta/` objects are never read as leases.
 
 The lease is not encrypted. It is plain JSON, so that an operation without the tenant key, such as erasing an owner after the passphrase is lost, can still take it. Anyone with read access to the bucket can read:
 
 | Field                       | What it reveals                                                                                                         |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `operation`                 | That a `backup`, `delete`, `quarantine`, or `restore` is running on the owner, or last ran if the lease was left behind |
+| `operation`                 | That a `backup`, `delete`, `quarantine`, or `restore` is running on the owner, or `purge` or `rewrap` on the tenant lease, or last ran if the lease was left behind |
 | `acquired_at`, `expires_at` | When that operation started and when it last renewed the lease, to the minute                                           |
 | `released_at`               | When it finished, present only when the lease could not be deleted                                                      |
 | `holder_id`                 | A random ID generated for that one run. It names no host, user, or process                                              |
@@ -109,7 +113,7 @@ The owner ID is in the key, as it is for every object of that owner. The lease h
 | Lifetime      | Written when the operation starts, rewritten every 60 seconds, deleted when it ends. If the delete is refused, it is rewritten as released and stays as a free lease. One left by a killed process expires 5 minutes after its last write |
 | Object Lock   | Never written with retention, also when the run uses `--retention-days`. A bucket default retention still locks each version, which is one more reason to remove it                                                                       |
 | Versions      | In a versioned bucket every renewal leaves a noncurrent version of about 200 bytes. The 30-day noncurrent expiry rule removes them                                                                                                        |
-| Deletion      | Deleting an owner removes its lease last, with all versions, so nothing is left under the erased owner's ID                                                                                                                               |
+| Deletion      | Deleting an owner removes its lease last, with all versions, so nothing is left under the erased owner's ID. A purge removes the tenant lease last, with all versions, so an erased bucket holds no lease object                                                                                                                               |
 | Replication   | Never copied to a replica. A lease describes a run on this bucket                                                                                                                                                                         |
 | Storage usage | Counted like a delta cursor: under its workload for the prefixed workloads, under `meta` for Outlook. It is not backup data                                                                                                               |
 

@@ -981,7 +981,8 @@ try {
   await atlas.onedrive.backup(ownerId);
 } catch (err) {
   if (!(err instanceof OwnerBusyError)) throw err;
-  // err.held_by_operation: 'backup' | 'delete' | 'quarantine' | 'restore', err.lease_expires_at: ISO 8601
+  // err.held_by_operation: 'backup' | 'delete' | 'quarantine' | 'restore' | 'purge' | 'rewrap'
+  // err.lease_expires_at: ISO 8601
   await requeue(ownerId, { notBefore: err.lease_expires_at });
 }
 ```
@@ -1004,6 +1005,10 @@ A run that holds a lease checks it before each write that advances durable state
 
 A SharePoint backup with `includeSubsites: true` takes one lease per site. A busy subsite does not stop the others: its result has `summary.healthy: false` and the busy error in `summary.errors`. A busy root site rejects the call. `atlas teams backup --all` and the tenant-wide Outlook backup report a busy team or mailbox as that owner's failure and continue.
 
+**The tenant lease.** `purgeTenantData()` and `rewrapDataKey()` take one lease for the whole tenant, with the tenant ID as its owner ID. It is stored at `_meta/tenant-lease.json`, renewed every 60 seconds, and released when the call ends, on failure too. The call writes its lease first and then lists every owner lease in the tenant. Any live owner lease makes it reject with `OwnerBusyError` before it writes anything else, and the error names one of the busy owners in `workload` and `owner_id`. Every owner operation does the reverse: after it writes its own lease, it reads the tenant lease, and a live one makes it release its own lease and reject with `OwnerBusyError`, with `held_by_operation` set to `purge` or `rewrap`. Because each side writes before it reads, two calls that start at the same moment cannot both proceed. An owner lease that has expired, was released, or does not parse does not block the tenant call. A tenant lease whose purge was killed expires 5 minutes after its last renewal, and until then it blocks owner operations of that tenant.
+
+The tenant check costs one extra `GET` per owner acquire, whatever the number of objects the run writes. The tenant call lists each workload's lease prefix, which is a listing of that workload's `_meta/` tree, so its cost grows with the number of owners.
+
 **What Atlas makes safe.** Operations on different resources of one tenant can run at once, on one instance or in separate processes against the same bucket. Content, manifests, delta cursors, version indexes and staging objects are keyed by mailbox, drive owner or site. The tenant-wide objects are written safely:
 
 | Object                   | How concurrent writers are handled                                                                                                                                                                                            |
@@ -1018,8 +1023,8 @@ The conditional writes, the lease included, need a backend that honours `If-Matc
 
 **What the host must guarantee.**
 
-- Tenant-wide operations take no lease: `purgeTenantData()`, key re-wrap, `replicateSnapshot`, `replicateAll` and rehydration. Run them while no backup, deletion or quarantine of that tenant is running.
-- Restore takes the source owner's lease in the bucket it reads, also for a cross-tenant restore through `targetTenant`, so it never runs next to a backup, deletion, quarantine or second restore of that owner. A restore whose storage credentials cannot write the lease (HTTP `403`) still runs, as restores always have with read-only credentials, but without a lease. It logs `concurrent-run protection is off for this restore`, and a backup, deletion or second restore of that owner is then not refused. A live lease another operation holds still refuses the restore, because reading a lease needs no write access.
+- Replication takes no lease: `replicateSnapshot`, `replicateAll` and rehydration. Run them while no backup, deletion or quarantine of that tenant is running. `purgeTenantData()` and `rewrapDataKey()` take the tenant lease described above, so they are refused while any owner of the tenant is busy.
+- Restore takes the source owner's lease in the bucket it reads, also for a cross-tenant restore through `targetTenant`, so it never runs next to a backup, deletion, quarantine or second restore of that owner. A restore whose storage credentials cannot write the lease (HTTP `403`) still runs, as restores always have with read-only credentials, but without a lease. It logs `concurrent-run protection is off for this restore`, and a backup, deletion or second restore of that owner is then not refused. A live lease another operation holds still refuses the restore, owner or tenant, because reading a lease needs no write access.
 - Save, verify, status and the listings only read, so they take no lease and can run next to a backup of the same owner. A deletion or quarantine running at the same time can remove the snapshot they are reading.
 - Keep the clocks of hosts that share a bucket within a few minutes of each other. Expiry compares the `expires_at` one host wrote with another host's clock. A host whose clock is ahead by more than the time left on a live lease, 4 to 5 minutes in steady state, sees it as expired and takes over a running operation. The displaced run notices at its next renewal, within 60 seconds, and stops before its next commit, but both ran for that long.
 - On a backend that ignores write conditions, two runs can both take the same lease. Each finds out at its next renewal, so the overlap is bounded at 60 seconds but not prevented. Schedule one operation per owner yourself until `checkStorage()` reports `conditionalWrites.support: 'supported'`.
@@ -1144,6 +1149,8 @@ The data key does not change, so nothing in the bucket is re-encrypted and every
 Buckets are versioned, and noncurrent versions expire after 30 days. Until they expire, someone with the old passphrase and permission to read object versions can still unwrap the data key from the old wrapper. Treat the rotation as complete only after that version expires, or after the leaked reader's `s3:GetObjectVersion` permission is revoked.
 
 A wrong current passphrase is rejected before anything is written. After the write, the blob is read back and unwrapped before the promise resolves, so a resolved call means the tenant opens with the new passphrase. If that check fails, the previous wrapper is restored and the call throws `DekRewrapVerificationError`. If the restore also fails, the call throws `DekRewrapRollbackError` and the stored wrapper is in an unknown state. Neither class is exported. Both extend `StorageError`, so branch on `ATLAS_STORAGE_FAILURE`, and inspect the bucket before retrying.
+
+The call takes the tenant lease before it reads the wrapper, so it rejects with `OwnerBusyError` and changes nothing while any owner of the tenant has a live lease. Owner operations of the tenant are refused with `OwnerBusyError` until it returns. See [Concurrent operations](#concurrent-operations).
 
 Update the instance configuration afterwards. Nothing reads the new passphrase until you do, and an instance still built with the old passphrase fails its next operation.
 
@@ -1396,7 +1403,7 @@ try {
 | `UnsupportedFormatVersionError`     | `ATLAS_FORMAT_UNSUPPORTED`   | Stored Teams content was written by a newer Atlas format. Upgrade Atlas. Not exported                                                                                                                                                                                                                      |
 | `DekOverwriteRefusedError`          | `ATLAS_KEY_CONFLICT`         | Rehydration refused to replace a different data key on a primary that holds other objects. Retrying cannot succeed. Not exported                                                                                                                                                                           |
 | `SnapshotNotNewestError`            | `ATLAS_SNAPSHOT_NOT_NEWEST`  | Outlook, OneDrive, or SharePoint `deleteSnapshot` refused a snapshot that newer snapshots are built on. See `snapshot_id` and `newer_snapshot_ids`                                                                                                                                                         |
-| `OwnerBusyError`                    | `ATLAS_OWNER_BUSY`           | Another backup, restore, deletion, or quarantine holds the mailbox, drive owner, site, or team. Nothing was written. See `workload`, `owner_id`, `held_by_operation`, `lease_expires_at`, and [Concurrent operations](#concurrent-operations)                                                              |
+| `OwnerBusyError`                    | `ATLAS_OWNER_BUSY`           | Another backup, restore, deletion, or quarantine holds the mailbox, drive owner, site, or team, or a purge or key re-wrap holds the tenant. Nothing was written. See `workload`, `owner_id`, `held_by_operation`, `lease_expires_at`, and [Concurrent operations](#concurrent-operations)                                                              |
 | `OwnerLeaseLostError`               | `ATLAS_OWNER_BUSY`           | A subclass of `OwnerBusyError`: this run held the owner's lease and lost it before a commit point, so it stopped without writing the manifest, cursor, or deletion that followed                                                                                                                           |
 
 Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK error is available for logging. Branching does not depend on it.

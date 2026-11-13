@@ -15,7 +15,7 @@ export interface OwnerLeaseRecord {
   readonly format_version: number;
   /** Random id of the run that holds the owner. */
   readonly holder_id: string;
-  /** What the holder is doing: `backup`, `delete` or `quarantine`. */
+  /** What the holder is doing: `backup`, `delete`, `quarantine`, `restore`, or `purge` and `rewrap` on the tenant lease. */
   readonly operation: string;
   /** ISO 8601 UTC time the holder first took the lease. */
   readonly acquired_at: string;
@@ -94,6 +94,29 @@ function is_owner_lease_record(
     Number.isFinite(Date.parse(body.expires_at)) &&
     (body.released_at === undefined || typeof body.released_at === 'string')
   );
+}
+
+/**
+ * Whether a lease blocks others at `now_ms`: it is intact, not released, and not yet expired. A
+ * damaged object (no record) blocks nobody, the same rule the acquirer applies.
+ */
+export function is_live_owner_lease(record: OwnerLeaseRecord | undefined, now_ms: number): boolean {
+  if (record === undefined || record.released_at !== undefined) return false;
+  return Date.parse(record.expires_at) > now_ms;
+}
+
+/**
+ * Reads the lease at `key` and returns its record only when it is live at `now_ms`.
+ *
+ * @throws UnsupportedFormatVersionError when the lease was written by a newer Atlas.
+ */
+export async function read_live_owner_lease(
+  ctx: TenantStorageContext,
+  key: string,
+  now_ms: number,
+): Promise<OwnerLeaseRecord | undefined> {
+  const record = (await read_owner_lease(ctx, key))?.record;
+  return is_live_owner_lease(record, now_ms) ? record : undefined;
 }
 
 /**

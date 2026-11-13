@@ -3,13 +3,16 @@ import { inject, injectable } from 'inversify';
 import type {
   DekRewrapResult,
   DekRewrapUseCase,
+  HeldOwnerLease,
   ObjectStorage,
+  OwnerLeasePort,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { ConfigError, TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
+import { ConfigError, OWNER_LEASE_TOKEN, TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
 import { EnvelopeKeyService } from '@/adapters/keystore/envelope-key-service.adapter';
 import { parse_dek_blob } from '@/adapters/keystore/dek-blob-codec';
 import { MIN_PASSPHRASE_BYTES } from '@/adapters/keystore/kdf-strategy';
+import { run_with_owner_lease } from '@/services/lease/run-with-owner-lease';
 import { ATLAS_CONFIG_TOKEN, type AtlasConfig } from '@/utils/config';
 import { logger } from '@/utils/logger';
 import {
@@ -35,13 +38,34 @@ export class DekRewrapService implements DekRewrapUseCase {
   constructor(
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
     @inject(ATLAS_CONFIG_TOKEN) private readonly _config: AtlasConfig,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
   ) {}
 
-  /** Unwraps with the current passphrase, wraps with the next, then proves the result opens. */
+  /**
+   * Unwraps with the current passphrase, wraps with the next, then proves the result opens.
+   *
+   * Runs under the tenant lease, so it is refused with `OwnerBusyError` while any owner of the
+   * tenant has a live lease, and an owner operation is refused while it runs (issue #739).
+   */
   async rewrap_tenant_dek(tenant_id: string, new_passphrase?: string): Promise<DekRewrapResult> {
     if (new_passphrase !== undefined) assert_usable_passphrase(new_passphrase);
 
-    const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
+    const ctx = await this._tenant_factory.create_storage_only(tenant_id);
+    return run_with_owner_lease(
+      this._leases,
+      ctx,
+      { workload: 'tenant', owner_id: tenant_id, operation: 'rewrap' },
+      (lease) => this.rewrap_under_lease(ctx.storage, lease, tenant_id, new_passphrase),
+    );
+  }
+
+  /** The re-wrap itself, run while the tenant lease is held. */
+  private async rewrap_under_lease(
+    storage: ObjectStorage,
+    lease: HeldOwnerLease,
+    tenant_id: string,
+    new_passphrase: string | undefined,
+  ): Promise<DekRewrapResult> {
     if (!(await storage.exists(DEK_KEY))) throw new DekWrapperMissingError(tenant_id, DEK_KEY);
 
     // Read the ETag with the blob: every write below is a compare-and-swap against it, so a
@@ -62,6 +86,7 @@ export class DekRewrapService implements DekRewrapUseCase {
       const previous_kdf_id = parse_dek_blob(stored).header.kdf_id;
 
       const rewrapped = await next.wrap_dek(dek, tenant_id);
+      lease.assert_held();
       try {
         await storage.put(DEK_KEY, rewrapped, undefined, undefined, stored_etag);
       } catch (err) {

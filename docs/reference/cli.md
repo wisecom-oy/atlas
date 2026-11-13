@@ -60,7 +60,13 @@ exit "$status"
 | `9`  | `ATLAS_CONTENT_UNREADABLE`, `ATLAS_FORMAT_UNSUPPORTED`, or a command that skipped a damaged manifest or version index and named it                                                                      | The stored bytes cannot be parsed back, or were written by a newer Atlas format. Repeating the command will not help. For a newer format, upgrade Atlas. For a named manifest or version index, see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes). Otherwise extract the raw content with `save`. |
 | `10` | `ATLAS_KEY_CONFLICT`: `rehydrate` found a different data key on primary next to other objects, so it refused to replace a key that may protect existing backups                                         | Repeating the command will not help. Confirm primary's content is disposable, run `atlas delete --purge`, then rehydrate into the empty bucket.                                                                                                                                                                                     |
 | `11` | `ATLAS_SNAPSHOT_NOT_NEWEST`: `outlook delete -s`, `onedrive delete -s`, or `sharepoint delete -s` named a snapshot that newer snapshots of the same mailbox, owner, or site are built on                | Repeating the command will not help. Delete the newer snapshots first, newest first, or delete the whole backup of that mailbox, owner, or site by leaving out `-s`.                                                                                                                                                                |
-| `12` | `ATLAS_OWNER_BUSY`: another backup, restore, deletion, or quarantine holds the lease on the same mailbox, drive owner, site, or team, or this run lost its lease before it could commit                 | Nothing was committed. Retry once the other operation ends. If its process was killed, the lease expires 5 minutes after its last renewal, and the message names that time. See [Another operation holds the owner](/troubleshooting#another-operation-holds-the-owner).                                                            |
+| `12` | `ATLAS_OWNER_BUSY`: another backup, restore, deletion, or quarantine holds the lease on the same mailbox, drive owner, site, or team, a purge or key re-wrap holds the tenant, or this run lost its lease before it could commit | Nothing was committed. Retry once the other operation ends. If its process was killed, the lease expires 5 minutes after its last renewal, and the message names that time. See [Another operation holds the owner](/troubleshooting#another-operation-holds-the-owner). |
+
+### Run leases
+
+Every backup, restore, deletion, quarantine, `atlas delete --purge`, and `atlas keys rewrap` takes a lease before it writes. An owner lease covers one mailbox, drive owner, site, or team. The tenant lease covers the whole tenant and is taken by `atlas delete --purge` and `atlas keys rewrap`. The two kinds exclude each other: a purge or re-wrap exits `12` while any owner lease in the tenant is live, and an owner command exits `12` while a purge or re-wrap runs. Exit `12` always means nothing was written. Leases are stored in the tenant bucket, as described in [Owner leases](/operations/storage-layout#owner-leases).
+
+A purge or re-wrap that exits `12` names the busy owner in its message. Run it when no scheduled backup of the tenant is due, and retry it after the busy operation ends.
 
 Fatal exceptions map to these categories. Failures the command reports itself stay `1`: failed verification, `storage-check` reporting an unready bucket, and `config validate` reporting a failed probe. Per-item failures already reported as partial stay `2`, and their messages are not reclassified.
 
@@ -621,6 +627,8 @@ Type the tenant ID to confirm:
 A single keypress is not enough here. A mistyped `y` is not the risk. The risk is a purge aimed at the wrong tenant, and typing the target ID is the only prompt that catches that. Scoped deletes keep a single-keypress `y/n` prompt on purpose. Making every delete laborious would train operators to pass `-y` everywhere, which would remove the guard that matters. `-y` bypasses the prompt for scheduled jobs and the end-to-end suite.
 
 The purge sweeps the whole bucket rather than a fixed list of prefixes. Outlook, Contacts, Calendar, OneDrive, SharePoint, the identity registry, and any tree a later release adds are all removed. The encrypted data key at `_meta/dek.enc` is deleted last, and only once nothing else survives. Removing the key while ciphertext remains would leave data that can be neither restored nor confirmed erased. This is irreversible. All data for the tenant becomes permanently inaccessible.
+
+The purge takes the tenant lease after the confirmation and before its first write. It exits `12` when any owner of the tenant has a live lease, or when a backup, restore, deletion, or quarantine starts while it runs. Its refusal writes nothing and removes its own lease. The typed confirmation comes first, so a purge that is going to be refused still asks for the tenant ID.
 
 Before v2.2.0 this was `atlas outlook delete --purge`. That flag no longer exists, so scripts must call `atlas delete --purge`.
 
@@ -1343,6 +1351,8 @@ The data key does not change. Nothing in the bucket is re-encrypted, every snaps
 
 ::: danger This rotates the wrapper, not the data key
 Re-wrapping answers a **leaked passphrase**. It does not answer a compromised bucket. If the data key or the plaintext has already been captured, a new passphrase does not help, because the attacker no longer needs the passphrase. Replication does not help either, since it copies ciphertext under the same key. A compromised data key requires a new bucket and a fresh backup. See [Rotating the data key](/security#rotating-the-data-key).
+
+The re-wrap takes the tenant lease first. It exits `12` and writes nothing while any owner of the tenant has a live lease, and owner commands of the tenant exit `12` until it returns. See [Run leases](#run-leases).
 :::
 
 ::: warning The old passphrase stays valid until the replaced version expires

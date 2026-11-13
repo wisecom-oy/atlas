@@ -49,11 +49,12 @@ describe('DeletionService.purge_tenant', () => {
     expect(mock_context.storage.list).not.toHaveBeenCalledWith('_meta/');
   });
 
-  it('deletes the DEK last, once the sweep came back clean', async () => {
+  it('deletes the DEK last, once the sweep came back clean, and the tenant lease after it', async () => {
     await service.purge_tenant('t');
 
+    // The stub lease's key comes last: its versions are erased only after the DEK is gone (issue #739).
     const scopes = vi.mocked(mock_context.storage.list).mock.calls.map(([scope]) => scope);
-    expect(scopes).toEqual(['', '_meta/dek.enc']);
+    expect(scopes).toEqual(['', '_meta/dek.enc', 'stub-lease/tenant/t.json']);
   });
 
   it('erases the DEK-encrypted neighbours in _meta before the DEK itself', async () => {

@@ -165,10 +165,13 @@ describe('releasing an owner lease (issue #623)', () => {
   it('waits for a renewal in flight, so the lease is not written back after the delete', async () => {
     let finish_read: () => void = () => undefined;
     let reads = 0;
+    // Counts reads of this run's own lease: an acquire also reads the tenant lease (issue #739).
     const harness = lease_harness((inner) => ({
       get_with_etag: async (key) => {
-        reads++;
-        if (reads === 2) await new Promise<void>((resolve) => (finish_read = resolve));
+        if (key === OUTLOOK_KEY) reads++;
+        if (reads === 2 && key === OUTLOOK_KEY) {
+          await new Promise<void>((resolve) => (finish_read = resolve));
+        }
         return inner.get_with_etag(key);
       },
     }));

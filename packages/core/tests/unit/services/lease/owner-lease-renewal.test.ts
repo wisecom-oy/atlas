@@ -207,10 +207,13 @@ describe('renewing an owner lease (issue #623)', () => {
   it('does not start a second renewal while one is still running', async () => {
     let reads = 0;
     let finish_read: () => void = () => undefined;
+    // Counts reads of this run's own lease: an acquire also reads the tenant lease (issue #739).
     const harness = lease_harness((inner) => ({
       get_with_etag: async (key) => {
-        reads++;
-        if (reads === 2) await new Promise<void>((resolve) => (finish_read = resolve));
+        if (key === OUTLOOK_KEY) reads++;
+        if (reads === 2 && key === OUTLOOK_KEY) {
+          await new Promise<void>((resolve) => (finish_read = resolve));
+        }
         return inner.get_with_etag(key);
       },
     }));

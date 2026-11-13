@@ -1,14 +1,19 @@
 import type { TenantStorageContext } from '@/ports/tenant/context.port';
 
-/** The workloads whose per-owner state a lease protects. Also the lease's storage namespace. */
+/**
+ * The workloads whose per-owner state a lease protects, and `tenant` for the one lease a tenant-wide
+ * purge or key re-wrap takes (issue #739). A `tenant` lease's owner id is the tenant id.
+ */
 export type OwnerLeaseWorkload =
-  'outlook' | 'onedrive' | 'sharepoint' | 'contacts' | 'calendar' | 'teams';
+  'outlook' | 'onedrive' | 'sharepoint' | 'contacts' | 'calendar' | 'teams' | 'tenant';
 
 /**
  * The operations that take the lease: those that write per-owner state, and restore, which reads it
- * while a delete or another restore of the same owner would change what it restores.
+ * while a delete or another restore of the same owner would change what it restores. `purge` and
+ * `rewrap` take the tenant lease.
  */
-export type OwnerLeaseOperation = 'backup' | 'delete' | 'quarantine' | 'restore';
+export type OwnerLeaseOperation =
+  'backup' | 'delete' | 'quarantine' | 'restore' | 'purge' | 'rewrap';
 
 /** Which owner an operation needs exclusively, and what the operation is. */
 export interface OwnerLeaseRequest {
@@ -47,7 +52,11 @@ export interface OwnerLeasePort {
    * be the storage as the factory built it, never one decorated with a run's Object Lock
    * retention: a lease is rewritten every minute and deleted at the end.
    *
-   * @throws OwnerBusyError when another operation holds a live lease on the owner.
+   * A `tenant` request takes the tenant lease and is refused while any owner lease in the tenant is
+   * live; an owner request is refused while the tenant lease is live (issue #739).
+   *
+   * @throws OwnerBusyError when another operation holds a live lease on the owner, or, for a tenant
+   * request, on any owner of the tenant.
    * @throws UnsupportedFormatVersionError when the lease in storage was written by a newer Atlas.
    */
   acquire(ctx: TenantStorageContext, request: OwnerLeaseRequest): Promise<HeldOwnerLease>;

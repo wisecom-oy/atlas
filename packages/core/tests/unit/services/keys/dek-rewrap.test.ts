@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { WrongPassphraseError } from '@wisecom/atlas-types';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { EnvelopeKeyService } from '@/adapters/keystore/envelope-key-service.adapter';
 import { DekRewrapService } from '@/services/keys/dek-rewrap.service';
 import { DekWrapperChangedError, DekWrapperMissingError } from '@/services/keys/dek-rewrap.errors';
@@ -105,6 +106,7 @@ async function make_harness(
     service: new DekRewrapService(
       factory,
       make_config(options.config_passphrase ?? OLD_PASSPHRASE),
+      stub_owner_leases().leases,
     ),
     objects,
     dek,
