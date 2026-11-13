@@ -136,7 +136,7 @@ Logs are not the record of a run. The typed result carries what happened: `summa
 
 `summary.reactionsNotCaptured` on an Outlook backup counts messages stored without their reactions and pin, because Graph returned an error for them or the read used up its retries. The messages themselves are stored, and `summary.warnings` carries one line per affected folder. The delta link still advances, so those properties are read again only when the message changes.
 
-A selector that matches nothing rejects with `NotFoundError` instead of resolving with an empty result. This covers `folderFilter` on an Outlook backup, `folderName` on Outlook restore and save, and `fileFilter` on OneDrive and SharePoint restore and save. When some selectors match, the run goes ahead with the matches: an Outlook backup lists each unmatched folder selector in `summary.folderErrors`, and a drive restore or save lists each unmatched value in `unmatchedFileFilters`. Folder selectors also accept a Graph well-known name such as `inbox` or `sentitems`, which names the same folder whatever the mailbox language. See [`atlas outlook backup`](./cli.md#atlas-outlook-backup).
+A selector that matches nothing rejects with `NotFoundError` instead of resolving with an empty result. This covers `folderFilter` on an Outlook backup, `folderName` on Outlook restore and save, `messageRef` on Outlook restore and save, and `fileFilter` on OneDrive and SharePoint restore and save. When some selectors match, the run goes ahead with the matches: an Outlook backup lists each unmatched folder selector in `summary.folderErrors`, and a drive restore or save lists each unmatched value in `unmatchedFileFilters`. Folder selectors also accept a Graph well-known name such as `inbox` or `sentitems`, which names the same folder whatever the mailbox language. See [`atlas outlook backup`](./cli.md#atlas-outlook-backup).
 
 ## Storage request events
 
@@ -271,7 +271,7 @@ const snapshots = await atlas.onedrive.listSnapshotSummaries('user@example.com')
 const newest = snapshots[0]; // { snapshotId, createdAt, manifestKey, entryCount, totalFiles, totalSizeBytes, ... }
 ```
 
-`listSnapshotSummaries` on `atlas.outlook`, `atlas.onedrive`, and `atlas.sharepoint` returns an owner's snapshots newest first from its [snapshot summary index](/operations/storage-layout#snapshot-summary-index): one storage listing and one small read, whatever the number of snapshots. `listSnapshots` still returns whole manifests and decrypts every one, so use it only when you need the entries.
+`listSnapshotSummaries` on `atlas.outlook`, `atlas.onedrive`, `atlas.sharepoint`, `atlas.contacts`, and `atlas.calendar` returns an owner's snapshots newest first from its [snapshot summary index](/operations/storage-layout#snapshot-summary-index): one storage listing and one small read, whatever the number of snapshots. `listSnapshots` still returns whole manifests and decrypts every one, so use it only when you need the entries.
 
 | Field                            | On                   | Meaning                                                           |
 | -------------------------------- | -------------------- | ----------------------------------------------------------------- |
@@ -354,7 +354,8 @@ Contacts snapshots are not replicated or rehydrated yet. `replicateSnapshot` rej
 | `backup(mailbox, options?)`             | `atlas contacts backup -m`    | Back up changed contacts                                                  |
 | `restore(mailbox, options)`             | `atlas contacts restore -m`   | Restore a snapshot without overwriting; `targetMailboxId` sets the target |
 | `verify(mailbox, snapshotId, options?)` | `atlas contacts verify -m`    | Verify a snapshot                                                         |
-| `listSnapshots(mailbox)`                | `atlas contacts list -m`      | List snapshots for a mailbox                                              |
+| `listSnapshots(mailbox)`                | `atlas contacts list -m`      | List snapshots for a mailbox, entries included. Decrypts every manifest   |
+| `listSnapshotSummaries(mailbox)`        | `atlas contacts list -m`      | List snapshots from the summary index, without entries                    |
 | `deleteMailboxData(mailbox)`            | `atlas contacts delete -m`    | Delete all contacts data for a mailbox                                    |
 | `deleteSnapshot(mailbox, snapshotId)`   | `atlas contacts delete -m -s` | Delete one snapshot manifest                                              |
 | `quarantine(storageKey)`                | `atlas contacts quarantine`   | Move an unreadable manifest aside                                         |
@@ -372,7 +373,8 @@ Calendar snapshots are not replicated or rehydrated yet. `replicateSnapshot` rej
 | `backup(mailbox, options?)`             | `atlas calendar backup -m`    | Back up changed calendars and events                                      |
 | `restore(mailbox, options)`             | `atlas calendar restore -m`   | Restore a snapshot without overwriting; `targetMailboxId` sets the target |
 | `verify(mailbox, snapshotId, options?)` | `atlas calendar verify -m`    | Verify a snapshot                                                         |
-| `listSnapshots(mailbox)`                | `atlas calendar list -m`      | List snapshots for a mailbox                                              |
+| `listSnapshots(mailbox)`                | `atlas calendar list -m`      | List snapshots for a mailbox, entries included. Decrypts every manifest   |
+| `listSnapshotSummaries(mailbox)`        | `atlas calendar list -m`      | List snapshots from the summary index, without entries                    |
 | `deleteMailboxData(mailbox)`            | `atlas calendar delete -m`    | Delete all calendar data for a mailbox                                    |
 | `deleteSnapshot(mailbox, snapshotId)`   | `atlas calendar delete -m -s` | Delete one snapshot manifest                                              |
 | `quarantine(storageKey)`                | `atlas calendar quarantine`   | Move an unreadable manifest aside                                         |
@@ -751,7 +753,7 @@ A message whose creation failed has no report. Its failure is in `errors`.
 | `skipIntegrityCheck` | `boolean`  | Skip the SHA-256 check of each object. Default `false`   |
 | `output`             | `Writable` | Stream the archive to this destination instead of a file |
 
-`restoreMailbox` and `saveMailbox` reject `messageRef`, including an empty string, with `ConfigError` (`ATLAS_CONFIG_INVALID`) before resolving the mailbox, reading storage, or calling Graph, because an index counts the messages of one snapshot and these methods merge every snapshot of the mailbox. Earlier releases ignored `messageRef` there and processed the whole mailbox. `restore` and `save` reject an empty or whitespace-only `messageRef` with the same error before any Graph call, because the snapshot path would otherwise read it as every message. A rejecting `save` or `saveMailbox` destroys its `output` stream.
+`restoreMailbox` and `saveMailbox` reject `messageRef`, including an empty string, with `ConfigError` (`ATLAS_CONFIG_INVALID`) before resolving the mailbox, reading storage, or calling Graph, because an index counts the messages of one snapshot and these methods merge every snapshot of the mailbox. Earlier releases ignored `messageRef` there and processed the whole mailbox. `restore` and `save` reject an empty or whitespace-only `messageRef` with the same error before any Graph call, because the snapshot path would otherwise read it as every message. A rejecting `save` or `saveMailbox` destroys its `output` stream. A `messageRef` that names no message in the snapshot rejects `restore` and `save` with `NotFoundError` (`ATLAS_NOT_FOUND`) before any restore folder or archive is created.
 
 Both return a `SaveResult`:
 
@@ -1377,7 +1379,7 @@ try {
 | `AtlasError`                        | any of the below             | Base class. Catch it to separate deliberate failures from bugs                                                                                                                                                                                                                                             |
 | `AuthError`                         | `ATLAS_AUTH_DENIED`          | Graph or storage refused the call: missing permission or admin consent                                                                                                                                                                                                                                     |
 | `MailboxNotLicensedError`           | `ATLAS_MAILBOX_NOT_LICENSED` | No Exchange Online license, so Graph does not serve the mailbox                                                                                                                                                                                                                                            |
-| `NotFoundError`                     | `ATLAS_NOT_FOUND`            | Snapshot, mailbox, drive, site, or object does not exist, or a folder or file selector matched nothing                                                                                                                                                                                                     |
+| `NotFoundError`                     | `ATLAS_NOT_FOUND`            | Snapshot, mailbox, drive, site, or object does not exist, or a folder, file, or message selector matched nothing                                                                                                                                                                                           |
 | `ThrottledError`                    | `ATLAS_THROTTLED`            | Graph returned 429 through all 12 retries. See `retry_after_ms`                                                                                                                                                                                                                                            |
 | `WrongPassphraseError`              | `ATLAS_WRONG_PASSPHRASE`     | The passphrase could not unwrap the data key, or a OneDrive or SharePoint restore stopped at an object that failed AES-GCM authentication                                                                                                                                                                  |
 | `ObjectLockRetainedError`           | `ATLAS_OBJECT_LOCK_RETAINED` | Object is under retention or a legal hold. Its `key` is set                                                                                                                                                                                                                                                |

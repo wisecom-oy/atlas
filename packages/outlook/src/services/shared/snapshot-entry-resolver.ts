@@ -1,3 +1,4 @@
+import { NotFoundError } from '@wisecom/atlas-types';
 import type {
   MailboxConnector,
   Manifest,
@@ -59,6 +60,8 @@ export async function resolve_snapshot_entries(
 /**
  * Narrows the merged chain to the message or folder the filter names, or keeps it whole. `chain`
  * is newest first: its head resolves a message index and its recorded folders name the folders.
+ * Throws `NotFoundError` when the message reference names no message, so a mistyped `--message`
+ * fails before any restore folder or archive is created (issue #735).
  */
 async function select_requested_entries(
   ctx: TenantContext,
@@ -73,7 +76,12 @@ async function select_requested_entries(
     // Resolved against the unfiltered chain, so `-r 5` names the same message with or without
     // `--include-recoverable-items`.
     const entry = resolve_message_ref(target, merged, filter.message_ref);
-    return entry ? [entry] : [];
+    if (!entry) {
+      throw new NotFoundError(
+        `No message matches "${filter.message_ref}" in snapshot ${target.snapshot_id}`,
+      );
+    }
+    return [entry];
   }
 
   if (filter.folder_name) {

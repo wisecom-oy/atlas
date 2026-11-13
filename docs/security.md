@@ -119,7 +119,7 @@ The version byte is read before the tag is checked, so a bit flipped in that one
 | Email messages                                 | Yes       | RFC 5322 MIME, or legacy Graph JSON, under `data/{owner_id}/{content_name}`                                                     |
 | Attachments                                    | Yes       | Legacy JSON entries only, under `attachments/{owner_id}/{content_name}`. MIME embeds them                                       |
 | Manifests                                      | Yes       | Subjects, senders, folder names, delta URLs, checksums                                                                          |
-| Snapshot summary indexes                       | Yes       | Snapshot IDs, times, totals, and owner labels, under `_meta/outlook-manifests/owners`, `onedrive/_meta`, and `sharepoint/_meta` |
+| Snapshot summary indexes                       | Yes       | Snapshot IDs, times, totals, and owner labels, under `_meta/outlook-manifests/owners`, `onedrive/_meta`, `sharepoint/_meta`, `contacts/_meta`, and `calendar/_meta` |
 | OneDrive file blobs                            | Yes       | `onedrive/data/{owner_id}/{content_name}`                                                                                       |
 | OneDrive manifests, indexes, and delta state   | Yes       | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                                                        |
 | Teams message blobs and inline images          | Yes       | `teams/data/{team_id}/{content_name}`, `teams/data/{team_id}/hosted/{content_name}`                                             |
@@ -249,7 +249,7 @@ Which objects get the last two steps:
 | OneDrive and SharePoint version index of a run                                                | Yes                  | Yes       |
 | Teams snapshot index                                                                          | Yes                  | Yes       |
 | Outlook, OneDrive, SharePoint, contacts, and calendar delta cursors                           | No                   | Yes       |
-| Outlook, OneDrive, and SharePoint snapshot summary indexes                                    | No, compare-and-swap | No        |
+| Outlook, OneDrive, SharePoint, Contacts, and Calendar snapshot summary indexes               | No, compare-and-swap | No        |
 | Outlook manifest pointers, Teams channel shards, cursors, and checkpoints, replication status | No                   | No        |
 
 The read-back is limited to objects a run writes once, so a run makes at most three extra `GET` requests per mailbox, owner, site, or team. Teams writes one shard and one cursor per changed channel and checkpoint objects per page, so those are checked and decrypted back but not read back.

@@ -106,6 +106,11 @@ export function with_yes(command: Command): Command {
   return command.option('-y, --yes', 'skip confirmation prompt');
 }
 
+/** `-y, --yes` on a save: overwrite an existing `--output` file without the overwrite question. */
+export function with_overwrite_yes(command: Command): Command {
+  return command.option('-y, --yes', 'overwrite an existing output file without asking');
+}
+
 /**
  * Fails a short flag that used to mean something else, naming what to pass instead.
  *

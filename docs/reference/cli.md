@@ -55,7 +55,7 @@ exit "$status"
 | `4`  | `ATLAS_AUTH_DENIED`, `ATLAS_MAILBOX_NOT_LICENSED`, or an unwrapped HTTP `401` or `403`                                                                                                                  | Correct credentials, permissions, admin consent, or licensing before retrying.                                                                                                                                                                                                                                                      |
 | `5`  | `ATLAS_WRONG_PASSPHRASE`: the data key would not unwrap, or a drive restore read an object that failed AES-GCM authentication                                                                           | Supply the original tenant passphrase. Never pad it or delete the wrapped key. If it is correct, investigate possible corruption.                                                                                                                                                                                                   |
 | `6`  | `ATLAS_CONFIG_INVALID`, including failure to load the CLI configuration                                                                                                                                 | Correct the configuration or its storage access.                                                                                                                                                                                                                                                                                    |
-| `7`  | `ATLAS_NOT_FOUND` or an unwrapped HTTP `404`, including a `--folder` or `--file-filter` selection that matched nothing                                                                                  | Check the selected resource, identifiers, and selectors.                                                                                                                                                                                                                                                                            |
+| `7`  | `ATLAS_NOT_FOUND` or an unwrapped HTTP `404`, including a `--folder`, `--file-filter`, or `--message` selection that matched nothing                                                                    | Check the selected resource, identifiers, and selectors.                                                                                                                                                                                                                                                                            |
 | `8`  | `ATLAS_OBJECT_LOCK_RETAINED`                                                                                                                                                                            | Respect retention or legal hold. Repeating the same deletion cannot bypass it.                                                                                                                                                                                                                                                      |
 | `9`  | `ATLAS_CONTENT_UNREADABLE`, `ATLAS_FORMAT_UNSUPPORTED`, or a command that skipped a damaged manifest or version index and named it                                                                      | The stored bytes cannot be parsed back, or were written by a newer Atlas format. Repeating the command will not help. For a newer format, upgrade Atlas. For a named manifest or version index, see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes). Otherwise extract the raw content with `save`. |
 | `10` | `ATLAS_KEY_CONFLICT`: `rehydrate` found a different data key on primary next to other objects, so it refused to replace a key that may protect existing backups                                         | Repeating the command will not help. Confirm primary's content is disposable, run `atlas delete --purge`, then rehydrate into the empty bucket.                                                                                                                                                                                     |
@@ -327,7 +327,7 @@ atlas outlook restore -m user@company.com -T other@company.com -f Inbox
 | `--target-profile <name>`     | Tenant profile for the writes. Requires `-T`                                 |
 | `--include-recoverable-items` | Also include hard-deleted and hold-retained mail (excluded by default)       |
 
-Exactly one of `--snapshot` or `--mailbox` is required. Passing both exits `1` (see [atlas outlook](#atlas-outlook)). `--message` works in snapshot mode only. With `--mailbox` it exits `1` before any storage read or Graph call, because a `#` index counts one snapshot's messages and mailbox mode merges many. Earlier releases ignored it there and restored the whole mailbox. An empty or whitespace-only `--message` also exits `1`, in either mode, rather than selecting every message. `-T` works in either mode. In mailbox mode, the newest version of each message wins. Cross-mailbox restores keep the source folder names, and nested folders are recreated under the `Restore-{timestamp}` root. For example, `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026`.
+Exactly one of `--snapshot` or `--mailbox` is required. Passing both exits `1` (see [atlas outlook](#atlas-outlook)). `--message` works in snapshot mode only. With `--mailbox` it exits `1` before any storage read or Graph call, because a `#` index counts one snapshot's messages and mailbox mode merges many. Earlier releases ignored it there and restored the whole mailbox. An empty or whitespace-only `--message` also exits `1`, in either mode, rather than selecting every message. A `--message` reference that names no message in the snapshot exits `7` (`ATLAS_NOT_FOUND`) and names the reference. Atlas checks it after it reads the snapshot chain and before it takes the mailbox lease, creates the `Restore-{timestamp}` or `--destination` folder, or writes a message, so a mistyped index leaves no empty folder behind. `-T` works in either mode. In mailbox mode, the newest version of each message wins. Cross-mailbox restores keep the source folder names, and nested folders are recreated under the `Restore-{timestamp}` root. For example, `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026`.
 
 Folder names come from the folders each snapshot recorded, newest snapshot first, so a folder deleted, moved, or renamed since the backup restores under its original path and `-f` selects it by that path. The live mailbox names only folders no snapshot records, such as those of snapshots written before Atlas recorded folders. A folder named nowhere restores into `Unknown`. A folder deleted while the restore lists the source mailbox's folders is skipped with a warning and the restore continues.
 
@@ -399,7 +399,7 @@ atlas outlook read -s <snapshot-id> --message 34 --raw > message.eml
 | `--raw`               | Output the stored object verbatim instead of the formatted view            |
 | `-t, --tenant <id>`   | Override the tenant ID from config                                         |
 
-A `--message` number decrypts only the snapshot's own manifest. A Graph message ID may name a message carried over from an earlier run, so it reads the snapshot's chain.
+A `--message` number decrypts only the snapshot's own manifest. A Graph message ID may name a message carried over from an earlier run, so it reads the snapshot's chain. A reference that names no message in that chain exits `7` (`ATLAS_NOT_FOUND`) and names the reference, the same code `restore` and `save` exit with.
 
 With `--raw`, the output depends on the stored format. Messages archived as RFC 5322 MIME, which is what current snapshots write, are written to stdout as the decrypted MIME bytes, with no banner, colour, or added newline. Redirected output is a valid `.eml` file with its original `Received:` chain, `Authentication-Results`, and any S/MIME payload intact. Use it to hand a message to an investigator or to check a DKIM signature.
 
@@ -460,7 +460,7 @@ atlas outlook save -m user@company.com --start-date 2026-01-01 --end-date 2026-0
 
 With both `-s` and `-m`, the named snapshot is exported and `-m` is ignored with a warning (see [atlas outlook](#atlas-outlook)). Earlier releases exported the whole mailbox silently in this case.
 
-`--message` needs `-s`, with or without `-m`. With `-m` alone it exits `1` before any storage read or Graph call, for the same reason as in [restore](#atlas-outlook-restore). Earlier releases ignored it there and exported the whole mailbox. An empty or whitespace-only `--message` also exits `1` rather than exporting every message.
+`--message` needs `-s`, with or without `-m`. With `-m` alone it exits `1` before any storage read or Graph call, for the same reason as in [restore](#atlas-outlook-restore). Earlier releases ignored it there and exported the whole mailbox. An empty or whitespace-only `--message` also exits `1` rather than exporting every message. A `--message` reference that names no message in the snapshot exits `7` (`ATLAS_NOT_FOUND`) and names the reference, before Atlas opens the archive, so no zip file is written. A stream destination is destroyed, not left open.
 
 Ctrl+C stops the export and exits `2`. The archive holds the messages written before the stop. A stop during the Graph folder listing, before any message is written, leaves no archive. A second Ctrl+C exits at once with status `130`.
 
@@ -650,7 +650,7 @@ atlas onedrive backup -o user@company.com --full   # re-establish a complete new
 
 A manifest or version index is damaged when it exists but fails AES-256-GCM authentication, is not JSON, lacks the fields every such object carries, or names another owner or snapshot than its key. `status`, the listings, and every backup that reads the manifest skip it, finish, print each key with the matching `quarantine` command, and exit `9`. Restores refuse only where skipping would change the answer. [Troubleshooting](../troubleshooting.md#damaged-manifests-and-version-indexes) has the per-command table and the reasons.
 
-For Outlook, OneDrive, and SharePoint, `status`, `list -m`, `list-snapshots`, and the drive `stats` answer from the owner's [snapshot summary index](/operations/storage-layout#snapshot-summary-index). Outlook `list`, Outlook `stats`, and the logical bytes of `stats storage` read the same index. They decrypt only manifests the index has no row for, and `status` decrypts only the newest. A manifest damaged after its row was written is therefore not named by them. `verify` decrypts every manifest in the chain it checks and is the command that finds damage at rest, so schedule it alongside backups.
+For Outlook, OneDrive, SharePoint, Contacts, and Calendar, `status`, `list -m`, `list-snapshots`, and the drive `stats` answer from the owner's [snapshot summary index](/operations/storage-layout#snapshot-summary-index). Outlook `list`, Outlook `stats`, and the logical bytes of `stats storage` read the same index. They decrypt only manifests the index has no row for, and `status` decrypts only the newest. A manifest damaged after its row was written is therefore not named by them. `verify` decrypts every manifest in the chain it checks and is the command that finds damage at rest, so schedule it alongside backups.
 
 `quarantine` reads the object with the same reader the listings use and refuses unless that read fails. Nothing stored at the key exits `7`, and an object that reads cleanly exits `7` with `reads cleanly` in the message, so a healthy snapshot is never hidden by a typo. A key Atlas would not write exactly as given exits `1` before the tenant is opened: one outside the workload's manifest or version index layout, one with an empty, `.`, or `..` segment, or another spelling of the owner.
 
@@ -866,7 +866,7 @@ Microsoft Graph can promote an earlier version in place with `restoreVersion`, b
 
 **`atlas onedrive save`**
 
-Save decrypted files from a snapshot to a local zip archive that preserves the folder structure. Each file is SHA-256 verified after decryption unless `--skip-verify` is set. Atlas writes the archive to a temporary file beside the output path and moves it into place only when complete. A failed save leaves no partial archive, and an existing file at the output path is not touched until a successful run replaces it.
+Save decrypted files from a snapshot to a local zip archive that preserves the folder structure. Each file is SHA-256 verified after decryption unless `--skip-verify` is set. Atlas writes the archive to a temporary file beside the output path and moves it into place only when complete. A failed save leaves no partial archive, and an existing file at the output path is not touched until a successful run replaces it. If `--output` names an existing file, Atlas asks `Overwrite? [Y/n]` before it contacts Graph or reads storage. Answering `n` exits `0` and leaves the file as it was. With stdin at EOF the question gets no answer, so the command exits `1` and the file is untouched. `-y` overwrites without asking, for scheduled jobs.
 
 ```bash
 atlas onedrive save -o user@company.com -s od-snap-1735689600000-a1b2c3
@@ -881,6 +881,7 @@ atlas onedrive save -o user@company.com -s od-snap-123 --skip-verify
 | `-s, --snapshot <id>`      | OneDrive snapshot ID (required)                |
 | `--file-filter <paths...>` | Save only specific files, by ID or path        |
 | `--output <path>`          | Output zip file path (default: auto-generated) |
+| `-y, --yes`                | Overwrite an existing output without asking    |
 | `--skip-verify`            | Skip SHA-256 integrity checks                  |
 | `-t, --tenant <id>`        | Override the tenant ID from config             |
 
@@ -1041,7 +1042,7 @@ With `--target-site`, each file goes to the target library with the same name as
 
 **`atlas sharepoint save`**
 
-Save decrypted files from a SharePoint snapshot to a local zip archive that preserves the library folder structure. Each file is SHA-256 verified after decryption unless `--skip-verify` is set.
+Save decrypted files from a SharePoint snapshot to a local zip archive that preserves the library folder structure. Each file is SHA-256 verified after decryption unless `--skip-verify` is set. If `--output` names an existing file, Atlas asks `Overwrite? [Y/n]` before it contacts Graph or reads storage. Answering `n` exits `0` and leaves the file as it was. With stdin at EOF the question gets no answer, so the command exits `1` and the file is untouched. `-y` overwrites without asking, for scheduled jobs.
 
 ```bash
 atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123
@@ -1056,6 +1057,7 @@ atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s
 | `-s, --snapshot <id>`      | SharePoint snapshot ID (required)               |
 | `--file-filter <paths...>` | Save only specific files, by ID or path         |
 | `--output <path>`          | Output zip file path (default: auto-generated)  |
+| `-y, --yes`                | Overwrite an existing output without asking     |
 | `--skip-verify`            | Skip SHA-256 integrity checks                   |
 | `-t, --tenant <id>`        | Override the tenant ID from config              |
 
@@ -1173,7 +1175,7 @@ Checks the snapshot's index, channel shards, and every blob it references. Exits
 
 **`atlas teams save`**
 
-Writes one snapshot as a zip archive that opens in a browser. It reads storage only and makes no Graph calls. See [Teams backup](../teams-backup.md#save) for the archive layout.
+Writes one snapshot as a zip archive that opens in a browser. It reads storage only and makes no Graph calls. See [Teams backup](../teams-backup.md#save) for the archive layout. If `--output` names an existing file, Atlas asks `Overwrite? [Y/n]` before it reads storage. Answering `n` exits `0` and leaves the file as it was. With stdin at EOF the question gets no answer, so the command exits `1` and the file is untouched. `-y` overwrites without asking, for scheduled jobs.
 
 | Option                | Description                                                                               |
 | --------------------- | ----------------------------------------------------------------------------------------- |
@@ -1181,6 +1183,7 @@ Writes one snapshot as a zip archive that opens in a browser. It reads storage o
 | `-s, --snapshot <id>` | Snapshot to save (required)                                                               |
 | `--channel <id>`      | Save only this channel. The archive then lists only that channel                          |
 | `--output <path>`     | Zip file to write. Default `teams-<snapshot-id>-<timestamp>.zip` in the current directory |
+| `-y, --yes`           | Overwrite an existing output file without asking                                          |
 | `-t, --tenant <id>`   | Override the tenant ID from config                                                        |
 
 **`atlas teams status`**

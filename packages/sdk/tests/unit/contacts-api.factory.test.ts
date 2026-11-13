@@ -18,7 +18,7 @@ const EMAIL = 'user@example.com';
 
 const backup = { backup_contacts: vi.fn() };
 const restore = { restore_contacts: vi.fn() };
-const catalog = { list_contacts_snapshots: vi.fn() };
+const catalog = { list_contacts_snapshots: vi.fn(), list_contacts_snapshot_summaries: vi.fn() };
 const verification = { verify_contacts_snapshot: vi.fn() };
 const deletion = { delete_mailbox_data: vi.fn(), delete_snapshot: vi.fn() };
 const identity = { resolve_user: vi.fn() };
@@ -97,5 +97,19 @@ describe('create_contacts_api', () => {
     expect(catalog.list_contacts_snapshots).toHaveBeenCalledWith(TENANT_ID, OBJECT_ID);
     expect(deletion.delete_mailbox_data).toHaveBeenCalledWith(TENANT_ID, OBJECT_ID);
     expect(deletion.delete_snapshot).toHaveBeenCalledWith(TENANT_ID, OBJECT_ID, 'ct-snap-1');
+  });
+
+  it('listSnapshotSummaries reads the summary index for the resolved mailbox and camelizes it', async () => {
+    catalog.list_contacts_snapshot_summaries.mockResolvedValue([
+      { snapshot_id: 'ct-snap-1', total_contacts: 3, mailbox_id: OBJECT_ID },
+    ]);
+    const contacts = create_contacts_api(TENANT_ID, container);
+
+    const summaries = await contacts.listSnapshotSummaries(OBJECT_ID);
+
+    expect(catalog.list_contacts_snapshot_summaries).toHaveBeenCalledWith(TENANT_ID, OBJECT_ID);
+    expect(summaries).toEqual([
+      { snapshotId: 'ct-snap-1', totalContacts: 3, mailboxId: OBJECT_ID },
+    ]);
   });
 });

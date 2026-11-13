@@ -54,7 +54,8 @@ export class ContactsDeletionService implements ContactsDeletionUseCase {
    * Deletes one contacts snapshot manifest, then the mailbox's delta cursor. Shared content objects
    * are kept. The cursor may point past the deleted run, so the next backup reads every folder in
    * full rather than skip what only that snapshot recorded (issue #704). A manifest Object Lock
-   * retains is still the head, so its cursor stays too.
+   * retains is still the head, so its cursor stays too. The summary row is left for the readers to
+   * drop: this runs without the tenant key, so it cannot rewrite the summary (see #727).
    */
   async delete_snapshot(
     tenant_id: string,

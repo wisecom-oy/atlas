@@ -32,12 +32,14 @@ atlas-{tenant_id}/
 │   ├── photos/{owner_id}/{content_name}        # contact photos, keyed HMAC-SHA256 name
 │   ├── manifests/{owner_id}/{snapshot_id}.json # contacts manifests
 │   ├── _meta/{owner_id}/delta.json             # delta cursor
+│   ├── _meta/{owner_id}/snapshots.json         # snapshot summary index
 │   └── _meta/{owner_id}/lease.json             # owner lease
 ├── calendar/
 │   ├── data/{owner_id}/{content_name}          # event records, keyed HMAC-SHA256 name
 │   ├── attachments/{owner_id}/{content_name}   # event file attachments, keyed HMAC-SHA256 name
 │   ├── manifests/{owner_id}/{snapshot_id}.json # calendar manifests
 │   ├── _meta/{owner_id}/delta.json             # delta cursors, one per calendar
+│   ├── _meta/{owner_id}/snapshots.json         # snapshot summary index
 │   └── _meta/{owner_id}/lease.json             # owner lease
 ├── onedrive/
 │   ├── data/{owner_id}/{content_name}           # file blobs
@@ -177,13 +179,15 @@ atlas onedrive list-snapshots -o user@example.com   # one LIST, one summary read
 atlas onedrive status -o user@example.com           # decrypts only the newest manifest
 ```
 
-Outlook, OneDrive, and SharePoint keep one summary object per mailbox, drive owner, or site. It lists every snapshot with its ID, `created_at`, manifest key, entry count, size, and file or message totals, plus the owner's address or site name and, for Outlook, the removal count and effective Object Lock retention. It holds no entries and no message IDs in the clear. A manifest carries every entry of its run, so before the index `status`, `list`, and `stats` downloaded and decrypted every manifest of the owner. With the index they read one small object, and a restore, save, verify, or `read` decrypts only the manifests its chain needs: a `read` by message index decrypts the target manifest alone, and a chain never decrypts snapshots newer than its target.
+Outlook, OneDrive, SharePoint, Contacts, and Calendar keep one summary object per mailbox, drive owner, or site. It lists every snapshot with its ID, `created_at`, manifest key, entry count, size, and item totals (messages, files, contacts, or events), plus the owner's address or site name and, for Outlook, the removal count and effective Object Lock retention. It holds no entries and no message IDs in the clear. A manifest carries every entry of its run, so before the index `status`, `list`, and `stats` downloaded and decrypted every manifest of the owner. With the index they read one small object, and a restore, save, verify, or `read` decrypts only the manifests its chain needs: a `read` by message index decrypts the target manifest alone, and a chain never decrypts snapshots newer than its target.
 
 | Workload   | Key                                                      |
 | ---------- | -------------------------------------------------------- |
 | Outlook    | `_meta/outlook-manifests/owners/{owner_id}/summary.json` |
 | OneDrive   | `onedrive/_meta/{owner_id}/snapshots.json`               |
 | SharePoint | `sharepoint/_meta/{site_id}/snapshots.json`              |
+| Contacts   | `contacts/_meta/{owner_id}/snapshots.json`               |
+| Calendar   | `calendar/_meta/{owner_id}/snapshots.json`               |
 
 **Encryption.** The summary is AES-256-GCM encrypted with the tenant DEK and bound to its directory, like the manifest pointers. The body also names its owner, and a reader ignores a summary that names another one, so a summary copied from one owner's directory to another's is not used. A row is used only when its manifest key is the key its own owner and snapshot ID build. The index adds no new plaintext to the bucket: the same fields are already inside the encrypted manifests.
 
@@ -206,9 +210,9 @@ A stale summary therefore costs reads, never a wrong answer. Readers never write
 A manifest damaged after its row was written still appears in `list-snapshots`, `outlook list`, `outlook list -m`, `stats`, `stats storage`, and `status`, because those answer from the row. Only a manifest without a row is decrypted and named as unreadable. `verify` reads every manifest in the chain and is the check for damage at rest. Restore, save, and `read` report a damaged manifest when they need it.
 :::
 
-`delete -s` and `quarantine` remove the snapshot's row under the owner's lease, after the manifest is gone and, for `delete -s`, after the delta cursor. The rewrite is a compare-and-swap on the summary just read and never creates a summary. If it fails, the command still succeeds with a warning, and readers skip the row. Deleting an owner, mailbox, or site removes its summary along with its other `_meta` objects, and its lease last. During a OneDrive or SharePoint backup with Object Lock retention, the summary is written with the run's retention like the delta cursor, so each rewrite keeps a locked version until it expires. Replicas do not receive the summary, so reads against a replica decrypt every manifest.
+`delete -s` and `quarantine` remove the snapshot's row under the owner's lease, after the manifest is gone and, for `delete -s`, after the delta cursor. Contacts and Calendar `delete -s` is the exception: it runs without the tenant key, so it cannot decrypt the summary to rewrite it. It leaves the row, readers drop it, and the next backup removes it. The rewrite is a compare-and-swap on the summary just read and never creates a summary. If it fails, the command still succeeds with a warning, and readers skip the row. Deleting an owner, mailbox, or site removes its summary along with its other `_meta` objects, and its lease last. During a OneDrive or SharePoint backup with Object Lock retention, the summary is written with the run's retention like the delta cursor, so each rewrite keeps a locked version until it expires. Replicas do not receive the summary, so reads against a replica decrypt every manifest.
 
-Some reads still decrypt every manifest: recrawl tombstones and replication of every snapshot. Contacts and Calendar have no summary index yet. Their snapshot lists decrypt every manifest, and their backups already read only the newest.
+Some reads still decrypt every manifest: recrawl tombstones and replication of every snapshot. Contacts and Calendar `list -m` answers from the index, but their `listSnapshots` SDK call returns whole manifests and still decrypts every one. Their backups already read only the newest.
 
 Outlook rows written before the figures described under **Outlook rows** existed are the exception: the overview, `stats`, and `stats storage` decrypt their manifests until the next backup that stores a snapshot rewrites them.
 
@@ -218,21 +222,23 @@ Teams data sits under `teams/`, keyed by Graph team ID. Message and reply blobs 
 
 ## Contacts
 
-| Prefix                                 | Contents                                            | Notes                                                                                    |
-| -------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `contacts/data/{owner_id}/`            | Contact records as JSON, named by keyed HMAC-SHA256 | Owner is the Entra object ID. The manifest keeps the plain SHA-256 for integrity checks. |
-| `contacts/photos/{owner_id}/`          | Contact photo bytes, named by keyed HMAC-SHA256     | Identical photos are stored once per mailbox.                                            |
-| `contacts/manifests/{owner_id}/`       | Snapshot manifests                                  | Each manifest is complete. Snapshots do not chain to older ones.                         |
-| `contacts/_meta/{owner_id}/delta.json` | Delta cursor                                        | Graph delta link used by the next backup.                                                |
+| Prefix                                     | Contents                                            | Notes                                                                                    |
+| ------------------------------------------ | --------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `contacts/data/{owner_id}/`                | Contact records as JSON, named by keyed HMAC-SHA256 | Owner is the Entra object ID. The manifest keeps the plain SHA-256 for integrity checks. |
+| `contacts/photos/{owner_id}/`              | Contact photo bytes, named by keyed HMAC-SHA256     | Identical photos are stored once per mailbox.                                            |
+| `contacts/manifests/{owner_id}/`           | Snapshot manifests                                  | Each manifest is complete. Snapshots do not chain to older ones.                         |
+| `contacts/_meta/{owner_id}/delta.json`     | Delta cursor                                        | Graph delta link used by the next backup.                                                |
+| `contacts/_meta/{owner_id}/snapshots.json` | Snapshot summary index                              | See [Snapshot summary index](#snapshot-summary-index).                                   |
 
 ## Calendar
 
-| Prefix                                 | Contents                                          | Notes                                                                                    |
-| -------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `calendar/data/{owner_id}/`            | Event records as JSON, named by keyed HMAC-SHA256 | Owner is the Entra object ID. The manifest keeps the plain SHA-256 for integrity checks. |
-| `calendar/attachments/{owner_id}/`     | File attachment bytes, named by keyed HMAC-SHA256 | Only file attachments are stored. Item and reference attachments are not captured.       |
-| `calendar/manifests/{owner_id}/`       | Snapshot manifests                                | Each manifest is complete. Snapshots do not chain to older ones.                         |
-| `calendar/_meta/{owner_id}/delta.json` | Delta cursors                                     | One Graph delta link per calendar, used by the next backup.                              |
+| Prefix                                     | Contents                                          | Notes                                                                                    |
+| ------------------------------------------ | ------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `calendar/data/{owner_id}/`                | Event records as JSON, named by keyed HMAC-SHA256 | Owner is the Entra object ID. The manifest keeps the plain SHA-256 for integrity checks. |
+| `calendar/attachments/{owner_id}/`         | File attachment bytes, named by keyed HMAC-SHA256 | Only file attachments are stored. Item and reference attachments are not captured.       |
+| `calendar/manifests/{owner_id}/`           | Snapshot manifests                                | Each manifest is complete. Snapshots do not chain to older ones.                         |
+| `calendar/_meta/{owner_id}/delta.json`     | Delta cursors                                     | One Graph delta link per calendar, used by the next backup.                              |
+| `calendar/_meta/{owner_id}/snapshots.json` | Snapshot summary index                            | See [Snapshot summary index](#snapshot-summary-index).                                   |
 
 ## The DEK object
 

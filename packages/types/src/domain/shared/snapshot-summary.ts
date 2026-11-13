@@ -76,3 +76,17 @@ export interface SharePointSnapshotSummary extends SnapshotSummary {
   readonly site_display_name?: string | undefined;
   readonly total_files: number;
 }
+
+/** A contacts snapshot as the mailbox summary index records it (#727). */
+export interface ContactsSnapshotSummary extends SnapshotSummary {
+  readonly mailbox_id: string;
+  /** The manifest's `total_contacts` count. */
+  readonly total_contacts: number;
+}
+
+/** A calendar snapshot as the mailbox summary index records it (#727). */
+export interface CalendarSnapshotSummary extends SnapshotSummary {
+  readonly mailbox_id: string;
+  /** The manifest's `total_events` count. */
+  readonly total_events: number;
+}

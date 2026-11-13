@@ -144,6 +144,7 @@ Writes a zip archive instead of uploading to Graph. The archive keeps the librar
 | `-s, --snapshot <id>`      | Snapshot to save from                    | Required       |
 | `--file-filter <paths...>` | Save only the given files, by ID or path | All files      |
 | `--output <path>`          | Output zip file path                     | Auto-generated |
+| `-y, --yes`                | Overwrite existing output, no prompt     | `false`        |
 | `--skip-verify`            | Skip SHA-256 checks while saving         | `false`        |
 | `-t, --tenant <id>`        | Tenant identifier                        | Config default |
 
@@ -151,6 +152,8 @@ Writes a zip archive instead of uploading to Graph. The archive keeps the librar
 atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 \
   --output ~/Downloads/backup.zip
 ```
+
+If `--output` names an existing file, Atlas asks `Overwrite? [Y/n]` before it contacts Graph or reads storage. Answering `n` exits `0` and leaves the file as it was. With stdin at EOF, as under cron or systemd with `/dev/null`, no answer is read, so the command exits `1` and the file is untouched. Pass `-y` to overwrite without the question. The question is asked by default because a previous export can be the only copy of a snapshot that retention has since removed.
 
 ::: warning Mark-of-the-Web on Windows
 On Windows the archive is stamped with Mark-of-the-Web (`Zone.Identifier`, `ZoneId=3`), so extracted Office files open in Protected View and macros stay blocked. Clear the mark once you trust the content:

@@ -3,6 +3,7 @@ import { Box } from 'ink';
 import { logger } from '@wisecom/atlas-core';
 import type { TeamsSaveResult, TeamsSaveUseCase } from '@wisecom/atlas-types';
 import { install_interrupt_gate } from '@/adapters/interrupt-gate';
+import { confirm_output_overwrite } from '@/commands/shared/output-overwrite-guard';
 import { TEAMS_SAVE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
@@ -17,6 +18,7 @@ export interface TeamsSaveCommandOptions extends TeamsTenantOptions {
   snapshot: string;
   channel?: string;
   output?: string;
+  yes?: boolean;
 }
 
 /** Saves one Teams snapshot, or one channel of it, as a browsable zip archive. */
@@ -25,6 +27,7 @@ export async function execute_teams_save(
   options: TeamsSaveCommandOptions,
 ): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
+  if (!(await confirm_output_overwrite(options.output, options.yes))) return;
   const save = container.get<TeamsSaveUseCase>(TEAMS_SAVE_USE_CASE_TOKEN);
   const gate = install_interrupt_gate('Stopping the export after the current channel');
   let result: TeamsSaveResult;

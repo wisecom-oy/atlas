@@ -40,6 +40,11 @@ export function calendar_delta_cursor_key(mailbox_id: string): string {
   return `calendar/_meta/${calendar_mailbox_segment(mailbox_id)}/delta.json`;
 }
 
+/** Encrypted snapshot summary index of a mailbox, beside its delta cursor (#727). */
+export function calendar_summary_key(mailbox_id: string): string {
+  return `calendar/_meta/${calendar_mailbox_segment(mailbox_id)}/snapshots.json`;
+}
+
 /** Every prefix a mailbox's calendar data occupies, for erasure. */
 export function calendar_mailbox_prefixes(mailbox_id: string): string[] {
   const segment = calendar_mailbox_segment(mailbox_id);
