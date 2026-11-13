@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import { Box } from 'ink';
 import type { Container } from 'inversify';
 import type { AtlasConfig } from '@wisecom/atlas-core';
@@ -18,7 +17,7 @@ import {
 } from '@/commands/shared/deletion-presenter';
 import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
-import { ask_confirmation } from '@/ui/components/confirm-prompt';
+import { confirm_output_overwrite } from '@/commands/shared/output-overwrite-guard';
 import { ErrorList } from '@/ui/components/error-list';
 import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list';
 import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary';
@@ -68,16 +67,7 @@ export async function execute_outlook_save(
 
   const save_options = build_save_options(options);
 
-  if (save_options.output_path && existsSync(save_options.output_path) && !options.yes) {
-    const proceed = await ask_confirmation(
-      `File "${save_options.output_path}" already exists. Overwrite?`,
-      true,
-    );
-    if (!proceed) {
-      logger.info('Cancelled.');
-      return;
-    }
-  }
+  if (!(await confirm_output_overwrite(options.output, options.yes))) return;
 
   const scope = resolve_outlook_scope(options);
   const conflict = describe_scope_conflict(scope);

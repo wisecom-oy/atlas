@@ -7,7 +7,6 @@ import type {
   SharePointBackupResult,
   SharePointSiteTreeBackupUseCase,
   SharePointRestoreUseCase,
-  SharePointSaveUseCase,
   SharePointSiteConnector,
   SharePointVerificationUseCase,
 } from '@wisecom/atlas-types';
@@ -15,7 +14,6 @@ import {
   SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
   SHAREPOINT_CONNECTOR_TOKEN,
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,
-  SHAREPOINT_SAVE_USE_CASE_TOKEN,
   SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
 import { banner_title } from '@/ui/banner-title';
@@ -26,12 +24,7 @@ import { KeyValueList } from '@/ui/components/key-value-list';
 import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary';
 import { render_static_view } from '@/ui/render';
 import { build_object_lock_request } from '@/command-object-lock';
-import {
-  report_backup_verdict,
-  report_run_outcome,
-  report_skipped_items,
-  report_unmatched_file_filters,
-} from '@/command-run-outcome';
+import { report_backup_verdict, report_run_outcome } from '@/command-run-outcome';
 import { run_interruptible } from '@/adapters/interruptible-run';
 import {
   DRIVE_RESTORE_INTERRUPT_MESSAGE,
@@ -71,14 +64,6 @@ export interface SharePointRestoreCommandOptions extends SharePointTenantOptions
   destination?: string;
   inPlace?: boolean;
   name?: string;
-}
-
-export interface SharePointSaveCommandOptions extends SharePointTenantOptions {
-  site: string;
-  snapshot: string;
-  fileFilter?: string[];
-  output?: string;
-  skipVerify?: boolean;
 }
 
 const BACKUP_INTERRUPT_MESSAGE =
@@ -270,46 +255,6 @@ export async function execute_sharepoint_restore(
     result,
     target_profile_items(options.targetProfile, restore_container),
   );
-}
-
-export async function execute_sharepoint_save(
-  container: Container,
-  options: SharePointSaveCommandOptions,
-): Promise<void> {
-  const tenant_id = resolve_tenant_id(container, options);
-  const site_id = await resolve_site_id(container, tenant_id, options.site);
-
-  const save_uc = container.get<SharePointSaveUseCase>(SHAREPOINT_SAVE_USE_CASE_TOKEN);
-  const result = await save_uc.save_snapshot(tenant_id, site_id, {
-    snapshot_id: options.snapshot,
-    ...(options.fileFilter ? { file_filter: options.fileFilter } : {}),
-    ...(options.output ? { output_path: options.output } : {}),
-    ...(options.skipVerify ? { skip_integrity_check: true } : {}),
-  });
-
-  await render_static_view(
-    <Box flexDirection="column">
-      <Banner title={banner_title('sharepoint', 'Save')} />
-      <KeyValueList
-        items={[
-          { label: 'Snapshot', value: result.snapshot_id },
-          { label: 'Files saved', value: String(result.files_saved) },
-        ]}
-      />
-    </Box>,
-  );
-  report_skipped_items(result.files_skipped, 'File');
-  report_unreadable_keys(result.unreadable_keys);
-  report_unmatched_file_filters(result.unmatched_file_filters);
-  if (result.integrity_failures.length > 0)
-    logger.warn(`Integrity failures: ${result.integrity_failures.length}`);
-  if (result.errors.length > 0) {
-    await render_static_view(<ErrorList errors={result.errors} max={result.errors.length} />);
-    process.exitCode = 1;
-  } else {
-    const size_mb = (result.total_bytes / (1024 * 1024)).toFixed(1);
-    logger.success(`Saved to ${result.output_path} (${size_mb} MB)`);
-  }
 }
 
 export async function execute_sharepoint_verify(
