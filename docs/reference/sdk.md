@@ -271,7 +271,7 @@ const snapshots = await atlas.onedrive.listSnapshotSummaries('user@example.com')
 const newest = snapshots[0]; // { snapshotId, createdAt, manifestKey, entryCount, totalFiles, totalSizeBytes, ... }
 ```
 
-`listSnapshotSummaries` on `atlas.outlook`, `atlas.onedrive`, and `atlas.sharepoint` returns an owner's snapshots newest first from its [snapshot summary index](/operations/storage-layout#snapshot-summary-index): one storage listing and one small read, whatever the number of snapshots. `listSnapshots` still returns whole manifests and decrypts every one, so use it only when you need the entries.
+`listSnapshotSummaries` on `atlas.outlook`, `atlas.onedrive`, `atlas.sharepoint`, `atlas.contacts`, and `atlas.calendar` returns an owner's snapshots newest first from its [snapshot summary index](/operations/storage-layout#snapshot-summary-index): one storage listing and one small read, whatever the number of snapshots. `listSnapshots` still returns whole manifests and decrypts every one, so use it only when you need the entries.
 
 | Field                            | On                   | Meaning                                                           |
 | -------------------------------- | -------------------- | ----------------------------------------------------------------- |
@@ -354,7 +354,8 @@ Contacts snapshots are not replicated or rehydrated yet. `replicateSnapshot` rej
 | `backup(mailbox, options?)`             | `atlas contacts backup -m`    | Back up changed contacts                                                  |
 | `restore(mailbox, options)`             | `atlas contacts restore -m`   | Restore a snapshot without overwriting; `targetMailboxId` sets the target |
 | `verify(mailbox, snapshotId, options?)` | `atlas contacts verify -m`    | Verify a snapshot                                                         |
-| `listSnapshots(mailbox)`                | `atlas contacts list -m`      | List snapshots for a mailbox                                              |
+| `listSnapshots(mailbox)`                | `atlas contacts list -m`      | List snapshots for a mailbox, entries included. Decrypts every manifest   |
+| `listSnapshotSummaries(mailbox)`        | `atlas contacts list -m`      | List snapshots from the summary index, without entries                    |
 | `deleteMailboxData(mailbox)`            | `atlas contacts delete -m`    | Delete all contacts data for a mailbox                                    |
 | `deleteSnapshot(mailbox, snapshotId)`   | `atlas contacts delete -m -s` | Delete one snapshot manifest                                              |
 | `quarantine(storageKey)`                | `atlas contacts quarantine`   | Move an unreadable manifest aside                                         |
@@ -372,7 +373,8 @@ Calendar snapshots are not replicated or rehydrated yet. `replicateSnapshot` rej
 | `backup(mailbox, options?)`             | `atlas calendar backup -m`    | Back up changed calendars and events                                      |
 | `restore(mailbox, options)`             | `atlas calendar restore -m`   | Restore a snapshot without overwriting; `targetMailboxId` sets the target |
 | `verify(mailbox, snapshotId, options?)` | `atlas calendar verify -m`    | Verify a snapshot                                                         |
-| `listSnapshots(mailbox)`                | `atlas calendar list -m`      | List snapshots for a mailbox                                              |
+| `listSnapshots(mailbox)`                | `atlas calendar list -m`      | List snapshots for a mailbox, entries included. Decrypts every manifest   |
+| `listSnapshotSummaries(mailbox)`        | `atlas calendar list -m`      | List snapshots from the summary index, without entries                    |
 | `deleteMailboxData(mailbox)`            | `atlas calendar delete -m`    | Delete all calendar data for a mailbox                                    |
 | `deleteSnapshot(mailbox, snapshotId)`   | `atlas calendar delete -m -s` | Delete one snapshot manifest                                              |
 | `quarantine(storageKey)`                | `atlas calendar quarantine`   | Move an unreadable manifest aside                                         |

@@ -40,6 +40,11 @@ export function contacts_delta_cursor_key(mailbox_id: string): string {
   return `contacts/_meta/${contacts_mailbox_segment(mailbox_id)}/delta.json`;
 }
 
+/** Encrypted snapshot summary index of a mailbox, beside its delta cursor (#727). */
+export function contacts_summary_key(mailbox_id: string): string {
+  return `contacts/_meta/${contacts_mailbox_segment(mailbox_id)}/snapshots.json`;
+}
+
 /** Every prefix a mailbox's contacts data occupies, for erasure. */
 export function contacts_mailbox_prefixes(mailbox_id: string): string[] {
   const segment = contacts_mailbox_segment(mailbox_id);

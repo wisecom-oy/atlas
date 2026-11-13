@@ -1,4 +1,5 @@
 import type { CalendarSnapshotManifest } from '@/domain/calendar/manifest';
+import type { CalendarSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type {
   BackupProgressReporter,
   NoSnapshotReason,
@@ -91,6 +92,12 @@ export interface CalendarCatalogUseCase {
     tenant_id: string,
     mailbox_id: string,
   ): Promise<CalendarSnapshotManifest[]>;
+
+  /** Lists a mailbox's calendar snapshots from its summary index, newest first (#727). */
+  list_calendar_snapshot_summaries(
+    tenant_id: string,
+    mailbox_id: string,
+  ): Promise<CalendarSnapshotSummary[]>;
 }
 
 export interface CalendarVerificationUseCase {

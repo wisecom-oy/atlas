@@ -1,6 +1,7 @@
 import { inject, injectable } from 'inversify';
 import type {
   CalendarManifestRepository,
+  HeldOwnerLease,
   OwnerLeasePort,
   QuarantinedObjectKind,
   QuarantineResult,
@@ -46,9 +47,9 @@ export class CalendarQuarantineService implements QuarantineUseCase {
 
   /**
    * Moves the manifest at `storage_key` to `_quarantine/`, refusing one that reads cleanly, then
-   * removes the mailbox's delta cursor. The cursor's links may describe the snapshot just moved
-   * aside; resuming them on top of an older manifest would drop every change between the two, so
-   * the next backup reads every calendar in full instead.
+   * removes the mailbox's delta cursor and the moved manifest's summary row. The cursor's links may
+   * describe the snapshot just moved aside; resuming them on top of an older manifest would drop
+   * every change between the two, so the next backup reads every calendar in full instead.
    */
   async quarantine_unreadable_object(
     tenant_id: string,
@@ -61,7 +62,7 @@ export class CalendarQuarantineService implements QuarantineUseCase {
       kind_of: (key): QuarantinedObjectKind | undefined =>
         mailbox_of(key) === undefined ? undefined : 'manifest',
       read: (ctx, key) => this._manifests.read_manifest_at(ctx, key),
-      after_move: (ctx, key) => drop_cursor(ctx, key),
+      after_move: (ctx, key, lease) => this.after_manifest_moved(ctx, key, lease),
     };
     return quarantine_unreadable_object(
       this._tenant_factory,
@@ -71,10 +72,17 @@ export class CalendarQuarantineService implements QuarantineUseCase {
       storage_key,
     );
   }
-}
 
-/** Removes the delta cursor of the mailbox a moved manifest belonged to. */
-async function drop_cursor(ctx: TenantContext, storage_key: string): Promise<void> {
-  const mailbox = mailbox_of(storage_key);
-  if (mailbox !== undefined) await ctx.storage.delete(calendar_delta_cursor_key(mailbox));
+  /** Drops the moved manifest's cursor, then its row from the mailbox's summary index (#727). */
+  private async after_manifest_moved(
+    ctx: TenantContext,
+    storage_key: string,
+    lease: HeldOwnerLease,
+  ): Promise<void> {
+    const mailbox = mailbox_of(storage_key);
+    if (mailbox === undefined) return;
+    await ctx.storage.delete(calendar_delta_cursor_key(mailbox));
+    const [, , snapshot_id = ''] = MANIFEST_KEY.exec(storage_key) ?? [];
+    await this._manifests.forget_snapshot_summary(ctx, mailbox, snapshot_id, lease);
+  }
 }
