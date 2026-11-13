@@ -6,7 +6,6 @@ import type {
   OneDriveManifestRepository,
   SharePointManifestRepository,
   OneDriveSnapshotSummary,
-  ReadableSnapshotSummaries,
   SharePointSnapshotSummary,
 } from '@wisecom/atlas-types';
 import type { StatsUseCase } from '@wisecom/atlas-types';
@@ -16,9 +15,9 @@ import {
   MANIFEST_REPOSITORY_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
-  UnreadableObjectsError,
 } from '@wisecom/atlas-types';
 import { aggregate_bucket_stats, aggregate_mailbox_stats } from '@/services/stats/stats-aggregator';
+import { require_every_summary } from '@/services/stats/require-every-summary';
 import {
   aggregate_drive_stats,
   type DriveManifestSummary,
@@ -31,18 +30,6 @@ function timed<T>(fn: () => T): T & { aggregation_us: number } {
   const result = fn();
   const elapsed_us = Math.round((performance.now() - start) * 1000);
   return { ...result, aggregation_us: elapsed_us };
-}
-
-/**
- * Returns the summaries of a listing, raising when a rowless manifest could not be read: the
- * totals would silently leave that snapshot out, as `list_snapshots_by_owner` refused to do.
- */
-function require_every_summary<T>(listing: ReadableSnapshotSummaries<T>, workload: string): T[] {
-  if (listing.unreadable_keys.length === 0) return listing.summaries;
-  throw new UnreadableObjectsError(
-    `${listing.unreadable_keys.length} ${workload} manifest(s) could not be read`,
-    listing.unreadable_keys,
-  );
 }
 
 /** Maps a OneDrive snapshot summary to the service-agnostic aggregation shape. */

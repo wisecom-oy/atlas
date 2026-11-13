@@ -25,6 +25,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { logger } from '@/utils/logger';
 import { aggregate_bucket_stats } from '@/services/stats/stats-aggregator';
+import { require_every_summary } from '@/services/stats/require-every-summary';
 import { run_usage_listing } from '@/services/stats/storage-usage-run';
 import {
   decode_state,
@@ -118,13 +119,20 @@ export class StorageUsageService implements StorageUsageUseCase {
         ? await target.create_context(tenant_id)
         : await this._tenant_factory.create_readonly(tenant_id);
       const outlook = await this._manifests.list_all_manifests(ctx);
-      const onedrive = await this._od_manifests.list_all_manifests(ctx);
-      const sharepoint = await this._sp_manifests.list_all_manifests(ctx);
+      // Drive totals need only each snapshot's total_size_bytes, which the summary rows hold (#726).
+      const onedrive = require_every_summary(
+        await this._od_manifests.list_all_snapshot_summaries(ctx),
+        'OneDrive',
+      );
+      const sharepoint = require_every_summary(
+        await this._sp_manifests.list_all_snapshot_summaries(ctx),
+        'SharePoint',
+      );
       const teams = await this._teams_indexes.list_all(ctx);
       return {
         outlook: aggregate_bucket_stats(tenant_id, outlook).total_size_bytes,
-        onedrive: onedrive.reduce((sum, manifest) => sum + manifest.total_size_bytes, 0),
-        sharepoint: sharepoint.reduce((sum, manifest) => sum + manifest.total_size_bytes, 0),
+        onedrive: sum_total_size_bytes(onedrive),
+        sharepoint: sum_total_size_bytes(sharepoint),
         teams: teams.reduce((sum, index) => sum + index.totals.size_bytes, 0),
       };
     } catch (err) {
@@ -134,6 +142,11 @@ export class StorageUsageService implements StorageUsageUseCase {
       ctx?.destroy();
     }
   }
+}
+
+/** Sums the stored size of each snapshot a summary row describes. */
+function sum_total_size_bytes(summaries: readonly { readonly total_size_bytes: number }[]): number {
+  return summaries.reduce((sum, summary) => sum + summary.total_size_bytes, 0);
 }
 
 /** Options arrive from SDK callers as untyped JavaScript; refuse what would mislead the run. */
