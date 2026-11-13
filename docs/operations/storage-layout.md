@@ -13,7 +13,7 @@ atlas-{tenant_id}/
 │   ├── outlook-cursors/{owner_id}.json          # Outlook delta links, one per folder
 │   ├── outlook-leases/{owner_id}.json           # owner lease, present while an operation runs
 │   ├── outlook-manifests/
-│   │   ├── owners/{owner_id}/latest.json        # latest manifest key per mailbox
+│   │   ├── owners/{owner_id}/latest.json        # latest manifest pointer per mailbox
 │   │   ├── owners/{owner_id}/summary.json       # snapshot summary index per mailbox
 │   │   └── snapshots/{snapshot_id}.json         # manifest key per snapshot
 │   ├── replication/                             # replication status records
@@ -133,7 +133,7 @@ Bucket separation alone does not separate credentials. The CLI's [tenant profile
 | `attachments/{owner_id}/`                      | Attachments from legacy JSON entries, named by keyed hash | Content encrypted; S3 metadata visible.                                 |
 | `manifests/{owner_id}/`                        | Snapshot manifests                                        | Include subjects, senders, folder names, and delta URLs, all encrypted. |
 
-Pointers hold only an encrypted manifest key. Deleting a mailbox or snapshot removes its pointers. The summary index is described in [Snapshot summary index](#snapshot-summary-index).
+Pointers hold an encrypted manifest key. `latest.json` also holds the `created_at` of the manifest it names, so a backup can compare without decrypting that manifest. Before a backup replaces `latest.json`, it reads the current pointer and keeps it when it names a snapshot created later than the one being written. A slower run that finishes last therefore cannot point latest at an older snapshot. The backup logs a warning naming both snapshot IDs, and the older snapshot stays in the catalog. A missing, undecryptable, or older-format pointer is replaced as before, so a damaged pointer never blocks a backup. Deleting a mailbox or snapshot removes its pointers. The summary index is described in [Snapshot summary index](#snapshot-summary-index).
 
 ### Message formats
 
