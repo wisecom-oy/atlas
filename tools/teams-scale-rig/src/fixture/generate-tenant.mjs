@@ -7,7 +7,8 @@
  */
 import { create_rng, derive_seed, synthetic_guid } from './prng.mjs';
 
-export const TENANT_ID = 'rig-tenant';
+// A GUID, because Teams backup refuses any other tenant form (#723).
+export const TENANT_ID = '00000000-0000-0000-0000-000000000001';
 /** Fixed reference instant. The fixture never reads the wall clock. */
 export const NOW_MS = Date.parse('2026-06-01T00:00:00.000Z');
 const DAY_MS = 86_400_000;
