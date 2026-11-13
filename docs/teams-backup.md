@@ -46,7 +46,7 @@ Channel messages are read with `ChannelMessage.Read.All`, a protected Microsoft 
 | File attachments                       | Recorded as links. Atlas does not download them. Files live in SharePoint; see [Team files](#team-files)                  |
 | Team settings, members, channels, tabs | Raw Graph objects                                                                                                         |
 
-Channels owned by another tenant are skipped with the warning `Channel <id> is owned by another tenant; skipped`.
+Channels owned by another tenant are skipped with the warning `Channel <id> is owned by another tenant; skipped`. Atlas compares each channel's `tenantId` with the tenant GUID, so `-t` must be that GUID. A domain such as `contoso.onmicrosoft.com` fails with a `ConfigError` before any Graph call, because no channel's `tenantId` is a domain and every channel would read as foreign. The tenant also names the bucket, so a GUID run writes to `atlas-<guid>`, separate from an `atlas-<domain>` bucket. A team whose channels are all owned by another tenant backs up nothing and prints `Status: UNHEALTHY` with exit `2`.
 
 Each edit writes a new blob, and earlier versions stay in storage for every snapshot that references them. A deleted message keeps its last live version in its `kept` entry.
 

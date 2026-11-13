@@ -14,7 +14,7 @@ import {
 
 vi.mock('@/ui/render', () => ({ render_static_view: vi.fn(async () => {}) }));
 
-const TENANT = 'tenant-example';
+const TENANT = '00000000-0000-0000-0000-000000000001';
 const NO_CONTENT = 'No Teams messages found';
 const NO_CHANGES = 'No Teams changes detected';
 

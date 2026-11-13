@@ -17,7 +17,7 @@ import {
 
 vi.mock('@/ui/render', () => ({ render_static_view: vi.fn(async () => {}) }));
 
-const TENANT = 'tenant-example';
+const TENANT = '00000000-0000-0000-0000-000000000001';
 const DAMAGED_KEY = 'teams/manifests/team-a/teams-snap-2000-bbbbbb.json';
 const HINT = `atlas teams quarantine --key ${DAMAGED_KEY}`;
 

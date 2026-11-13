@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { get_active_abort_signal } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { backup_channel } from '@/services/backup/channel-backup-processor';
-import { channel_output, make_ports, TEAM_ID } from './backup-service-harness';
+import { channel_output, make_ports, TEAM_ID, TENANT_ID } from './backup-service-harness';
 
 vi.mock('@wisecom/atlas-core/services/shared/run-object-lock', () => ({
   attach_run_retention: vi.fn(async (ctx: unknown) => ctx),
@@ -21,7 +21,7 @@ describe('TeamsBackupService.backup_team abort signal', () => {
     const controller = new AbortController();
     controller.abort();
 
-    const result = await ports.service.backup_team('tenant-1', TEAM_ID, {
+    const result = await ports.service.backup_team(TENANT_ID, TEAM_ID, {
       abort_signal: controller.signal,
     });
 
@@ -39,7 +39,7 @@ describe('TeamsBackupService.backup_team abort signal', () => {
     });
 
     // Serial, so channel 2 is not already in flight when channel 1 aborts the run.
-    const result = await ports.service.backup_team('tenant-1', TEAM_ID, {
+    const result = await ports.service.backup_team(TENANT_ID, TEAM_ID, {
       abort_signal: controller.signal,
       concurrency: 1,
     });
@@ -57,7 +57,7 @@ describe('TeamsBackupService.backup_team abort signal', () => {
     });
     const phases: string[] = [];
 
-    await ports.service.backup_team('tenant-1', TEAM_ID, {
+    await ports.service.backup_team(TENANT_ID, TEAM_ID, {
       abort_signal: controller.signal,
       on_progress: (event) => phases.push(event.phase),
     });
@@ -78,7 +78,7 @@ describe('TeamsBackupService.backup_team abort signal', () => {
       return channel_output(channel.id);
     });
 
-    await ports.service.backup_team('tenant-1', TEAM_ID, {
+    await ports.service.backup_team(TENANT_ID, TEAM_ID, {
       abort_signal: controller.signal,
       concurrency: 1,
     });

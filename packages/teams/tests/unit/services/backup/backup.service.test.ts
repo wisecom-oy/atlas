@@ -9,7 +9,7 @@ import {
   type TeamsSnapshotIndex,
 } from '@wisecom/atlas-types';
 import { backup_channel } from '@/services/backup/channel-backup-processor';
-import { channel_output, make_ports, TEAM_ID } from './backup-service-harness';
+import { channel_output, make_ports, TEAM_ID, TENANT_ID } from './backup-service-harness';
 
 vi.mock('@wisecom/atlas-core/services/shared/run-object-lock', () => ({
   attach_run_retention: vi.fn(async (ctx: unknown) => ctx),
@@ -76,9 +76,9 @@ describe('TeamsBackupService.backup_team', () => {
   it('normalizes an uppercase team id to lowercase for the connector, cursor and result', async () => {
     const ports = make_ports();
 
-    const result = await ports.service.backup_team('tenant-1', TEAM_ID.toUpperCase(), {});
+    const result = await ports.service.backup_team(TENANT_ID, TEAM_ID.toUpperCase(), {});
 
-    expect(ports.connector.get_team).toHaveBeenCalledWith('tenant-1', TEAM_ID);
+    expect(ports.connector.get_team).toHaveBeenCalledWith(TENANT_ID, TEAM_ID);
     expect(ports.cursors.save).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ team_id: TEAM_ID }),
@@ -89,7 +89,7 @@ describe('TeamsBackupService.backup_team', () => {
   it('rejects a team id that is not a GUID before calling Graph', async () => {
     const ports = make_ports();
 
-    await expect(ports.service.backup_team('tenant-1', 'not-a-guid')).rejects.toBeInstanceOf(
+    await expect(ports.service.backup_team(TENANT_ID, 'not-a-guid')).rejects.toBeInstanceOf(
       ConfigError,
     );
     expect(ports.connector.get_team).not.toHaveBeenCalled();
@@ -98,7 +98,7 @@ describe('TeamsBackupService.backup_team', () => {
   it('throws before any write when the latest index is from a newer format (N1)', async () => {
     const ports = make_ports({ unsupported_keys: ['teams-snap-9999-cccccc'] });
 
-    await expect(ports.service.backup_team('tenant-1', TEAM_ID, {})).rejects.toBeInstanceOf(
+    await expect(ports.service.backup_team(TENANT_ID, TEAM_ID, {})).rejects.toBeInstanceOf(
       UnsupportedFormatVersionError,
     );
     expect(ports.order).toEqual([]);
@@ -111,7 +111,7 @@ describe('TeamsBackupService.backup_team', () => {
   it('writes shards, then the index, then the cursors', async () => {
     const ports = make_ports();
 
-    await ports.service.backup_team('tenant-1', TEAM_ID, {});
+    await ports.service.backup_team(TENANT_ID, TEAM_ID, {});
 
     expect(ports.order).toEqual([
       'shard:channel-1',
@@ -125,7 +125,7 @@ describe('TeamsBackupService.backup_team', () => {
   it('binds each cursor to the merged shard key the index records', async () => {
     const ports = make_ports();
 
-    await ports.service.backup_team('tenant-1', TEAM_ID, {});
+    await ports.service.backup_team(TENANT_ID, TEAM_ID, {});
 
     const index = vi.mocked(ports.indexes.save).mock.calls[0]?.[1] as TeamsSnapshotIndex;
     expect(index.channels.map((c) => c.shard_key)).toEqual(['shard-channel-1', 'shard-channel-2']);
@@ -144,7 +144,7 @@ describe('TeamsBackupService.backup_team', () => {
       return channel_output(channel.id);
     });
 
-    const result = await ports.service.backup_team('tenant-1', TEAM_ID, {});
+    const result = await ports.service.backup_team(TENANT_ID, TEAM_ID, {});
 
     const index = vi.mocked(ports.indexes.save).mock.calls[0]?.[1] as TeamsSnapshotIndex;
     expect(index.channels).toContainEqual(index_entry('channel-1', 'old-shard'));
@@ -169,7 +169,7 @@ describe('TeamsBackupService.backup_team', () => {
       ]),
     });
 
-    await ports.service.backup_team('tenant-1', TEAM_ID, {});
+    await ports.service.backup_team(TENANT_ID, TEAM_ID, {});
 
     const index = vi.mocked(ports.indexes.save).mock.calls[0]?.[1] as TeamsSnapshotIndex;
     expect(index.channels).toContainEqual({
@@ -181,7 +181,7 @@ describe('TeamsBackupService.backup_team', () => {
   it('reports no_content and saves only the cursors when the team has no channels', async () => {
     const ports = make_ports({ channels: [] });
 
-    const result = await ports.service.backup_team('tenant-1', TEAM_ID, {});
+    const result = await ports.service.backup_team(TENANT_ID, TEAM_ID, {});
 
     expect(ports.indexes.save).not.toHaveBeenCalled();
     expect(result.snapshot).toBeUndefined();
@@ -197,7 +197,7 @@ describe('TeamsBackupService.backup_team', () => {
       channels: [{ id: 'channel-1' }, { id: 'channel-2', tenantId: 'tenant-2' }],
     });
 
-    const result = await ports.service.backup_team('tenant-1', TEAM_ID, {});
+    const result = await ports.service.backup_team(TENANT_ID, TEAM_ID, {});
 
     expect(backup_channel).toHaveBeenCalledTimes(1);
     expect(result.summary.warnings).toContain(
@@ -208,7 +208,7 @@ describe('TeamsBackupService.backup_team', () => {
   it('reports a channel id that is not in the team as an error', async () => {
     const ports = make_ports();
 
-    const result = await ports.service.backup_team('tenant-1', TEAM_ID, {
+    const result = await ports.service.backup_team(TENANT_ID, TEAM_ID, {
       channel_id: 'channel-9',
     });
 
@@ -222,7 +222,7 @@ describe('TeamsBackupService.backup_team', () => {
       cursors: { 'channel-2': cursor_for('channel-2', FAILED_ROOT) },
     });
 
-    const result = await ports.service.backup_team('tenant-1', TEAM_ID, {
+    const result = await ports.service.backup_team(TENANT_ID, TEAM_ID, {
       channel_id: 'channel-1',
     });
 
@@ -236,7 +236,7 @@ describe('TeamsBackupService.backup_team', () => {
       channel_output('channel-1', { failed_roots: FAILED_ROOT }),
     );
 
-    const result = await ports.service.backup_team('tenant-1', TEAM_ID, {});
+    const result = await ports.service.backup_team(TENANT_ID, TEAM_ID, {});
 
     expect(ports.cursors.save).toHaveBeenCalledWith(
       expect.anything(),
@@ -251,7 +251,7 @@ describe('TeamsBackupService.backup_team', () => {
       channel_output(channel.id, { failed_roots: FAILED_ROOT }),
     );
 
-    const result = await ports.service.backup_team('tenant-1', TEAM_ID, {});
+    const result = await ports.service.backup_team(TENANT_ID, TEAM_ID, {});
 
     expect(result.summary.warnings.filter((w) => w.includes('(root-1)'))).toHaveLength(2);
   });
@@ -259,7 +259,7 @@ describe('TeamsBackupService.backup_team', () => {
   it('marks the run interrupted and backs up no channel when it is already interrupted', async () => {
     const ports = make_ports();
 
-    const result = await ports.service.backup_team('tenant-1', TEAM_ID, {
+    const result = await ports.service.backup_team(TENANT_ID, TEAM_ID, {
       should_interrupt: () => true,
     });
 
@@ -272,7 +272,7 @@ describe('TeamsBackupService.backup_team', () => {
     const ports = make_ports();
     vi.mocked(backup_channel).mockRejectedValueOnce(new AuthError('denied'));
 
-    await expect(ports.service.backup_team('tenant-1', TEAM_ID, {})).rejects.toBeInstanceOf(
+    await expect(ports.service.backup_team(TENANT_ID, TEAM_ID, {})).rejects.toBeInstanceOf(
       AuthError,
     );
     expect(ports.indexes.save).not.toHaveBeenCalled();

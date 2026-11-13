@@ -41,6 +41,7 @@ import {
   type RunReport,
 } from '@/services/backup/backup-run-summary';
 import {
+  all_channels_foreign_errors,
   merge_channel_entries,
   split_owned_channels,
 } from '@/services/backup/channel-entry-merger';
@@ -56,6 +57,7 @@ import {
   TeamsRequestStats,
 } from '@/services/backup/teams-request-stats';
 import { normalize_team_id } from '@/services/shared/team-id';
+import { assert_tenant_guid } from '@/services/shared/tenant-id';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /** Per-run settings the team backup threads through its steps. */
@@ -91,6 +93,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
    *
    * The run holds the team's lease from before it reads the baseline until it ends.
    *
+   * @throws ConfigError when `tenant_id` is not a GUID, before any Graph call.
    * @throws OwnerBusyError when another operation holds the team's backup.
    */
   async backup_team(
@@ -98,6 +101,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     team_id: string,
     options: TeamsBackupOptions = {},
   ): Promise<TeamsBackupResult> {
+    assert_tenant_guid(tenant_id);
     const normalized_team_id = normalize_team_id(team_id);
     const settings: RunSettings = {
       stats: new TeamsRequestStats(),
@@ -186,6 +190,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     state.interrupted = state.interrupted || scope.should_interrupt();
     append_all(state.warnings, baseline.warnings);
     append_all(state.errors, missing_channel_errors(options.channel_id, all_channels, team_id));
+    append_all(state.errors, all_channels_foreign_errors(all_channels, owned, team_id));
     // A channel that lost the lease mid-read was recorded as a failed channel; this stops the run.
     lease.assert_held();
     const saves = await save_channel_shards(ctx, this._shards, state.results);

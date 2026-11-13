@@ -7,7 +7,7 @@ import {
 } from '@wisecom/atlas-types';
 import { backup_channel } from '@/services/backup/channel-backup-processor';
 import { TEAMS_KEYS } from '@/services/shared/storage-keys';
-import { channel_output, make_ports, TEAM_ID } from './backup-service-harness';
+import { channel_output, make_ports, TEAM_ID, TENANT_ID } from './backup-service-harness';
 
 vi.mock('@wisecom/atlas-core/services/shared/run-object-lock', () => ({
   attach_run_retention: vi.fn(async (ctx: unknown) => ctx),
@@ -49,7 +49,7 @@ describe('TeamsBackupService with a damaged newer index (issue #694)', () => {
   it('names the damaged key, stays healthy, and still writes a snapshot over the older index', async () => {
     const ports = make_ports({ previous: older_index(), unreadable_keys: [DAMAGED_KEY] });
 
-    const result = await ports.service.backup_team('tenant-1', TEAM_ID, {});
+    const result = await ports.service.backup_team(TENANT_ID, TEAM_ID, {});
 
     expect(result.summary.unreadable_keys).toEqual([DAMAGED_KEY]);
     expect(result.summary.errors).toEqual([]);
@@ -67,7 +67,7 @@ describe('TeamsBackupService with a damaged newer index (issue #694)', () => {
       return channel_output(channel.id);
     });
 
-    const result = await ports.service.backup_team('tenant-1', TEAM_ID, {});
+    const result = await ports.service.backup_team(TENANT_ID, TEAM_ID, {});
 
     expect(result.summary.unreadable_keys).toEqual([DAMAGED_KEY]);
     expect(result.summary.errors).toEqual(['Channel channel-2: boom']);
@@ -80,7 +80,7 @@ describe('TeamsBackupService with a damaged newer index (issue #694)', () => {
     ports.shards.save.mockRejectedValue(failure);
 
     const thrown = await ports.service
-      .backup_team('tenant-1', TEAM_ID, {})
+      .backup_team(TENANT_ID, TEAM_ID, {})
       .catch((err: unknown) => err);
 
     expect(thrown).toBe(failure);
@@ -92,7 +92,7 @@ describe('TeamsBackupService with a damaged newer index (issue #694)', () => {
     ports.shards.save.mockRejectedValue(new StorageError('shard write refused'));
 
     const thrown = await ports.service
-      .backup_team('tenant-1', TEAM_ID, {})
+      .backup_team(TENANT_ID, TEAM_ID, {})
       .catch((err: unknown) => err);
 
     expect(attached_unreadable_keys(thrown)).toEqual([]);
@@ -101,7 +101,7 @@ describe('TeamsBackupService with a damaged newer index (issue #694)', () => {
   it('carries no unreadable_keys when every index reads', async () => {
     const ports = make_ports({ previous: older_index() });
 
-    const result = await ports.service.backup_team('tenant-1', TEAM_ID, {});
+    const result = await ports.service.backup_team(TENANT_ID, TEAM_ID, {});
 
     expect(result.summary).not.toHaveProperty('unreadable_keys');
   });

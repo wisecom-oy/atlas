@@ -29,7 +29,23 @@ export function merge_channel_entries(input: ChannelMergeInput): TeamsChannelInd
   return [...current, ...removed];
 }
 
-/** Channels this tenant's token can read, plus a warning for each channel owned by another tenant. */
+/**
+ * Errors for a team whose listed channels were all owned by another tenant. Such a run backs up
+ * nothing, so it must not report healthy. A team with no channels at all is not an error here.
+ */
+export function all_channels_foreign_errors(
+  channels: TeamsGraphResource[],
+  owned: TeamsGraphResource[],
+  team_id: string,
+): string[] {
+  if (channels.length === 0 || owned.length > 0) return [];
+  return [`Every channel of team ${team_id} is owned by another tenant; nothing was backed up`];
+}
+
+/**
+ * Channels this tenant's token can read, plus a warning for each channel owned by another tenant.
+ * `tenant_id` is the tenant GUID; both sides are lowercased before the comparison.
+ */
 export function split_owned_channels(
   channels: TeamsGraphResource[],
   tenant_id: string,

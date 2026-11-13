@@ -56,7 +56,7 @@ test('generator shape, determinism, and time window', () => {
     again.teams.map((t) => t.id),
     big.teams.map((t) => t.id),
   );
-  assert.equal(TENANT_ID, 'rig-tenant');
+  assert.equal(TENANT_ID, '00000000-0000-0000-0000-000000000001');
   const rows = roots_of(big);
   assert.ok(
     rows.some(({ root }) => root.deleted_ms !== undefined),

@@ -56,7 +56,10 @@ describe('teams backup Ctrl+C with a Retry-After cooldown in force', () => {
   });
 
   it('leaves no cooldown timer behind after the interrupted run ends', async () => {
-    const run = execute_teams_backup(container, { tenant: 'tenant-example', team: ['team-a'] });
+    const run = execute_teams_backup(container, {
+      tenant: '00000000-0000-0000-0000-000000000001',
+      team: ['team-a'],
+    });
     await vi.advanceTimersByTimeAsync(1_000);
 
     process.emit('SIGINT');
@@ -94,7 +97,10 @@ describe('teams backup Ctrl+C with a Retry-After cooldown in force', () => {
       },
     } as unknown as TeamsBackupUseCase);
 
-    const run = execute_teams_backup(container, { tenant: 'tenant-example', team: ['team-a'] });
+    const run = execute_teams_backup(container, {
+      tenant: '00000000-0000-0000-0000-000000000001',
+      team: ['team-a'],
+    });
     await vi.advanceTimersByTimeAsync(1_000);
     expect(vi.getTimerCount()).toBe(1);
 
