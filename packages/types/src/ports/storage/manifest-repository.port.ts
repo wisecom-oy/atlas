@@ -53,6 +53,14 @@ export interface ManifestRepository {
     owner_id: string,
   ): Promise<ReadableSnapshotSummaries<OutlookSnapshotSummary>>;
 
+  /**
+   * Lists every mailbox's snapshots from their summary indexes, newest first within each owner. One
+   * listing of the manifest keys and one summary read per owner; decrypts only rowless manifests.
+   */
+  list_all_snapshot_summaries(
+    ctx: TenantContext,
+  ): Promise<ReadableSnapshotSummaries<OutlookSnapshotSummary>>;
+
   /** Lists one owner's readable manifests and the keys of the damaged ones. */
   list_readable_by_owner(
     ctx: TenantContext,

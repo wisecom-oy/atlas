@@ -100,6 +100,7 @@ describe('VerificationService', () => {
       list_readable_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
       list_all_readable: vi.fn().mockResolvedValue(readable_manifests()),
       read_manifest_at: vi.fn(outlook_chain_reads(() => manifests).read_manifest_at),
+      list_all_snapshot_summaries: vi.fn(),
       list_snapshot_summaries: vi.fn(outlook_chain_reads(() => manifests).list_snapshot_summaries),
     };
 

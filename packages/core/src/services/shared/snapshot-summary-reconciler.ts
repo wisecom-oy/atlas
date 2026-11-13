@@ -31,7 +31,8 @@ export async function reconcile_snapshot_summaries<TManifest, TSummary extends S
   manifest_keys: readonly string[],
   recorded: readonly TSummary[],
 ): Promise<ReconciledSnapshotSummaries<TSummary>> {
-  const recorded_by_key = new Map(recorded.map((summary) => [summary.manifest_key, summary]));
+  const current = recorded.filter((summary) => layout.is_current?.(summary) ?? true);
+  const recorded_by_key = new Map(current.map((summary) => [summary.manifest_key, summary]));
   const listed = new Set(manifest_keys);
   const kept = [...listed].flatMap((key) => recorded_by_key.get(key) ?? []);
   const rowless = [...listed].filter((key) => !recorded_by_key.has(key));

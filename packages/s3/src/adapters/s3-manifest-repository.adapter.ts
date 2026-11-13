@@ -25,7 +25,10 @@ import {
 } from '@/adapters/outlook-manifest-reader';
 import { write_encrypted_json } from '@wisecom/atlas-core/services/shared/stored-json-writer';
 import { forget_snapshot_summary_or_warn } from '@wisecom/atlas-core/services/shared/snapshot-summary-pruner';
-import { list_snapshot_summaries } from '@wisecom/atlas-core/services/shared/snapshot-summary-reader';
+import {
+  list_snapshot_summaries,
+  list_tenant_snapshot_summaries,
+} from '@wisecom/atlas-core/services/shared/snapshot-summary-reader';
 import { record_snapshot_summary_or_warn } from '@wisecom/atlas-core/services/shared/snapshot-summary-writer';
 import {
   OUTLOOK_MANIFEST_POINTER_PREFIX as MANIFEST_POINTER_PREFIX,
@@ -112,6 +115,13 @@ export class S3ManifestRepository implements ManifestRepository {
     owner_id: string,
   ): Promise<ReadableSnapshotSummaries<OutlookSnapshotSummary>> {
     return list_snapshot_summaries(ctx, OUTLOOK_SUMMARY_LAYOUT, owner_id);
+  }
+
+  /** Lists every mailbox's snapshots from their summary indexes, decrypting only rowless manifests. */
+  async list_all_snapshot_summaries(
+    ctx: TenantContext,
+  ): Promise<ReadableSnapshotSummaries<OutlookSnapshotSummary>> {
+    return list_tenant_snapshot_summaries(ctx, OUTLOOK_SUMMARY_LAYOUT);
   }
 
   /** Loads a manifest through its snapshot index, with a legacy layout fallback. */

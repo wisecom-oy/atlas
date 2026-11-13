@@ -28,7 +28,7 @@ function accumulate_entry_stats(entry: ManifestEntry): EntryAccumulator {
 }
 
 /** Formats a Date as a "YYYY-MM" string for monthly grouping. */
-function to_month_key(date: Date): string {
+export function to_month_key(date: Date): string {
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, '0');
   return `${year}-${month}`;
@@ -220,7 +220,7 @@ export function aggregate_monthly_breakdown(manifests: readonly Manifest[]): Mon
 }
 
 /** Converts the monthly accumulator map into a sorted MonthlyBreakdown array. */
-function build_sorted_breakdown(
+export function build_sorted_breakdown(
   monthly: Map<
     string,
     { snapshots: number; messages: number; size: number; att_count: number; att_size: number }
@@ -243,7 +243,7 @@ function build_sorted_breakdown(
 }
 
 /** Converts the folder accumulator map into an alphabetically sorted FolderStats array. */
-function build_sorted_folders(
+export function build_sorted_folders(
   folder_map: Map<string, { messages: number; size: number; att_count: number; att_size: number }>,
 ): FolderStats[] {
   const result: FolderStats[] = [];

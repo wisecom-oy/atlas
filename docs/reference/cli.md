@@ -378,7 +378,7 @@ The mailbox overview includes a `Type` column, taken from the newest manifest th
 
 The overview's `Objects` column counts the messages in the latest snapshot's chain, the set `restore -s` reads, so it drops when a backup records deletions. The `Objects` column of `list -m` is each manifest's `total_objects`, a high-water mark: the largest message count any single run of the mailbox stored. It never decreases, because the stale-delta safeguard reads it to tell an unchanged mailbox from one never backed up.
 
-`list -m` reads the mailbox's [snapshot summary index](/operations/storage-layout#snapshot-summary-index) instead of decrypting every manifest. The overview without `-m` still decrypts every manifest in the tenant, because its `Objects` count needs every entry of the chain.
+`list -m` reads the mailbox's [snapshot summary index](/operations/storage-layout#snapshot-summary-index) instead of decrypting every manifest. The overview without `-m` reads the index of every mailbox the same way. Its `Objects` count is merged from the rows, so no manifest is decrypted unless a snapshot has no row yet.
 
 `list -s` shows only the messages recorded by that backup run, not the whole chain that `restore -s` and `save -s` read. Its `#` index is what `--message` resolves against.
 
@@ -650,7 +650,7 @@ atlas onedrive backup -o user@company.com --full   # re-establish a complete new
 
 A manifest or version index is damaged when it exists but fails AES-256-GCM authentication, is not JSON, lacks the fields every such object carries, or names another owner or snapshot than its key. `status`, the listings, and every backup that reads the manifest skip it, finish, print each key with the matching `quarantine` command, and exit `9`. Restores refuse only where skipping would change the answer. [Troubleshooting](../troubleshooting.md#damaged-manifests-and-version-indexes) has the per-command table and the reasons.
 
-For Outlook, OneDrive, SharePoint, Contacts, and Calendar, `status`, `list -m`, `list-snapshots`, and the drive `stats` answer from the owner's [snapshot summary index](/operations/storage-layout#snapshot-summary-index). They decrypt only manifests the index has no row for, and `status` decrypts only the newest. A manifest damaged after its row was written is therefore not named by them. `verify` decrypts every manifest in the chain it checks and is the command that finds damage at rest, so schedule it alongside backups.
+For Outlook, OneDrive, SharePoint, Contacts, and Calendar, `status`, `list -m`, `list-snapshots`, and the drive `stats` answer from the owner's [snapshot summary index](/operations/storage-layout#snapshot-summary-index). Outlook `list`, Outlook `stats`, and the logical bytes of `stats storage` read the same index. They decrypt only manifests the index has no row for, and `status` decrypts only the newest. A manifest damaged after its row was written is therefore not named by them. `verify` decrypts every manifest in the chain it checks and is the command that finds damage at rest, so schedule it alongside backups.
 
 `quarantine` reads the object with the same reader the listings use and refuses unless that read fails. Nothing stored at the key exits `7`, and an object that reads cleanly exits `7` with `reads cleanly` in the message, so a healthy snapshot is never hidden by a typo. A key Atlas would not write exactly as given exits `1` before the tenant is opened: one outside the workload's manifest or version index layout, one with an empty, `.`, or `..` segment, or another spelling of the owner.
 
