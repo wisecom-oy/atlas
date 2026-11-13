@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } fr
 import { Container } from 'inversify';
 import 'reflect-metadata';
 import { execute_outlook_read } from '@/commands/outlook/catalog.handlers';
-import { CATALOG_USE_CASE_TOKEN, type CatalogUseCase } from '@wisecom/atlas-types';
+import { CATALOG_USE_CASE_TOKEN, NotFoundError, type CatalogUseCase } from '@wisecom/atlas-types';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 
 const MIME = Buffer.from(
@@ -117,10 +117,23 @@ describe('execute_outlook_read', () => {
     expect(printed).toContain('text/csv');
   });
 
-  it('reports a missing message with exit code 1', async () => {
-    await execute_outlook_read(container, { snapshot: 'snap-1', message: '99' });
+  it('rejects a missing message with NotFoundError that names it, as restore and save do (#735)', async () => {
+    const run = execute_outlook_read(container, { snapshot: 'snap-1', message: '99' });
 
-    expect(process.exitCode).toBe(1);
-    process.exitCode = 0;
+    await expect(run).rejects.toBeInstanceOf(NotFoundError);
+    await expect(run).rejects.toThrow('No message matches "99" in snapshot snap-1');
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('rejects a missing message in --raw mode with NotFoundError and writes nothing', async () => {
+    const run = execute_outlook_read(container, {
+      snapshot: 'snap-1',
+      message: 'AAMkAG-x',
+      raw: true,
+    });
+
+    await expect(run).rejects.toBeInstanceOf(NotFoundError);
+    expect(stdout_spy).not.toHaveBeenCalled();
+    expect(log_spy).not.toHaveBeenCalled();
   });
 });

@@ -4,7 +4,7 @@ import { read_listing, report_unreadable_keys } from '@/command-unreadable-objec
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN, html_to_text } from '@wisecom/atlas-core';
 import type { CatalogUseCase, MailboxSummary } from '@wisecom/atlas-types';
-import { CATALOG_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import { CATALOG_USE_CASE_TOKEN, NotFoundError } from '@wisecom/atlas-types';
 import type { AttachmentEntry, OutlookSnapshotSummary } from '@wisecom/atlas-types';
 import { format_bytes } from '@/command-formatters';
 import { logger } from '@wisecom/atlas-core';
@@ -77,14 +77,11 @@ export async function execute_outlook_read(
   const tenant_id = options.tenant ?? container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN).tenant_id;
   const catalog = container.get<CatalogUseCase>(CATALOG_USE_CASE_TOKEN);
   const result = await catalog.read_message(tenant_id, options.snapshot, options.message);
+  // Refused before any output, so a missing message exits 7 like restore and save (issue #735).
+  if (!result) throw message_not_found(options);
 
   // Machine-readable output suppresses all decorative output so stdout stays pipeable.
   if (options.raw) {
-    if (!result) {
-      logger.error(`Message not found. Check the snapshot ID and message ID are correct.`);
-      process.exitCode = 1;
-      return;
-    }
     // Raw MIME goes to stdout verbatim so it can be piped straight into an .eml file.
     if (result.payload_format === 'mime') {
       process.stdout.write(result.raw);
@@ -96,12 +93,6 @@ export async function execute_outlook_read(
 
   await render_static_view(<Banner title={banner_title('outlook', 'Read')} />);
 
-  if (!result) {
-    logger.error(`Message not found. Check the snapshot ID and message ID are correct.`);
-    process.exitCode = 1;
-    return;
-  }
-
   if (result.payload_format === 'mime') {
     await print_mime_message(result.raw);
     return;
@@ -109,6 +100,13 @@ export async function execute_outlook_read(
 
   await print_formatted_message(result.message ?? {});
   await print_attachment_list(result.attachments);
+}
+
+/** The error a read reference that resolves to no message is refused with (issue #735). */
+function message_not_found(options: OutlookReadOptions): NotFoundError {
+  return new NotFoundError(
+    `No message matches "${options.message}" in snapshot ${options.snapshot}`,
+  );
 }
 
 /** Prints a table of all backed-up mailboxes with summary stats. */
