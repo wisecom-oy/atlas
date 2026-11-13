@@ -1,10 +1,17 @@
 /**
  * Plain-node self-check for the rig's pure parts: fixture generation and mutation, rate limiting,
- * paging tokens, reply inlining, and CLI parsing. Needs no network or backup run; the rate limiter
- * reads limits from `@wisecom/atlas-types`, so run `pnpm install` first.
+ * paging tokens, reply inlining, CLI parsing, and that the rig container resolves every token the
+ * scenarios take from it. Needs no network or backup run; the rate limiter reads limits from
+ * `@wisecom/atlas-types`, so run `pnpm install` first.
  * Run: node tools/teams-scale-rig/src/selfcheck.mjs
  */
 import assert from 'node:assert/strict';
+import {
+  TEAMS_BACKUP_USE_CASE_TOKEN,
+  TEAMS_CHANNEL_SHARD_REPOSITORY_TOKEN,
+  TEAMS_INDEX_REPOSITORY_TOKEN,
+} from '@wisecom/atlas-types';
+import { create_teams_container } from './runner/container.mjs';
 import { derive_seed, create_rng } from './fixture/prng.mjs';
 import {
   generate_tenant,
@@ -177,6 +184,20 @@ test('root_json inlines up to the limit and links the rest', () => {
   const small = root_json(short, team, channel, TENANT_ID);
   assert.equal(small.replies.length, 3);
   assert.equal(small['replies@odata.nextLink'], undefined);
+});
+
+/** Tokens the scenarios and runner take from the rig container (backup-run.mjs, convergence.mjs). */
+const RIG_CONTAINER_TOKENS = [
+  TEAMS_BACKUP_USE_CASE_TOKEN,
+  TEAMS_INDEX_REPOSITORY_TOKEN,
+  TEAMS_CHANNEL_SHARD_REPOSITORY_TOKEN,
+];
+
+test('rig container resolves every token the scenarios take from it', () => {
+  // Resolution builds the services without calling them, so inert stubs stand in for the server
+  // and the store.
+  const container = create_teams_container({ client: {}, tenant_factory: {}, time_scale: 1 });
+  for (const token of RIG_CONTAINER_TOKENS) assert.ok(container.get(token), String(token));
 });
 
 test('CLI parsing applies defaults and rejects bad input', () => {

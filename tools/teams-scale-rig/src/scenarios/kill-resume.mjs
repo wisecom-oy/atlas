@@ -10,6 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TENANT_ID, expected_hosted_downloads } from '../fixture/generate-tenant.mjs';
 import { tenant_store_dir } from '../runner/rig-session.mjs';
+import { expire_dead_team_leases } from '../runner/dead-owner-leases.mjs';
 import {
   diff_snapshots,
   list_hosted_blob_keys,
@@ -55,6 +56,9 @@ export async function run_kill_resume({ args, store, passphrase }) {
     const keys_at_kill = new Set(
       await list_hosted_blob_keys(tenant_store_dir(resume_dir, TENANT_ID)),
     );
+    // The killed child could not release its lease. Expire it as the TTL would, so the resume
+    // takes it over (see dead-owner-leases.mjs) instead of waiting five minutes for it to run out.
+    const dead_leases = await expire_dead_team_leases(tenant_store_dir(resume_dir, TENANT_ID));
 
     server.stats.reset();
     const resumed = await run_child(server, { ...config, store_root: resume_dir });
@@ -95,6 +99,11 @@ export async function run_kill_resume({ args, store, passphrase }) {
           'child was killed before completing',
           killed.exit_code === null,
           `exit ${killed.exit_code}`,
+        ),
+        check(
+          'killed child left a live lease for the resume to take over',
+          dead_leases.length > 0,
+          `${dead_leases.length} team lease(s) expired`,
         ),
         check(
           'control run downloads every reachable hosted image',
