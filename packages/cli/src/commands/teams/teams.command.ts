@@ -19,6 +19,7 @@ import { execute_teams_save, type TeamsSaveCommandOptions } from '@/commands/tea
 import {
   with_object_lock,
   with_output,
+  with_overwrite_yes,
   with_required_snapshot,
   with_snapshot,
   with_tenant,
@@ -110,6 +111,7 @@ function register_teams_save(group: Command, get_container: ContainerFactory): v
     .option('--channel <id>', 'save only this channel');
   with_required_snapshot(command, 'snapshot identifier');
   with_output(command, 'output zip file path');
+  with_overwrite_yes(command);
   with_tenant(command).action((options: TeamsSaveCommandOptions) =>
     execute_teams_save(get_container(), options),
   );

@@ -866,7 +866,7 @@ Microsoft Graph can promote an earlier version in place with `restoreVersion`, b
 
 **`atlas onedrive save`**
 
-Save decrypted files from a snapshot to a local zip archive that preserves the folder structure. Each file is SHA-256 verified after decryption unless `--skip-verify` is set. Atlas writes the archive to a temporary file beside the output path and moves it into place only when complete. A failed save leaves no partial archive, and an existing file at the output path is not touched until a successful run replaces it.
+Save decrypted files from a snapshot to a local zip archive that preserves the folder structure. Each file is SHA-256 verified after decryption unless `--skip-verify` is set. Atlas writes the archive to a temporary file beside the output path and moves it into place only when complete. A failed save leaves no partial archive, and an existing file at the output path is not touched until a successful run replaces it. If `--output` names an existing file, Atlas asks `Overwrite? [Y/n]` before it contacts Graph or reads storage. Answering `n` exits `0` and leaves the file as it was. With stdin at EOF the question gets no answer, so the command exits `1` and the file is untouched. `-y` overwrites without asking, for scheduled jobs.
 
 ```bash
 atlas onedrive save -o user@company.com -s od-snap-1735689600000-a1b2c3
@@ -881,6 +881,7 @@ atlas onedrive save -o user@company.com -s od-snap-123 --skip-verify
 | `-s, --snapshot <id>`      | OneDrive snapshot ID (required)                |
 | `--file-filter <paths...>` | Save only specific files, by ID or path        |
 | `--output <path>`          | Output zip file path (default: auto-generated) |
+| `-y, --yes`                | Overwrite an existing output without asking    |
 | `--skip-verify`            | Skip SHA-256 integrity checks                  |
 | `-t, --tenant <id>`        | Override the tenant ID from config             |
 
@@ -1041,7 +1042,7 @@ With `--target-site`, each file goes to the target library with the same name as
 
 **`atlas sharepoint save`**
 
-Save decrypted files from a SharePoint snapshot to a local zip archive that preserves the library folder structure. Each file is SHA-256 verified after decryption unless `--skip-verify` is set.
+Save decrypted files from a SharePoint snapshot to a local zip archive that preserves the library folder structure. Each file is SHA-256 verified after decryption unless `--skip-verify` is set. If `--output` names an existing file, Atlas asks `Overwrite? [Y/n]` before it contacts Graph or reads storage. Answering `n` exits `0` and leaves the file as it was. With stdin at EOF the question gets no answer, so the command exits `1` and the file is untouched. `-y` overwrites without asking, for scheduled jobs.
 
 ```bash
 atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123
@@ -1056,6 +1057,7 @@ atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s
 | `-s, --snapshot <id>`      | SharePoint snapshot ID (required)               |
 | `--file-filter <paths...>` | Save only specific files, by ID or path         |
 | `--output <path>`          | Output zip file path (default: auto-generated)  |
+| `-y, --yes`                | Overwrite an existing output without asking     |
 | `--skip-verify`            | Skip SHA-256 integrity checks                   |
 | `-t, --tenant <id>`        | Override the tenant ID from config              |
 
@@ -1173,7 +1175,7 @@ Checks the snapshot's index, channel shards, and every blob it references. Exits
 
 **`atlas teams save`**
 
-Writes one snapshot as a zip archive that opens in a browser. It reads storage only and makes no Graph calls. See [Teams backup](../teams-backup.md#save) for the archive layout.
+Writes one snapshot as a zip archive that opens in a browser. It reads storage only and makes no Graph calls. See [Teams backup](../teams-backup.md#save) for the archive layout. If `--output` names an existing file, Atlas asks `Overwrite? [Y/n]` before it reads storage. Answering `n` exits `0` and leaves the file as it was. With stdin at EOF the question gets no answer, so the command exits `1` and the file is untouched. `-y` overwrites without asking, for scheduled jobs.
 
 | Option                | Description                                                                               |
 | --------------------- | ----------------------------------------------------------------------------------------- |
@@ -1181,6 +1183,7 @@ Writes one snapshot as a zip archive that opens in a browser. It reads storage o
 | `-s, --snapshot <id>` | Snapshot to save (required)                                                               |
 | `--channel <id>`      | Save only this channel. The archive then lists only that channel                          |
 | `--output <path>`     | Zip file to write. Default `teams-<snapshot-id>-<timestamp>.zip` in the current directory |
+| `-y, --yes`           | Overwrite an existing output file without asking                                          |
 | `-t, --tenant <id>`   | Override the tenant ID from config                                                        |
 
 **`atlas teams status`**

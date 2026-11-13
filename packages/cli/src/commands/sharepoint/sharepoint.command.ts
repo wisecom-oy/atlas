@@ -4,14 +4,16 @@ import {
   execute_sharepoint_backup,
   execute_sharepoint_list_sites,
   execute_sharepoint_restore,
-  execute_sharepoint_save,
   execute_sharepoint_verify,
   type SharePointBackupOptions,
   type SharePointRestoreCommandOptions,
-  type SharePointSaveCommandOptions,
   type SharePointTenantOptions,
   type SharePointVerifyOptions,
 } from '@/commands/sharepoint/command.handlers';
+import {
+  execute_sharepoint_save,
+  type SharePointSaveCommandOptions,
+} from '@/commands/sharepoint/save.handlers';
 import {
   register_sharepoint_list_snapshots,
   register_sharepoint_list_versions,
@@ -31,6 +33,7 @@ import {
   with_file_filter,
   with_object_lock,
   with_output,
+  with_overwrite_yes,
   with_required_snapshot,
   with_snapshot,
   with_target_profile,
@@ -147,6 +150,7 @@ function register_sharepoint_save(group: Command, get_container: ContainerFactor
   with_required_snapshot(command, 'snapshot identifier');
   with_file_filter(command, 'save');
   with_output(command, 'output zip file path');
+  with_overwrite_yes(command);
   with_tenant(command).action((options: SharePointSaveCommandOptions) =>
     execute_sharepoint_save(get_container(), options),
   );

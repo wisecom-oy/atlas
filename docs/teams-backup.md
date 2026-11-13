@@ -138,6 +138,17 @@ atlas teams save --team <team-id> -s <snapshot-id> --output teams.zip
 atlas teams save --team <team-id> -s <snapshot-id> --channel <channel-id> --output channel.zip
 ```
 
+| Option                | Description                                                        |
+| --------------------- | ------------------------------------------------------------------ |
+| `--team <id>`         | Team ID (required)                                                 |
+| `-s, --snapshot <id>` | Snapshot to save (required)                                        |
+| `--channel <id>`      | Save only this channel                                             |
+| `--output <path>`     | Zip file to write (default `teams-<snapshot-id>-<timestamp>.zip`)  |
+| `-y, --yes`           | Overwrite an existing output without asking                        |
+| `-t, --tenant <id>`   | Override the tenant ID from config                                 |
+
+If `--output` names an existing file, Atlas asks `Overwrite? [Y/n]` before it reads storage. Answering `n` exits `0` and leaves the file as it was. With stdin at EOF, as under cron or systemd with `/dev/null`, no answer is read, so the command exits `1` and the file is untouched. Pass `-y` to overwrite without the question. The question is asked by default because a previous export can be the only copy of a snapshot that retention has since removed.
+
 The archive holds `team.json`, which lists the saved channels, and one folder per channel with `messages.json` and `index.html`. Each page sets a Content-Security-Policy that allows only inline styles and embedded images. Scripts, frames, forms, `on*` event attributes, and `<meta>` or `<base>` elements are removed from message bodies before the page is written. Hosted images are embedded as `data:` URIs, so the page loads nothing over the network.
 
 Only message bodies are rendered. File attachments are not included. A deleted message shows its last kept version, marked as deleted. A deleted message with no kept version appears as a tombstone.

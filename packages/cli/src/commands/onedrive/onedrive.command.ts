@@ -31,6 +31,7 @@ import {
   with_file_filter,
   with_object_lock,
   with_output,
+  with_overwrite_yes,
   with_required_snapshot,
   with_snapshot,
   with_target_profile,
@@ -112,6 +113,7 @@ function register_onedrive_save(group: Command, get_container: ContainerFactory)
   with_required_snapshot(command, 'snapshot identifier');
   with_file_filter(command, 'save');
   with_output(command, 'output zip file path');
+  with_overwrite_yes(command);
   with_tenant(command).action((options: OneDriveSaveCommandOptions) =>
     execute_onedrive_save(get_container(), options),
   );

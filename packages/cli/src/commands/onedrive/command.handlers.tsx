@@ -31,6 +31,7 @@ import {
   report_skipped_items,
   report_unmatched_file_filters,
 } from '@/command-run-outcome';
+import { confirm_output_overwrite } from '@/commands/shared/output-overwrite-guard';
 import {
   require_target_for_profile,
   resolve_restore_container,
@@ -77,6 +78,7 @@ export interface OneDriveSaveCommandOptions extends OneDriveTenantOptions {
   fileFilter?: string[];
   output?: string;
   skipVerify?: boolean;
+  yes?: boolean;
 }
 
 /** Resolves the tenant id from CLI options, falling back to the configured tenant. */
@@ -260,6 +262,7 @@ export async function execute_onedrive_save(
   options: OneDriveSaveCommandOptions,
 ): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
+  if (!(await confirm_output_overwrite(options.output, options.yes))) return;
   const owner = await resolve_owner(container, tenant_id, options.owner);
   const save_uc = container.get<OneDriveSaveUseCase>(ONEDRIVE_SAVE_USE_CASE_TOKEN);
   const result = await save_uc.save_snapshot(tenant_id, owner.object_id, {
