@@ -1,4 +1,5 @@
 import type { ContactsSnapshotManifest } from '@/domain/contacts/manifest';
+import type { ContactsSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type {
   ContactsBackupOptions,
   ContactsBackupResult,
@@ -30,6 +31,7 @@ export type ContactsSdkBackupResult = Camelize<ContactsBackupResult>;
 export type ContactsSdkRestoreResult = Camelize<ContactsRestoreResult>;
 export type ContactsSdkVerificationResult = Camelize<VerificationResult>;
 export type ContactsSdkSnapshotManifest = Camelize<ContactsSnapshotManifest>;
+export type ContactsSdkSnapshotSummary = Camelize<ContactsSnapshotSummary>;
 export type ContactsSdkDeletionResult = Camelize<DeletionResult>;
 
 /** Mailbox arguments accept an Entra object ID or a mail address. */
@@ -42,6 +44,8 @@ export interface ContactsApi {
     options?: ContactsSdkVerificationOptions,
   ): Promise<ContactsSdkVerificationResult>;
   listSnapshots(mailbox: string): Promise<ContactsSdkSnapshotManifest[]>;
+  /** Lists a mailbox's snapshots from its summary index, without entries (#727). */
+  listSnapshotSummaries(mailbox: string): Promise<ContactsSdkSnapshotSummary[]>;
   deleteMailboxData(mailbox: string): Promise<ContactsSdkDeletionResult>;
   deleteSnapshot(mailbox: string, snapshotId: string): Promise<ContactsSdkDeletionResult>;
   /**

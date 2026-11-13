@@ -1,4 +1,5 @@
 import type { ContactsSnapshotManifest } from '@/domain/contacts/manifest';
+import type { ContactsSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type {
   BackupProgressReporter,
   NoSnapshotReason,
@@ -81,6 +82,12 @@ export interface ContactsCatalogUseCase {
     tenant_id: string,
     mailbox_id: string,
   ): Promise<ContactsSnapshotManifest[]>;
+
+  /** Lists a mailbox's contacts snapshots from its summary index, newest first (#727). */
+  list_contacts_snapshot_summaries(
+    tenant_id: string,
+    mailbox_id: string,
+  ): Promise<ContactsSnapshotSummary[]>;
 }
 
 export interface ContactsVerificationUseCase {

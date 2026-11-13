@@ -18,7 +18,7 @@ const EMAIL = 'user@example.com';
 
 const backup = { backup_calendar: vi.fn() };
 const restore = { restore_calendar: vi.fn() };
-const catalog = { list_calendar_snapshots: vi.fn() };
+const catalog = { list_calendar_snapshots: vi.fn(), list_calendar_snapshot_summaries: vi.fn() };
 const verification = { verify_calendar_snapshot: vi.fn() };
 const deletion = { delete_mailbox_data: vi.fn(), delete_snapshot: vi.fn() };
 const identity = { resolve_user: vi.fn() };
@@ -97,5 +97,17 @@ describe('create_calendar_api', () => {
     expect(catalog.list_calendar_snapshots).toHaveBeenCalledWith(TENANT_ID, OBJECT_ID);
     expect(deletion.delete_mailbox_data).toHaveBeenCalledWith(TENANT_ID, OBJECT_ID);
     expect(deletion.delete_snapshot).toHaveBeenCalledWith(TENANT_ID, OBJECT_ID, 'cal-snap-1');
+  });
+
+  it('listSnapshotSummaries reads the summary index for the resolved mailbox and camelizes it', async () => {
+    catalog.list_calendar_snapshot_summaries.mockResolvedValue([
+      { snapshot_id: 'cal-snap-1', total_events: 3, mailbox_id: OBJECT_ID },
+    ]);
+    const calendar = create_calendar_api(TENANT_ID, container);
+
+    const summaries = await calendar.listSnapshotSummaries(OBJECT_ID);
+
+    expect(catalog.list_calendar_snapshot_summaries).toHaveBeenCalledWith(TENANT_ID, OBJECT_ID);
+    expect(summaries).toEqual([{ snapshotId: 'cal-snap-1', totalEvents: 3, mailboxId: OBJECT_ID }]);
   });
 });

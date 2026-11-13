@@ -188,7 +188,7 @@ export class ContactsBackupService implements ContactsBackupUseCase {
         : undefined;
     if (snapshot !== undefined) {
       run.lease.assert_held();
-      await this._manifests.save(ctx, snapshot);
+      await this._manifests.save(ctx, snapshot, run.lease);
     }
     if (writable) {
       run.lease.assert_held();

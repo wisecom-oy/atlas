@@ -1,4 +1,5 @@
 import type { CalendarSnapshotManifest } from '@/domain/calendar/manifest';
+import type { CalendarSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type {
   CalendarBackupOptions,
   CalendarBackupResult,
@@ -30,6 +31,7 @@ export type CalendarSdkBackupResult = Camelize<CalendarBackupResult>;
 export type CalendarSdkRestoreResult = Camelize<CalendarRestoreResult>;
 export type CalendarSdkVerificationResult = Camelize<VerificationResult>;
 export type CalendarSdkSnapshotManifest = Camelize<CalendarSnapshotManifest>;
+export type CalendarSdkSnapshotSummary = Camelize<CalendarSnapshotSummary>;
 export type CalendarSdkDeletionResult = Camelize<DeletionResult>;
 
 /** Mailbox arguments accept an Entra object ID or a mail address. */
@@ -42,6 +44,8 @@ export interface CalendarApi {
     options?: CalendarSdkVerificationOptions,
   ): Promise<CalendarSdkVerificationResult>;
   listSnapshots(mailbox: string): Promise<CalendarSdkSnapshotManifest[]>;
+  /** Lists a mailbox's snapshots from its summary index, without entries (#727). */
+  listSnapshotSummaries(mailbox: string): Promise<CalendarSdkSnapshotSummary[]>;
   deleteMailboxData(mailbox: string): Promise<CalendarSdkDeletionResult>;
   deleteSnapshot(mailbox: string, snapshotId: string): Promise<CalendarSdkDeletionResult>;
   /**

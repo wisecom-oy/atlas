@@ -50,7 +50,7 @@ export async function execute_contacts_list(
   const mailbox = await resolve_owner(container, tenant_id, options.mailbox);
   const catalog = container.get<ContactsCatalogUseCase>(CONTACTS_CATALOG_USE_CASE_TOKEN);
   const listing = await read_listing(() =>
-    catalog.list_contacts_snapshots(tenant_id, mailbox.object_id),
+    catalog.list_contacts_snapshot_summaries(tenant_id, mailbox.object_id),
   );
   const snapshots = listing.result;
   report_unreadable_keys(listing.unreadable_keys);
@@ -66,7 +66,7 @@ export async function execute_contacts_list(
   }
   const rows: SnapshotRow[] = snapshots.map((snap) => ({
     snapshot_id: snap.snapshot_id,
-    created_at: snap.created_at,
+    created_at: snap.created_at.toISOString(),
     total_contacts: snap.total_contacts,
   }));
   await render_static_view(<DataTable columns={snapshot_columns} rows={rows} />);

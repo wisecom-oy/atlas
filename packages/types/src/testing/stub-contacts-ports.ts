@@ -106,6 +106,19 @@ export function memory_manifests(): MemoryManifests {
       manifests: [...saved].reverse(),
       unreadable_keys: [],
     }),
+    list_snapshot_summaries: async () => ({
+      summaries: [...saved].reverse().map((m) => ({
+        snapshot_id: m.snapshot_id,
+        created_at: new Date(m.created_at),
+        manifest_key: `contacts/manifests/${m.mailbox_id}/${m.snapshot_id}.json`,
+        entry_count: m.entries.length,
+        total_size_bytes: m.total_size_bytes,
+        mailbox_id: m.mailbox_id,
+        total_contacts: m.total_contacts,
+      })),
+      unreadable_keys: [],
+    }),
+    forget_snapshot_summary: async () => undefined,
     read_manifest_at: async (_ctx, key) =>
       saved.find((m) => key.endsWith(`/${m.snapshot_id}.json`)),
   };

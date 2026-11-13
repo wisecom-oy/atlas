@@ -105,6 +105,14 @@ export function create_calendar_api(tenant_id: string, container: Container): Ca
         ),
       );
     },
+    async listSnapshotSummaries(mailbox) {
+      const resolved_id = await resolve_mailbox_id(mailbox);
+      return camelize(
+        await with_camelized_partial_result(() =>
+          catalog.list_calendar_snapshot_summaries(tenant_id, resolved_id),
+        ),
+      );
+    },
     async deleteMailboxData(mailbox) {
       return camelize(
         await deletion.delete_mailbox_data(tenant_id, await resolve_mailbox_id(mailbox)),
