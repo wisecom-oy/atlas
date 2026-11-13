@@ -1,4 +1,7 @@
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
+import {
+  stub_owner_leases,
+  type StubOwnerLeases,
+} from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { OWNER_LEASE_TOKEN } from '@wisecom/atlas-types';
 import { outlook_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import { vi } from 'vitest';
@@ -83,6 +86,8 @@ export interface RestoreHarness {
   readonly mock_manifests: ManifestRepository;
   readonly mock_connector: MailboxConnector;
   readonly mock_restore: RestoreConnector;
+  /** The owner-lease stub the service takes its lease from, for ordering assertions (#735). */
+  readonly owner_leases: StubOwnerLeases;
 }
 
 /** Builds a RestoreService wired to fresh port mocks; one per test. */
@@ -171,7 +176,8 @@ export function make_restore_harness(): RestoreHarness {
     create_readonly: vi.fn().mockResolvedValue(mock_context),
     create_storage_only: vi.fn().mockResolvedValue(mock_context),
   } as unknown as TenantContextFactory);
-  container.bind(OWNER_LEASE_TOKEN).toConstantValue(stub_owner_leases().leases);
+  const owner_leases = stub_owner_leases();
+  container.bind(OWNER_LEASE_TOKEN).toConstantValue(owner_leases.leases);
   container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(mock_manifests);
   container.bind(MAILBOX_CONNECTOR_TOKEN).toConstantValue(mock_connector);
   container.bind(RESTORE_CONNECTOR_TOKEN).toConstantValue(mock_restore);
@@ -183,5 +189,6 @@ export function make_restore_harness(): RestoreHarness {
     mock_manifests,
     mock_connector,
     mock_restore,
+    owner_leases,
   };
 }

@@ -146,4 +146,31 @@ describe('resolve_snapshot_entries', () => {
     await expect(run).rejects.toBeInstanceOf(NotFoundError);
     await expect(run).rejects.toThrow('Folder "NoSuchFolder" not found. Available: Inbox, Sent');
   });
+
+  it.each(['99', 'AAMkAG-no-such-id'])(
+    'rejects a message reference %j that names no message (#735)',
+    async (message_ref) => {
+      const run = resolve('snap-2', { message_ref });
+
+      await expect(run).rejects.toBeInstanceOf(NotFoundError);
+      await expect(run).rejects.toThrow(`No message matches "${message_ref}" in snapshot snap-2`);
+    },
+  );
+
+  it('rejects a message reference the chain records as removed (#735)', async () => {
+    const removed: Manifest = { ...manifest('snap-4', 4, []), removed_object_ids: ['A'] };
+    const all = [SNAP_1, SNAP_2, removed];
+    const repo = make_repo();
+    vi.mocked(repo.find_by_snapshot).mockImplementation(async (_c: TenantContext, id: string) =>
+      all.find((m) => m.snapshot_id === id),
+    );
+    vi.mocked(repo.list_by_owner).mockImplementation(async (_c: TenantContext, owner_id: string) =>
+      all.filter((m) => m.owner_id === owner_id),
+    );
+
+    const run = resolve('snap-4', { message_ref: 'A' }, repo);
+
+    await expect(run).rejects.toBeInstanceOf(NotFoundError);
+    await expect(run).rejects.toThrow('No message matches "A" in snapshot snap-4');
+  });
 });
