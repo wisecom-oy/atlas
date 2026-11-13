@@ -13,7 +13,7 @@ import {
 
 vi.mock('@/ui/render', () => ({ render_static_view: vi.fn(async () => {}) }));
 
-const TENANT = 'tenant-example';
+const TENANT = '00000000-0000-0000-0000-000000000001';
 
 function healthy_result(team_id: string): TeamsBackupResult {
   return {
@@ -70,6 +70,15 @@ describe('teams backup scope and per-team isolation', () => {
     await expect(
       execute_teams_backup(container, { tenant: TENANT, all: true, channel: 'channel-1' }),
     ).rejects.toThrow('--channel requires exactly one --team');
+
+    expect(list_teams).not.toHaveBeenCalled();
+    expect(backup_team).not.toHaveBeenCalled();
+  });
+
+  it('refuses a domain tenant with --all before listing teams or backing anything up (#723)', async () => {
+    await expect(
+      execute_teams_backup(container, { tenant: 'contoso.onmicrosoft.com', all: true }),
+    ).rejects.toThrow('tenant GUID');
 
     expect(list_teams).not.toHaveBeenCalled();
     expect(backup_team).not.toHaveBeenCalled();

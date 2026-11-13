@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TeamsChannelIndexEntry, TeamsGraphResource } from '@wisecom/atlas-types';
 import {
+  all_channels_foreign_errors,
   merge_channel_entries,
   split_owned_channels,
 } from '@/services/backup/channel-entry-merger';
@@ -109,5 +110,27 @@ describe('split_owned_channels', () => {
 
     expect(split.owned).toEqual([{ id: 'channel-1' }]);
     expect(split.warnings).toEqual(['Channel channel-2 is owned by another tenant; skipped']);
+  });
+});
+
+describe('all_channels_foreign_errors', () => {
+  const OWNED: TeamsGraphResource = { id: 'channel-1' };
+  const FOREIGN: TeamsGraphResource = {
+    id: 'channel-2',
+    tenantId: '11111111-2222-3333-4444-555555555555',
+  };
+
+  it('reports an error when every listed channel was skipped as foreign', () => {
+    expect(all_channels_foreign_errors([FOREIGN], [], 'team-1')).toEqual([
+      'Every channel of team team-1 is owned by another tenant; nothing was backed up',
+    ]);
+  });
+
+  it('reports nothing when at least one channel is owned', () => {
+    expect(all_channels_foreign_errors([OWNED, FOREIGN], [OWNED], 'team-1')).toEqual([]);
+  });
+
+  it('reports nothing when the team lists no channels at all', () => {
+    expect(all_channels_foreign_errors([], [], 'team-1')).toEqual([]);
   });
 });

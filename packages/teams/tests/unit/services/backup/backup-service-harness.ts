@@ -21,6 +21,7 @@ import {
 } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 export const TEAM_ID = 'aaaaaaaa-1111-2222-3333-444444444444';
+export const TENANT_ID = '00000000-0000-0000-0000-000000000001';
 
 /** A backup output for one channel with an empty shard. Overrides replace any field. */
 export function channel_output(

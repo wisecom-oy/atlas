@@ -6,7 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OwnerBusyError, OwnerLeaseLostError } from '@wisecom/atlas-types';
 import { backup_channel } from '@/services/backup/channel-backup-processor';
-import { channel_output, make_ports, TEAM_ID } from './backup-service-harness';
+import { channel_output, make_ports, TEAM_ID, TENANT_ID } from './backup-service-harness';
 
 vi.mock('@wisecom/atlas-core/services/shared/run-object-lock', () => ({
   attach_run_retention: vi.fn(async (ctx: unknown) => ctx),
@@ -31,7 +31,7 @@ describe('TeamsBackupService.backup_team under the team lease (issue #623)', () 
       return { index: undefined, unreadable_keys: [], unsupported_keys: [] };
     });
 
-    await ports.service.backup_team('tenant-1', TEAM_ID.toUpperCase());
+    await ports.service.backup_team(TENANT_ID, TEAM_ID.toUpperCase());
 
     expect(ports.leases.requests).toEqual([LEASE]);
     expect(events_at_baseline).toEqual(['acquire']);
@@ -43,7 +43,7 @@ describe('TeamsBackupService.backup_team under the team lease (issue #623)', () 
   it('hands every channel the lease, so a checkpoint is not advanced once it is lost', async () => {
     const ports = make_ports();
 
-    await ports.service.backup_team('tenant-1', TEAM_ID);
+    await ports.service.backup_team(TENANT_ID, TEAM_ID);
 
     const scope = vi.mocked(backup_channel).mock.calls[0]?.[0];
     expect(() => scope?.lease.assert_held()).not.toThrow();
@@ -54,7 +54,7 @@ describe('TeamsBackupService.backup_team under the team lease (issue #623)', () 
     const ports = make_ports();
     ports.leases.refuse_with(new OwnerBusyError({ ...LEASE, held_by_operation: 'backup' }));
 
-    await expect(ports.service.backup_team('tenant-1', TEAM_ID)).rejects.toBeInstanceOf(
+    await expect(ports.service.backup_team(TENANT_ID, TEAM_ID)).rejects.toBeInstanceOf(
       OwnerBusyError,
     );
 
@@ -72,7 +72,7 @@ describe('TeamsBackupService.backup_team under the team lease (issue #623)', () 
       return channel_output(channel.id);
     });
 
-    await expect(ports.service.backup_team('tenant-1', TEAM_ID)).rejects.toBeInstanceOf(
+    await expect(ports.service.backup_team(TENANT_ID, TEAM_ID)).rejects.toBeInstanceOf(
       OwnerLeaseLostError,
     );
 
@@ -84,7 +84,7 @@ describe('TeamsBackupService.backup_team under the team lease (issue #623)', () 
     const ports = make_ports();
     ports.connector.list_channels.mockRejectedValue(new Error('graph unavailable'));
 
-    await expect(ports.service.backup_team('tenant-1', TEAM_ID)).rejects.toThrow(
+    await expect(ports.service.backup_team(TENANT_ID, TEAM_ID)).rejects.toThrow(
       'graph unavailable',
     );
 
@@ -96,7 +96,7 @@ describe('TeamsBackupService.backup_team under the team lease (issue #623)', () 
     const controller = new AbortController();
     controller.abort();
 
-    const result = await ports.service.backup_team('tenant-1', TEAM_ID, {
+    const result = await ports.service.backup_team(TENANT_ID, TEAM_ID, {
       abort_signal: controller.signal,
     });
 

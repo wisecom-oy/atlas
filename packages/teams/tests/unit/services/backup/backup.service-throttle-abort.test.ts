@@ -11,7 +11,7 @@ import type {
   TenantContext,
 } from '@wisecom/atlas-types';
 import { TeamsBackupService } from '@/services/backup/backup.service';
-import { TEAM_ID } from './backup-service-harness';
+import { TEAM_ID, TENANT_ID } from './backup-service-harness';
 import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 vi.mock('@wisecom/atlas-core/services/shared/run-object-lock', () => ({
@@ -65,7 +65,7 @@ describe('TeamsBackupService.backup_team stops a throttled team GET on Ctrl+C', 
     const service = service_with_throttled_team_get();
     const controller = new AbortController();
 
-    const promise = service.backup_team('tenant-1', TEAM_ID, {
+    const promise = service.backup_team(TENANT_ID, TEAM_ID, {
       abort_signal: controller.signal,
     });
     const outcome = promise.then(

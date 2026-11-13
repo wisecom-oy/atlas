@@ -14,7 +14,7 @@ import {
   TEAMS_BACKUP_USE_CASE_TOKEN,
   TEAMS_CATALOG_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
-import { resolve_channel_concurrency } from '@wisecom/atlas-teams';
+import { assert_tenant_guid, resolve_channel_concurrency } from '@wisecom/atlas-teams';
 import { build_object_lock_request } from '@/command-object-lock';
 import { EXIT_PARTIAL, report_run_outcome } from '@/command-run-outcome';
 import { report_unreadable_keys, report_unsupported_keys } from '@/command-unreadable-objects';
@@ -136,6 +136,8 @@ export async function execute_teams_backup(
   const concurrency = resolve_channel_concurrency(
     options.concurrency === undefined ? undefined : Number(options.concurrency),
   );
+  // Before `--all` lists the tenant's teams, so a domain fails without a Graph call (#723).
+  assert_tenant_guid(tenant_id);
   const team_ids = await resolve_backup_team_ids(container, tenant_id, options);
 
   const backup = container.get<TeamsBackupUseCase>(TEAMS_BACKUP_USE_CASE_TOKEN);
