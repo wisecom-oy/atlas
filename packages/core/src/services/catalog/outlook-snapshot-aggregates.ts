@@ -1,15 +1,14 @@
 import { createHash } from 'node:crypto';
-import type {
-  Manifest,
-  ManifestEntry,
-  OutlookSnapshotAggregates,
-  SnapshotFolderTotals,
+import {
+  HASHED_OBJECT_ID_LENGTH,
+  type Manifest,
+  type ManifestEntry,
+  type OutlookSnapshotAggregates,
+  type SnapshotFolderTotals,
 } from '@wisecom/atlas-types';
-import { is_json_record } from '@wisecom/atlas-core/services/shared/stored-json-reader';
-import { stored_count } from '@wisecom/atlas-core/services/shared/snapshot-summary-layout';
+import { is_json_record } from '@/services/shared/stored-json-reader';
+import { stored_count } from '@/services/shared/snapshot-summary-layout';
 
-/** Characters in one hashed object ID: 12 bytes in base64url, which carries no padding. */
-const HASHED_ID_LENGTH = 16;
 const HASHED_ID_PATTERN = /^[A-Za-z0-9_-]*$/;
 /** The folder `stats -m` reports for an entry that names none. */
 const UNKNOWN_FOLDER = 'unknown';
@@ -142,7 +141,7 @@ function join_hashed_ids(object_ids: readonly string[]): string {
 function is_hashed_ids(value: unknown): value is string {
   return (
     typeof value === 'string' &&
-    value.length % HASHED_ID_LENGTH === 0 &&
+    value.length % HASHED_OBJECT_ID_LENGTH === 0 &&
     HASHED_ID_PATTERN.test(value)
   );
 }

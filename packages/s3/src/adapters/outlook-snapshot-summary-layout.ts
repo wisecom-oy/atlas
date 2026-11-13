@@ -19,7 +19,7 @@ import {
 import {
   build_outlook_aggregates,
   parse_outlook_aggregates,
-} from '@/adapters/outlook-snapshot-aggregates';
+} from '@wisecom/atlas-core/services/catalog/outlook-snapshot-aggregates';
 
 /** Directory of the per-mailbox manifest pointers, which the summary index sits beside. */
 export const OUTLOOK_MANIFEST_POINTER_PREFIX = '_meta/outlook-manifests';

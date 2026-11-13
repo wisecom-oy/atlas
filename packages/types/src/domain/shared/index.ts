@@ -9,3 +9,4 @@ export type {
   IdentityEntryStatus,
 } from './identity-registry';
 export type * from '@/domain/shared/snapshot-summary';
+export { HASHED_OBJECT_ID_LENGTH } from './snapshot-summary';

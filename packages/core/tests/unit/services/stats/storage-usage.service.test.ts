@@ -45,13 +45,13 @@ function harness(
     () => inventory,
     { create_readonly } as unknown as TenantContextFactory,
     {
-      list_all_manifests: async () => [
-        {
-          owner_id: 'm1',
-          created_at: new Date(),
-          entries: [{ size_bytes: 100 }, { size_bytes: 50 }],
-        },
-      ],
+      list_all_manifests: async () => {
+        throw new Error('Outlook manifests must not be read for logical bytes');
+      },
+      list_all_snapshot_summaries: async () => ({
+        summaries: [{ owner_id: 'm1', aggregates: { entry_size_bytes: 150 } }],
+        unreadable_keys: [],
+      }),
     } as unknown as ManifestRepository,
     {
       list_all_manifests: async () => {

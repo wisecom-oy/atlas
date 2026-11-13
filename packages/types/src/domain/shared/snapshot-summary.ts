@@ -14,6 +14,9 @@ export interface SnapshotSummary {
   readonly total_size_bytes: number;
 }
 
+/** Characters in one hashed object ID in an Outlook summary row (96 bits, base64url). */
+export const HASHED_OBJECT_ID_LENGTH = 16;
+
 /** One folder's totals within a single snapshot's own entries. */
 export interface SnapshotFolderTotals {
   readonly folder_id: string;

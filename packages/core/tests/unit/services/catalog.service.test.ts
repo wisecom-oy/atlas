@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import 'reflect-metadata';
 import type { CatalogService } from '@/services/catalog/catalog.service';
 import type { ManifestRepository, TenantContext } from '@wisecom/atlas-types';
-import { build_catalog_harness, make_manifest } from './catalog-service.fixtures';
+import { build_catalog_harness, make_manifest, summary_listing } from './catalog-service.fixtures';
 import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 function entries(...object_ids: string[]) {
@@ -34,8 +34,8 @@ describe('CatalogService', () => {
     });
 
     it('groups manifests by mailbox and picks latest for stats', async () => {
-      vi.mocked(mock_manifests.list_all_readable).mockResolvedValue(
-        readable_manifests([
+      vi.mocked(mock_manifests.list_all_snapshot_summaries).mockResolvedValue(
+        summary_listing([
           make_manifest({
             owner_id: 'alice@test.com',
             snapshot_id: 's1',
@@ -76,8 +76,8 @@ describe('CatalogService', () => {
 
     // Issue #536: the count followed the high-water `total_objects` and never dropped.
     it('stops counting messages a run with no new entries recorded as removed', async () => {
-      vi.mocked(mock_manifests.list_all_readable).mockResolvedValue(
-        readable_manifests([
+      vi.mocked(mock_manifests.list_all_snapshot_summaries).mockResolvedValue(
+        summary_listing([
           make_manifest({
             snapshot_id: 's1',
             created_at: new Date('2026-03-01'),
@@ -100,8 +100,8 @@ describe('CatalogService', () => {
     });
 
     it('reports mailbox_purpose from the latest manifest after conversion', async () => {
-      vi.mocked(mock_manifests.list_all_readable).mockResolvedValue(
-        readable_manifests([
+      vi.mocked(mock_manifests.list_all_snapshot_summaries).mockResolvedValue(
+        summary_listing([
           make_manifest({
             owner_id: 'converted@test.com',
             snapshot_id: 's1',
@@ -128,8 +128,8 @@ describe('CatalogService', () => {
     });
 
     it('falls back to the newest manifest that recorded a purpose when the latest lacks one', async () => {
-      vi.mocked(mock_manifests.list_all_readable).mockResolvedValue(
-        readable_manifests([
+      vi.mocked(mock_manifests.list_all_snapshot_summaries).mockResolvedValue(
+        summary_listing([
           make_manifest({
             owner_id: 'team@test.com',
             snapshot_id: 's1',
@@ -151,8 +151,8 @@ describe('CatalogService', () => {
     });
 
     it('reports owner_email from the newest manifest that recorded one', async () => {
-      vi.mocked(mock_manifests.list_all_readable).mockResolvedValue(
-        readable_manifests([
+      vi.mocked(mock_manifests.list_all_snapshot_summaries).mockResolvedValue(
+        summary_listing([
           make_manifest({
             owner_id: '00000000-0000-0000-0000-000000000001',
             snapshot_id: 's1',
@@ -174,8 +174,8 @@ describe('CatalogService', () => {
     });
 
     it('returns summaries sorted alphabetically by owner_id', async () => {
-      vi.mocked(mock_manifests.list_all_readable).mockResolvedValue(
-        readable_manifests([
+      vi.mocked(mock_manifests.list_all_snapshot_summaries).mockResolvedValue(
+        summary_listing([
           make_manifest({ owner_id: 'zara@test.com', snapshot_id: 's1' }),
           make_manifest({ owner_id: 'alice@test.com', snapshot_id: 's2' }),
         ]),

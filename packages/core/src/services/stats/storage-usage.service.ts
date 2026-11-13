@@ -24,7 +24,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { logger } from '@/utils/logger';
-import { aggregate_bucket_stats } from '@/services/stats/stats-aggregator';
+import { sum_entry_bytes } from '@/services/stats/stats-summary-aggregator';
 import { require_every_summary } from '@/services/stats/require-every-summary';
 import { run_usage_listing } from '@/services/stats/storage-usage-run';
 import {
@@ -118,8 +118,11 @@ export class StorageUsageService implements StorageUsageUseCase {
       ctx = target
         ? await target.create_context(tenant_id)
         : await this._tenant_factory.create_readonly(tenant_id);
-      const outlook = await this._manifests.list_all_manifests(ctx);
-      // Drive totals need only each snapshot's total_size_bytes, which the summary rows hold (#726).
+      // Every workload's totals come from the summary rows, which hold each snapshot's size (#726).
+      const outlook = require_every_summary(
+        await this._manifests.list_all_snapshot_summaries(ctx),
+        'Outlook',
+      );
       const onedrive = require_every_summary(
         await this._od_manifests.list_all_snapshot_summaries(ctx),
         'OneDrive',
@@ -130,7 +133,7 @@ export class StorageUsageService implements StorageUsageUseCase {
       );
       const teams = await this._teams_indexes.list_all(ctx);
       return {
-        outlook: aggregate_bucket_stats(tenant_id, outlook).total_size_bytes,
+        outlook: sum_entry_bytes(outlook),
         onedrive: sum_total_size_bytes(onedrive),
         sharepoint: sum_total_size_bytes(sharepoint),
         teams: teams.reduce((sum, index) => sum + index.totals.size_bytes, 0),

@@ -16,7 +16,10 @@ import {
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
 } from '@wisecom/atlas-types';
-import { aggregate_bucket_stats, aggregate_mailbox_stats } from '@/services/stats/stats-aggregator';
+import {
+  aggregate_bucket_stats_from_summaries,
+  aggregate_mailbox_stats_from_summaries,
+} from '@/services/stats/stats-summary-aggregator';
 import { require_every_summary } from '@/services/stats/require-every-summary';
 import {
   aggregate_drive_stats,
@@ -65,24 +68,26 @@ export class StatsService implements StatsUseCase {
     private readonly _sp_manifests: SharePointManifestRepository,
   ) {}
 
-  /** Loads all manifests and computes bucket-wide statistics. */
+  /** Reads every mailbox's snapshot summaries and computes bucket-wide statistics (#726). */
   async get_bucket_stats(tenant_id: string): Promise<BucketStats> {
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const all = await this._manifests.list_all_manifests(ctx);
-      return timed(() => aggregate_bucket_stats(tenant_id, all));
+      const listing = await this._manifests.list_all_snapshot_summaries(ctx);
+      const summaries = require_every_summary(listing, 'Outlook');
+      return timed(() => aggregate_bucket_stats_from_summaries(tenant_id, summaries));
     } finally {
       ctx.destroy();
     }
   }
 
-  /** Loads manifests for a single mailbox and computes its statistics. */
+  /** Reads one mailbox's snapshot summaries and computes its statistics (#726). */
   async get_mailbox_stats(tenant_id: string, owner_id: string): Promise<MailboxStats> {
     owner_id = normalize_owner_id(owner_id);
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const filtered = await this._manifests.list_by_owner(ctx, owner_id);
-      return timed(() => aggregate_mailbox_stats(owner_id, filtered));
+      const listing = await this._manifests.list_snapshot_summaries(ctx, owner_id);
+      const summaries = require_every_summary(listing, 'Outlook');
+      return timed(() => aggregate_mailbox_stats_from_summaries(owner_id, summaries));
     } finally {
       ctx.destroy();
     }

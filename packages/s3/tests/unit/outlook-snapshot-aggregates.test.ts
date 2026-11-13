@@ -11,7 +11,7 @@ import {
   build_outlook_aggregates,
   hash_object_id,
   parse_outlook_aggregates,
-} from '@/adapters/outlook-snapshot-aggregates';
+} from '@wisecom/atlas-core/services/catalog/outlook-snapshot-aggregates';
 import {
   OUTLOOK_SUMMARY_LAYOUT,
   outlook_summary_key,

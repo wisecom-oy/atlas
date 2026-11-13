@@ -3,7 +3,7 @@ import 'reflect-metadata';
 import type { CatalogService } from '@/services/catalog/catalog.service';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import { UnreadableObjectsError } from '@wisecom/atlas-types';
-import { build_catalog_harness, make_manifest } from './catalog-service.fixtures';
+import { build_catalog_harness, make_manifest, summary_listing } from './catalog-service.fixtures';
 
 const OWNER = '00000000-0000-0000-0000-00000000abcd';
 const DAMAGED = `manifests/${OWNER}/snap-damaged.json`;
@@ -32,10 +32,9 @@ describe('Outlook catalog with a damaged manifest (issue #631)', () => {
   });
 
   it('fails the mailbox listing with the key named, carrying the readable summaries', async () => {
-    vi.mocked(mock_manifests.list_all_readable).mockResolvedValue({
-      manifests: [make_manifest({ owner_id: OWNER, snapshot_id: 'snap-ok' })],
-      unreadable_keys: [DAMAGED],
-    });
+    vi.mocked(mock_manifests.list_all_snapshot_summaries).mockResolvedValue(
+      summary_listing([make_manifest({ owner_id: OWNER, snapshot_id: 'snap-ok' })], [DAMAGED]),
+    );
 
     const error = (await service
       .list_mailboxes('t')
