@@ -45,8 +45,8 @@ export function read_graph_env_overrides(): Partial<TenantProfile> {
   };
 }
 
-/** Warns when ATLAS_* Graph variables override the selected profile. */
-export function warn_graph_env_overrides(): void {
+/** Warns when any ATLAS_* Graph variable is set, since each one overrides the selected profile. */
+export function warn_graph_env_vars_set(): void {
   const present = Object.values(GRAPH_ENV_VARS).filter((name) => process.env[name]);
   if (present.length > 0) {
     logger.warn(
