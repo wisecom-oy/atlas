@@ -14,6 +14,15 @@ export interface MailboxSummary {
   readonly last_backup_at: Date;
 }
 
+/** A snapshot as `outlook list -m` reports it: its summary row and what its chain holds. */
+export interface OutlookSnapshotListing extends OutlookSnapshotSummary {
+  /**
+   * Messages in the snapshot's merged chain, after recorded removals: the set `verify`, `restore -s`
+   * and `save -s` read (issue #711). Unlike `total_objects`, it falls when deletions are recorded.
+   */
+  readonly object_count: number;
+}
+
 /**
  * A decrypted stored message. MIME entries (`payload_format: 'mime'`) expose the
  * RFC 5322 bytes in `raw` and carry no `message` object and no separate
@@ -34,7 +43,7 @@ export interface CatalogUseCase {
   list_mailboxes(tenant_id: string): Promise<MailboxSummary[]>;
   list_snapshots(tenant_id: string, owner_id: string): Promise<Manifest[]>;
   /** Lists a mailbox's snapshots from its summary index, newest first, without their entries. */
-  list_snapshot_summaries(tenant_id: string, owner_id: string): Promise<OutlookSnapshotSummary[]>;
+  list_snapshot_summaries(tenant_id: string, owner_id: string): Promise<OutlookSnapshotListing[]>;
   get_snapshot_detail(tenant_id: string, snapshot_id: string): Promise<Manifest | undefined>;
   read_message(
     tenant_id: string,

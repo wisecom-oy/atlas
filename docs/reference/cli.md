@@ -182,6 +182,8 @@ atlas outlook backup -t <tenant-id> -m user@company.com                # explici
 | `--exclude-junk`              | Skip the Junk Email folder and its subfolders                                |
 | `--include-recoverable-items` | Also back up hard-deleted and hold-retained mail (see below)                 |
 
+The run ends with `Snapshot <id> -- <n> objects (<size> captured by this run)`. `<n>` counts the messages in the snapshot's chain, the same set `verify`, `restore -s` and `save -s` read, so it rises when mail arrives and falls when the run records deletions. A run that captured nothing reports the existing newest snapshot and its count. `<size>` is only what this run captured.
+
 `--lock-mode` only applies with `--retention-days`. Passing it alone is rejected, so a run meant to be immutable cannot exit `0` with unprotected data. Retention without a mode defaults to `governance`. Retention is fail-closed: if the bucket has versioning or Object Lock disabled, or cannot honour the requested mode, the run aborts instead of writing unprotected data.
 
 #### Which folders are backed up
@@ -382,7 +384,7 @@ atlas outlook list -s <snapshot-id> -S          # reveal email subjects
 
 The mailbox overview includes a `Type` column, taken from the newest manifest that recorded a purpose (`user`, `shared`, `room`, and so on). It shows `--` when none was recorded.
 
-The overview's `Objects` column counts the messages in the latest snapshot's chain, the set `restore -s` reads, so it drops when a backup records deletions. The `Objects` column of `list -m` is each manifest's `total_objects`, a high-water mark: the largest message count any single run of the mailbox stored. It never decreases, because the stale-delta safeguard reads it to tell an unchanged mailbox from one never backed up.
+The `Objects` column counts the messages in a snapshot's chain, the set `verify`, `restore -s` and `save -s` read, so it drops when a backup records deletions. The overview shows it for the latest snapshot, and `list -m` for each snapshot, counting that snapshot and every older one. `restore` and `save` leave Recoverable Items messages out unless you pass `--include-recoverable-items`, and report how many they skipped.
 
 `list -m` reads the mailbox's [snapshot summary index](/operations/storage-layout#snapshot-summary-index) instead of decrypting every manifest. The overview without `-m` reads the index of every mailbox the same way. Its `Objects` count is merged from the rows, so no manifest is decrypted unless a snapshot has no row yet.
 

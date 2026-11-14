@@ -2,9 +2,12 @@ import type { SyncOptions, SyncResult } from '@/ports/backup/use-case.port';
 import type { VerificationOptions, VerificationResult } from '@/ports/verification/use-case.port';
 import type { RestoreOptions, RestoreResult } from '@/ports/restore/use-case.port';
 import type { SaveOptions, SaveResult } from '@/ports/save/use-case.port';
-import type { MailboxSummary, ReadMessageResult } from '@/ports/catalog/use-case.port';
+import type {
+  MailboxSummary,
+  OutlookSnapshotListing,
+  ReadMessageResult,
+} from '@/ports/catalog/use-case.port';
 import type { Manifest } from '@/domain/outlook/manifest';
-import type { OutlookSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type { DeletionResult } from '@/ports/deletion/use-case.port';
 import type { MailboxStats } from '@/domain/stats/stats';
 import type { MailboxStatusResult } from '@/ports/status/use-case.port';
@@ -55,7 +58,7 @@ export type OutlookRestoreResult = Camelize<RestoreResult>;
 export type OutlookSaveResult = Camelize<SaveResult>;
 export type OutlookMailboxSummary = Camelize<MailboxSummary>;
 export type OutlookSnapshotManifest = Camelize<Manifest>;
-export type OutlookSdkSnapshotSummary = Camelize<OutlookSnapshotSummary>;
+export type OutlookSdkSnapshotSummary = Camelize<OutlookSnapshotListing>;
 export type OutlookReadMessageResult = Camelize<ReadMessageResult>;
 export type OutlookDeletionResult = Camelize<DeletionResult>;
 export type OutlookMailboxStats = Camelize<MailboxStats>;

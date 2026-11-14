@@ -1,9 +1,5 @@
-import {
-  HASHED_OBJECT_ID_LENGTH,
-  type MailboxSummary,
-  type OutlookSnapshotSummary,
-} from '@wisecom/atlas-types';
-import { aggregates_of } from '@/services/stats/stats-summary-aggregator';
+import type { MailboxSummary, OutlookSnapshotSummary } from '@wisecom/atlas-types';
+import { count_merged_objects } from '@/services/catalog/snapshot-object-count';
 
 /**
  * Builds one MailboxSummary per owner from the owners' summary rows (#726). The object count is the
@@ -18,27 +14,6 @@ export function build_mailbox_summaries(
   return [...by_owner]
     .map(([owner_id, rows]) => mailbox_summary(owner_id, rows))
     .sort((a, b) => a.owner_id.localeCompare(b.owner_id));
-}
-
-/**
- * Counts the live objects of one mailbox's snapshots, given newest first. Mirrors
- * `merge_snapshot_entries`: an object counts once, at its newest appearance, and a removal hides
- * the same ID in every older snapshot. The IDs are hashed, so a collision would under-count, which
- * the 96-bit hash makes negligible.
- */
-export function count_merged_objects(newest_first: readonly OutlookSnapshotSummary[]): number {
-  const seen = new Set<string>();
-  let count = 0;
-  for (const summary of newest_first) {
-    const aggregates = aggregates_of(summary);
-    for (const id of split_hashed_ids(aggregates.object_ids)) {
-      if (seen.has(id)) continue;
-      seen.add(id);
-      count += 1;
-    }
-    for (const id of split_hashed_ids(aggregates.removed_ids)) seen.add(id);
-  }
-  return count;
 }
 
 function mailbox_summary(
@@ -70,13 +45,4 @@ function group_by_owner(
     by_owner.set(summary.owner_id, rows);
   }
   return by_owner;
-}
-
-/** Splits a row's concatenated hashed IDs into one string per ID. */
-function split_hashed_ids(joined: string): string[] {
-  const ids: string[] = [];
-  for (let start = 0; start < joined.length; start += HASHED_OBJECT_ID_LENGTH) {
-    ids.push(joined.slice(start, start + HASHED_OBJECT_ID_LENGTH));
-  }
-  return ids;
 }

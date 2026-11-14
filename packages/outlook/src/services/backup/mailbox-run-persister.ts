@@ -83,14 +83,26 @@ export interface MailboxRunOutcome {
 }
 
 /**
+ * Whether a run writes a snapshot: it captured an entry or recorded a removal, or the mailbox has
+ * none yet. A run whose only change was a deletion is not quiet: its removals exist only in its
+ * manifest (issue #512).
+ */
+export function run_writes_snapshot(manifest: Manifest, previous: Manifest | undefined): boolean {
+  const captured_change =
+    manifest.entries.length > 0 || (manifest.removed_object_ids?.length ?? 0) > 0;
+  return captured_change || previous === undefined;
+}
+
+/**
  * Writes what a completed mailbox run produced: the snapshot manifest, then the delta cursor.
  *
  * A run that captured nothing has nothing to snapshot. Writing one anyway added a manifest
  * object per quiet run forever, only to carry the delta links, and a snapshot is immutable once
  * written so the head could not be rewritten instead. The links live in the cursor now, which
- * the run overwrites, the way the drive providers have always done it (issue #370). A run whose
- * only change was a deletion is not quiet: its removals exist only in its manifest, and the
- * cursor moves past them (issue #512).
+ * the run overwrites, the way the drive providers have always done it (issue #370).
+ *
+ * `object_count` is the message count of the snapshot reported, written or left in place, which
+ * `count_run_objects` computes before the write (issue #711).
  *
  * The cursor is saved after the manifest, never before. A cursor that lands first tells the next
  * run to skip changes no manifest recorded, which is what #339 was.
@@ -105,16 +117,17 @@ export async function persist_mailbox_run(
   manifest: Manifest,
   snapshot: Snapshot,
   previous: Manifest | undefined,
-  entry_count: number,
+  object_count: number,
 ): Promise<MailboxRunOutcome> {
-  const captured_change = entry_count > 0 || (manifest.removed_object_ids?.length ?? 0) > 0;
-  const wrote_snapshot = captured_change || previous === undefined;
+  const wrote_snapshot = run_writes_snapshot(manifest, previous);
   if (wrote_snapshot) {
     lease.assert_held();
     await deps.manifests.save(ctx, manifest, lease);
   }
 
-  const head_snapshot_id = wrote_snapshot ? manifest.snapshot_id : previous.snapshot_id;
+  // A run with no previous manifest always writes, so `previous` is set on the quiet branch.
+  const head_snapshot_id =
+    wrote_snapshot || !previous ? manifest.snapshot_id : previous.snapshot_id;
   lease.assert_held();
   await deps.cursors.save(ctx, {
     owner_id: manifest.owner_id,
@@ -126,7 +139,7 @@ export async function persist_mailbox_run(
   return {
     snapshot: mark_snapshot_completed(
       wrote_snapshot ? snapshot : { ...snapshot, id: head_snapshot_id },
-      entry_count,
+      object_count,
     ),
     wrote_snapshot,
   };
