@@ -152,7 +152,13 @@ export async function process_delta_item(
   if (item.etag) state.previous_etag_by_file_id[item.item_id] = item.etag;
 
   return {
-    entry: build_stored_entry(item, result.storage_key, result.checksum, change_type),
+    // The stored length, which is the refreshed size when the file grew on its first download (#759).
+    entry: build_stored_entry(
+      { ...item, size_bytes: result.size_bytes },
+      result.storage_key,
+      result.checksum,
+      change_type,
+    ),
     files_stored: result.stored ? 1 : 0,
     files_deduplicated: result.deduplicated ? 1 : 0,
     deleted_items: 0,

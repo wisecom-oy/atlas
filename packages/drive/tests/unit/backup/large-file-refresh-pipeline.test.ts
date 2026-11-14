@@ -211,6 +211,7 @@ describe('process_drive_backup_file for a large file (issue #718)', () => {
       make_item(size),
       'owner-1',
       ctx,
+      async () => undefined,
     ).catch((err: unknown) => err);
 
     expect(error).toBeInstanceOf(DownloadUrlExpiredError);
@@ -230,6 +231,7 @@ describe('process_drive_backup_file for a large file (issue #718)', () => {
       make_item(size),
       'owner-1',
       ctx,
+      async () => undefined,
     );
 
     expect(result).toBeUndefined();

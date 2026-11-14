@@ -33,6 +33,7 @@ function stored(item_id: string): Awaited<ReturnType<typeof process_backup_file>
     checksum: `c-${item_id}`,
     stored: true,
     deduplicated: false,
+    size_bytes: 0,
   };
 }
 

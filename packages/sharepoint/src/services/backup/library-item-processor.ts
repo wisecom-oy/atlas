@@ -148,8 +148,9 @@ export async function process_delta_item(
     });
   }
   library_state.library_entries.push(
+    // The stored length, which is the refreshed size when the file grew on its first download (#759).
     build_stored_entry(
-      item,
+      { ...item, size_bytes: result.size_bytes },
       result.storage_key,
       result.checksum,
       change_type,

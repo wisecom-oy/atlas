@@ -77,6 +77,7 @@ describe('a cancelled large-file download (issue #344)', () => {
         ITEM,
         'owner-1',
         make_ctx(),
+        async () => undefined,
         cancel.signal,
       ),
     ).rejects.toThrow(/run cancelled/);
@@ -89,6 +90,7 @@ describe('a cancelled large-file download (issue #344)', () => {
       ITEM,
       'owner-1',
       make_ctx(),
+      async () => undefined,
     );
 
     expect(result).toBeUndefined();
