@@ -38,9 +38,26 @@ describe('hosted_archive_path', () => {
 
   it('keeps path separators and dot segments out of the owner and content names', () => {
     const path = hosted_archive_path('d', { root_id: '../r' }, '../../h', 'image/png');
+    const [, , owner, file] = path.split('/');
 
-    expect(path).toBe('d/hosted/---r/------h.png');
     expect(path.split('/')).toHaveLength(4);
+    expect(owner).toMatch(/^---r-[0-9a-f]{16}$/);
+    expect(file).toMatch(/^------h-[0-9a-f]{16}\.png$/);
+  });
+
+  it('shortens a long hosted-content ID to a prefix and a digest', () => {
+    const long_id = 'aWQ9eF8wLXd1cy1kNy' + 'A'.repeat(300) + '==';
+    const file = hosted_archive_path('d', { root_id: 'r' }, long_id, 'image/png').split('/')[3];
+
+    expect(file).toMatch(/^aWQ9eF8wLXd1cy1kNyAAAAAAAAAAAAAA-[0-9a-f]{16}\.png$/);
+    expect(file?.length).toBeLessThan(64);
+  });
+
+  it('gives IDs that differ only in replaced characters different names', () => {
+    const a = hosted_archive_path('d', { root_id: 'r' }, 'ab+c', 'image/png');
+    const b = hosted_archive_path('d', { root_id: 'r' }, 'ab/c', 'image/png');
+
+    expect(a).not.toBe(b);
   });
 });
 

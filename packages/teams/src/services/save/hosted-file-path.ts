@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { HostedOwner } from '@/services/backup/hosted-reference-scanner';
 
 const IMAGE_TYPE_RE = /^image\/[a-z0-9.+-]+$/;
@@ -38,9 +39,20 @@ export function inline_image_type(content_type: string | undefined): string | un
   return type !== undefined && IMAGE_TYPE_RE.test(type) ? type : undefined;
 }
 
-/** Keeps ASCII letters, digits, `_` and `-`, so Graph IDs cannot form a path separator or dot segment. */
+/** Longest Graph ID kept as it is in a file name. Hosted-content IDs run to hundreds of characters. */
+const MAX_PLAIN_SEGMENT = 64;
+
+/**
+ * A file-name segment for a Graph ID. An ID of ASCII letters, digits, `_` and `-` up to 64
+ * characters is kept as it is. Any other ID keeps a readable 32-character prefix with every other
+ * character replaced, plus 16 hex characters of its SHA-256, so it cannot form a path separator or
+ * dot segment, stays far below the 255-byte file-name limit, and two IDs never share a name.
+ */
 function safe_segment(value: string): string {
-  return value.replace(/[^A-Za-z0-9_-]/g, '-');
+  const cleaned = value.replace(/[^A-Za-z0-9_-]/g, '-');
+  if (cleaned === value && value.length <= MAX_PLAIN_SEGMENT) return value;
+  const digest = createHash('sha256').update(value, 'utf8').digest('hex').slice(0, 16);
+  return `${cleaned.slice(0, 32)}-${digest}`;
 }
 
 function normalized_type(content_type: string | undefined): string | undefined {
