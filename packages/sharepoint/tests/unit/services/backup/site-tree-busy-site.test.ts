@@ -53,6 +53,7 @@ function tree_with_busy_sites(...busy_sites: string[]) {
     list_subsites: vi.fn().mockResolvedValue({
       sites: [site('projectx'), site('projecty')],
       warnings: [],
+      errors: [],
     }),
   } as unknown as SharePointSiteConnector;
   const backup = {

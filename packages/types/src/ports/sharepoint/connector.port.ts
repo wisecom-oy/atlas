@@ -7,14 +7,15 @@ export interface SharePointSite {
 }
 
 /**
- * Result of walking a site's subsite tree. Subsites the application cannot
- * read are reported in `warnings` rather than silently dropped -- Graph
- * returns only the subsites the caller has access to, so an empty list and
- * an inaccessible subtree are otherwise indistinguishable.
+ * Result of walking a site's subsite tree. A listing that failed after retries
+ * is reported in `errors`, naming the parent site, so an empty list and an
+ * inaccessible subtree are never indistinguishable. `warnings` carries the
+ * coverage notes that are not failures, such as the depth ceiling.
  */
 export interface SharePointSubsiteTree {
   readonly sites: SharePointSite[];
   readonly warnings: string[];
+  readonly errors: string[];
 }
 
 export interface SharePointDocumentLibrary {
