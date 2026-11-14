@@ -64,9 +64,9 @@ exit "$status"
 
 ### Run leases
 
-Every backup, restore, deletion, quarantine, replication, rehydration, `atlas delete --purge`, and `atlas keys rewrap` takes a lease before it writes. An owner lease covers one mailbox, drive owner, site, or team. The tenant lease covers the whole tenant and is taken by `atlas delete --purge` and `atlas keys rewrap`. The two kinds exclude each other: a purge or re-wrap exits `12` while any owner lease in the tenant is live, and an owner command exits `12` while a purge or re-wrap runs. Exit `12` always means nothing was written. Leases are stored in the tenant bucket, as described in [Owner leases](/operations/storage-layout#owner-leases).
+Every backup, restore, deletion, quarantine, replication, rehydration, `atlas delete --purge`, `atlas keys rewrap`, and `atlas keys purge-old-wrappers` takes a lease before it writes. An owner lease covers one mailbox, drive owner, site, or team. The tenant lease covers the whole tenant and is taken by `atlas delete --purge` and by the two `keys` commands, one tenant at a time. The two kinds exclude each other: a tenant command is refused while any owner lease in that tenant is live, and an owner command exits `12` while a tenant command holds the tenant. Leases are stored in the tenant bucket, as described in [Owner leases](/operations/storage-layout#owner-leases).
 
-A purge or re-wrap that exits `12` names the busy owner in its message. Run it when no scheduled backup of the tenant is due, and retry it after the busy operation ends.
+A purge that exits `12` names the busy owner in its message and wrote nothing. The `keys` commands cover several tenants, so they do not exit `12`: a busy tenant is reported as `busy, skipped`, the other tenants are still processed, and the run exits `2`. Treat exit `2` from them as incomplete, not as nothing written: other tenants may already be re-wrapped or purged. Rerun the same command after the busy operation ends; it skips what is already done. Run these commands when no scheduled backup of the tenant is due.
 
 Fatal exceptions map to these categories. Failures the command reports itself stay `1`: failed verification, `storage-check` reporting an unready bucket, and `config validate` reporting a failed probe. Per-item failures already reported as partial stay `2`, and their messages are not reclassified.
 
@@ -1435,7 +1435,7 @@ A tenant is refused, with nothing deleted, unless the configured passphrase open
 | different key  | It holds another data key, which may still protect retained data. It is kept                              |
 | failed         | Reading or deleting it failed. The error is printed                                                       |
 
-A storage backend whose version listing does not state which version is current gets nothing deleted, and the tenant is reported as `failed`. The command exits `0` only when no old wrapper is left in any covered bucket, and `2` otherwise.
+A storage backend whose version listing does not name exactly one current version gets nothing deleted, and the tenant is reported as `failed`. When `_meta/dek.enc` has no current version, for example behind a delete marker, its old versions are reported as `unverified` and kept, because there is no current key to compare them with. The command exits `0` only when no old wrapper is left in any covered bucket, and `2` otherwise.
 
 The old versions are the only way back to the old passphrase. Run the purge after the configured passphrase was switched and a backup or restore succeeded with it. Deleting versions needs `s3:ListBucketVersions`, `s3:GetObjectVersion`, and `s3:DeleteObjectVersion`.
 

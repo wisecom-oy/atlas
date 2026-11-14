@@ -57,7 +57,15 @@ atlas keys rewrap --new-passphrase
 
 The command rotates the wrapper, not the key. It defeats a leaked passphrase, because whoever holds the old one can no longer open the current wrapper. It does not help against someone who already has the DEK or plaintext decrypted with it. For that case, see [Rotating the data key](#rotating-the-data-key).
 
-The order of operations protects each tenant. Atlas checks which passphrase opens the stored key before writing anything. After the write, it reads the blob back, unwraps it with the new passphrase, and compares the result with the key it wrote. If verification fails, it restores the previous wrapper and confirms that it still opens before reporting the error.
+The order of operations protects each tenant. Atlas checks which passphrase opens the stored key before writing anything. After the write, it reads the blob back, unwraps it with the new passphrase, and compares the result with the key it wrote. What happens when that check fails depends on what is stored:
+
+| Stored after the write | What Atlas does |
+| --- | --- |
+| A wrapper that opens with neither passphrase | Restores the previous wrapper with a conditional write, confirms it opens, and reports the failure. If the restore or its check fails, the error says so, and the stored wrapper stays unopenable until a working one is put back |
+| A wrapper that opens with either passphrase but is not the one this run wrote | Leaves it in place and reports that another run changed the key. That wrapper belongs to the other run |
+| This run's wrapper, but it does not unwrap to the same key | Reports the failure without a restore. The new wrapper stays current |
+
+A read-back request that fails is reported as the storage error it is, without a restore. A run that lost its tenant lease before a restore fails with `ATLAS_OWNER_BUSY` and does not restore, because the wrapper it would replace may belong to a newer run that holds the lease now.
 
 ### Why every profile is re-wrapped
 
@@ -82,7 +90,7 @@ Atlas creates buckets with versioning on and expires noncurrent versions after 3
 atlas keys purge-old-wrappers --old-passphrase
 ```
 
-The purge refuses a tenant unless the configured passphrase opens its current wrapper, so it cannot run before the configuration is switched. It deletes a noncurrent version only when that version unwraps to the same DEK as the current one. A version holding a different DEK is kept, because it may still protect data an Object Lock retains. A version no supplied passphrase opens is kept and reported. The current version is never deleted, and a backend whose version listing does not state which version is current gets nothing deleted at all.
+The purge refuses a tenant unless the configured passphrase opens its current wrapper, so it cannot run before the configuration is switched. It deletes a noncurrent version only when that version unwraps to the same DEK as the current one. A version holding a different DEK is kept, because it may still protect data an Object Lock retains. A version no supplied passphrase opens is kept and reported. The current version is never deleted. A backend whose version listing does not name exactly one current version gets nothing deleted. A bucket whose `_meta/dek.enc` has no current version, for example behind a delete marker, has no key to compare against, so its old versions are reported as left and kept.
 
 Deleting the old versions removes the way back to the old passphrase. Run the purge only after a backup or restore succeeded with the new one.
 
@@ -98,7 +106,7 @@ Object Lock refuses to delete a version under COMPLIANCE retention until its ret
 
 The re-wrap and the purge act on the buckets Atlas opens with its configured endpoint. Other copies of `_meta/dek.enc` keep whatever wrapper they were made with.
 
-- **Provider-side bucket replication**, such as AWS S3 replication, copies the re-wrapped `_meta/dek.enc` to the replica on its own, as a new version. It does not purge the replica's old versions: AWS S3 replication never replicates the deletion of a specific version, so a version the purge deletes on the source stays on the replica. Other providers differ, so check yours. Run `atlas keys purge-old-wrappers` against the replica as well, by pointing `ATLAS_S3_ENDPOINT` and the S3 credentials at the replica for that run. This works when the replica bucket has the same `atlas-<tenant-id>` name, and the run writes its tenant lease there, so it needs write access. Otherwise rely on a noncurrent-version lifecycle rule on the replica and accept the window it leaves.
+- **Provider-side bucket replication**, such as AWS S3 replication, copies the re-wrapped `_meta/dek.enc` to the replica on its own, as a new version. It does not purge the replica's old versions: AWS S3 replication never replicates the deletion of a specific version, so a version the purge deletes on the source stays on the replica. Other providers differ, so check yours. Run `atlas keys purge-old-wrappers --old-passphrase` against the replica as well, by pointing `ATLAS_S3_ENDPOINT` and the S3 credentials at the replica for that run. The old passphrase is needed there too, to prove the replica's old versions hold the same key. When it is piped on stdin, add `-y`. This works when the replica bucket has the same `atlas-<tenant-id>` name, and the run writes its tenant lease there, so it needs write access. Otherwise rely on a noncurrent-version lifecycle rule on the replica and accept the window it leaves.
 - **Bucket backups, exports and snapshots** of the storage system carry the old wrapper for as long as they are kept. Expire them, or restrict who can read them.
 
 ## Rotating the data key
