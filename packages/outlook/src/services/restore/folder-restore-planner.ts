@@ -1,6 +1,6 @@
 import type { RestoreConnector } from '@wisecom/atlas-types';
-import type { MailboxConnector, MailFolder, MailFolderListOptions } from '@wisecom/atlas-types';
-import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
+import type { MailFolder } from '@wisecom/atlas-types';
+import type { ManifestEntry } from '@wisecom/atlas-types';
 import { NotFoundError } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { FOLDER_PATH_SEPARATOR } from '@/adapters/graph-folder-tree-enumerator';
@@ -11,74 +11,6 @@ import {
 } from '@/services/shared/folder-selector';
 
 const UNKNOWN_FOLDER_NAME = 'Unknown';
-
-/**
- * Builds a mapping from Graph folder_id to the folder's root-relative path
- * (e.g. `Inbox/Projects/2026`), so nested folders stay distinguishable in
- * restore targets, save archives, and folder filters.
- *
- * The path a manifest recorded wins, newest manifest first, so a folder deleted
- * or moved since the backup keeps its original path. The live listing names
- * folders no manifest records, such as those of manifests written before
- * `folders` existed (issue #690). `listing` widens that live listing, e.g. to
- * the Recoverable Items subtree (issue #700).
- */
-export async function build_folder_map(
-  connector: MailboxConnector,
-  tenant_id: string,
-  owner_id: string,
-  recorded: readonly Manifest[] = [],
-  listing?: MailFolderListOptions,
-): Promise<Map<string, string>> {
-  const folders = await list_known_folders(connector, tenant_id, owner_id, recorded, listing);
-  return new Map(folders.map((folder) => [folder.folder_id, folder.folder_path]));
-}
-
-/**
- * Lists every folder the manifests record or the live mailbox holds, once per folder_id, with the
- * path and well-known role a folder selector matches. The rules are those of {@link build_folder_map}.
- * A recorded folder from before roles were tagged takes its role from the live listing.
- */
-export async function list_known_folders(
-  connector: MailboxConnector,
-  tenant_id: string,
-  owner_id: string,
-  recorded: readonly Manifest[] = [],
-  listing?: MailFolderListOptions,
-): Promise<SelectableFolder[]> {
-  const known = collect_recorded_folders(recorded);
-  const live = listing
-    ? await connector.list_mail_folders(tenant_id, owner_id, listing)
-    : await connector.list_mail_folders(tenant_id, owner_id);
-  for (const f of live) {
-    const seen = known.get(f.folder_id);
-    if (!seen) known.set(f.folder_id, to_selectable_folder(f));
-    else if (!seen.well_known_name && f.well_known_name) {
-      known.set(f.folder_id, { ...seen, well_known_name: f.well_known_name });
-    }
-  }
-  return [...known.values()];
-}
-
-/** Collects each folder the manifests record, the first manifest naming a folder winning. */
-function collect_recorded_folders(manifests: readonly Manifest[]): Map<string, SelectableFolder> {
-  const known = new Map<string, SelectableFolder>();
-  for (const manifest of manifests) {
-    for (const folder of manifest.folders ?? []) {
-      if (!known.has(folder.folder_id)) known.set(folder.folder_id, to_selectable_folder(folder));
-    }
-  }
-  return known;
-}
-
-/** Keeps the fields a folder selector reads. */
-function to_selectable_folder(folder: SelectableFolder): SelectableFolder {
-  return {
-    folder_id: folder.folder_id,
-    folder_path: folder.folder_path,
-    ...(folder.well_known_name ? { well_known_name: folder.well_known_name } : {}),
-  };
-}
 
 /** Creates the `Restore-{timestamp}` root folder in the target mailbox. */
 export async function create_restore_root(

@@ -11,14 +11,9 @@ import {
   load_snapshot_chain,
   resolve_message_ref,
 } from '@wisecom/atlas-core/services/shared/manifest-chain';
-import {
-  list_known_folders,
-  filter_entries_by_folder_name,
-} from '@/services/restore/folder-restore-planner';
-import {
-  apply_recoverable_items_policy,
-  folder_listing_for,
-} from '@/services/restore/recoverable-items-filter';
+import { filter_entries_by_folder_name } from '@/services/restore/folder-restore-planner';
+import { apply_recoverable_items_policy } from '@/services/restore/recoverable-items-filter';
+import { list_selectable_folders } from '@/services/shared/recorded-folder-catalog';
 import { backfill_missing_folder_ids } from '@/services/restore/restore-execution-orchestrator';
 
 /** Entry filters shared by `restore -s` and `save -s`. */
@@ -86,15 +81,9 @@ async function select_requested_entries(
 
   if (filter.folder_name) {
     await backfill_missing_folder_ids(ctx, merged);
-    const listing = folder_listing_for(merged);
-    const known_folders = await list_known_folders(
-      connector,
-      tenant_id,
-      target.owner_id,
-      chain,
-      listing,
-    );
-    return filter_entries_by_folder_name(merged, filter.folder_name, known_folders);
+    const source = { connector, tenant_id, owner_id: target.owner_id, manifests: chain };
+    const folders = await list_selectable_folders(source, merged, filter.folder_name);
+    return filter_entries_by_folder_name(merged, filter.folder_name, folders);
   }
 
   return merged;
