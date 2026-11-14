@@ -30,7 +30,7 @@ const RAW_PUT_ALLOWLIST: Record<string, string> = {
   'teams/src/services/backup/message-blob-writer.ts': 'Teams message and hosted content',
   // The wrapped data key: binary, with its own create-only and compare-and-swap protocol.
   's3/src/adapters/tenant-context.factory.ts': 'data key bootstrap, create-only',
-  'core/src/services/keys/dek-rewrap.service.ts': 'data key rewrap, compare-and-swap',
+  'core/src/services/keys/dek-wrapper-rewrite.ts': 'data key rewrap, compare-and-swap',
   'core/src/services/replication/conditional-dek-write.ts': 'data key copy to a replica',
   // The replica marker: a plaintext create-only marker, not an encrypted object.
   'core/src/services/replication/replica-target-bootstrap.ts': 'replica marker',

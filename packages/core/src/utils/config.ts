@@ -122,18 +122,22 @@ export function load_tenant_profile(name: string): GraphConfig {
  * no file is found.
  */
 export function try_load_config_file(): StoredConfig {
+  const file_path = find_config_file();
+  return file_path === undefined ? {} : parse_config_file(file_path);
+}
+
+/** The config file {@link try_load_config_file} reads, or undefined when there is none. */
+export function find_config_file(): string | undefined {
   const search_dirs = [process.cwd(), homedir()];
 
   for (const dir of search_dirs) {
     for (const name of CONFIG_FILE_NAMES) {
       const file_path = resolve(dir, name);
-      if (existsSync(file_path)) {
-        return parse_config_file(file_path);
-      }
+      if (existsSync(file_path)) return file_path;
     }
   }
 
-  return {};
+  return undefined;
 }
 
 /** Reads and JSON-parses a single config file. */

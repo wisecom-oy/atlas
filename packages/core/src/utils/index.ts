@@ -4,6 +4,7 @@ export {
   load_config,
   load_tenant_profile,
   try_load_config_file,
+  find_config_file,
   read_env_overrides,
   ATLAS_CONFIG_TOKEN,
 } from './config';

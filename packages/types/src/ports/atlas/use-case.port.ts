@@ -18,6 +18,7 @@ import type { ContactsApi } from '@/ports/contacts/api.port';
 import type { CalendarApi } from '@/ports/calendar/api.port';
 import type { SharePointApi } from '@/ports/sharepoint/api.port';
 import type { TeamsApi } from '@/ports/teams/api.port';
+import type { KeysApi } from '@/ports/keys/api.port';
 import type { ResolvedUserIdentity } from '@/ports/identity/user-identity-resolver.port';
 import type { IdentityRegistry } from '@/domain/shared/identity-registry';
 import type { Camelize } from '@/public/case-convert';
@@ -61,6 +62,8 @@ export interface AtlasInstance extends AsyncDisposable {
   readonly teams: TeamsApi;
   readonly contacts: ContactsApi;
   readonly calendar: CalendarApi;
+  /** Re-wraps and purges data-key wrappers across every tenant that shares the passphrase. */
+  readonly keys: KeysApi;
 
   /**
    * Checks tenant-bucket access, the existing wrapped key when present, and Graph token issuance.
