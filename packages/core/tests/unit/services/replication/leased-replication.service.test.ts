@@ -14,6 +14,7 @@ import { ConfigError, OwnerBusyError } from '@wisecom/atlas-types';
 import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
 import { StorageOwnerLeases } from '@/services/lease/storage-owner-leases';
 import { ReplicationService } from '@/services/replication/replication.service';
+import type { FullSnapshotReplicationService } from '@/services/replication/full-snapshot-replication.service';
 import { LeasedReplicationService } from '@/services/replication/leased-replication.service';
 import type { AtlasConfig } from '@/utils/config';
 
@@ -83,6 +84,7 @@ function real_inner(h: Harness): ReplicationService {
     { create_context: vi.fn() } as never,
     {} as OneDriveReplicationUseCase,
     {} as SharePointReplicationUseCase,
+    {} as FullSnapshotReplicationService,
   );
 }
 

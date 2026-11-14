@@ -48,7 +48,10 @@ interface ReplicateOptions {
 /** Adds the scope flags both `replicate` and `replicate status` select snapshots with. */
 function with_replication_scope(command: Command): Command {
   const scoped = command
-    .option('-m, --mailbox <email|id>', 'all unreplicated snapshots for a mailbox')
+    .option(
+      '-m, --mailbox <email|id>',
+      'all unreplicated Outlook, contacts and calendar snapshots for a mailbox',
+    )
     .option('--site <url-or-id>', 'all unreplicated snapshots for a SharePoint site')
     .option('-o, --owner <email-or-id>', 'all unreplicated snapshots for a OneDrive owner');
   return with_tenant(with_snapshot(scoped, 'a specific snapshot'));

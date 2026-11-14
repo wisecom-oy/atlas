@@ -1,6 +1,7 @@
 import { outlook_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ReplicationService } from '@/services/replication/replication.service';
+import type { FullSnapshotReplicationService } from '@/services/replication/full-snapshot-replication.service';
 import type {
   DekValidationFn,
   ManifestRepository,
@@ -152,6 +153,7 @@ describe('ReplicationService drive snapshot routing (issue #91)', () => {
       vi.fn().mockReturnValue(target) as unknown as StorageTargetFactory,
       onedrive,
       sharepoint,
+      {} as FullSnapshotReplicationService,
     );
   });
 
@@ -231,6 +233,7 @@ describe('ReplicationService drive snapshot routing (issue #91)', () => {
       vi.fn().mockReturnValue(target) as unknown as StorageTargetFactory,
       onedrive,
       sharepoint,
+      {} as FullSnapshotReplicationService,
     );
 
     await expect(

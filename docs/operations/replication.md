@@ -16,14 +16,18 @@ atlas replicate -s <snapshot-id> --target-config ./offsite.json
 
 An Outlook, OneDrive, or SharePoint manifest records only the changes of the run that wrote it. A snapshot is that manifest folded together with every older manifest of the same mailbox, drive owner, or site, which is how `verify`, `save`, and `restore` read it. A manifest carries no reference to the one before it, so a copy that holds the newest manifest without the older ones restores less than the original, and `verify` cannot tell.
 
+Contacts and calendar manifests are different: each one lists every contact or event of the mailbox, so a contacts or calendar snapshot is whole on its own. Replication copies each one as a chain of one manifest. A failed contacts or calendar snapshot holds back no newer one, and a rerun retries only the snapshots the target still lacks.
+
 Replication therefore always works on whole chains:
 
-| Command                                 | Copies                                                                                                 |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `replicate -s <id>`                     | The named snapshot and every older snapshot of its mailbox, drive owner, or site that the target lacks |
-| `replicate -m`, `-o`, `--site`          | Every snapshot of that mailbox, drive owner, or site that the target lacks                             |
-| `rehydrate -s <id>`                     | The named snapshot and every older snapshot of its owner on the replica that primary lacks             |
-| `rehydrate -m`, `-o`, `--site`, `--all` | Every snapshot in scope that primary lacks                                                             |
+| Command                           | Copies                                                                                                 |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `replicate -s <id>`               | The named snapshot and every older snapshot of its mailbox, drive owner, or site that the target lacks |
+| `replicate -m`                    | Every Outlook, contacts, and calendar snapshot of that mailbox that the target lacks                   |
+| `replicate -o`, `--site`          | Every snapshot of that drive owner or site that the target lacks                                       |
+| `rehydrate -s <id>`               | The named snapshot and every older snapshot of its owner on the replica that primary lacks             |
+| `rehydrate -m`                    | Every Outlook, contacts, and calendar snapshot of that mailbox that primary lacks                      |
+| `rehydrate -o`, `--site`, `--all` | Every snapshot in scope that primary lacks                                                             |
 
 Snapshots are copied oldest first. When older and newer snapshots share a creation time, the one you named is copied last. Before copying any snapshot, `-s` reads the whole chain on the side it copies from. If a manifest the chain needs cannot be decrypted, or was removed after Atlas listed it, the command fails before any snapshot object or manifest is written and names those keys, the same refusal `verify` gives. Quarantine the damaged manifest, or replicate by mailbox, owner, or site instead.
 
@@ -34,7 +38,7 @@ Snapshots are copied oldest first. When older and newer snapshots share a creati
 For each snapshot it copies, Atlas:
 
 1. Reads the snapshot manifest from primary storage.
-2. Checks which of the manifest's objects (messages, attachments, and file data) the target already holds.
+2. Checks which of the manifest's objects (messages, attachments, contacts and their photos, events and their attachments, and file data) the target already holds.
 3. Copies the missing objects as raw ciphertext. Nothing is decrypted or re-encrypted. Each object is read from primary once and streamed to the target, so memory stays bounded however large the object is (see [Bandwidth](/self-hosting/replication#bandwidth)).
 4. Copies the manifest **last**, so a target never holds a manifest that points at missing objects.
 5. Writes a status record to primary storage with the outcome.
@@ -43,14 +47,14 @@ Replication is **idempotent**. Running it again skips snapshots whose manifest t
 
 ### Copy order and crash safety
 
-| Step | Object                                      | Notes                                                                                           |
-| ---- | ------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| 1    | DEK validation                              | Passes when the target has no key yet. Refuses before any write if the key differs.             |
-| 2    | `_meta/dek.enc`                             | Copied to the target if absent.                                                                 |
-| 3    | `_meta/replica.marker`                      | Written to the target. Rehydration to primary skips it.                                         |
-| 4    | Data and attachment objects                 | Copied in manifest order, skipping objects already present.                                     |
-| 5    | Ancillary objects (OneDrive and SharePoint) | File version indexes and delta cursors.                                                         |
-| 6    | Manifest                                    | **Always last.**                                                                                |
+| Step | Object                                      | Notes                                                                               |
+| ---- | ------------------------------------------- | ----------------------------------------------------------------------------------- |
+| 1    | DEK validation                              | Passes when the target has no key yet. Refuses before any write if the key differs. |
+| 2    | `_meta/dek.enc`                             | Copied to the target if absent.                                                     |
+| 3    | `_meta/replica.marker`                      | Written to the target. Rehydration to primary skips it.                             |
+| 4    | Data and attachment objects                 | Copied in manifest order, skipping objects already present.                         |
+| 5    | Ancillary objects (OneDrive and SharePoint) | File version indexes and delta cursors.                                             |
+| 6    | Manifest                                    | **Always last.**                                                                    |
 
 If replication stops at any point, the target holds some orphan data objects, which are harmless and can be reclaimed. No manifest references a missing object. The next run resumes where the last one stopped.
 
@@ -143,7 +147,7 @@ The `--target-config` file holds the target's S3 settings:
 # One snapshot
 atlas replicate -s <snapshot-id> --target-config ./offsite.json
 
-# All unreplicated snapshots for a mailbox
+# All unreplicated Outlook, contacts, and calendar snapshots for a mailbox
 atlas replicate -m user@company.com --target-config ./offsite.json
 
 # A SharePoint site, or one of its snapshots
@@ -154,7 +158,7 @@ atlas replicate --site contoso.sharepoint.com,<guid>,<guid> -s <snapshot-id> --t
 atlas replicate -o user@company.com --target-config ./offsite.json
 ```
 
-Every form copies only the snapshots the target does not have yet. `-s` also brings the older snapshots its chain needs, so the first `-s` of a mailbox to an empty target copies the mailbox's history up to that snapshot. Each copied snapshot gets its own status record.
+Every form copies only the snapshots the target does not have yet. `-m` covers the mailbox's Outlook, contacts, and calendar snapshots in one run and holds the mailbox's lease for all three workloads, so a contacts or calendar backup of that mailbox is refused with `OwnerBusyError` while it runs. Contacts and calendar snapshots are copied by mailbox or tenant only: `-s` with a `ct-snap-*` or `cal-snap-*` ID is refused and names `-m` instead. A contacts or calendar manifest that cannot be decrypted on primary is reported as a failed snapshot, the other snapshots are still copied, and the command exits `1`. `-s` also brings the older snapshots its chain needs, so the first `-s` of a mailbox to an empty target copies the mailbox's history up to that snapshot. Each copied snapshot gets its own status record.
 
 ### Pass credentials inline
 
@@ -176,7 +180,7 @@ SharePoint replication also copies file version indexes and delta cursors alongs
 ```typescript
 import { createAtlasInstance, createStorageTarget } from '@wisecom/atlas-sdk';
 
-const atlas = createAtlasInstance({ /* primary config */ });
+const atlas = createAtlasInstance({/* primary config */});
 
 const offsite = createStorageTarget({
   targetId: 'offsite-dr',
@@ -217,25 +221,27 @@ atlas rehydrate -s <snapshot-id> \
   --source-access-key <key> \
   --source-secret-key -
 
-# All snapshots for a mailbox
+# All Outlook, contacts, and calendar snapshots for a mailbox
 atlas rehydrate -m user@company.com --source-config ./offsite.json
 
 # A SharePoint site, or one of its snapshots
 atlas rehydrate --site contoso.sharepoint.com,<guid>,<guid> --source-config ./offsite.json
 atlas rehydrate --site contoso.sharepoint.com,<guid>,<guid> -s <snapshot-id> --source-config ./offsite.json
 
-# Everything: Outlook, OneDrive, and SharePoint
+# Everything except Teams: Outlook, contacts, calendar, OneDrive, and SharePoint
 atlas rehydrate --all --source-config ./offsite.json
 ```
 
-`--all` reads the three manifest roots: `manifests/` (Outlook), `onedrive/manifests/`, and `sharepoint/manifests/`. It reports copied, skipped, and failed counts for each workload. If a workload yields no objects, Atlas names it in a warning, so an incomplete recovery drill cannot pass unnoticed.
+`--all` reads the five manifest roots: `manifests/` (Outlook), `contacts/manifests/`, `calendar/manifests/`, `onedrive/manifests/`, and `sharepoint/manifests/`. It reports copied, skipped, and failed counts for each workload. If a workload yields no objects, Atlas names it in a warning, so an incomplete recovery drill cannot pass unnoticed. `-m` reports Outlook, contacts, and calendar together as one result.
 
-Teams is not replicated yet. Passing a `teams-snap-*` ID to replication or rehydration fails with `Teams snapshots are not replicated yet`, and tenant recovery names Teams as not covered.
+Contacts and calendar recovery copies snapshot manifests and the objects they name. It does not copy the per-mailbox delta cursor or snapshot summary index under `contacts/_meta/` and `calendar/_meta/`. Listing rebuilds the summary from the manifests, and the first contacts or calendar backup after a recovery enumerates the mailbox in full, as Outlook does.
+
+Teams is not replicated yet. Passing a `teams-snap-*` ID to replication or rehydration fails with `Teams snapshots are not replicated yet`, and tenant recovery names Teams as not covered. That warning does not change the exit code: a replica written by `atlas replicate` never holds Teams data, so nothing on it is left behind. Any failed object in any workload exits `1`.
 
 ### SDK rehydration
 
 ```typescript
-// One snapshot (Outlook, OneDrive, and SharePoint ids all work)
+// One snapshot (Outlook, OneDrive, and SharePoint ids work; contacts and calendar go by mailbox)
 await atlas.rehydrateSnapshot('snapshot-id', offsite);
 
 // One workload at a time

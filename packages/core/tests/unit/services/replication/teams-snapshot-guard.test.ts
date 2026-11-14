@@ -9,6 +9,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { ReplicationService } from '@/services/replication/replication.service';
+import type { FullSnapshotReplicationService } from '@/services/replication/full-snapshot-replication.service';
 import type { AtlasConfig } from '@/utils/config';
 
 const TENANT = '00000000-0000-0000-0000-000000000000';
@@ -24,6 +25,7 @@ function make_service(): { service: ReplicationService; create: Mock } {
     {} as unknown as StorageTargetFactory,
     {} as unknown as OneDriveReplicationUseCase,
     {} as unknown as SharePointReplicationUseCase,
+    {} as FullSnapshotReplicationService,
   );
   return { service, create };
 }

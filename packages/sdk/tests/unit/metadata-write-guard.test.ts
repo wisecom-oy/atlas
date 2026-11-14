@@ -36,7 +36,7 @@ const RAW_PUT_ALLOWLIST: Record<string, string> = {
   'core/src/services/replication/replica-target-bootstrap.ts': 'replica marker',
   // Replication copies a manifest's ciphertext unchanged; re-encrypting would change the bytes.
   'core/src/services/replication/snapshot-replicator.ts': 'byte-identical manifest copy',
-  'core/src/services/replication/drive-snapshot-replicator.ts': 'byte-identical manifest copy',
+  'core/src/services/replication/snapshot-objects-replicator.ts': 'byte-identical manifest copy',
   // The registry retries on its own ETag compare-and-swap, which the guarded writer does not model.
   's3/src/adapters/s3-identity-registry-repository.adapter.ts': 'identity registry CAS loop',
   // The owner lease is plain JSON by design, so it can be taken without the tenant key. It is

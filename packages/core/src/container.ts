@@ -28,6 +28,7 @@ import { VerificationService } from '@/services/verification/verification.servic
 import { StatsService } from '@/services/stats/stats.service';
 import { StorageUsageService } from '@/services/stats/storage-usage.service';
 import { ReplicationService } from '@/services/replication/replication.service';
+import { FullSnapshotReplicationService } from '@/services/replication/full-snapshot-replication.service';
 import { SharePointReplicationService } from '@/services/replication/sharepoint-replication.service';
 import { OneDriveReplicationService } from '@/services/replication/onedrive-replication.service';
 import { LeasedReplicationService } from '@/services/replication/leased-replication.service';
@@ -56,6 +57,7 @@ export function bind_core_services(container: Container): void {
   container.bind(STATS_USE_CASE_TOKEN).toService(StatsService);
   container.bind(StorageUsageService).toSelf();
   container.bind(STORAGE_USAGE_USE_CASE_TOKEN).toService(StorageUsageService);
+  container.bind(FullSnapshotReplicationService).toSelf();
   container.bind(ReplicationService).toSelf();
   container.bind(SharePointReplicationService).toSelf();
   container.bind(OneDriveReplicationService).toSelf();

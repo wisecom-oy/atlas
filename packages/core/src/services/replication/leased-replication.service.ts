@@ -37,8 +37,10 @@ import { ATLAS_CONFIG_TOKEN, type AtlasConfig } from '@/utils/config';
 
 /**
  * Takes the owner's lease around the Outlook replication and rehydration entry points, then hands
- * the work to {@link ReplicationService}, which stays unaware of leases. Drive snapshots pass
- * through: their workload services take the lease for the one owner they act on.
+ * the work to {@link ReplicationService}, which stays unaware of leases. A mailbox-wide run also
+ * copies the mailbox's contacts and calendar snapshots, so it holds the mailbox's Outlook, contacts
+ * and calendar leases. Drive snapshots pass through: their workload services take the lease for
+ * the one owner they act on.
  *
  * The owner of a snapshot is read from its manifest before the lease is taken. That read touches
  * no state; the lease is taken before any write.
@@ -71,15 +73,15 @@ export class LeasedReplicationService implements ReplicationUseCase {
     );
   }
 
-  /** Replicates a mailbox's unreplicated snapshots while holding the mailbox's lease. */
+  /** Replicates a mailbox's unreplicated snapshots while holding the mailbox's workload leases. */
   async replicate_mailbox(
     tenant_id: string,
     owner_id: string,
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
-    const owner = outlook_owner(owner_id);
-    return run_replication_under_lease(this._leases, this._tenant_factory, tenant_id, owner, () =>
-      this._inner.replicate_mailbox(tenant_id, owner.owner_id, targets),
+    const owners = mailbox_owners(owner_id);
+    return run_replication_under_lease(this._leases, this._tenant_factory, tenant_id, owners, () =>
+      this._inner.replicate_mailbox(tenant_id, normalize_owner_id(owner_id), targets),
     );
   }
 
@@ -102,15 +104,15 @@ export class LeasedReplicationService implements ReplicationUseCase {
     );
   }
 
-  /** Recovers a mailbox from a replica while holding the mailbox's lease on primary. */
+  /** Recovers a mailbox from a replica while holding the mailbox's workload leases on primary. */
   async rehydrate_mailbox(
     tenant_id: string,
     owner_id: string,
     source: StorageTarget,
   ): Promise<ReplicationResult> {
-    const owner = outlook_owner(owner_id);
-    return run_rehydration_under_lease(this.rehydration_ports(), tenant_id, source, owner, () =>
-      this._inner.rehydrate_mailbox(tenant_id, owner.owner_id, source),
+    const owners = mailbox_owners(owner_id);
+    return run_rehydration_under_lease(this.rehydration_ports(), tenant_id, source, owners, () =>
+      this._inner.rehydrate_mailbox(tenant_id, normalize_owner_id(owner_id), source),
     );
   }
 
@@ -160,6 +162,18 @@ export class LeasedReplicationService implements ReplicationUseCase {
 function outlook_owner(owner_id: string): ReplicationLeaseOwner {
   return { workload: 'outlook', owner_id: normalize_owner_id(owner_id) };
 }
+
+/**
+ * The leases a mailbox-wide run holds, one per workload it copies, in a fixed order. Every
+ * mailbox-wide run takes them in this order, so two of them never each hold a lease the other
+ * waits for; a held lease is refused at once anyway, never waited on.
+ */
+function mailbox_owners(owner_id: string): ReplicationLeaseOwner[] {
+  const mailbox = normalize_owner_id(owner_id);
+  return MAILBOX_LEASE_WORKLOADS.map((workload) => ({ workload, owner_id: mailbox }));
+}
+
+const MAILBOX_LEASE_WORKLOADS = ['outlook', 'contacts', 'calendar'] as const;
 
 /**
  * Refuses the snapshot kinds that have no replication path, before any lookup. The same checks run

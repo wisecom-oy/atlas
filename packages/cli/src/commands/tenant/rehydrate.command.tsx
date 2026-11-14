@@ -76,10 +76,13 @@ export function register_rehydrate_command(
   const command = program
     .command('rehydrate')
     .description('Recover snapshots from a replica to primary (disaster recovery)')
-    .option('-m, --mailbox <email|id>', 'recover all snapshots for a mailbox')
+    .option(
+      '-m, --mailbox <email|id>',
+      'recover all Outlook, contacts and calendar snapshots for a mailbox',
+    )
     .option('--site <url-or-id>', 'recover all snapshots for a SharePoint site')
     .option('-o, --owner <email-or-id>', 'recover all OneDrive snapshots for an owner')
-    .option('--all', 'recover all mailboxes and snapshots (full tenant DR)')
+    .option('--all', 'recover every workload except Teams (full tenant DR)')
     .option('--source-endpoint <url>', 'source replica S3 endpoint URL')
     .option('--source-access-key <key>', 'source replica S3 access key')
     .option('--source-secret-key <key>', 'source replica S3 secret key; "-" reads it from stdin')

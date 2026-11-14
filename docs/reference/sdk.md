@@ -348,7 +348,7 @@ if (run.snapshot) {
 
 `atlas.contacts` backs up, restores, verifies, and deletes one mailbox's personal contacts. Owner arguments accept an email or Entra object ID.
 
-Contacts snapshots are not replicated or rehydrated yet. `replicateSnapshot` rejects a contacts snapshot ID, and the mailbox and tenant rehydrate methods skip contacts.
+Contacts snapshots are replicated and rehydrated by mailbox and tenant: `replicateMailbox`, `rehydrateMailbox`, and `rehydrateTenant` include them. `replicateSnapshot` and `rehydrateSnapshot` reject a contacts snapshot ID.
 
 | Method                                  | CLI equivalent                | Description                                                               |
 | --------------------------------------- | ----------------------------- | ------------------------------------------------------------------------- |
@@ -367,7 +367,7 @@ See [Contacts backup](/contacts-backup) for the storage layout and restore behav
 
 `atlas.calendar` backs up, restores, verifies, and deletes one mailbox's Outlook calendars, including recurring series and file attachments on events. Owner arguments accept an email or Entra object ID.
 
-Calendar snapshots are not replicated or rehydrated yet. `replicateSnapshot` rejects a calendar snapshot ID, and the mailbox and tenant rehydrate methods skip calendars.
+Calendar snapshots are replicated and rehydrated by mailbox and tenant: `replicateMailbox`, `rehydrateMailbox`, and `rehydrateTenant` include them. `replicateSnapshot` and `rehydrateSnapshot` reject a calendar snapshot ID.
 
 | Method                                  | CLI equivalent                | Description                                                               |
 | --------------------------------------- | ----------------------------- | ------------------------------------------------------------------------- |
@@ -394,11 +394,11 @@ See [Calendar backup](/calendar-backup) for the storage layout and restore behav
 | `getStorageUsage(options?)`              | Bytes the bucket physically holds. See [Storage usage](#storage-usage)                                                                                                    |
 | `resolveUser(email)`                     | Resolves an address to an Entra object ID through Graph                                                                                                                   |
 | `listUsers()`                            | Returns the identity registry for this tenant, or `undefined` when none exists yet                                                                                        |
-| `replicateSnapshot(snapshotId, targets)` | Copies a snapshot and every older snapshot of its mailbox that a target lacks. Returns one result per attempted snapshot and target. See [Replication](#replication)       |
-| `replicateMailbox(mailboxId, targets)`   | Copies every unreplicated snapshot for a mailbox                                                                                                                          |
+| `replicateSnapshot(snapshotId, targets)` | Copies a snapshot and every older snapshot of its mailbox that a target lacks. Returns one result per attempted snapshot and target. See [Replication](#replication)      |
+| `replicateMailbox(mailboxId, targets)`   | Copies every unreplicated Outlook, contacts, and calendar snapshot for a mailbox                                                                                          |
 | `rehydrateSnapshot(snapshotId, source)`  | Restores a snapshot and the older snapshots of its owner that primary lacks                                                                                               |
-| `rehydrateMailbox(mailboxId, source)`    | Restores a mailbox's snapshots from a replica                                                                                                                             |
-| `rehydrateTenant(source)`                | Restores Outlook, OneDrive, and SharePoint from a replica, reported per workload. Contacts and calendars are not covered                                                  |
+| `rehydrateMailbox(mailboxId, source)`    | Restores a mailbox's Outlook, contacts, and calendar snapshots from a replica, as one result                                                                              |
+| `rehydrateTenant(source)`                | Restores Outlook, contacts, calendar, OneDrive, and SharePoint from a replica, reported per workload. `unsupportedWorkloads` names Teams                                  |
 | `getReplicationStatus(snapshotId?)`      | Replication status for one snapshot or all snapshots                                                                                                                      |
 | `getReplicationStatusByOwner(mailboxId)` | Replication status for every snapshot of one owner                                                                                                                        |
 | `rewrapDataKey(newPassphrase?)`          | Re-wraps the tenant data key. See [Key re-wrap](#key-re-wrap)                                                                                                             |
@@ -1025,7 +1025,7 @@ The conditional writes, the lease included, need a backend that honours `If-Matc
 **What the host must guarantee.**
 
 - `purgeTenantData()` and `rewrapDataKey()` take the tenant lease described above, so they are refused while any owner of the tenant is busy, including a replication or rehydration of one owner. `rehydrateTenant()` takes no lease. Run it while no backup, deletion, quarantine, replication or rehydration of that tenant is running.
-- Replication takes the lease of the owner it acts on in the primary bucket, the source it reads and where its status record goes. Rehydration takes it in primary, which it writes. `replicateAll` takes the lease of the one owner or site it names, once per call. A replica target takes no lease: every run that writes an owner's replica holds that owner's lease on primary, so two such runs never overlap. Rehydration installs the source's key on primary before it takes the lease, because a lease object already in primary would make a rerun into an empty bucket refuse to install the key.
+- Replication takes the lease of the owner it acts on in the primary bucket, the source it reads and where its status record goes. Rehydration takes it in primary, which it writes. `replicateAll` takes the lease of the one owner or site it names, once per call. `replicateMailbox` and `rehydrateMailbox` take the mailbox's Outlook, contacts, and calendar leases, all three before anything is copied, so a backup of any of the three refuses them. A replica target takes no lease: every run that writes an owner's replica holds that owner's lease on primary, so two such runs never overlap. Rehydration installs the source's key on primary before it takes the lease, because a lease object already in primary would make a rerun into an empty bucket refuse to install the key.
 - Restore takes the source owner's lease in the bucket it reads, also for a cross-tenant restore through `targetTenant`, so it never runs next to a backup, deletion, quarantine or second restore of that owner. A restore whose storage credentials cannot write the lease (HTTP `403`) still runs, as restores always have with read-only credentials, but without a lease. It logs `concurrent-run protection is off for this restore`, and a backup, deletion or second restore of that owner is then not refused. A live lease another operation holds still refuses the restore, owner or tenant, because reading a lease needs no write access.
 - Save, verify, status and the listings only read, so they take no lease and can run next to a backup of the same owner. A deletion or quarantine running at the same time can remove the snapshot they are reading.
 - Keep the clocks of hosts that share a bucket within a few minutes of each other. Expiry compares the `expires_at` one host wrote with another host's clock. A host whose clock is ahead by more than the time left on a live lease, 4 to 5 minutes in steady state, sees it as expired and takes over a running operation. The displaced run notices at its next renewal, within 60 seconds, and stops before its next commit, but both ran for that long.

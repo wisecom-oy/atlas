@@ -34,7 +34,7 @@ export interface ReplicationResult {
 }
 
 /** Workloads covered by full tenant recovery. */
-export type RehydrationWorkload = 'outlook' | 'onedrive' | 'sharepoint';
+export type RehydrationWorkload = 'outlook' | 'contacts' | 'calendar' | 'onedrive' | 'sharepoint';
 
 /** Workloads a tenant recovery cannot cover yet. */
 export type UnsupportedWorkload = 'teams';

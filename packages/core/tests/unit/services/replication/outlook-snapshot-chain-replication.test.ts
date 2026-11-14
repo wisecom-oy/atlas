@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ReplicationService } from '@/services/replication/replication.service';
+import { no_full_snapshots } from './full-snapshot-replication.fixtures';
 import { ReplicationStatus, UnreadableObjectsError } from '@wisecom/atlas-types';
 import type {
   Manifest,
@@ -91,6 +92,10 @@ function service(primary: InMemoryTenantContext, repo: ManifestRepository): Repl
     vi.fn() as never,
     {} as never,
     {} as never,
+    no_full_snapshots(
+      vi.fn(async () => undefined),
+      CONFIG,
+    ),
   );
 }
 

@@ -53,5 +53,5 @@ Every object is checked against its recorded SHA-256 before it is written. A mis
 ## Limitations
 
 - Contact groups (Outlook contact lists) are not exposed by the Graph contacts API and are not backed up.
-- Replication and rehydrate do not cover contacts yet. `atlas replicate` refuses a contacts snapshot ID.
+- Contacts are replicated and rehydrated by mailbox (`atlas replicate -m`, `atlas rehydrate -m`) and by tenant (`atlas rehydrate --all`). A single contacts snapshot ID passed to `-s` is refused. See [Replication](/operations/replication).
 - Graph may not report a photo-only change in delta, so a new photo on an otherwise unchanged contact can wait until the contact itself changes.

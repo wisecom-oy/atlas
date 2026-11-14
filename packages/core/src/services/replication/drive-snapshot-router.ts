@@ -35,19 +35,21 @@ export function is_drive_snapshot_id(snapshot_id: string): boolean {
   );
 }
 
-/** Refuses contacts snapshots; they have no replication path. */
+/** Refuses a single contacts snapshot; contacts are replicated and rehydrated by mailbox. */
 export function refuse_contacts_snapshot(snapshot_id: string): void {
   if (!snapshot_id.startsWith(CONTACTS_SNAPSHOT_ID_PREFIX)) return;
   throw new ConfigError(
-    `Snapshot ${snapshot_id} is a contacts snapshot; contacts cannot be replicated or rehydrated yet.`,
+    `Snapshot ${snapshot_id} is a contacts snapshot; contacts are replicated and rehydrated ` +
+      'by mailbox (-m) or tenant (--all), not by snapshot.',
   );
 }
 
-/** Refuses calendar snapshots; they have no replication path. */
+/** Refuses a single calendar snapshot; calendars are replicated and rehydrated by mailbox. */
 export function refuse_calendar_snapshot(snapshot_id: string): void {
   if (!snapshot_id.startsWith(CALENDAR_SNAPSHOT_ID_PREFIX)) return;
   throw new ConfigError(
-    `Snapshot ${snapshot_id} is a calendar snapshot; calendars cannot be replicated or rehydrated yet.`,
+    `Snapshot ${snapshot_id} is a calendar snapshot; calendars are replicated and rehydrated ` +
+      'by mailbox (-m) or tenant (--all), not by snapshot.',
   );
 }
 

@@ -125,14 +125,14 @@ Object Lock retention, when the bucket uses it, applies to calendar objects writ
 
 ## Limitations
 
-| Not captured                            | Why it matters                                                                                                               |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Attendee and organizer lists on restore | Restored events show them as text only. They are not live invitations.                                                       |
-| Teams meeting links as live meetings    | No new meeting is created. The original join link survives in the body; create a new meeting if the old one has expired.     |
-| Item and reference attachments          | Reported as warnings and counted in `attachments_skipped`; the run exits `2`. Not recoverable from the backup.               |
-| Attachments on single exceptions        | Attachments added to one occurrence of a series are not stored. Reported and counted the same way.                           |
-| Read-only calendars                     | Birthdays and read-only shares are skipped. Back them up from their owner if needed.                                         |
-| Calendars in replicas                   | Replication and rehydrate refuse calendar snapshots, as they do for contacts. See [Replication](/reference/sdk#replication). |
+| Not captured                            | Why it matters                                                                                                                                                                          |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Attendee and organizer lists on restore | Restored events show them as text only. They are not live invitations.                                                                                                                  |
+| Teams meeting links as live meetings    | No new meeting is created. The original join link survives in the body; create a new meeting if the old one has expired.                                                                |
+| Item and reference attachments          | Reported as warnings and counted in `attachments_skipped`; the run exits `2`. Not recoverable from the backup.                                                                          |
+| Attachments on single exceptions        | Attachments added to one occurrence of a series are not stored. Reported and counted the same way.                                                                                      |
+| Read-only calendars                     | Birthdays and read-only shares are skipped. Back them up from their owner if needed.                                                                                                    |
+| Calendars in replicas                   | Replicated and rehydrated by mailbox (`-m`) and tenant (`--all`), as contacts are. A single calendar snapshot ID passed to `-s` is refused. See [Replication](/operations/replication). |
 
 Restore into a mailbox is a write against live data. Test with a scratch mailbox first, and check the target calendar's event count after the run.
 

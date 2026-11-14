@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ReplicationService } from '@/services/replication/replication.service';
+import { no_full_snapshots } from './full-snapshot-replication.fixtures';
 import { ReplicationStatus, ReplicationVerificationStatus } from '@wisecom/atlas-types';
 import type {
   TenantContext,
@@ -192,6 +193,7 @@ describe('ReplicationService', () => {
       target_factory,
       onedrive_replication,
       sharepoint_replication,
+      no_full_snapshots(validate_dek, config),
     );
   });
 
@@ -243,7 +245,7 @@ describe('ReplicationService', () => {
     expect(result.objects_copied).toBe(0);
   });
 
-  it('rehydrate_tenant recovers Outlook, OneDrive, and SharePoint and reports Teams unsupported', async () => {
+  it('rehydrate_tenant recovers every mailbox and drive workload and reports Teams unsupported', async () => {
     const m1 = make_manifest('snap-1', 'mbx-1', []);
     const m2 = make_manifest('snap-2', 'mbx-2', []);
 
@@ -279,7 +281,13 @@ describe('ReplicationService', () => {
       'tenant-1',
       source_target,
     );
-    expect(result.workloads.map((w) => w.workload)).toEqual(['outlook', 'onedrive', 'sharepoint']);
+    expect(result.workloads.map((w) => w.workload)).toEqual([
+      'outlook',
+      'contacts',
+      'calendar',
+      'onedrive',
+      'sharepoint',
+    ]);
     expect(result.total.status).toBe(ReplicationStatus.COMPLETED);
     const by_workload = new Map(result.workloads.map((w) => [w.workload, w.result]));
     expect(by_workload.get('onedrive')?.objects_copied).toBe(7);

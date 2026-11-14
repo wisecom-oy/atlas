@@ -16,7 +16,7 @@ What is planned for Atlas next. Order reflects priority, not dates. Shipped chan
   <li data-status="progress">
     <span class="wc-roadmap-status">In progress</span>
     <h3>Calendars</h3>
-    <p>Exchange backup covers mail and contacts today. Calendar backup, restore, listing, and verification are in progress (issue #134), with recurring series, exceptions, and file attachments. Replication and rehydrate do not cover calendars yet. See <a href="/calendar-backup">Calendar backup</a>.</p>
+    <p>Exchange backup covers mail and contacts today. Calendar backup, restore, listing, and verification are in progress (issue #134), with recurring series, exceptions, and file attachments. Replication and rehydrate cover calendars by mailbox and tenant. See <a href="/calendar-backup">Calendar backup</a>.</p>
   </li>
   <li data-status="progress">
     <span class="wc-roadmap-status">In progress</span>

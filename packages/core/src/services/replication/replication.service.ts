@@ -48,7 +48,11 @@ import { reject_teams_snapshot } from '@/services/replication/teams-snapshot-gua
 import { merge_replication_results } from '@/services/replication/replication-result-builder';
 import type { AtlasConfig } from '@/utils/config';
 import { create_primary_target } from '@/services/replication/primary-target-factory';
+import { FullSnapshotReplicationService } from '@/services/replication/full-snapshot-replication.service';
 import { ATLAS_CONFIG_TOKEN } from '@/utils/config';
+
+/** Scope label of a mailbox rehydration, which merges Outlook, contacts and calendar results. */
+const MAILBOX_REHYDRATION_LABEL = 'full-mailbox';
 
 @injectable()
 export class ReplicationService implements ReplicationUseCase {
@@ -62,6 +66,8 @@ export class ReplicationService implements ReplicationUseCase {
     private readonly _onedrive: OneDriveReplicationUseCase,
     @inject(SHAREPOINT_REPLICATION_USE_CASE_TOKEN)
     private readonly _sharepoint: SharePointReplicationUseCase,
+    @inject(FullSnapshotReplicationService)
+    private readonly _full_snapshots: FullSnapshotReplicationService,
   ) {}
 
   async replicate_snapshot(
@@ -89,6 +95,7 @@ export class ReplicationService implements ReplicationUseCase {
     }
   }
 
+  /** Copies a mailbox's Outlook, contacts and calendar snapshots that each target lacks. */
   async replicate_mailbox(
     tenant_id: string,
     owner_id: string,
@@ -97,12 +104,19 @@ export class ReplicationService implements ReplicationUseCase {
     owner_id = normalize_owner_id(owner_id);
     const source_ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      return await replicate_outlook_mailbox_chain(
+      const outlook = await replicate_outlook_mailbox_chain(
         this.chain_ports(tenant_id),
         source_ctx,
         owner_id,
         targets,
       );
+      const full_snapshots = await this._full_snapshots.replicate_mailbox(
+        source_ctx,
+        tenant_id,
+        owner_id,
+        targets,
+      );
+      return [...outlook, ...full_snapshots];
     } finally {
       source_ctx.destroy();
     }
@@ -137,6 +151,7 @@ export class ReplicationService implements ReplicationUseCase {
     }
   }
 
+  /** Recovers a mailbox's Outlook, contacts and calendar snapshots, reported as one result. */
   async rehydrate_mailbox(
     tenant_id: string,
     owner_id: string,
@@ -148,7 +163,7 @@ export class ReplicationService implements ReplicationUseCase {
     const source_ctx = await source.create_context(tenant_id);
     try {
       const manifests = await list_mailbox_manifests(this._manifests, source_ctx, owner_id);
-      return await rehydrate_manifests(
+      const outlook = await rehydrate_manifests(
         source_ctx,
         primary_ctx,
         manifests,
@@ -157,6 +172,18 @@ export class ReplicationService implements ReplicationUseCase {
         this._validate_dek,
         this._config.encryption_passphrase,
         OUTLOOK_REHYDRATION,
+      );
+      const full_snapshots = await this._full_snapshots.rehydrate_mailbox(
+        source_ctx,
+        primary_ctx,
+        tenant_id,
+        owner_id,
+        source,
+      );
+      return merge_replication_results(
+        [outlook, ...full_snapshots.map((workload) => workload.result)],
+        MAILBOX_REHYDRATION_LABEL,
+        source.target_id,
       );
     } finally {
       source_ctx.destroy();
@@ -167,20 +194,20 @@ export class ReplicationService implements ReplicationUseCase {
   /**
    * DR: recover every workload from a replica.
    *
-   * Outlook manifests live under `manifests/`, OneDrive under `onedrive/manifests/` and SharePoint
-   * under `sharepoint/manifests/`, so enumerating one prefix recovers one third of the tenant.
-   * Each workload's own tenant-wide recovery is invoked and reported separately.
+   * Each workload keeps its manifests under its own prefix (`manifests/` for Outlook,
+   * `contacts/manifests/`, `calendar/manifests/`, `onedrive/manifests/`, `sharepoint/manifests/`),
+   * so enumerating one prefix recovers one workload. Each is recovered and reported separately.
    */
   async rehydrate_tenant(
     tenant_id: string,
     source: StorageTarget,
   ): Promise<TenantRehydrationResult> {
-    const outlook = await this.rehydrate_outlook_tenant(tenant_id, source);
+    const mailbox_workloads = await this.rehydrate_mailbox_workloads_tenant(tenant_id, source);
     const onedrive = await this._onedrive.rehydrate_all_owners(tenant_id, source);
     const sharepoint = await this._sharepoint.rehydrate_all_sites(tenant_id, source);
 
     const workloads: WorkloadRehydrationResult[] = [
-      { workload: 'outlook', result: outlook },
+      ...mailbox_workloads,
       { workload: 'onedrive', result: onedrive },
       { workload: 'sharepoint', result: sharepoint },
     ];
@@ -196,16 +223,17 @@ export class ReplicationService implements ReplicationUseCase {
     };
   }
 
-  private async rehydrate_outlook_tenant(
+  /** Recovers every mailbox's Outlook, contacts and calendar snapshots, one result each. */
+  private async rehydrate_mailbox_workloads_tenant(
     tenant_id: string,
     source: StorageTarget,
-  ): Promise<ReplicationResult> {
+  ): Promise<WorkloadRehydrationResult[]> {
     await ensure_source_dek_on_primary(this.primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
     try {
       const all_manifests = await this._manifests.list_all_manifests(source_ctx);
-      return await rehydrate_manifests(
+      const outlook = await rehydrate_manifests(
         source_ctx,
         primary_ctx,
         all_manifests,
@@ -215,6 +243,13 @@ export class ReplicationService implements ReplicationUseCase {
         this._config.encryption_passphrase,
         OUTLOOK_REHYDRATION,
       );
+      const full_snapshots = await this._full_snapshots.rehydrate_tenant(
+        source_ctx,
+        primary_ctx,
+        tenant_id,
+        source,
+      );
+      return [{ workload: 'outlook', result: outlook }, ...full_snapshots];
     } finally {
       source_ctx.destroy();
       primary_ctx.destroy();

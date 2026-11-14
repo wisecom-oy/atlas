@@ -1474,18 +1474,20 @@ atlas replicate status --site https://contoso.sharepoint.com/sites/Engineering
 atlas replicate status -o user@company.com
 ```
 
-| Option                        | Description                                                |
-| ----------------------------- | ---------------------------------------------------------- |
-| `-s, --snapshot <id>`         | Replicate a snapshot and the older snapshots it builds on  |
-| `-m, --mailbox <email-or-id>` | Replicate all unreplicated snapshots for a mailbox         |
-| `--site <url-or-id>`          | Replicate all unreplicated snapshots for a SharePoint site |
-| `-o, --owner <email-or-id>`   | Replicate all unreplicated snapshots for a OneDrive owner  |
-| `--target-endpoint <url>`     | Target S3 endpoint URL                                     |
-| `--target-access-key <key>`   | Target S3 access key                                       |
-| `--target-secret-key <key>`   | Target S3 secret key. `-` reads it from stdin.             |
-| `--target-region <region>`    | Target S3 region (default: `us-east-1`)                    |
-| `--target-config <path>`      | JSON file with the target S3 credentials                   |
-| `-t, --tenant <id>`           | Override the tenant ID from config                         |
+| Option                        | Description                                                                        |
+| ----------------------------- | ---------------------------------------------------------------------------------- |
+| `-s, --snapshot <id>`         | Replicate a snapshot and the older snapshots it builds on                          |
+| `-m, --mailbox <email-or-id>` | Replicate all unreplicated Outlook, contacts, and calendar snapshots for a mailbox |
+| `--site <url-or-id>`          | Replicate all unreplicated snapshots for a SharePoint site                         |
+| `-o, --owner <email-or-id>`   | Replicate all unreplicated snapshots for a OneDrive owner                          |
+| `--target-endpoint <url>`     | Target S3 endpoint URL                                                             |
+| `--target-access-key <key>`   | Target S3 access key                                                               |
+| `--target-secret-key <key>`   | Target S3 secret key. `-` reads it from stdin.                                     |
+| `--target-region <region>`    | Target S3 region (default: `us-east-1`)                                            |
+| `--target-config <path>`      | JSON file with the target S3 credentials                                           |
+| `-t, --tenant <id>`           | Override the tenant ID from config                                                 |
+
+Contacts and calendar snapshots are replicated by mailbox (`-m`), not by snapshot: `-s` with a `ct-snap-*` or `cal-snap-*` ID is refused. Teams is not replicated.
 
 `replicate status` accepts the same scope flags (`-s`, `-m`, `--site`, `-o`) and reports replication state without copying anything.
 
@@ -1524,19 +1526,19 @@ atlas rehydrate -o user@company.com --source-config ./offsite.json
 atlas rehydrate -o user@company.com -s od-snap-1735689600000-a1b2c3 --source-config ./offsite.json
 ```
 
-| Option                        | Description                                                  |
-| ----------------------------- | ------------------------------------------------------------ |
-| `-s, --snapshot <id>`         | Recover a specific snapshot from the replica                 |
-| `-m, --mailbox <email-or-id>` | Recover all snapshots for a mailbox from the replica         |
-| `--site <url-or-id>`          | Recover all SharePoint snapshots for a site from the replica |
-| `-o, --owner <email-or-id>`   | Recover all OneDrive snapshots for an owner from the replica |
-| `--all`                       | Recover every workload: Outlook, OneDrive, and SharePoint    |
-| `--source-endpoint <url>`     | Source replica S3 endpoint URL                               |
-| `--source-access-key <key>`   | Source replica S3 access key                                 |
-| `--source-secret-key <key>`   | Source replica S3 secret key. `-` reads it from stdin.       |
-| `--source-region <region>`    | Source replica S3 region (default: `us-east-1`)              |
-| `--source-config <path>`      | JSON file with the source S3 credentials                     |
-| `-t, --tenant <id>`           | Override the tenant ID from config                           |
+| Option                        | Description                                                                                |
+| ----------------------------- | ------------------------------------------------------------------------------------------ |
+| `-s, --snapshot <id>`         | Recover a specific snapshot from the replica                                               |
+| `-m, --mailbox <email-or-id>` | Recover all Outlook, contacts, and calendar snapshots for a mailbox from the replica       |
+| `--site <url-or-id>`          | Recover all SharePoint snapshots for a site from the replica                               |
+| `-o, --owner <email-or-id>`   | Recover all OneDrive snapshots for an owner from the replica                               |
+| `--all`                       | Recover every workload except Teams: Outlook, contacts, calendar, OneDrive, and SharePoint |
+| `--source-endpoint <url>`     | Source replica S3 endpoint URL                                                             |
+| `--source-access-key <key>`   | Source replica S3 access key                                                               |
+| `--source-secret-key <key>`   | Source replica S3 secret key. `-` reads it from stdin.                                     |
+| `--source-region <region>`    | Source replica S3 region (default: `us-east-1`)                                            |
+| `--source-config <path>`      | JSON file with the source S3 credentials                                                   |
+| `-t, --tenant <id>`           | Override the tenant ID from config                                                         |
 
 Scopes are matched in this order: `--site`, `-o`/`--owner`, `-s`/`--snapshot`, `-m`/`--mailbox`, `--all`. `-s` works for all three workloads. The snapshot ID shows which workload it belongs to (`od-snap-*` for OneDrive, `sp-snap-*` for SharePoint, `snap-*` for Outlook). Atlas resolves the owner or site from storage, so you do not need to name it again. Combining `--site` or `-o` with `-s` addresses the same single snapshot explicitly.
 
@@ -1551,14 +1553,18 @@ atlas rehydrate --all \
   --source-secret-key - < source-secret.txt
 ```
 
-`--all` recovers all three workloads: every Outlook mailbox (`manifests/`), every OneDrive owner (`onedrive/manifests/`), and every SharePoint site (`sharepoint/manifests/`) on the replica. Teams is not part of tenant recovery yet, so `--all` always prints `Tenant recovery does not cover teams yet. That data is not restored by this run.` The summary breaks the run down by workload, so a partial recovery is visible:
+`--all` recovers five workloads: every Outlook mailbox (`manifests/`), every mailbox's contacts (`contacts/manifests/`) and calendars (`calendar/manifests/`), every OneDrive owner (`onedrive/manifests/`), and every SharePoint site (`sharepoint/manifests/`) on the replica. Teams is not part of tenant recovery yet, so `--all` always prints `Tenant recovery does not cover teams yet. That data is not restored by this run.` The warning leaves the exit code at `0`, because a replica written by `atlas replicate` holds no Teams data. Any failed object, including an unreadable contacts or calendar manifest on the replica, exits `1`. The summary breaks the run down by workload, so a partial recovery is visible:
 
 ```
 Workload    Scope        Copied  Skipped  Failed  Size
 outlook     2-snapshots  35      0        0       433.3 KB
+contacts    3-snapshots  48      0        0       61.0 KB
+calendar    3-snapshots  27      0        0       118.4 KB
 onedrive    1-owners     12      1        0       2.7 MB
 sharepoint  1-sites      59      0        0       7.1 MB
 ```
+
+`-m` recovers the mailbox's Outlook, contacts, and calendar snapshots and reports them as one result.
 
 A workload with no objects prints a warning that names it, because the replica held nothing for that workload. Check that against the source before you treat a drill as passed.
 
