@@ -31,8 +31,12 @@ function round_trip_harness() {
 describe('inline attachments through backup and restore', () => {
   it('keeps contentId and inline status from backup through to the restored upload', async () => {
     const h = round_trip_harness();
+    // Graph reports hasAttachments: false when the only attachment is inline; the body's cid: reference is what lists it.
     h.script.deltas['cal-default'] = delta_of('d1', [
-      calendar_event('e1', { subject: 'Newsletter', hasAttachments: true }),
+      calendar_event('e1', {
+        subject: 'Newsletter',
+        body: { contentType: 'html', content: '<img src="cid:cid-logo">' },
+      }),
     ]);
     h.script.attachments['e1'] = [
       {

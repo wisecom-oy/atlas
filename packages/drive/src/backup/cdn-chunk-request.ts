@@ -86,6 +86,7 @@ export async function download_single_chunk(
       range_end,
       response.headers.get('Content-Range'),
       buf.length,
+      total_bytes,
     );
     return buf;
   } finally {

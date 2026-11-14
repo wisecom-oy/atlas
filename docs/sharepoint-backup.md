@@ -258,10 +258,30 @@ Older manifests do not record library names, so rule 1 cannot apply. Such a snap
 
 A file that cannot be downloaded does not stop the library. Atlas keeps the files that succeeded, advances the delta state, and records the failure. Each recorded failure is retried at the start of the next run, before new changes are processed. After 5 attempts it is reported on every run as `PERMANENTLY SKIPPED after 5 attempts`, and the run stays UNHEALTHY until the file is fixed or removed in the source.
 
+A file skipped because its download URL expired is recorded the same way but does not count an attempt. See [Expired download URLs](#expired-download-urls).
+
 Other content the service refuses to serve is handled as follows:
 
 - **Malware quarantine** is detected from delta metadata before any download. It is reported as permanently skipped by service policy and does not use the 5-attempt budget.
-- **403 responses** are classified by HTTP status and Graph error code. A missing application permission stops the run. A protection or policy state (sensitivity label, IRM, retention) is recorded against that one file, with the Graph error code. An expired pre-authenticated download URL is re-resolved and retried once. Any other unrecognized 403 costs one file, not the run.
+- **403 responses** are classified by HTTP status and Graph error code. A missing application permission stops the run. A protection or policy state (sensitivity label, IRM, retention) is recorded against that one file, with the Graph error code. An expired pre-authenticated download URL is refreshed as described in [Expired download URLs](#expired-download-urls). Any other unrecognized 403 costs one file, not the run.
+
+### Expired download URLs
+
+Each file is read from a pre-authenticated download URL that Microsoft Graph issues with a limited lifetime. A long run can reach a file well after the delta listing that named it, so the URL in the listing is not trusted for a large file.
+
+| File size | URL at download start | On 401 or 403 during the transfer |
+| --- | --- | --- |
+| Up to 4 MiB | URL from the listing | Re-resolve once, retry the whole file, then fall back to the Graph `/content` endpoint |
+| Over 4 MiB, under 64 MiB | URL from the listing | Re-resolve once and restart the download from byte zero, then fall back to `/content` |
+| 64 MiB and larger | Fresh URL, one Graph request | Re-resolve and resume at the 4 MiB range that failed |
+
+For files of 64 MiB and larger:
+
+- A run can refresh the URL any number of times, as long as each refreshed URL delivers at least one more range. A transfer that outlasts many URLs completes.
+- If three refreshed URLs in a row expire before any new range arrives, Atlas stops and records the file as not backed up. The attempt is not counted, so the file is retried on the next run.
+- A Graph refusal on the re-resolve is handled like the 403 cases above. A missing grant stops the run, and a service refusal is recorded as permanent.
+
+The fresh URL costs one Graph request per file of 64 MiB or more. Those files take far longer to transfer than that request takes, so the cost is small.
 
 ### Health status
 
@@ -296,6 +316,7 @@ Restored sections arrive as ordinary files. Treat notebook restore as recovering
 - **Downloads.** Files up to 4 MiB are read in one request. Files from 4 to 64 MiB are read in 4 MiB ranges. Files of 64 MiB and larger are streamed into multipart uploads on staging, then copied to their content key.
 - **Uploads on restore.** Files up to 4 MiB use a single PUT. Larger files use a resumable session in 10 MiB chunks.
 - **Throttling and CDN faults.** Graph `429`, transient `500`, `502`, `503` and `504` responses, and dropped connections are retried with backoff, up to 5 times per range for chunked downloads. A file up to 4 MiB is read in one request, and a `429` there is retried up to 3 times before Atlas falls back to the Graph `/content` endpoint. A `Retry-After` on a download is honoured in either form, seconds or an HTTP date, and capped at one hour. A `401` or `403` from the download URL means it expired: Atlas resolves a fresh URL once and downloads the file again.
+- **Files that change size.** Each range of a chunked download carries the file's total length in its `Content-Range`. A file that grows or shrinks after its delta listing fails the transfer with `DownloadIntegrityError`, and nothing is stored. The item is recorded as a failed file, and the next run downloads it again from its current metadata. The run stays UNHEALTHY until that succeeds, and after 5 failed attempts the file is reported as `PERMANENTLY SKIPPED`.
 - **Ctrl+C.** A backup stops at once: in the middle of a file it is reading from its download URL, in a Graph call such as delta listing or the `/content` fallback, and during any retry or throttle wait. A file interrupted this way is not recorded as a failed item, so it keeps its 5 retry attempts for the next run.
 - **Scope.** Sharing permissions are not captured, and restores do not recreate file authors. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
 

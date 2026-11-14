@@ -1,4 +1,5 @@
 import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 import type {
   CalendarAttachmentRecord,
   CalendarConnector,
@@ -6,6 +7,11 @@ import type {
   GraphEventPayload,
   TenantContext,
 } from '@wisecom/atlas-types';
+import {
+  body_inline_references,
+  needs_attachment_listing,
+  unresolved_inline_references,
+} from '@/services/backup/calendar-inline-references';
 import { put_content_if_absent } from '@/services/shared/content-objects';
 import { is_record } from '@/services/shared/json-record';
 import { calendar_attachment_key, calendar_data_key } from '@/services/shared/storage-keys';
@@ -75,6 +81,9 @@ function string_or_undefined(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+/** Warning for a `cid:` image the body references that the listing does not return. */
+const UNRESOLVED_INLINE_WARNING = 'inline image referenced by the body is not captured';
+
 interface StoredAttachments {
   readonly records: CalendarAttachmentRecord[];
   readonly objects_stored: number;
@@ -82,10 +91,14 @@ interface StoredAttachments {
   readonly warnings: string[];
 }
 
-/** Stores the event's file attachments; other attachment kinds get one warning each, not stored. */
+/**
+ * Stores the event's file attachments. Other attachment kinds get one warning each, not stored.
+ * A `cid:` image the body references with no listed attachment behind it gets one warning too.
+ */
 async function store_attachments(
   deps: EventStoreDeps,
   event_id: string,
+  references: readonly string[],
 ): Promise<StoredAttachments> {
   const { ctx, connector, tenant_id, mailbox_id } = deps;
   const listed = await connector.list_event_attachments(tenant_id, mailbox_id, event_id);
@@ -114,6 +127,11 @@ async function store_attachments(
       size_bytes: bytes.length,
     });
   }
+  const unresolved = unresolved_inline_references(references, listed);
+  append_all(
+    warnings,
+    unresolved.map(() => UNRESOLVED_INLINE_WARNING),
+  );
   return { records, objects_stored, warnings };
 }
 
@@ -128,10 +146,10 @@ export async function store_event_entry(
   const digests = compute_content_digests(deps.ctx, data);
   const storage_key = calendar_data_key(deps.mailbox_id, digests.content_name);
   let objects_stored = (await put_content_if_absent(deps.ctx, storage_key, data)) ? 1 : 0;
-  const attachments =
-    payload['hasAttachments'] === true
-      ? await store_attachments(deps, event.id)
-      : { records: [], objects_stored: 0, warnings: [] };
+  const references = body_inline_references(payload);
+  const attachments = needs_attachment_listing(payload, references)
+    ? await store_attachments(deps, event.id, references)
+    : { records: [], objects_stored: 0, warnings: [] };
   objects_stored += attachments.objects_stored;
   const entry: CalendarEventEntry = {
     event_id: event.id,

@@ -21,6 +21,7 @@ import {
 import { process_backup_file } from '@/services/backup/backup-file-processor';
 import { is_download_refused } from '@wisecom/atlas-m365-graph';
 import { resolve_backed_up_kind } from '@wisecom/atlas-drive';
+import { is_download_url_expired } from '@wisecom/atlas-drive/backup/large-file-url-refresh';
 import { classify_change_type } from '@/services/backup/change-classifier';
 import {
   collect_run_versions,
@@ -331,14 +332,18 @@ async function download_or_record_refusal(
   library_state: LibraryProcessingState,
   abort_signal?: AbortSignal,
 ): Promise<Awaited<ReturnType<typeof process_backup_file>>> {
-  const record = (reason: string, permanent?: boolean): undefined => {
+  const record = (
+    reason: string,
+    outcome: { permanent?: boolean; consumes_attempt?: boolean } = {},
+  ): undefined => {
     library_state.failed_item_ids.add(item.item_id);
     library_state.failed_items = record_item_failure(library_state.failed_items, {
       item_id: item.item_id,
       drive_id: item.drive_id,
       name: item.file_name,
       reason,
-      ...(permanent === true ? { permanent: true } : {}),
+      ...(outcome.permanent === true ? { permanent: true } : {}),
+      ...(outcome.consumes_attempt === false ? { consumes_attempt: false } : {}),
     });
     return undefined;
   };
@@ -347,7 +352,9 @@ async function download_or_record_refusal(
     const result = await process_backup_file(connector, item, site_id, ctx, abort_signal);
     return result ?? record('file content could not be downloaded');
   } catch (err) {
+    // The URL expired before the file was read, so it is retried without spending an attempt (#718).
+    if (is_download_url_expired(err)) return record(err.message, { consumes_attempt: false });
     if (!is_download_refused(err)) throw err;
-    return record(err.message, true);
+    return record(err.message, { permanent: true });
   }
 }

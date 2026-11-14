@@ -9,6 +9,7 @@ import {
   type DriveDownloadUrlResolver,
   type DriveLargeFileDeps,
 } from '@/backup/large-file-pipeline';
+import { is_download_url_expired } from '@/backup/large-file-url-refresh';
 import type { DriveContentConnector, DriveDeltaItem } from '@/drive-ports';
 
 export interface FileProcessResult {
@@ -28,29 +29,7 @@ export async function process_drive_backup_file(
   abort_signal?: AbortSignal,
 ): Promise<FileProcessResult | undefined> {
   if (item.size_bytes >= LARGE_FILE_THRESHOLD) {
-    try {
-      return await process_large_drive_file(
-        deps,
-        connector,
-        item,
-        owner_id,
-        ctx,
-        undefined,
-        abort_signal,
-      );
-    } catch (err) {
-      // A cancelled run is not a bad file. Swallowing it records the item in the failed-item
-      // ledger, and five cancellations of the same large file burn its retry budget and skip it
-      // for good, because delta never re-presents an unchanged item (issue #344).
-      if (abort_signal?.aborted === true) throw err;
-      // A missing grant or a service refusal is not a skip: it must reach the caller
-      // so the run can name the cause instead of reporting a lost file (issue #246).
-      if (is_unretryable_download_failure(err)) throw err;
-      logger.warn(
-        `Skipping large file ${item.item_id} (${item.file_name}): ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return undefined;
-    }
+    return process_large_or_skip(deps, connector, item, owner_id, ctx, abort_signal);
   }
 
   const raw_body = await download_with_retry(connector, item, { abort_signal });
@@ -66,4 +45,45 @@ export async function process_drive_backup_file(
   }
 
   return { storage_key, checksum, stored: false, deduplicated: true };
+}
+
+/** Streams a large file, returning undefined for an ordinary failure the run carries on past. */
+async function process_large_or_skip(
+  deps: DriveLargeFileDeps,
+  connector: DriveContentConnector & DriveDownloadUrlResolver,
+  item: DriveDeltaItem,
+  owner_id: string,
+  ctx: TenantContext,
+  abort_signal?: AbortSignal,
+): Promise<FileProcessResult | undefined> {
+  try {
+    return await process_large_drive_file(
+      deps,
+      connector,
+      item,
+      owner_id,
+      ctx,
+      undefined,
+      abort_signal,
+    );
+  } catch (err) {
+    rethrow_unless_skippable(err, abort_signal);
+    logger.warn(
+      `Skipping large file ${item.item_id} (${item.file_name}): ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return undefined;
+  }
+}
+
+/** Rethrows every failure that must reach the caller instead of becoming a skipped file. */
+function rethrow_unless_skippable(err: unknown, abort_signal?: AbortSignal): void {
+  // A cancelled run is not a bad file. Swallowing it records the item in the failed-item ledger,
+  // and five cancellations of the same large file burn its retry budget and skip it for good,
+  // because delta never re-presents an unchanged item (issue #344).
+  if (abort_signal?.aborted === true) throw err;
+  // A missing grant or a service refusal is not a skip: it must reach the caller so the run can
+  // name the cause instead of reporting a lost file (issue #246).
+  if (is_unretryable_download_failure(err)) throw err;
+  // The URL kept expiring, not the file: the caller records it without spending an attempt (#718).
+  if (is_download_url_expired(err)) throw err;
 }

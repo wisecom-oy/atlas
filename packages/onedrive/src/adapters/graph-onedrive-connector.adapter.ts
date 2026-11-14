@@ -23,7 +23,6 @@ import type {
 import { NotFoundError } from '@wisecom/atlas-types';
 import { compute_chunk_timeout_ms } from '@wisecom/atlas-drive/backup/cdn-chunk-request';
 import { stream_to_buffer } from '@wisecom/atlas-drive/backup/stream-drain';
-import { resolve_download_url } from '@wisecom/atlas-drive/backup/graph-item-content';
 import {
   graph_onedrive_create_folder,
   graph_onedrive_upload_large_file,
@@ -127,7 +126,7 @@ export class GraphOneDriveConnector implements OneDriveConnector {
 
   /** Resolves the temporary pre-authenticated download URL for a file. */
   async resolve_download_url(item: OneDriveDeltaItem): Promise<string | undefined> {
-    return resolve_download_url(this._client, item);
+    return ONEDRIVE_DOWNLOAD_EXECUTOR.resolve_download_url(this._client, item);
   }
 
   /** Lists historical versions of a file, following pagination. */
