@@ -41,7 +41,6 @@ import {
   open_version_content_stream,
 } from '@/adapters/graph-sharepoint-stream-utils';
 import { compute_chunk_timeout_ms } from '@wisecom/atlas-drive/backup/cdn-chunk-request';
-import { resolve_download_url as resolve_download_url_helper } from '@wisecom/atlas-drive/backup/graph-item-content';
 import { stream_to_buffer } from '@wisecom/atlas-drive/backup/stream-drain';
 import { parse_site_reference } from '@/adapters/graph-sharepoint-url-parser';
 import { canonical_site_id } from '@/services/shared/site-id';
@@ -208,7 +207,7 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
 
   /** Resolves the temporary pre-authenticated download URL for a file. */
   async resolve_download_url(item: SharePointDeltaItem): Promise<string | undefined> {
-    return await resolve_download_url_helper(this._client, item);
+    return await SHAREPOINT_DOWNLOAD_EXECUTOR.resolve_download_url(this._client, item);
   }
 
   /**

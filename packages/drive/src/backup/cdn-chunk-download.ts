@@ -25,12 +25,16 @@ const CHUNK_MAX_DELAY_MS = 30_000;
 
 /** Range-based download of one file from its pre-authenticated URL, bound to a workload. */
 export interface CdnChunkDownloader {
-  /** Yields the file in 4 MiB chunks; each chunk is retried on its own. */
+  /**
+   * Yields the file in 4 MiB chunks, starting at `start_offset` (a multiple of the chunk size) so a
+   * download can resume after a refreshed URL. Each chunk is retried on its own.
+   */
   fetch_file_chunks(
     download_url: string,
     total_bytes: number,
     item_id: string,
     abort_signal?: AbortSignal,
+    start_offset?: number,
   ): AsyncGenerator<Buffer>;
   /** Downloads the whole file into one buffer through {@link CdnChunkDownloader.fetch_file_chunks}. */
   download_file_chunked(
@@ -52,8 +56,8 @@ export interface CdnChunkDownloader {
 export function create_cdn_chunk_downloader(workload: DriveWorkload): CdnChunkDownloader {
   const label = DRIVE_WORKLOAD_LABEL[workload];
   return {
-    fetch_file_chunks: (download_url, total_bytes, item_id, abort_signal) =>
-      fetch_file_chunks(label, download_url, total_bytes, item_id, abort_signal),
+    fetch_file_chunks: (download_url, total_bytes, item_id, abort_signal, start_offset) =>
+      fetch_file_chunks(label, download_url, total_bytes, item_id, abort_signal, start_offset),
     download_file_chunked: (download_url, total_bytes, item_id, abort_signal) =>
       collect_chunks(fetch_file_chunks(label, download_url, total_bytes, item_id, abort_signal)),
   };
@@ -66,18 +70,28 @@ async function collect_chunks(chunks: AsyncIterable<Buffer>): Promise<Buffer> {
   return Buffer.concat(parts);
 }
 
-/** Yields the file chunk by chunk, switching to one streamed download if the server ignores Range. */
+/**
+ * Yields the file chunk by chunk from `start_offset`, switching to one streamed download if the
+ * server ignores Range before any chunk has been yielded.
+ */
 async function* fetch_file_chunks(
   label: string,
   download_url: string,
   total_bytes: number,
   item_id: string,
   abort_signal?: AbortSignal,
+  start_offset = 0,
 ): AsyncGenerator<Buffer> {
+  if (start_offset % CHUNK_SIZE_BYTES !== 0) {
+    throw new RangeError(`Chunk download of ${item_id} must start on a chunk boundary`);
+  }
   const chunk_count = Math.ceil(total_bytes / CHUNK_SIZE_BYTES);
-  let yielded_chunks = 0;
+  const first_chunk = start_offset / CHUNK_SIZE_BYTES;
+  // Chunks already handed to the consumer count as yielded, so a range ignored on a resumed
+  // download fails the item rather than restarting the whole file into the cipher (issue #338).
+  let yielded_chunks = first_chunk;
 
-  for (let i = 0; i < chunk_count; i++) {
+  for (let i = first_chunk; i < chunk_count; i++) {
     // Cheap between chunks, and the signal also reaches the request itself, so a cancelled run
     // neither starts the next chunk nor waits out the one in flight (issue #344).
     abort_signal?.throwIfAborted();

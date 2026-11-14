@@ -3,6 +3,7 @@ import { stream_to_content_addressed_storage } from '@wisecom/atlas-core/service
 import type { StorageObjectLockPolicy, TenantContext } from '@wisecom/atlas-types';
 import type { DriveDeltaItem } from '@/drive-ports';
 import { size_checked_chunks } from '@/backup/download-integrity';
+import { stream_chunks_with_url_refresh } from '@/backup/large-file-url-refresh';
 import { format_bytes } from '@/shared/format-bytes';
 import type { DriveStorageKeys } from '@/shared/storage-keys';
 
@@ -25,11 +26,13 @@ export interface DriveDownloadUrlResolver {
  */
 export interface DriveLargeFileDeps {
   readonly keys: DriveStorageKeys;
+  /** Yields the file's chunks from `start_offset`, so a download resumes after a URL refresh. */
   readonly fetch_chunks: (
     download_url: string,
     total_bytes: number,
     item_id: string,
     abort_signal?: AbortSignal,
+    start_offset?: number,
   ) => AsyncIterable<Buffer>;
 }
 
@@ -37,6 +40,10 @@ export interface DriveLargeFileDeps {
  * Single-download, zero-disk pipeline for files at or above the large-file threshold. Streams
  * encrypted parts to an S3 staging key, then either aborts (dedup) or copies to the canonical
  * content-addressed key.
+ *
+ * The URL is resolved when the download starts, not taken from the delta listing: a large file can
+ * be reached long after its listing, and a URL that expired before its first byte costs a whole
+ * extra round trip per file. Mid-transfer expiry is handled by the chunk stream itself.
  */
 export async function process_large_drive_file(
   deps: DriveLargeFileDeps,
@@ -47,7 +54,7 @@ export async function process_large_drive_file(
   object_lock_policy?: StorageObjectLockPolicy,
   abort_signal?: AbortSignal,
 ): Promise<LargeFileResult> {
-  const download_url = item.download_url ?? (await connector.resolve_download_url(item));
+  const download_url = await connector.resolve_download_url(item);
   if (!download_url) {
     throw new Error(`Could not resolve download URL for large file ${item.item_id}`);
   }
@@ -61,7 +68,13 @@ export async function process_large_drive_file(
   const result = await stream_to_content_addressed_storage(
     ctx,
     size_checked_chunks(
-      deps.fetch_chunks(download_url, item.size_bytes, item.item_id, abort_signal),
+      stream_chunks_with_url_refresh(
+        deps.fetch_chunks,
+        connector,
+        item,
+        download_url,
+        abort_signal,
+      ),
       item.item_id,
       item.size_bytes,
     ),

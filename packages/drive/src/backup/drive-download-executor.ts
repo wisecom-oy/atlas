@@ -38,6 +38,14 @@ export interface DriveDownloadExecutor {
     abort_signal?: AbortSignal,
   ): Promise<Buffer>;
   /**
+   * Resolves a fresh pre-authenticated URL. A Graph 403 gets the same classification as a download
+   * failure, so a missing grant stops the run and a service refusal is recorded (issue #246).
+   */
+  resolve_download_url(
+    client: DriveGraphClient,
+    item: DriveDownloadItem,
+  ): Promise<string | undefined>;
+  /**
    * Rethrows any Graph 403 as a missing grant.
    *
    * Deliberately broader than the download-path classification. Its callers are the enumeration
@@ -70,8 +78,27 @@ export function create_drive_download_executor(
   return {
     download_with_fallback: (client, item, abort_signal) =>
       download_with_fallback({ binding, client, item, abort_signal }),
+    resolve_download_url: (client, item) => resolve_fresh_url(binding, client, item),
     rethrow_if_access_denied: (err) => rethrow_if_access_denied(binding, err),
   };
+}
+
+/** Resolves a fresh URL, rethrowing a Graph 403 as the missing grant or refusal it means. */
+async function resolve_fresh_url(
+  binding: DriveDownloadBinding,
+  client: DriveGraphClient,
+  item: DriveDownloadItem,
+): Promise<string | undefined> {
+  try {
+    return await resolve_download_url(client, item);
+  } catch (err) {
+    rethrow_if_unrecoverable(
+      { binding, client, item, abort_signal: undefined },
+      classify_download_failure(err),
+      err,
+    );
+    throw err;
+  }
 }
 
 /** True only for a stale pre-authenticated URL, which is the one 403 worth retrying. */
@@ -82,7 +109,7 @@ export function is_expired_url_error(err: unknown): boolean {
 /** Picks the chunked or single-request URL download by size, or `/content` when no URL resolves. */
 async function download_with_fallback(context: DownloadAttemptContext): Promise<Buffer> {
   const { binding, client, item, abort_signal } = context;
-  const download_url = item.download_url ?? (await resolve_download_url(client, item));
+  const download_url = item.download_url ?? (await resolve_fresh_url(binding, client, item));
   if (!download_url) return await download_via_graph_content(client, item);
 
   const label = DRIVE_WORKLOAD_LABEL[binding.workload];
@@ -148,8 +175,8 @@ async function retry_with_refreshed_url(
   download_fn: (url: string) => Promise<Buffer>,
   strategy_label: string,
 ): Promise<Buffer | undefined> {
-  const { client, item, abort_signal } = context;
-  const refreshed_url = await resolve_download_url(client, item);
+  const { binding, client, item, abort_signal } = context;
+  const refreshed_url = await resolve_fresh_url(binding, client, item);
   if (!refreshed_url) return undefined;
   try {
     return await download_fn(refreshed_url);

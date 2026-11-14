@@ -12,6 +12,7 @@ import {
 import { process_backup_file } from '@/services/backup/backup-file-processor';
 import { is_download_refused } from '@wisecom/atlas-m365-graph';
 import { resolve_backed_up_kind } from '@wisecom/atlas-drive';
+import { is_download_url_expired } from '@wisecom/atlas-drive/backup/large-file-url-refresh';
 import { classify_change_type } from '@/services/backup/change-classifier';
 import {
   collect_run_versions,
@@ -40,6 +41,8 @@ export interface DeltaItemOutcome {
   error?: string;
   /** The error is a policy refusal, so retrying it on later runs is pointless. */
   permanent?: boolean;
+  /** The download URL expired and the file was not read, so the ledger does not count an attempt. */
+  url_expired?: boolean;
 }
 
 /**
@@ -181,6 +184,9 @@ async function download_or_record_refusal(
       outcome: { ...empty, error: `Failed to process file ${item.file_name} (${item.item_id})` },
     };
   } catch (err) {
+    if (is_download_url_expired(err)) {
+      return { outcome: { ...empty, error: err.message, url_expired: true } };
+    }
     if (!is_download_refused(err)) throw err;
     return { outcome: { ...empty, error: err.message, permanent: true } };
   }
