@@ -7,7 +7,6 @@ import type {
   AtlasInstanceConfig,
   StorageCheckUseCase,
   StatsUseCase,
-  ReplicationUseCase,
   UserIdentityResolver,
   IdentityRegistryRepository,
   DekRewrapUseCase,
@@ -16,7 +15,6 @@ import type {
 import {
   STORAGE_CHECK_USE_CASE_TOKEN,
   STATS_USE_CASE_TOKEN,
-  REPLICATION_USE_CASE_TOKEN,
   USER_IDENTITY_RESOLVER_TOKEN,
   IDENTITY_REGISTRY_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
@@ -34,7 +32,6 @@ import { create_disposer } from '@/instance-disposal';
 import { resolve_log_sink, scope_api_logging } from '@/log-scope';
 import { normalize_config } from '@/instance-config';
 import { validate_instance } from '@/instance-validation';
-import { resolve_owner_object_id } from '@/owner-resolution';
 import { STORAGE_OBSERVER_TOKEN } from '@/target-tenant';
 
 /** Creates a tenant-bound Atlas SDK instance from explicit configuration values. */
@@ -53,7 +50,6 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
   const storage_check = container.get<StorageCheckUseCase>(STORAGE_CHECK_USE_CASE_TOKEN);
   const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
   const storage_usage = container.get<StorageUsageUseCase>(STORAGE_USAGE_USE_CASE_TOKEN);
-  const replication = container.get<ReplicationUseCase>(REPLICATION_USE_CASE_TOKEN);
   const identity_resolver = container.get<UserIdentityResolver>(USER_IDENTITY_RESOLVER_TOKEN);
   const identity_registry = container.get<IdentityRegistryRepository>(
     IDENTITY_REGISTRY_REPOSITORY_TOKEN,
@@ -111,29 +107,6 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
       } finally {
         ctx.destroy();
       }
-    },
-    async replicateSnapshot(snapshot_id, targets) {
-      return camelize(await replication.replicate_snapshot(tenant_id, snapshot_id, targets));
-    },
-    async replicateMailbox(mailbox, targets) {
-      const mailbox_id = await resolve_owner_object_id(identity_resolver, tenant_id, mailbox);
-      return camelize(await replication.replicate_mailbox(tenant_id, mailbox_id, targets));
-    },
-    async rehydrateSnapshot(snapshot_id, source) {
-      return camelize(await replication.rehydrate_snapshot(tenant_id, snapshot_id, source));
-    },
-    async rehydrateMailbox(mailbox, source) {
-      const mailbox_id = await resolve_owner_object_id(identity_resolver, tenant_id, mailbox);
-      return camelize(await replication.rehydrate_mailbox(tenant_id, mailbox_id, source));
-    },
-    async rehydrateTenant(source) {
-      return camelize(await replication.rehydrate_tenant(tenant_id, source));
-    },
-    async getReplicationStatus(snapshot_id) {
-      return camelize(await replication.get_replication_status(tenant_id, snapshot_id));
-    },
-    async getReplicationStatusByOwner(owner_id) {
-      return camelize(await replication.get_replication_status_by_owner(tenant_id, owner_id));
     },
     async rewrapDataKey(new_passphrase) {
       return camelize(await dek_rewrap.rewrap_tenant_dek(tenant_id, new_passphrase));

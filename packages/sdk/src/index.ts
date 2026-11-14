@@ -7,12 +7,10 @@
  * (issue #45). Everything below is camelCase, converted at the boundary.
  */
 export { createAtlasInstance } from './atlas-instance.adapter';
-export { create_storage_target as createStorageTarget } from '@wisecom/atlas-s3';
 export { create_tenant as createTenant } from './target-tenant';
 export { getGraphCost, getStorageUsageToken, GRAPH_SERVICE_LIMITS } from './public-values';
 
 export type { AtlasInstance, AtlasInstanceConfig } from '@wisecom/atlas-types';
-export type { StorageTarget, StorageTargetConfig } from '@wisecom/atlas-types';
 export type { AtlasTenant, AtlasTenantConfig } from '@wisecom/atlas-types';
 export type { LogSink, LogFields } from '@wisecom/atlas-types';
 export type {
@@ -59,7 +57,6 @@ export type {
   OneDriveSdkSnapshotSummary,
   OneDriveSdkFileVersion,
   OneDriveSdkDeletionResult,
-  OneDriveSdkReplicationResult,
   OneDriveSdkStatusResult,
   OneDriveSdkStats,
 } from '@wisecom/atlas-types';
@@ -104,7 +101,6 @@ export type {
   SharePointSdkSnapshotSummary,
   SharePointSdkFileVersion,
   SharePointSdkDeletionResult,
-  SharePointSdkReplicationResult,
   SharePointSdkStatusResult,
   SharePointSdkSite,
   SharePointSdkStats,
@@ -130,7 +126,7 @@ export type {
   OperationProgressCallback,
 } from '@wisecom/atlas-types';
 
-export type { ObjectLockMode, BackupSyncMode, RehydrationWorkload } from '@wisecom/atlas-types';
+export type { ObjectLockMode, BackupSyncMode } from '@wisecom/atlas-types';
 export type { GraphServicePool, ThrottleCoordinator, ThrottleScope } from '@wisecom/atlas-types';
 
 /**
