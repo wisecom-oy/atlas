@@ -1,8 +1,8 @@
 /**
  * Plain-node self-check for the rig's pure parts: fixture generation and mutation, rate limiting,
- * paging tokens, reply inlining, CLI parsing, and that the rig container resolves every token the
- * scenarios take from it. Needs no network or backup run; the rate limiter reads limits from
- * `@wisecom/atlas-types`, so run `pnpm install` first.
+ * paging tokens, reply inlining, CLI parsing, dead-lease expiry, and that the rig container resolves
+ * every token the scenarios take from it. Needs no network or backup run; the rate limiter reads
+ * limits from `@wisecom/atlas-types`, so run `pnpm install` first.
  * Run: node tools/teams-scale-rig/src/selfcheck.mjs
  */
 import assert from 'node:assert/strict';
@@ -27,6 +27,7 @@ import { root_json, INLINE_REPLY_LIMIT } from './server/serialize.mjs';
 import { parse_args } from './cli-args.mjs';
 import { diff_snapshots, resume_blob_problems } from './runner/convergence.mjs';
 import { diff_live_content } from './runner/live-content-diff.mjs';
+import { run_lease_checks } from './selfcheck-leases.mjs';
 
 const checks = [];
 function test(name, fn) {
@@ -286,5 +287,7 @@ test('resume_blob_problems flags blobs downloaded again that the store held at t
   });
   assert.deepEqual(clean, { reused: [], unaccounted: [], unmapped: [] });
 });
+
+checks.push(...(await run_lease_checks()));
 
 console.log(`selfcheck: ${checks.length} checks passed`);
