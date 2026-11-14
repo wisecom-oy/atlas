@@ -12,8 +12,6 @@ import { register_teams_command } from '@/commands/teams/teams.command';
 import { register_tenant_delete_command } from '@/commands/tenant/delete.command';
 import { register_stats_command } from '@/commands/stats/stats.command';
 import { register_storage_check_command } from '@/commands/tenant/storage-check.command';
-import { register_replicate_command } from '@/commands/tenant/replicate.command';
-import { register_rehydrate_command } from '@/commands/tenant/rehydrate.command';
 import { register_list_users_command } from '@/commands/tenant/list-users.command';
 import { register_config_command } from '@/commands/tenant/config.command';
 import { register_keys_command } from '@/commands/tenant/keys.command';
@@ -62,8 +60,6 @@ function register_commands(program: Command): void {
   register_tenant_delete_command(program, get_container);
   register_stats_command(program, get_container);
   register_storage_check_command(program, get_container);
-  register_replicate_command(program, get_container);
-  register_rehydrate_command(program, get_container);
   register_list_users_command(program, get_container);
   register_keys_command(program, get_container);
   register_config_command(program);

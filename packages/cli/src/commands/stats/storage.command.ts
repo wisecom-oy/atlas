@@ -10,7 +10,6 @@ import type {
   StorageUsageUseCase,
 } from '@wisecom/atlas-types';
 import { get_storage_usage_token } from '@wisecom/atlas-core/services/stats/storage-usage.service';
-import { build_target } from '@/commands/tenant/replicate.command';
 import { print_storage_usage } from '@/commands/stats/storage.view';
 
 type ContainerFactory = () => Container;
@@ -23,15 +22,11 @@ interface StorageUsageCommandOptions {
   by: StorageUsageBreakdown;
   continue?: string;
   maxRequests?: string;
-  targetEndpoint?: string;
-  targetAccessKey?: string;
-  targetSecretKey?: string;
-  targetRegion?: string;
-  targetConfig?: string;
 }
 
 /**
- * Registers `atlas stats storage`: physical bytes in the tenant bucket or a replica.
+ * Registers `atlas stats storage`: physical bytes in the tenant bucket on the configured endpoint.
+ * A replica is measured by pointing the S3 endpoint at it.
  *
  * `-t`, `--top` and `--json` are declared once, on `stats`. Commander hands an option the parent
  * knows to the parent wherever it appears, so a second declaration here would never receive a
@@ -52,11 +47,6 @@ export function register_stats_storage_command(
         .choices(['workload', 'owner'])
         .default('workload'),
     )
-    .option('--target-endpoint <url>', 'measure a replica: target S3 endpoint URL')
-    .option('--target-access-key <key>', 'replica S3 access key')
-    .option('--target-secret-key <key>', 'replica S3 secret key; "-" reads it from stdin')
-    .option('--target-region <region>', 'replica S3 region')
-    .option('--target-config <path>', 'path to JSON file with replica S3 credentials')
     .option('--max-requests <n>', 'stop after this many S3 requests and print a continuation token')
     .option('--continue <token>', 'resume a measurement from its continuation token')
     .action((_options: unknown, command: Command) =>
@@ -72,14 +62,12 @@ async function execute_storage_usage(
   // Parsed before listing: a bad flag must not cost a full listing of the bucket first.
   const top = options.json ? 20 : (parse_positive(options.top, '--top') ?? 20);
   const max_list_requests = parse_positive(options.maxRequests, '--max-requests');
-  const target = wants_replica(options) ? build_target(container, options) : undefined;
 
   let usage: StorageUsage;
   try {
     usage = await container
       .get<StorageUsageUseCase>(STORAGE_USAGE_USE_CASE_TOKEN)
       .measure_storage_usage(tenant_id, {
-        ...(target ? { target } : {}),
         breakdown: options.by,
         continuation_token: options.continue,
         max_list_requests,
@@ -96,20 +84,6 @@ async function execute_storage_usage(
     return;
   }
   await print_storage_usage(usage, top);
-}
-
-/**
- * Any replica flag asks for a replica. Without an endpoint or a config file `build_target`
- * refuses, rather than the run quietly measuring primary storage instead.
- */
-function wants_replica(options: StorageUsageCommandOptions): boolean {
-  return [
-    options.targetEndpoint,
-    options.targetAccessKey,
-    options.targetSecretKey,
-    options.targetRegion,
-    options.targetConfig,
-  ].some((value) => value !== undefined);
 }
 
 function parse_positive(raw: string | undefined, flag: string): number | undefined {

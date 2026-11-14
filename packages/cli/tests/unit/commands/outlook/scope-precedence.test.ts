@@ -6,8 +6,7 @@ import { describe_scope_conflict, resolve_outlook_scope } from '@/commands/outlo
  * `save` was the one that lost work: it let `-m` win, so `save -s <id> -m <mailbox>` discarded the
  * snapshot and exported the entire mailbox instead.
  *
- * `-s` wins everywhere now, matching `atlas replicate`, which checks `--snapshot` before
- * `--mailbox`.
+ * `-s` wins everywhere now, because a snapshot id is the narrower request.
  */
 describe('resolve_outlook_scope', () => {
   it('picks snapshot mode when only -s is given', () => {
