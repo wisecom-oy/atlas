@@ -5,6 +5,7 @@ import {
   is_unretryable_download_failure,
 } from '@wisecom/atlas-m365-graph';
 import type { DriveContentConnector, DriveDeltaItem } from '@/drive-ports';
+import { is_download_size_changed } from '@/backup/download-integrity';
 import { format_bytes } from '@/shared/format-bytes';
 
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -33,6 +34,7 @@ export interface DownloadRetryOptions {
  * A missing grant and a service refusal are the exceptions: both are rethrown so
  * the caller can name the cause. Swallowing them here is what turned one missing
  * permission into a per-file retry storm reported as a skipped file (issue #246).
+ * A size change is the third exception, so the caller can re-read the item (issue #759).
  */
 export async function download_with_retry(
   connector: DriveContentConnector,
@@ -54,6 +56,8 @@ export async function download_with_retry(
       const is_last = attempt === max_attempts;
 
       if (is_unretryable_download_failure(err)) throw err;
+      // Passed up so the caller can re-read the item once (issue #759).
+      if (is_download_size_changed(err)) throw err;
 
       if (is_last || !is_retryable_error(err)) {
         logger.warn(

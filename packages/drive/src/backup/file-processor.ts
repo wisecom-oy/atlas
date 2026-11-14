@@ -3,6 +3,8 @@ import { compute_content_digests } from '@wisecom/atlas-core/services/shared/con
 import { is_unretryable_download_failure } from '@wisecom/atlas-m365-graph';
 import type { TenantContext } from '@wisecom/atlas-types';
 import { download_with_retry } from '@/backup/download-retry';
+import { is_download_size_changed } from '@/backup/download-integrity';
+import { attempt_with_size_refresh, type DriveItemRefetch } from '@/backup/download-size-refresh';
 import { LARGE_FILE_THRESHOLD } from '@/backup/large-file-threshold';
 import {
   process_large_drive_file,
@@ -17,10 +19,34 @@ export interface FileProcessResult {
   checksum: string;
   stored: boolean;
   deduplicated: boolean;
+  /** Length of the content actually stored, which can differ from the listed size (issue #759). */
+  size_bytes: number;
 }
 
-/** Downloads or deduplicates a single delta file item. */
+/**
+ * Downloads or deduplicates a single delta file item.
+ *
+ * `refetch_item` re-reads the item once if its size changed during the download (issue #759).
+ */
 export async function process_drive_backup_file(
+  deps: DriveLargeFileDeps,
+  connector: DriveContentConnector & DriveDownloadUrlResolver,
+  item: DriveDeltaItem,
+  owner_id: string,
+  ctx: TenantContext,
+  refetch_item: DriveItemRefetch,
+  abort_signal?: AbortSignal,
+): Promise<FileProcessResult | undefined> {
+  return attempt_with_size_refresh(
+    item,
+    refetch_item,
+    (current) => store_drive_file(deps, connector, current, owner_id, ctx, abort_signal),
+    abort_signal,
+  );
+}
+
+/** One download-and-store attempt for a file planned with the item's current size. */
+async function store_drive_file(
   deps: DriveLargeFileDeps,
   connector: DriveContentConnector & DriveDownloadUrlResolver,
   item: DriveDeltaItem,
@@ -38,13 +64,14 @@ export async function process_drive_backup_file(
   const { checksum, content_name } = compute_content_digests(ctx, raw_body);
   const storage_key = deps.keys.data_key(owner_id, content_name);
   const exists = await ctx.storage.exists(storage_key);
+  const size_bytes = raw_body.length;
 
   if (!exists) {
     await ctx.storage.put(storage_key, ctx.encrypt(raw_body, storage_key));
-    return { storage_key, checksum, stored: true, deduplicated: false };
+    return { storage_key, checksum, stored: true, deduplicated: false, size_bytes };
   }
 
-  return { storage_key, checksum, stored: false, deduplicated: true };
+  return { storage_key, checksum, stored: false, deduplicated: true, size_bytes };
 }
 
 /** Streams a large file, returning undefined for an ordinary failure the run carries on past. */
@@ -57,7 +84,7 @@ async function process_large_or_skip(
   abort_signal?: AbortSignal,
 ): Promise<FileProcessResult | undefined> {
   try {
-    return await process_large_drive_file(
+    const result = await process_large_drive_file(
       deps,
       connector,
       item,
@@ -66,6 +93,8 @@ async function process_large_or_skip(
       undefined,
       abort_signal,
     );
+    // The stream verified its length against the planned size, so that is the stored length.
+    return { ...result, size_bytes: item.size_bytes };
   } catch (err) {
     rethrow_unless_skippable(err, abort_signal);
     logger.warn(
@@ -86,4 +115,6 @@ function rethrow_unless_skippable(err: unknown, abort_signal?: AbortSignal): voi
   if (is_unretryable_download_failure(err)) throw err;
   // The URL kept expiring, not the file: the caller records it without spending an attempt (#718).
   if (is_download_url_expired(err)) throw err;
+  // The size changed under the transfer: the caller re-reads the item once (issue #759).
+  if (is_download_size_changed(err)) throw err;
 }

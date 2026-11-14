@@ -3,6 +3,7 @@ import {
   assert_range_chunk,
   assert_transferred_size,
   DownloadIntegrityError,
+  DownloadSizeChangedError,
 } from '@/backup/download-integrity';
 
 // Issue #338: the checksum is computed over whatever arrived, so a truncated, duplicated or
@@ -74,5 +75,43 @@ describe('assert_transferred_size (issue #338)', () => {
   it('rejects a short and an over-long transfer alike', () => {
     expect(() => assert_transferred_size('item-1', 5, 8)).toThrow(/produced 5 bytes, expected 8/);
     expect(() => assert_transferred_size('item-1', 12, 8)).toThrow(/produced 12 bytes, expected 8/);
+  });
+});
+
+describe('DownloadSizeChangedError (issue #759)', () => {
+  it('is raised for a transfer whose length differs from the planned size, with both sizes', () => {
+    const attempt = (): void => assert_transferred_size('item-1', 12, 8);
+    expect(attempt).toThrow(DownloadSizeChangedError);
+    try {
+      attempt();
+    } catch (err) {
+      expect(err).toMatchObject({ planned_bytes: 8, observed_bytes: 12 });
+    }
+  });
+
+  it('is raised for a Content-Range total that differs from the planned total, with both totals', () => {
+    try {
+      assert_range_chunk('item-1', 0, 3, 'bytes 0-3/12', 4, 8);
+      throw new Error('expected a throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(DownloadSizeChangedError);
+      expect(err).toMatchObject({ planned_bytes: 8, observed_bytes: 12 });
+    }
+  });
+
+  it('is still a DownloadIntegrityError, so existing handlers keep catching it', () => {
+    expect(new DownloadSizeChangedError('x', 8, 12)).toBeInstanceOf(DownloadIntegrityError);
+  });
+
+  it('is not raised for a wrong range start or end, a short chunk or a missing Content-Range', () => {
+    const cases = [
+      () => assert_range_chunk('item-1', 0, 3, 'bytes 4-7/8', 4, 8),
+      () => assert_range_chunk('item-1', 0, 3, 'bytes 0-3/8', 2, 8),
+      () => assert_range_chunk('item-1', 0, 3, null, 4, 8),
+    ];
+    for (const attempt of cases) {
+      expect(attempt).toThrow(DownloadIntegrityError);
+      expect(attempt).not.toThrow(DownloadSizeChangedError);
+    }
   });
 });

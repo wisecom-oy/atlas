@@ -16,6 +16,32 @@ export class DownloadIntegrityError extends Error {
 }
 
 /**
+ * Raised when the file's size at download time differs from the size the transfer was planned
+ * with. The planned size came from the listing or the item read that started the download.
+ *
+ * SharePoint can rewrite a file on its first download, so the bytes served are not the bytes the
+ * listing described (issue #759). This is the one integrity failure a fresh read of the item can
+ * fix, which is why it is a subclass of its own: every other failure is a truncated or wrong body.
+ */
+export class DownloadSizeChangedError extends DownloadIntegrityError {
+  readonly planned_bytes: number;
+  /** The transferred length, or the `Content-Range` total when the transfer was a range. */
+  readonly observed_bytes: number;
+
+  constructor(message: string, planned_bytes: number, observed_bytes: number) {
+    super(message);
+    this.name = 'DownloadSizeChangedError';
+    this.planned_bytes = planned_bytes;
+    this.observed_bytes = observed_bytes;
+  }
+}
+
+/** True for the size-change failure, the only one that justifies re-reading the item. */
+export function is_download_size_changed(err: unknown): err is DownloadSizeChangedError {
+  return err instanceof DownloadSizeChangedError;
+}
+
+/**
  * Fails a `206` that does not deliver exactly the requested range, or that comes from a file of a
  * different size than the transfer was planned with.
  *
@@ -57,9 +83,11 @@ export function assert_range_chunk(
     );
   }
   if (satisfied.total !== undefined && satisfied.total !== planned_total_bytes) {
-    throw new DownloadIntegrityError(
+    throw new DownloadSizeChangedError(
       `Range bytes=${range_start}-${range_end} of ${item_id} came from a ${satisfied.total} byte ` +
         `file, but the transfer was planned for ${planned_total_bytes} bytes`,
+      planned_total_bytes,
+      satisfied.total,
     );
   }
 }
@@ -76,8 +104,10 @@ export function assert_transferred_size(
   expected_bytes: number,
 ): void {
   if (expected_bytes <= 0 || transferred_bytes === expected_bytes) return;
-  throw new DownloadIntegrityError(
+  throw new DownloadSizeChangedError(
     `Download of ${item_id} produced ${transferred_bytes} bytes, expected ${expected_bytes}`,
+    expected_bytes,
+    transferred_bytes,
   );
 }
 
