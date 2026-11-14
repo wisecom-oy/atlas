@@ -15,7 +15,6 @@ import type {
   SharePointManifestRepository,
   TeamsIndexRepository,
   StorageInventoryFactory,
-  StorageTarget,
   StorageUsage,
   StorageUsageRequest,
   StorageUsageWorkload,
@@ -24,6 +23,8 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { logger } from '@/utils/logger';
+import { ATLAS_CONFIG_TOKEN, type S3Config } from '@/utils/config';
+import { storage_endpoint_fingerprint } from '@/services/stats/storage-endpoint-fingerprint';
 import { sum_entry_bytes } from '@/services/stats/stats-summary-aggregator';
 import { require_every_summary } from '@/services/stats/require-every-summary';
 import { run_usage_listing } from '@/services/stats/storage-usage-run';
@@ -62,10 +63,11 @@ export class StorageUsageService implements StorageUsageUseCase {
     private readonly _sp_manifests: SharePointManifestRepository,
     @inject(TEAMS_INDEX_REPOSITORY_TOKEN)
     private readonly _teams_indexes: TeamsIndexRepository,
+    @inject(ATLAS_CONFIG_TOKEN) private readonly _config: S3Config,
   ) {}
 
   /**
-   * Lists the bucket (or the target's copy of it) and reports what it holds. Stops early on the
+   * Lists the bucket on the configured endpoint and reports what it holds. Stops early on the
    * request allowance or the abort signal and returns a continuation token instead of throwing.
    *
    * A request that fails mid-run is rethrown, carrying the token for the last page boundary as
@@ -79,15 +81,13 @@ export class StorageUsageService implements StorageUsageUseCase {
     validate_request(request);
     const identity = {
       tenant_id,
-      target_id: request.target?.target_id ?? 'primary',
+      endpoint_id: storage_endpoint_fingerprint(this._config.s3_endpoint, this._config.s3_region),
       breakdown: request.breakdown ?? 'workload',
     };
     const state = request.continuation_token
       ? decode_state(request.continuation_token, identity)
       : fresh_state(identity, new Date());
-    const inventory = request.target
-      ? request.target.open_inventory(tenant_id)
-      : this._open_inventory(tenant_id);
+    const inventory = this._open_inventory(tenant_id);
 
     try {
       await run_usage_listing(state, inventory, {
@@ -100,24 +100,19 @@ export class StorageUsageService implements StorageUsageUseCase {
     }
 
     const complete = is_complete(state);
-    const logical = complete ? await this.read_logical_bytes(tenant_id, request.target) : undefined;
+    const logical = complete ? await this.read_logical_bytes(tenant_id) : undefined;
     return build_report(state, complete, logical);
   }
 
   /**
    * Sums the logical sizes every stored manifest references, the totals `stats` reports. Needs
-   * the data key, so a bucket that holds no backups, or a replica without its key, has none; the
+   * the data key, so a bucket that holds no backups, or a copy without its key, has none; the
    * report then omits the figure rather than failing the measurement it already has.
    */
-  private async read_logical_bytes(
-    tenant_id: string,
-    target?: StorageTarget,
-  ): Promise<LogicalBytes | undefined> {
+  private async read_logical_bytes(tenant_id: string): Promise<LogicalBytes | undefined> {
     let ctx: TenantContext | undefined;
     try {
-      ctx = target
-        ? await target.create_context(tenant_id)
-        : await this._tenant_factory.create_readonly(tenant_id);
+      ctx = await this._tenant_factory.create_readonly(tenant_id);
       // Every workload's totals come from the summary rows, which hold each snapshot's size (#726).
       const outlook = require_every_summary(
         await this._manifests.list_all_snapshot_summaries(ctx),
@@ -196,7 +191,6 @@ function build_report(
 ): StorageUsage {
   const totals = sum_counts(Object.values(state.by_workload));
   return {
-    target: state.target_id,
     started_at: state.started_at,
     measured_at: new Date().toISOString(),
     complete,

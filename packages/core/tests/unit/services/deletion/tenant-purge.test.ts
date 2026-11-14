@@ -58,8 +58,8 @@ describe('DeletionService.purge_tenant', () => {
   });
 
   it('erases the DEK-encrypted neighbours in _meta before the DEK itself', async () => {
-    // Replica markers and replication records share _meta/ with the key that
-    // decrypts them, and sort after it. Holding back the whole prefix would
+    // The replica marker and replication records Atlas 6 wrote share _meta/ with
+    // the key that decrypts them, and sort after it. Holding back the whole prefix would
     // let a retained record outlive its key.
     vi.mocked(mock_context.storage.list)
       .mockResolvedValueOnce([

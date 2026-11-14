@@ -82,7 +82,6 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
     async getStorageUsage(options = {}) {
       return camelize(
         await storage_usage.measure_storage_usage(tenant_id, {
-          target: options.target,
           breakdown: options.breakdown,
           continuation_token: options.continuationToken,
           max_list_requests: options.maxListRequests,

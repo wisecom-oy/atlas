@@ -32,10 +32,15 @@ function outlook_cursor_key(owner_id: string): string {
 }
 
 /**
- * Replication status records of the given Outlook snapshots. Only these snapshots' folders: the
- * `_meta/replication/{owner_id}/` tree is shared with the OneDrive backup of the same user.
+ * Replication status records Atlas 6 wrote for the given Outlook snapshots, erased with the mailbox
+ * so no record of a deleted snapshot outlives it. Atlas 7 writes none. Only these snapshots'
+ * folders: the `_meta/replication/{owner_id}/` tree is shared with the OneDrive backup of the
+ * same user.
  */
-function replication_status_prefixes(owner_id: string, snapshot_ids: Iterable<string>): string[] {
+function legacy_replication_status_prefixes(
+  owner_id: string,
+  snapshot_ids: Iterable<string>,
+): string[] {
   return [...snapshot_ids].map((snapshot_id) => `_meta/replication/${owner_id}/${snapshot_id}/`);
 }
 
@@ -82,7 +87,7 @@ export class DeletionService implements DeletionUseCase {
           ...snapshot_pointers,
           `${OUTLOOK_MANIFEST_POINTER_PREFIX}/owners/${owner_id}/`,
           outlook_cursor_key(owner_id),
-          ...replication_status_prefixes(owner_id, snapshot_ids),
+          ...legacy_replication_status_prefixes(owner_id, snapshot_ids),
           `data/${owner_id}/`,
           `attachments/${owner_id}/`,
           ...quarantined_copies_of([manifest_prefix]),

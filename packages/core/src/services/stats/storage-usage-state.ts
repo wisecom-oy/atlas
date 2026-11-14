@@ -45,9 +45,10 @@ export interface UploadsPhase {
  * in, where each unfinished listing stops, and what has been counted so far.
  */
 export interface UsageState extends UsageTally {
-  readonly version: 1;
+  readonly version: 2;
   readonly tenant_id: string;
-  readonly target_id: string;
+  /** Fingerprint of the S3 endpoint and region listed, never the endpoint itself. */
+  readonly endpoint_id: string;
   readonly breakdown: StorageUsageBreakdown;
   readonly started_at: string;
   mode: StorageListingMode;
@@ -61,14 +62,14 @@ export interface UsageState extends UsageTally {
 
 export interface StateIdentity {
   readonly tenant_id: string;
-  readonly target_id: string;
+  readonly endpoint_id: string;
   readonly breakdown: StorageUsageBreakdown;
 }
 
 /** A measurement that has not listed anything yet. */
 export function fresh_state(identity: StateIdentity, now: Date): UsageState {
   return {
-    version: 1,
+    version: 2,
     ...identity,
     started_at: now.toISOString(),
     mode: 'versions',
@@ -100,8 +101,9 @@ export function encode_state(state: UsageState): string {
  * Restores a measurement from a continuation token.
  *
  * The token is caller input. It is validated field by field, and it must belong to the same
- * tenant, target and breakdown: resuming a primary run against a replica would add two buckets
- * together and report the sum as either.
+ * tenant, endpoint and breakdown: resuming a primary run against a replica endpoint would add two
+ * buckets together and report the sum as either. Version 1 tokens named a replication target
+ * instead of an endpoint and are refused as unsupported.
  */
 export function decode_state(token: string, identity: StateIdentity): UsageState {
   let parsed: unknown;
@@ -110,8 +112,8 @@ export function decode_state(token: string, identity: StateIdentity): UsageState
   } catch {
     throw invalid('it is not a storage usage continuation token');
   }
-  if (!is_record(parsed) || parsed['version'] !== 1) throw invalid('unsupported token version');
-  for (const field of ['tenant_id', 'target_id', 'breakdown'] as const) {
+  if (!is_record(parsed) || parsed['version'] !== 2) throw invalid('unsupported token version');
+  for (const field of ['tenant_id', 'endpoint_id', 'breakdown'] as const) {
     if (parsed[field] !== identity[field]) {
       throw invalid(`it was issued for a different ${field.replace('_id', '')}`);
     }

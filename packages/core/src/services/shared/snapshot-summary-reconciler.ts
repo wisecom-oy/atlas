@@ -21,7 +21,7 @@ export interface ReconciledSnapshotSummaries<T> {
  * Reconciles recorded summary rows with the manifest keys a listing found (#625).
  *
  * The listing decides which snapshots exist. A key with a row is answered from the row. A key
- * without one, left by a summary write that failed, a rehydrate, or data written before the index
+ * without one, left by a summary write that failed, a bucket copied outside Atlas, or data written before the index
  * existed, is decrypted and summarised. A row whose key is gone, after a delete, quarantine or
  * lifecycle expiry, is dropped. A stale summary therefore costs reads, never a wrong answer.
  */
