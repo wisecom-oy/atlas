@@ -41,7 +41,8 @@ export async function purge_tenant_old_wrappers(
   tenant_id: string,
   keys: PurgeKeys,
 ): Promise<TenantWrapperPurgeOutcome> {
-  if (!(await storage.exists(DEK_KEY))) return { tenant_id, status: 'no_key', versions: [] };
+  if (!(await storage.exists(DEK_KEY)))
+    return await report_wrappers_without_current(storage, tenant_id);
   const read_version = storage.get_version?.bind(storage);
   if (read_version === undefined) {
     const detail = 'this storage adapter cannot read object versions; nothing was deleted';
@@ -54,7 +55,7 @@ export async function purge_tenant_old_wrappers(
     const noncurrent = await list_noncurrent_wrappers(storage);
     if (noncurrent === undefined) {
       const detail =
-        'the version listing does not say which version is current; nothing was deleted';
+        'the version listing does not identify exactly one current version; nothing was deleted';
       return { tenant_id, status: 'failed', versions: [], detail };
     }
     const versions: OldWrapperVersionOutcome[] = [];
@@ -83,18 +84,45 @@ async function unwrap_current(
   }
 }
 
+/** Every version of exactly `_meta/dek.enc` that holds a wrapper, delete markers left out. */
+async function list_wrapper_versions(storage: ObjectStorage): Promise<StorageObjectVersion[]> {
+  const listed = await storage.list_versions(DEK_KEY);
+  return listed.filter((v) => v.key === DEK_KEY && !v.is_delete_marker);
+}
+
 /**
- * The versions of exactly `_meta/dek.enc` that the listing marks noncurrent, or undefined when
- * the listing leaves the currency of any version unstated: then no version is provably old, and
- * reporting the bucket clean would be false.
+ * The versions of `_meta/dek.enc` that the listing marks noncurrent, or undefined unless the
+ * listing states every version's currency and names exactly one current wrapper. Otherwise no
+ * version is provably old, and deleting one could delete the wrapper in use.
  */
 async function list_noncurrent_wrappers(
   storage: ObjectStorage,
 ): Promise<StorageObjectVersion[] | undefined> {
-  const listed = await storage.list_versions(DEK_KEY);
-  const wrappers = listed.filter((v) => v.key === DEK_KEY && !v.is_delete_marker);
+  const wrappers = await list_wrapper_versions(storage);
   if (wrappers.some((v) => v.is_latest === undefined)) return undefined;
+  if (wrappers.filter((v) => v.is_latest === true).length !== 1) return undefined;
   return wrappers.filter((v) => v.is_latest === false);
+}
+
+/**
+ * The outcome for a bucket whose `_meta/dek.enc` has no current version, for example behind a
+ * delete marker. Old versions there still open with whatever passphrase wrapped them, and with
+ * no current key to compare against none of them can be proven safe to delete, so they are
+ * reported and kept. Only a bucket with no wrapper version at all has no key.
+ */
+async function report_wrappers_without_current(
+  storage: ObjectStorage,
+  tenant_id: string,
+): Promise<TenantWrapperPurgeOutcome> {
+  const left = await list_wrapper_versions(storage);
+  if (left.length === 0) return { tenant_id, status: 'no_key', versions: [] };
+  const detail = 'no current wrapper to compare it with; it was kept';
+  const versions = left.map((v) => ({
+    version_id: v.version_id,
+    status: 'unverified' as const,
+    detail,
+  }));
+  return { tenant_id, status: 'versions_left', versions };
 }
 
 /** Proves one noncurrent version holds the current data key, then deletes it. */
