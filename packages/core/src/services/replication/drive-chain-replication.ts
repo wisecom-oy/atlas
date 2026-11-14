@@ -39,7 +39,7 @@ export interface DriveChainPorts<TManifest extends DriveChainManifest> {
  * target lacks, with their objects (issue #714). A drive manifest holds one run's delta, so copying
  * the named manifest alone left a replica that restores less than the original.
  *
- * @throws UnreadableObjectsError when the chain needs a damaged manifest, before any copy.
+ * @throws UnreadableObjectsError when the chain needs a damaged or missing manifest, before any copy.
  */
 export async function replicate_drive_snapshot_chain<TManifest extends DriveChainManifest>(
   ports: DriveChainPorts<TManifest>,
@@ -49,13 +49,11 @@ export async function replicate_drive_snapshot_chain<TManifest extends DriveChai
   targets: readonly StorageTarget[],
 ): Promise<ReplicationResult[]> {
   const chain = await load_drive_manifest_chain(ports.lookup, source_ctx, owner_id, snapshot_id);
-  const outcomes = await replicate_drive_manifests(
-    ports,
-    source_ctx,
+  const outcomes = await replicate_drive_manifests(ports, source_ctx, targets, {
     owner_id,
-    chain.manifests,
-    targets,
-  );
+    manifests: chain.manifests,
+    target_snapshot_id: chain.target.snapshot_id,
+  });
   return snapshot_scope_results(outcomes, chain.target);
 }
 
@@ -67,7 +65,10 @@ export async function replicate_drive_owner_chain<TManifest extends DriveChainMa
   manifests: readonly TManifest[],
   targets: readonly StorageTarget[],
 ): Promise<ReplicationResult[]> {
-  const outcomes = await replicate_drive_manifests(ports, source_ctx, owner_id, manifests, targets);
+  const outcomes = await replicate_drive_manifests(ports, source_ctx, targets, {
+    owner_id,
+    manifests,
+  });
   return owner_scope_results(outcomes);
 }
 
@@ -75,7 +76,7 @@ export async function replicate_drive_owner_chain<TManifest extends DriveChainMa
  * Recovers one drive snapshot from a replica: its manifest and every older manifest of the owner
  * or site that the primary lacks, as the source holds them (issue #714).
  *
- * @throws UnreadableObjectsError when the chain needs a damaged manifest on the source.
+ * @throws UnreadableObjectsError when the chain needs a damaged or missing manifest on the source.
  */
 export async function rehydrate_drive_snapshot_chain<TManifest extends DriveChainManifest>(
   ports: DriveChainPorts<TManifest>,
@@ -97,19 +98,32 @@ export async function rehydrate_drive_snapshot_chain<TManifest extends DriveChai
   );
 }
 
+/** One owner's snapshots to replicate, and the snapshot a `-s` run was asked for, if any. */
+interface DriveOwnerSnapshots<TManifest> {
+  readonly owner_id: string;
+  readonly manifests: readonly TManifest[];
+  readonly target_snapshot_id?: string;
+}
+
 /** Copies one owner's manifests to every target, with the owner's version indexes and cursor. */
 async function replicate_drive_manifests<TManifest extends DriveChainManifest>(
   ports: DriveChainPorts<TManifest>,
   source_ctx: TenantContext,
-  owner_id: string,
-  manifests: readonly TManifest[],
   targets: readonly StorageTarget[],
+  scope: DriveOwnerSnapshots<TManifest>,
 ): Promise<TargetChainOutcome<TManifest>[]> {
-  const ancillary = await collect_drive_ancillary_keys(ports.descriptor, source_ctx, owner_id);
+  const ancillary = await collect_drive_ancillary_keys(
+    ports.descriptor,
+    source_ctx,
+    scope.owner_id,
+  );
   return replicate_chains_to_targets({
     source_ctx,
     targets,
-    manifests,
+    manifests: scope.manifests,
+    ...(scope.target_snapshot_id !== undefined
+      ? { target_snapshot_id: scope.target_snapshot_id }
+      : {}),
     plan: build_drive_replication_plan(ports.descriptor, ancillary),
     to_status_record: (result, target, manifest) =>
       to_drive_status_record(ports.descriptor, result, target, manifest),

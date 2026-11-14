@@ -45,13 +45,11 @@ export async function rehydrate_manifests<TManifest extends ChainedManifest>(
 ): Promise<ReplicationResult> {
   const start = Date.now();
   await validate_dek(source_ctx.storage, primary_ctx.storage, passphrase, tenant_id);
-  const outcome = await copy_missing_chain_links(
-    source_ctx,
-    primary_ctx,
+  const outcome = await copy_missing_chain_links(source_ctx, primary_ctx, {
     manifests,
     plan,
-    source.target_id,
-  );
+    dest_id: source.target_id,
+  });
 
   const copied = merge_replication_results(attempted_results(outcome), '', source.target_id);
   const snapshot_label =
@@ -84,13 +82,12 @@ export async function rehydrate_snapshot_chain<TManifest extends ChainedManifest
 ): Promise<ReplicationResult> {
   const start = Date.now();
   await deps.validate_dek(source_ctx.storage, primary_ctx.storage, deps.passphrase, deps.tenant_id);
-  const outcome = await copy_missing_chain_links(
-    source_ctx,
-    primary_ctx,
-    chain.manifests,
+  const outcome = await copy_missing_chain_links(source_ctx, primary_ctx, {
+    manifests: chain.manifests,
     plan,
-    source.target_id,
-  );
+    dest_id: source.target_id,
+    target_snapshot_id: chain.target.snapshot_id,
+  });
   if (outcome.attempted.length === 0) {
     return build_skip_result(
       chain.target.snapshot_id,

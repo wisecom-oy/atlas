@@ -25,7 +25,9 @@ Replication therefore always works on whole chains:
 | `rehydrate -s <id>`                     | The named snapshot and every older snapshot of its owner on the replica that primary lacks             |
 | `rehydrate -m`, `-o`, `--site`, `--all` | Every snapshot in scope that primary lacks                                                             |
 
-Snapshots are copied oldest first. Before copying anything, `-s` reads the whole chain on the side it copies from. If a manifest the chain may need cannot be decrypted, the command fails before any write and names the damaged keys, the same refusal `verify` gives. Quarantine the damaged manifest, or replicate by mailbox, owner, or site instead.
+Snapshots are copied oldest first. When older and newer snapshots share a creation time, the one you named is copied last. Before copying any snapshot, `-s` reads the whole chain on the side it copies from. If a manifest the chain needs cannot be decrypted, or was removed after Atlas listed it, the command fails before any snapshot object or manifest is written and names those keys, the same refusal `verify` gives. Quarantine the damaged manifest, or replicate by mailbox, owner, or site instead.
+
+`rehydrate -s` installs the replica's encryption key on primary before it reads the chain, for Outlook, OneDrive, and SharePoint alike. A refused rehydration can therefore leave that key on a primary that had none. That is the key every rehydration from this replica needs, and a later run accepts it (see [atlas rehydrate](/reference/cli#atlas-rehydrate)).
 
 ### Copying one snapshot
 
@@ -54,7 +56,9 @@ If replication stops at any point, the target holds some orphan data objects, wh
 
 A run that finishes with failures follows the same rule. If any object fails to copy, Atlas does not write the manifest. The snapshot remains unreplicated, and the next run retries it. Every run decides which snapshots need copying by checking for their manifests on the target. A manifest written after a partial copy would make the gap permanent: later runs would report nothing to do while objects stayed missing.
 
-A failed snapshot also stops its owner's chain. No newer snapshot of that mailbox, drive owner, or site is written in the same run, because it would read as complete while missing everything the failed one recorded. The failed snapshot's result names the snapshots left out, and the command reports a failure. Other owners in the same run carry on. The target always holds a complete prefix of each chain, and the next run resumes at the gap.
+A failed snapshot also stops its owner's chain. No newer snapshot of that mailbox, drive owner, or site is written in the same run, because it would read as complete while missing everything the failed one recorded. The failed snapshot's result names the snapshots left out, and the command reports a failure. Other owners in the same run carry on. A run never adds a gap to a chain, and the next run resumes at the gap it stopped at.
+
+A gap that predates the run stays open until a run copies the missing links. A target can already hold a newer manifest whose older links are missing, written by `replicate -s` before it copied whole chains or by an older run that continued past a failure. A failed copy of a missing older link leaves that newer manifest in place, so the chain on the target stays incomplete. Rerun until the run reports no failures before you rely on the replica.
 
 ## Safety model
 

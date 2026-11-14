@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SnapshotSummary, TenantContext } from '@wisecom/atlas-types';
-import { NotFoundError } from '@wisecom/atlas-types';
+import { NotFoundError, UnreadableObjectsError } from '@wisecom/atlas-types';
 import {
   load_drive_manifest_chain,
   snapshot_epoch_of_key,
@@ -18,7 +18,10 @@ function link(epoch: number): DriveChainLink {
   return { snapshot_id: `od-snap-${epoch}-abc`, created_at: new Date(epoch) };
 }
 
-function lookup(links: DriveChainLink[]): DriveManifestLookup<DriveChainLink> {
+function lookup(
+  links: DriveChainLink[],
+  gone: readonly string[] = [],
+): DriveManifestLookup<DriveChainLink> {
   const key_of = (l: DriveChainLink): string => `onedrive/manifests/owner/${l.snapshot_id}.json`;
   return {
     workload: 'OneDrive',
@@ -33,7 +36,8 @@ function lookup(links: DriveChainLink[]): DriveManifestLookup<DriveChainLink> {
       })),
       unreadable_keys: [],
     }),
-    read_manifest_at: async (_ctx, key) => links.find((l) => key_of(l) === key),
+    read_manifest_at: async (_ctx, key) =>
+      gone.includes(key) ? undefined : links.find((l) => key_of(l) === key),
   };
 }
 
@@ -57,5 +61,19 @@ describe('load_drive_manifest_chain', () => {
     expect(snapshot_epoch_of_key('onedrive/manifests/owner/od-snap-1234-abc.json')).toBe(1234);
     expect(snapshot_epoch_of_key('sharepoint/manifests/site/sp-snap-99-abc.json')).toBe(99);
     expect(snapshot_epoch_of_key('onedrive/manifests/owner/whatever.json')).toBeUndefined();
+  });
+  it('refuses a chain whose listed older manifest is gone when it is read', async () => {
+    const all = [link(1000), link(2000), link(3000)];
+    const gone = 'onedrive/manifests/owner/od-snap-2000-abc.json';
+
+    const resolve = load_drive_manifest_chain(
+      lookup(all, [gone]),
+      CTX,
+      'owner',
+      'od-snap-3000-abc',
+    );
+
+    await expect(resolve).rejects.toBeInstanceOf(UnreadableObjectsError);
+    await expect(resolve).rejects.toMatchObject({ unreadable_keys: [gone] });
   });
 });

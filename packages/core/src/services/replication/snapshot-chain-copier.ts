@@ -35,6 +35,22 @@ export interface CopiedChainLink<TManifest> {
 /** Called once per attempted snapshot as soon as its copy ends, before the next one starts. */
 export type ChainLinkObserver<TManifest> = (link: CopiedChainLink<TManifest>) => Promise<void>;
 
+/** What to copy, and how. */
+export interface ChainCopyRequest<TManifest extends ChainedManifest> {
+  /** The snapshots to bring to the destination, in any order. */
+  readonly manifests: readonly TManifest[];
+  readonly plan: SnapshotChainCopyPlan<TManifest>;
+  /** Target id reported in each result. */
+  readonly dest_id: string;
+  /**
+   * The snapshot a `-s` run was asked for. Its chain includes manifests with the same `created_at`,
+   * so among equal times it is copied last, after every link it folds.
+   */
+  readonly target_snapshot_id?: string;
+  /** Sees each attempted snapshot as soon as it is copied, before the next one starts. */
+  readonly on_attempted?: ChainLinkObserver<TManifest>;
+}
+
 /** Everything a chain copy did, in the order it went. */
 export interface SnapshotChainCopyOutcome<TManifest> {
   /** Snapshots whose copy was attempted, oldest first, including any that failed. */
@@ -62,17 +78,15 @@ export interface SnapshotChainCopyOutcome<TManifest> {
 export async function copy_missing_chain_links<TManifest extends ChainedManifest>(
   source_ctx: TenantContext,
   dest_ctx: TenantContext,
-  manifests: readonly TManifest[],
-  plan: SnapshotChainCopyPlan<TManifest>,
-  dest_id: string,
-  on_attempted: ChainLinkObserver<TManifest> = async () => undefined,
+  request: ChainCopyRequest<TManifest>,
 ): Promise<SnapshotChainCopyOutcome<TManifest>> {
+  const { plan, dest_id } = request;
   const attempted: CopiedChainLink<TManifest>[] = [];
   const present: TManifest[] = [];
   const not_copied: TManifest[] = [];
   const failed_by_owner = new Map<string, CopiedChainLink<TManifest>>();
 
-  for (const manifest of oldest_first(manifests)) {
+  for (const manifest of copy_order(request.manifests, request.target_snapshot_id)) {
     if (failed_by_owner.has(plan.owner_of(manifest))) {
       not_copied.push(manifest);
       continue;
@@ -84,7 +98,7 @@ export async function copy_missing_chain_links<TManifest extends ChainedManifest
     }
     const link = await copy_chain_link(source_ctx, dest_ctx, manifest, key, plan, dest_id);
     attempted.push(link);
-    await on_attempted(link);
+    await request.on_attempted?.(link);
     if (link.result.objects_failed > 0) failed_by_owner.set(plan.owner_of(manifest), link);
   }
 
@@ -102,11 +116,22 @@ export function attempted_results<TManifest>(
   return outcome.attempted.map((link) => link.result);
 }
 
-/** Orders manifests oldest first without reordering ties, so the input order breaks them. */
-function oldest_first<TManifest extends ChainedManifest>(
+/**
+ * Orders manifests oldest first. Among equal `created_at` the requested snapshot goes last, since
+ * the chain loaders fold a same-time manifest into its chain, and the rest go by snapshot id. The
+ * order then never depends on how a listing happened to return them.
+ */
+export function copy_order<TManifest extends ChainedManifest>(
   manifests: readonly TManifest[],
+  target_snapshot_id?: string,
 ): TManifest[] {
-  return [...manifests].sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
+  const is_target = (m: TManifest): number => (m.snapshot_id === target_snapshot_id ? 1 : 0);
+  return [...manifests].sort(
+    (a, b) =>
+      a.created_at.getTime() - b.created_at.getTime() ||
+      is_target(a) - is_target(b) ||
+      a.snapshot_id.localeCompare(b.snapshot_id),
+  );
 }
 
 async function copy_chain_link<TManifest extends ChainedManifest>(

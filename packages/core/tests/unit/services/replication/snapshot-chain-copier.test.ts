@@ -3,6 +3,7 @@ import type { TenantContext } from '@wisecom/atlas-types';
 import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
 import {
   copy_missing_chain_links,
+  copy_order,
   type SnapshotChainCopyPlan,
 } from '@/services/replication/snapshot-chain-copier';
 
@@ -68,13 +69,11 @@ describe('copy_missing_chain_links', () => {
     const copied: string[] = [];
     const chain = [snapshot('a', 3), snapshot('a', 1), snapshot('a', 2)];
 
-    await copy_missing_chain_links(
-      source.ctx,
-      dest.ctx,
-      chain,
-      plan_failing([], copied),
-      'replica',
-    );
+    await copy_missing_chain_links(source.ctx, dest.ctx, {
+      manifests: chain,
+      plan: plan_failing([], copied),
+      dest_id: 'replica',
+    });
 
     expect(copied).toEqual(['snap-a-1', 'snap-a-2', 'snap-a-3']);
   });
@@ -85,13 +84,11 @@ describe('copy_missing_chain_links', () => {
     dest.set_raw(key_of(held), Buffer.from('original'));
     const copied: string[] = [];
 
-    const outcome = await copy_missing_chain_links(
-      source.ctx,
-      dest.ctx,
-      [snapshot('a', 1), held, snapshot('a', 3)],
-      plan_failing([], copied),
-      'replica',
-    );
+    const outcome = await copy_missing_chain_links(source.ctx, dest.ctx, {
+      manifests: [snapshot('a', 1), held, snapshot('a', 3)],
+      plan: plan_failing([], copied),
+      dest_id: 'replica',
+    });
 
     expect(copied).toEqual(['snap-a-1', 'snap-a-3']);
     expect(outcome.present.map((m) => m.snapshot_id)).toEqual(['snap-a-2']);
@@ -102,13 +99,11 @@ describe('copy_missing_chain_links', () => {
     const dest = in_memory_tenant_context();
     const chain = [snapshot('a', 1), snapshot('a', 2), snapshot('a', 3), snapshot('a', 4)];
 
-    const outcome = await copy_missing_chain_links(
-      source.ctx,
-      dest.ctx,
-      chain,
-      plan_failing(['snap-a-2']),
-      'replica',
-    );
+    const outcome = await copy_missing_chain_links(source.ctx, dest.ctx, {
+      manifests: chain,
+      plan: plan_failing(['snap-a-2']),
+      dest_id: 'replica',
+    });
 
     expect(dest.keys()).toEqual(['manifests/a/snap-a-1.json']);
     expect(outcome.not_copied.map((m) => m.snapshot_id)).toEqual(['snap-a-3', 'snap-a-4']);
@@ -122,13 +117,11 @@ describe('copy_missing_chain_links', () => {
     const dest = in_memory_tenant_context();
     const chain = [snapshot('a', 1), snapshot('b', 2), snapshot('a', 3), snapshot('b', 4)];
 
-    const outcome = await copy_missing_chain_links(
-      source.ctx,
-      dest.ctx,
-      chain,
-      plan_failing(['snap-a-1']),
-      'replica',
-    );
+    const outcome = await copy_missing_chain_links(source.ctx, dest.ctx, {
+      manifests: chain,
+      plan: plan_failing(['snap-a-1']),
+      dest_id: 'replica',
+    });
 
     expect(dest.keys()).toEqual(['manifests/b/snap-b-2.json', 'manifests/b/snap-b-4.json']);
     expect(outcome.not_copied.map((m) => m.snapshot_id)).toEqual(['snap-a-3']);
@@ -137,16 +130,18 @@ describe('copy_missing_chain_links', () => {
   it('resumes at the gap on a rerun', async () => {
     const dest = in_memory_tenant_context();
     const chain = [snapshot('a', 1), snapshot('a', 2), snapshot('a', 3)];
-    await copy_missing_chain_links(source.ctx, dest.ctx, chain, plan_failing(['snap-a-2']), 'r');
+    await copy_missing_chain_links(source.ctx, dest.ctx, {
+      manifests: chain,
+      plan: plan_failing(['snap-a-2']),
+      dest_id: 'r',
+    });
     const copied: string[] = [];
 
-    const outcome = await copy_missing_chain_links(
-      source.ctx,
-      dest.ctx,
-      chain,
-      plan_failing([], copied),
-      'r',
-    );
+    const outcome = await copy_missing_chain_links(source.ctx, dest.ctx, {
+      manifests: chain,
+      plan: plan_failing([], copied),
+      dest_id: 'r',
+    });
 
     expect(copied).toEqual(['snap-a-2', 'snap-a-3']);
     expect(outcome.present.map((m) => m.snapshot_id)).toEqual(['snap-a-1']);
@@ -159,15 +154,59 @@ describe('copy_missing_chain_links', () => {
       seen.push(`${link.manifest.snapshot_id}:${dest.keys().length}`);
     });
 
-    await copy_missing_chain_links(
-      source.ctx,
-      dest.ctx,
-      [snapshot('a', 1), snapshot('a', 2)],
-      plan_failing(),
-      'replica',
+    await copy_missing_chain_links(source.ctx, dest.ctx, {
+      manifests: [snapshot('a', 1), snapshot('a', 2)],
+      plan: plan_failing(),
+      dest_id: 'replica',
       on_attempted,
-    );
+    });
 
     expect(seen).toEqual(['snap-a-1:1', 'snap-a-2:2']);
+  });
+  it('copies the requested snapshot after every same-time link, and orders the rest by id', async () => {
+    const dest = in_memory_tenant_context();
+    const copied: string[] = [];
+    const at = new Date(5_000);
+    const target = { snapshot_id: 'snap-a-b', owner_id: 'a', created_at: at };
+    const tied = [
+      target,
+      { ...target, snapshot_id: 'snap-a-c' },
+      { ...target, snapshot_id: 'snap-a-a' },
+    ];
+
+    await copy_missing_chain_links(source.ctx, dest.ctx, {
+      manifests: [snapshot('a', 9), ...tied, snapshot('a', 1)],
+      plan: plan_failing([], copied),
+      dest_id: 'replica',
+      target_snapshot_id: 'snap-a-b',
+    });
+
+    expect(copied).toEqual(['snap-a-1', 'snap-a-a', 'snap-a-c', 'snap-a-b', 'snap-a-9']);
+  });
+
+  it('never writes the requested snapshot when a same-time link it needs fails', async () => {
+    const dest = in_memory_tenant_context();
+    const at = new Date(5_000);
+    const target = { snapshot_id: 'snap-a-a', owner_id: 'a', created_at: at };
+    const older = { ...target, snapshot_id: 'snap-a-z' };
+
+    const outcome = await copy_missing_chain_links(source.ctx, dest.ctx, {
+      manifests: [target, older],
+      plan: plan_failing(['snap-a-z']),
+      dest_id: 'replica',
+      target_snapshot_id: 'snap-a-a',
+    });
+
+    expect(dest.keys()).toEqual([]);
+    expect(outcome.not_copied.map((m) => m.snapshot_id)).toEqual(['snap-a-a']);
+  });
+
+  it('orders the same input the same way whatever order it arrives in', () => {
+    const at = new Date(5_000);
+    const a = { snapshot_id: 'x', owner_id: 'a', created_at: at };
+    const b = { ...a, snapshot_id: 'y' };
+
+    expect(copy_order([a, b]).map((m) => m.snapshot_id)).toEqual(['x', 'y']);
+    expect(copy_order([b, a]).map((m) => m.snapshot_id)).toEqual(['x', 'y']);
   });
 });

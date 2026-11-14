@@ -36,6 +36,8 @@ export interface ChainReplicationRequest<TManifest extends ChainedManifest> {
     manifest: TManifest,
   ) => ReplicationStatusRecord;
   readonly deps: CopyDeps;
+  /** The snapshot a `-s` run was asked for, copied after same-time links of its chain. */
+  readonly target_snapshot_id?: string;
 }
 
 /** What one target received. */
@@ -96,15 +98,16 @@ async function replicate_chains_to_target<TManifest extends ChainedManifest>(
       deps.passphrase,
       deps.tenant_id,
     );
-    return await copy_missing_chain_links(
-      source_ctx,
-      target_ctx,
-      request.manifests,
-      request.plan,
-      target.target_id,
-      ({ manifest, result }) =>
+    return await copy_missing_chain_links(source_ctx, target_ctx, {
+      manifests: request.manifests,
+      plan: request.plan,
+      dest_id: target.target_id,
+      ...(request.target_snapshot_id !== undefined
+        ? { target_snapshot_id: request.target_snapshot_id }
+        : {}),
+      on_attempted: ({ manifest, result }) =>
         save_replication_status(source_ctx, request.to_status_record(result, target, manifest)),
-    );
+    });
   } finally {
     target_ctx.destroy();
   }

@@ -171,6 +171,21 @@ describe('replicate -s on an Outlook chain', () => {
     expect(target.create_context).not.toHaveBeenCalled();
     expect(replica.keys()).toEqual([]);
   });
+  it('refuses a chain whose listed older manifest is gone when it is read', async () => {
+    const repo = repository(CHAIN);
+    const gone = manifest_key(CHAIN[1]!);
+    const read = repo.read_manifest_at.bind(repo);
+    repo.read_manifest_at = vi.fn(async (ctx: TenantContext, key: string) =>
+      key === gone ? undefined : read(ctx, key),
+    );
+    const target = target_over(replica, 'offsite');
+
+    const replicate = service(primary, repo).replicate_snapshot('tenant-1', 'snap-3', [target]);
+
+    await expect(replicate).rejects.toBeInstanceOf(UnreadableObjectsError);
+    await expect(replicate).rejects.toMatchObject({ unreadable_keys: [gone] });
+    expect(target.create_context).not.toHaveBeenCalled();
+  });
 });
 
 describe('replicate -m on an Outlook mailbox', () => {

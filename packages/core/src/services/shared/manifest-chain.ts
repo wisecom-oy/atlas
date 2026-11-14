@@ -5,9 +5,7 @@ import type {
   TenantContext,
 } from '@wisecom/atlas-types';
 import { NotFoundError, UnreadableObjectsError } from '@wisecom/atlas-types';
-import { read_each_readable } from '@/services/shared/readable-object-listing';
-
-const CHAIN_READ_CONCURRENCY = 8;
+import { read_chain_manifests } from '@/services/shared/chain-manifest-reads';
 
 /**
  * Loads a snapshot's manifest plus every older manifest of the same mailbox, target first, then
@@ -35,7 +33,8 @@ export async function load_snapshot_chain(
  * snapshot id carries no time, so nothing says whether it is older than the target. If it is, the
  * target's chain needs it: its messages, and the removals that hide deleted ones, exist nowhere
  * else. Leaving it out would restore a different mailbox than the one backed up, so the chain is
- * refused with every damaged key named rather than resolved without them (issue #631).
+ * refused with every damaged key named rather than resolved without them (issue #631). A listed
+ * manifest that is gone by the time it is read is refused the same way (issue #714).
  */
 export async function load_older_manifests(
   manifests: ManifestRepository,
@@ -50,21 +49,19 @@ export async function load_older_manifests(
   const older_keys = listing.summaries
     .filter((s) => s.snapshot_id !== target.snapshot_id && s.created_at.getTime() <= cutoff)
     .map((s) => s.manifest_key);
-  const read = await read_each_readable(
-    older_keys,
-    (key) => manifests.read_manifest_at(ctx, key),
-    CHAIN_READ_CONCURRENCY,
+  const read = await read_chain_manifests(older_keys, (key) =>
+    manifests.read_manifest_at(ctx, key),
   );
-  if (read.unreadable_keys.length > 0) {
-    throw chain_refusal(target.snapshot_id, read.unreadable_keys, read.unreadable_errors[0]);
+  if (read.refused_keys.length > 0) {
+    throw chain_refusal(target.snapshot_id, read.refused_keys, read.first_error);
   }
-  return read.items.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+  return read.manifests.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
 }
 
-/** The error a chain that may need damaged manifests is refused with. */
+/** The error a chain that may need damaged, or needs missing, manifests is refused with. */
 function chain_refusal(snapshot_id: string, keys: string[], cause?: Error): UnreadableObjectsError {
   return new UnreadableObjectsError(
-    `Snapshot ${snapshot_id} cannot be resolved: its chain may need a damaged Outlook manifest`,
+    `Snapshot ${snapshot_id} cannot be resolved: its chain may need a damaged or missing Outlook manifest`,
     keys,
     cause ? { cause } : undefined,
   );

@@ -35,7 +35,7 @@ export interface OutlookChainPorts {
  * target lacks, with their objects (issue #714). A snapshot is its manifest folded with every older
  * one, so copying the named manifest alone left a replica that restores less than the original.
  *
- * @throws UnreadableObjectsError when the chain may need a damaged manifest, before any copy.
+ * @throws UnreadableObjectsError when the chain may need a damaged or missing manifest, before any copy.
  */
 export async function replicate_outlook_snapshot_chain(
   ports: OutlookChainPorts,
@@ -51,6 +51,7 @@ export async function replicate_outlook_snapshot_chain(
     plan: OUTLOOK_REPLICATION,
     to_status_record,
     deps: ports.deps,
+    target_snapshot_id: chain.target.snapshot_id,
   });
   return snapshot_scope_results(outcomes, chain.target);
 }
@@ -78,7 +79,7 @@ export async function replicate_outlook_mailbox_chain(
  * Recovers one Outlook snapshot from a replica: its manifest and every older manifest of the
  * mailbox that the primary lacks, as the source holds them (issue #714).
  *
- * @throws UnreadableObjectsError when the chain may need a damaged manifest on the source.
+ * @throws UnreadableObjectsError when the chain may need a damaged or missing manifest on the source.
  */
 export async function rehydrate_outlook_snapshot_chain(
   ports: OutlookChainPorts,

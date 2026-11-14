@@ -5,9 +5,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { NotFoundError, UnreadableObjectsError } from '@wisecom/atlas-types';
 import { select_drive_manifest_chain } from '@/services/shared/drive-snapshot-chain';
-import { read_each_readable } from '@/services/shared/readable-object-listing';
-
-const CHAIN_READ_CONCURRENCY = 8;
+import { read_chain_manifests } from '@/services/shared/chain-manifest-reads';
 
 /**
  * Manifest lookups for one owning segment. The two providers name the listing after what they own
@@ -57,7 +55,8 @@ export interface DriveManifestChain<TManifest> {
  * in its snapshot id. One newer than the target is outside the chain and is only reported. One at
  * or before the target, or one whose key carries no epoch, may hold the newest state of some file
  * or the tombstone hiding a deleted one, so the chain is refused with its key named rather than
- * answered with older data (issue #631).
+ * answered with older data (issue #631). A listed older manifest that is gone by the time it is
+ * read is refused the same way (issue #714).
  */
 export async function load_drive_manifest_chain<TManifest extends DriveChainLink>(
   manifests: DriveManifestLookup<TManifest>,
@@ -78,17 +77,16 @@ export async function load_drive_manifest_chain<TManifest extends DriveChainLink
   const older_rows = listing.summaries.filter(
     (row) => row.snapshot_id !== target.snapshot_id && row.created_at.getTime() <= target_time,
   );
-  const read = await read_each_readable(
+  const read = await read_chain_manifests(
     older_rows.map((row) => row.manifest_key),
     (key) => manifests.read_manifest_at(ctx, key),
-    CHAIN_READ_CONCURRENCY,
   );
-  if (read.unreadable_keys.length > 0) {
-    throw chain_refusal(manifests.workload, snapshot_id, read.unreadable_keys);
+  if (read.refused_keys.length > 0) {
+    throw chain_refusal(manifests.workload, snapshot_id, read.refused_keys);
   }
   return {
     target,
-    manifests: select_drive_manifest_chain(read.items, target),
+    manifests: select_drive_manifest_chain(read.manifests, target),
     unreadable_keys: listing.unreadable_keys,
   };
 }
@@ -96,7 +94,7 @@ export async function load_drive_manifest_chain<TManifest extends DriveChainLink
 /** The error a chain that needs damaged manifests is refused with. */
 function chain_refusal(workload: string, snapshot_id: string, keys: string[]): Error {
   return new UnreadableObjectsError(
-    `Snapshot ${snapshot_id} cannot be resolved: its chain needs damaged ${workload} manifest(s)`,
+    `Snapshot ${snapshot_id} cannot be resolved: its chain needs damaged or missing ${workload} manifest(s)`,
     keys,
   );
 }
