@@ -21,18 +21,25 @@ vi.mock('@/services/replication/dek-rehydration-validator', () => ({
   ensure_source_dek_on_primary: vi.fn(async () => undefined),
   DekOverwriteRefusedError: class extends Error {},
 }));
-vi.mock('@/services/replication/drive-snapshot-copier', () => ({
-  copy_drive_snapshot_between: vi.fn(async () => ({ snapshot_id: 'snap-1', copied: true })),
-  copy_drive_snapshot_to_target: vi.fn(),
-  copy_drive_snapshot_into_context: vi.fn(),
+vi.mock('@/services/replication/drive-snapshot-replicator', () => ({
+  replicate_drive_snapshot_objects: vi.fn(async () => ({
+    objects_copied: 2,
+    objects_skipped: 0,
+    objects_failed: 0,
+    bytes_copied: 20,
+    errors: [],
+  })),
 }));
 
 import { ensure_source_dek_on_primary } from '@/services/replication/dek-rehydration-validator';
-import { copy_drive_snapshot_between } from '@/services/replication/drive-snapshot-copier';
+import { replicate_drive_snapshot_objects } from '@/services/replication/drive-snapshot-replicator';
 
 const CONFIG = { encryption_passphrase: 'p' } as unknown as AtlasConfig;
 const ONEDRIVE_KEY = 'onedrive/manifests/owner-1/snap-1.json';
 const SHAREPOINT_KEY = 'sharepoint/manifests/site-1/snap-1.json';
+
+/** A summary index with no rows: the snapshot's chain is the snapshot alone. */
+const NO_OLDER_SNAPSHOTS = { summaries: [], unreadable_keys: [] };
 
 /** Primary context whose bucket holds the given keys. */
 function make_primary(existing: string[]): { ctx: TenantContext; destroyed: () => number } {
@@ -54,7 +61,7 @@ describe('drive rehydration entry points', () => {
 
   beforeEach(() => {
     vi.mocked(ensure_source_dek_on_primary).mockClear();
-    vi.mocked(copy_drive_snapshot_between).mockClear();
+    vi.mocked(replicate_drive_snapshot_objects).mockClear();
     primary = make_primary([]);
     tenant_factory = { create: vi.fn(async () => primary.ctx) } as unknown as TenantContextFactory;
     target_factory = (() => stub_storage_target({ target_id: 'primary' }).target) as never;
@@ -63,6 +70,7 @@ describe('drive rehydration entry points', () => {
   function onedrive_service(manifest: unknown): OneDriveReplicationService {
     const repo = {
       find_by_snapshot: vi.fn(async () => manifest),
+      list_snapshot_summaries: vi.fn(async () => NO_OLDER_SNAPSHOTS),
     } as unknown as OneDriveManifestRepository;
     return new OneDriveReplicationService(
       tenant_factory,
@@ -76,6 +84,7 @@ describe('drive rehydration entry points', () => {
   function sharepoint_service(manifest: unknown): SharePointReplicationService {
     const repo = {
       find_by_snapshot: vi.fn(async () => manifest),
+      list_snapshot_summaries: vi.fn(async () => NO_OLDER_SNAPSHOTS),
     } as unknown as SharePointManifestRepository;
     return new SharePointReplicationService(
       tenant_factory,
@@ -87,7 +96,12 @@ describe('drive rehydration entry points', () => {
   }
 
   describe('OneDrive', () => {
-    const manifest = { snapshot_id: 'snap-1', owner_id: 'owner-1', entries: [{}, {}] };
+    const manifest = {
+      snapshot_id: 'snap-1',
+      owner_id: 'owner-1',
+      created_at: new Date(0),
+      entries: [{}, {}],
+    };
 
     it('ensures the source DEK on the primary before reading any object', async () => {
       const replica = stub_storage_target({ target_id: 'replica' });
@@ -116,7 +130,7 @@ describe('drive rehydration entry points', () => {
         replica.target,
       );
 
-      expect(copy_drive_snapshot_between).not.toHaveBeenCalled();
+      expect(replicate_drive_snapshot_objects).not.toHaveBeenCalled();
       expect(result.objects_skipped).toBe(manifest.entries.length);
     });
 
@@ -130,7 +144,7 @@ describe('drive rehydration entry points', () => {
         replica.target,
       );
 
-      expect(copy_drive_snapshot_between).toHaveBeenCalledTimes(1);
+      expect(replicate_drive_snapshot_objects).toHaveBeenCalledTimes(1);
     });
 
     it('raises when the replica has no such manifest, rather than reporting an empty success', async () => {
@@ -176,7 +190,12 @@ describe('drive rehydration entry points', () => {
   });
 
   describe('SharePoint', () => {
-    const manifest = { snapshot_id: 'snap-1', site_id: 'site-1', entries: [{}, {}] };
+    const manifest = {
+      snapshot_id: 'snap-1',
+      site_id: 'site-1',
+      created_at: new Date(0),
+      entries: [{}, {}],
+    };
 
     it('ensures the source DEK on the primary before reading any object', async () => {
       const replica = stub_storage_target({ target_id: 'replica' });
@@ -205,7 +224,7 @@ describe('drive rehydration entry points', () => {
         replica.target,
       );
 
-      expect(copy_drive_snapshot_between).not.toHaveBeenCalled();
+      expect(replicate_drive_snapshot_objects).not.toHaveBeenCalled();
       expect(result.objects_skipped).toBe(manifest.entries.length);
     });
 
@@ -219,7 +238,7 @@ describe('drive rehydration entry points', () => {
         replica.target,
       );
 
-      expect(copy_drive_snapshot_between).toHaveBeenCalledTimes(1);
+      expect(replicate_drive_snapshot_objects).toHaveBeenCalledTimes(1);
     });
 
     it('raises when the replica has no such manifest', async () => {

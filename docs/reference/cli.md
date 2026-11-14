@@ -1440,7 +1440,7 @@ Profile names are lowercase letters, digits, and dashes, up to 32 characters. Pr
 
 ## atlas replicate
 
-Replicate snapshots to a secondary S3-compatible target. Ciphertext is copied as-is, with no decryption. Only unreplicated snapshots and missing objects are transferred. To report progress, use the `status` subcommand. It takes the same scope flags and writes no data. Each `replicate` run takes the owner lease of the mailbox, drive owner or site it copies, in the primary bucket it reads from, so it exits `12` while a backup, deletion, quarantine, restore or rehydration of that owner runs. Target buckets take no lease. See [Concurrent operations](/reference/sdk#concurrent-operations).
+Replicate snapshots to a secondary S3-compatible target. Ciphertext is copied as-is, with no decryption. Only unreplicated snapshots and missing objects are transferred. Outlook, OneDrive, and SharePoint manifests hold one run's changes each, so `-s` also copies every older snapshot of the same mailbox, drive owner, or site that the target lacks, oldest first. A snapshot that fails to copy stops its owner's chain: no newer snapshot of that owner is written, and the result names the ones left out. See [What a snapshot holds](/operations/replication#what-a-snapshot-holds). To report progress, use the `status` subcommand. It takes the same scope flags and writes no data. Each `replicate` run takes the owner lease of the mailbox, drive owner or site it copies, in the primary bucket it reads from, so it exits `12` while a backup, deletion, quarantine, restore or rehydration of that owner runs. Target buckets take no lease. See [Concurrent operations](/reference/sdk#concurrent-operations).
 
 ```bash
 atlas replicate -s <snapshot-id> \
@@ -1465,7 +1465,7 @@ atlas replicate status -o user@company.com
 
 | Option                        | Description                                                |
 | ----------------------------- | ---------------------------------------------------------- |
-| `-s, --snapshot <id>`         | Replicate a specific snapshot, any workload                |
+| `-s, --snapshot <id>`         | Replicate a snapshot and the older snapshots it builds on  |
 | `-m, --mailbox <email-or-id>` | Replicate all unreplicated snapshots for a mailbox         |
 | `--site <url-or-id>`          | Replicate all unreplicated snapshots for a SharePoint site |
 | `-o, --owner <email-or-id>`   | Replicate all unreplicated snapshots for a OneDrive owner  |
@@ -1495,7 +1495,7 @@ Trailing whitespace and the trailing newline are trimmed. If stdin is empty or u
 
 ## atlas rehydrate
 
-Recover snapshots from a replica to primary storage. This is a disaster recovery operation, not a bidirectional sync. Snapshots already on primary are skipped. Each `rehydrate` run takes the owner lease of the mailbox, drive owner or site it recovers, in primary, so it exits `12` while a backup, deletion, quarantine, restore or replication of that owner runs. `--all` takes no lease. See [Concurrent operations](/reference/sdk#concurrent-operations).
+Recover snapshots from a replica to primary storage. This is a disaster recovery operation, not a bidirectional sync. Snapshots already on primary are skipped. `-s` also recovers every older snapshot of the same owner that primary lacks, and every form stops an owner's chain at the first snapshot that fails. Each `rehydrate` run takes the owner lease of the mailbox, drive owner or site it recovers, in primary, so it exits `12` while a backup, deletion, quarantine, restore or replication of that owner runs. `--all` takes no lease. See [Concurrent operations](/reference/sdk#concurrent-operations).
 
 ```bash
 atlas rehydrate -s <snapshot-id> \

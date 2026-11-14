@@ -393,9 +393,9 @@ See [Calendar backup](/calendar-backup) for the storage layout and restore behav
 | `getStorageUsage(options?)`              | Bytes the bucket physically holds. See [Storage usage](#storage-usage)                                                                                                    |
 | `resolveUser(email)`                     | Resolves an address to an Entra object ID through Graph                                                                                                                   |
 | `listUsers()`                            | Returns the identity registry for this tenant, or `undefined` when none exists yet                                                                                        |
-| `replicateSnapshot(snapshotId, targets)` | Copies one snapshot to each target. Returns an array of results. See [Replication](#replication)                                                                          |
+| `replicateSnapshot(snapshotId, targets)` | Copies a snapshot and every older snapshot of its mailbox that a target lacks. Returns one result per copied snapshot. See [Replication](#replication)                     |
 | `replicateMailbox(mailboxId, targets)`   | Copies every unreplicated snapshot for a mailbox                                                                                                                          |
-| `rehydrateSnapshot(snapshotId, source)`  | Restores one snapshot from a replica                                                                                                                                      |
+| `rehydrateSnapshot(snapshotId, source)`  | Restores a snapshot and the older snapshots of its owner that primary lacks                                                                                               |
 | `rehydrateMailbox(mailboxId, source)`    | Restores a mailbox's snapshots from a replica                                                                                                                             |
 | `rehydrateTenant(source)`                | Restores Outlook, OneDrive, and SharePoint from a replica, reported per workload. Contacts and calendars are not covered                                                  |
 | `getReplicationStatus(snapshotId?)`      | Replication status for one snapshot or all snapshots                                                                                                                      |
@@ -1075,7 +1075,9 @@ for (const { workload, result } of recovery.workloads) {
 console.log(recovery.total.status);
 ```
 
-Replication skips objects that already exist on the target. A snapshot whose manifest already exists on the target is reported as skipped, not copied again. `replicateSnapshot` returns an array because it can target several destinations.
+Replication skips objects that already exist on the target. A snapshot whose manifest already exists on the target is not copied again. `replicateSnapshot`, and the OneDrive and SharePoint `replicateSnapshot` methods, copy the named snapshot together with every older snapshot of its owner that the target lacks, because each manifest holds only one run's changes. They return one result per snapshot copied and target, or a single skipped result for a target that already held the whole chain. `rehydrateSnapshot` does the same toward primary and returns one merged result.
+
+Snapshots are copied oldest first. When one fails, no newer snapshot of the same owner is written in that call. Its result has status `FAILED` or `PARTIAL`, and its `errors` name the snapshots left out. A chain that needs a damaged manifest rejects with `UnreadableObjectsError` before anything is copied.
 
 `createStorageTarget` accepts a `StorageTargetConfig`:
 

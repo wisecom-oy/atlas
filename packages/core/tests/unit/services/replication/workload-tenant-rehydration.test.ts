@@ -228,9 +228,7 @@ describe('tenant-wide workload rehydration', () => {
       calls.map((c) => {
         const manifests = c[2] as OneDriveSnapshotManifest[];
         const owner = manifests[0]?.owner_id;
-        const plan = c[7] as {
-          replicate: (s: unknown, p: unknown, m: unknown, k: string) => unknown;
-        };
+        const plan = c[7];
         return [owner, { manifests: manifests.map((m) => m.snapshot_id), plan_exists: !!plan }];
       }),
     );

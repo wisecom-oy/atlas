@@ -57,20 +57,6 @@ export async function collect_drive_ancillary_keys<TManifest>(
   return keys;
 }
 
-/** Finds manifests on source that are missing from the target. */
-export async function diff_drive_manifests<TManifest extends DriveManifestShape>(
-  descriptor: DriveReplicationDescriptor<TManifest>,
-  source: TManifest[],
-  target_ctx: TenantContext,
-  owner_id: string,
-): Promise<TManifest[]> {
-  const target_keys = await target_ctx.storage.list(`${descriptor.manifest_prefix}/${owner_id}/`);
-  const ids = new Set(
-    target_keys.map((k) => k.split('/').pop()?.replace('.json', '')).filter(Boolean) as string[],
-  );
-  return source.filter((m) => !ids.has(m.snapshot_id));
-}
-
 /** Buckets manifests by their owning segment, so each owner is rehydrated as one unit. */
 export function group_manifests_by_owner<TManifest>(
   descriptor: DriveReplicationDescriptor<TManifest>,

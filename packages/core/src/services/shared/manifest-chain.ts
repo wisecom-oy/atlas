@@ -37,7 +37,7 @@ export async function load_snapshot_chain(
  * else. Leaving it out would restore a different mailbox than the one backed up, so the chain is
  * refused with every damaged key named rather than resolved without them (issue #631).
  */
-async function load_older_manifests(
+export async function load_older_manifests(
   manifests: ManifestRepository,
   ctx: TenantContext,
   target: Manifest,
