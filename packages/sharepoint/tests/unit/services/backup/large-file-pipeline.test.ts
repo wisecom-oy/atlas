@@ -102,35 +102,26 @@ beforeEach(() => {
 });
 
 describe('process_large_file', () => {
-  it('uses the download URL the delta item already carries', async () => {
+  // Issue #718: the URL in the delta listing may be an hour old by the time this file is reached.
+  it('resolves a fresh URL even when the delta item carries one', async () => {
     const recorded = make_ctx();
-    const connector = make_connector();
+    const connector = make_connector('https://cdn.example/fresh');
 
     await process_large_file(
       connector,
-      make_item({ download_url: 'https://cdn.example/abc' }),
+      make_item({ download_url: 'https://cdn.example/from-delta' }),
       SITE,
       recorded.ctx,
     );
 
-    // Resolving again would spend a Graph request per large file for nothing.
-    expect(connector.resolve_download_url).not.toHaveBeenCalled();
+    expect(connector.resolve_download_url).toHaveBeenCalledTimes(1);
     expect(chunk_mocks.fetch_file_chunks).toHaveBeenCalledWith(
-      'https://cdn.example/abc',
+      'https://cdn.example/fresh',
       ITEM_BYTES,
       'item-1',
       undefined,
+      0,
     );
-  });
-
-  it('resolves the download URL when the delta item has none', async () => {
-    const recorded = make_ctx();
-    const connector = make_connector('https://cdn.example/resolved');
-
-    await process_large_file(connector, make_item(), SITE, recorded.ctx);
-
-    expect(connector.resolve_download_url).toHaveBeenCalledTimes(1);
-    expect(chunk_mocks.fetch_file_chunks.mock.calls[0]?.[0]).toBe('https://cdn.example/resolved');
   });
 
   it('throws before starting an upload when the URL cannot be resolved', async () => {

@@ -245,10 +245,30 @@ A file that cannot be downloaded does not stop the rest of the drive. Atlas keep
 
 After 5 attempts the file is no longer retried, but it is reported on every run as `PERMANENTLY SKIPPED after 5 attempts`. The run stays UNHEALTHY until the file is fixed or removed in the source.
 
+A file skipped because its download URL expired is recorded the same way but does not count an attempt, so it never reaches the 5-attempt limit on that account. See [Expired download URLs](#expired-download-urls).
+
+### Expired download URLs
+
+Each file is read from a pre-authenticated download URL that Microsoft Graph issues with a limited lifetime. A long run can reach a file well after the delta listing that named it, so the URL in the listing is not trusted for a large file.
+
+| File size | URL at download start | On 401 or 403 during the transfer |
+| --- | --- | --- |
+| Up to 4 MiB | URL from the listing | Re-resolve once, retry the whole file, then fall back to the Graph `/content` endpoint |
+| Over 4 MiB, under 64 MiB | URL from the listing | Re-resolve once and restart the download from byte zero, then fall back to `/content` |
+| 64 MiB and larger | Fresh URL, one Graph request | Re-resolve and resume at the 4 MiB range that failed |
+
+For files of 64 MiB and larger:
+
+- A run can refresh the URL any number of times, as long as each refreshed URL delivers at least one more range. A transfer that outlasts many URLs completes.
+- If three refreshed URLs in a row expire before any new range arrives, Atlas stops and records the file as not backed up. The attempt is not counted, so the file is retried on the next run.
+- A Graph refusal on the re-resolve is handled like the 403 cases below. A missing grant stops the run, and a service refusal is recorded as permanent.
+
+The fresh URL costs one Graph request per file of 64 MiB or more. Those files take far longer to transfer than that request takes, so the cost is small.
+
 ### Quarantined and protected files
 
 - **Malware quarantine.** Quarantined files are detected from delta metadata before a download is attempted. They are reported as permanently skipped by service policy and do not use the 5-attempt budget, because retries cannot change a policy decision.
-- **403 responses.** A missing application permission stops the run immediately. A protection or policy state (for example a sensitivity label, IRM, or retention rule) is recorded against that one file as permanent, with the Graph error code. An expired pre-authenticated download URL is re-resolved and retried once. Any other unrecognized 403 code costs one file, not the whole run.
+- **403 responses.** A missing application permission stops the run immediately. A protection or policy state (for example a sensitivity label, IRM, or retention rule) is recorded against that one file as permanent, with the Graph error code. An expired pre-authenticated download URL is refreshed as described in [Expired download URLs](#expired-download-urls). Any other unrecognized 403 code costs one file, not the whole run.
 
 ### Version failures
 
