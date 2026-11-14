@@ -384,32 +384,7 @@ const resolved = await atlas.sharepoint.resolveSite(site);
 console.log(resolved.siteId);
 ```
 
-Other methods: `restoreVersion`, `listSnapshots`, `listFileVersions`, `checkStatus`, `deleteSnapshot`, and the replication methods below.
-
-## Replication
-
-Replication copies encrypted snapshot data to a second S3-compatible target without decrypting it. The replica includes blobs, manifests, version indexes, and delta state, so incremental backups resume after a rehydrate.
-
-```bash
-# Replicate one snapshot, or every snapshot that has not been replicated
-atlas replicate --site contoso.sharepoint.com,<site-guid>,<web-guid> -s sp-snap-123 \
-  --target-config ./offsite.json
-atlas replicate --site contoso.sharepoint.com,<site-guid>,<web-guid> --target-config ./offsite.json
-
-# Recover the whole site, or one snapshot
-atlas rehydrate --site contoso.sharepoint.com,<site-guid>,<web-guid> --source-config ./offsite.json
-atlas rehydrate --site contoso.sharepoint.com,<site-guid>,<web-guid> -s sp-snap-123 \
-  --source-config ./offsite.json
-```
-
-```ts
-const offsite = createStorageTarget({/* ... */});
-
-await atlas.sharepoint.replicateAll(site, [offsite]);
-await atlas.sharepoint.rehydrateSite(site, offsite);
-```
-
-See [replication](./operations/replication.md) for target setup and disaster recovery.
+Other methods: `restoreVersion`, `listSnapshots`, `listFileVersions`, `checkStatus`, and `deleteSnapshot`.
 
 ## See also
 

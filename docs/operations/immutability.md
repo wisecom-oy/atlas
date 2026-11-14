@@ -116,5 +116,5 @@ Atlas applies these rules on a best-effort basis. If the backend does not suppor
 ## See also
 
 - [Storage layout](/operations/storage-layout): which objects the lock protects
-- [Replication](/operations/replication): Object Lock on replica buckets is configured separately
+- [Replicas](/operations/replication): Object Lock on a replica bucket is configured on the replica
 - [Storage setup](/self-hosting/storage): creating buckets with Object Lock enabled

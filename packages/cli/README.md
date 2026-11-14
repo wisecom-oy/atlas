@@ -70,9 +70,8 @@ atlas teams backup --team <team-id>
 | `atlas sharepoint backup` | Back up a SharePoint site                                                        |
 | `atlas teams backup`      | Back up Teams channel messages to object storage                                 |
 | `atlas stats`             | Storage statistics                                                               |
-| `atlas stats storage`     | Physical bytes in the bucket or a replica: versions, staging, incomplete uploads |
+| `atlas stats storage`     | Physical bytes in the bucket: versions, staging, incomplete uploads               |
 | `atlas storage-check`     | Validate S3 Object Lock and conditional-write readiness                          |
-| `atlas replicate`         | Replicate snapshots to a secondary target                                        |
 
 Run `atlas --help` or `atlas <command> --help` for full flag reference.
 

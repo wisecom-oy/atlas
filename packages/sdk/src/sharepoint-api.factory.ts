@@ -6,7 +6,6 @@ import type {
   SharePointApi,
   SharePointSiteTreeBackupUseCase,
   SharePointCatalogUseCase,
-  SharePointReplicationUseCase,
   SharePointRestoreUseCase,
   SharePointVersionRestoreUseCase,
   SharePointSaveUseCase,
@@ -19,7 +18,6 @@ import type {
 import {
   SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
   SHAREPOINT_CATALOG_USE_CASE_TOKEN,
-  SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,
   SHAREPOINT_VERSION_RESTORE_USE_CASE_TOKEN,
   SHAREPOINT_SAVE_USE_CASE_TOKEN,
@@ -42,9 +40,6 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
   );
   const verification = container.get<SharePointVerificationUseCase>(
     SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
-  );
-  const replication = container.get<SharePointReplicationUseCase>(
-    SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
   );
   const version_restore = container.get<SharePointVersionRestoreUseCase>(
     SHAREPOINT_VERSION_RESTORE_USE_CASE_TOKEN,
@@ -159,24 +154,6 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
     async deleteSnapshot(site_input, snapshot_id) {
       const site_id = await resolve_site_id(site_input);
       return camelize(await deletion.delete_snapshot(tenant_id, site_id, snapshot_id));
-    },
-    async replicateSnapshot(site_input, snapshot_id, targets) {
-      const site_id = await resolve_site_id(site_input);
-      return camelize(await replication.replicate_site(tenant_id, site_id, snapshot_id, targets));
-    },
-    async replicateAll(site_input, targets) {
-      const site_id = await resolve_site_id(site_input);
-      return camelize(await replication.replicate_all_site_snapshots(tenant_id, site_id, targets));
-    },
-    async rehydrateSnapshot(site_input, snapshot_id, source) {
-      const site_id = await resolve_site_id(site_input);
-      return camelize(
-        await replication.rehydrate_site_snapshot(tenant_id, site_id, snapshot_id, source),
-      );
-    },
-    async rehydrateSite(site_input, source) {
-      const site_id = await resolve_site_id(site_input);
-      return camelize(await replication.rehydrate_site(tenant_id, site_id, source));
     },
     async checkStatus(site_input) {
       return camelize(

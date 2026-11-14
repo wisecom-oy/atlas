@@ -8,7 +8,7 @@ const STDIN_SENTINEL = '-';
  *
  * A secret passed inline is written to the shell history file and is readable in
  * the process table by any other local user for as long as the command runs,
- * which for a replication run over a large tenant is not a short window. `-`
+ * which for a long-running command is not a short window. `-`
  * keeps it out of both. Mirrors the `-` form `atlas config` already accepts.
  *
  * Only one option per invocation can read stdin, which is why `-` is offered on

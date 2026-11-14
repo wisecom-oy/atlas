@@ -79,11 +79,9 @@ Run one operation at a time per tenant unless your scheduler guarantees that no 
 | `atlas.sharepoint`          | SharePoint site backup and restore                                               |
 | `atlas.teams`               | Teams channel backup, verification, and snapshot catalog                         |
 | `atlas.getBucketStats()`    | Storage statistics                                                               |
-| `atlas.getStorageUsage()`   | Physical bytes in the bucket or a replica: versions, staging, incomplete uploads |
+| `atlas.getStorageUsage()`   | Physical bytes in the bucket: versions, staging, incomplete uploads               |
 | `atlas.checkStorage()`      | S3 Object Lock and conditional-write readiness                                   |
 | `atlas.validate()`          | S3 access, existing key and Graph token validation                               |
-| `atlas.replicateSnapshot()` | Cross-region replication                                                         |
-| `createStorageTarget()`     | Configure secondary S3 targets                                                   |
 | `createTenant()`            | A second tenant to pass as a restore's `targetTenant` (cross-tenant restore)     |
 
 The SDK exports named public option/result types, error classes and `GRAPH_SERVICE_LIMITS`. Internal ports, DI tokens and container factories are not public API.

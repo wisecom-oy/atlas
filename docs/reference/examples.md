@@ -134,12 +134,12 @@ process.exit(failed.length > 0 ? 1 : 0);
 
 A non-zero exit code is what cron turns into an alert email, systemd records as a failed unit, and a CI/CD pipeline treats as a failed step. A partial run (interrupted, or with folder errors) counts as a failure, so it alerts the same way.
 
-### Backup, replicate, and report
+### Backup and report
 
-Back up each mailbox, replicate the snapshot to an offsite target, and collect the results. This is the core loop for a 3-2-1 strategy. Adapt the reporting to your stack: a webhook, a database row, a structured log, or an email.
+Back up each mailbox and collect the results. Adapt the reporting to your stack: a webhook, a database row, a structured log, or an email. The offsite copy for a 3-2-1 strategy is your storage provider's replication; see [Replica setup](/self-hosting/replication).
 
 ```typescript
-import { createAtlasInstance, createStorageTarget } from '@wisecom/atlas-sdk';
+import { createAtlasInstance } from '@wisecom/atlas-sdk';
 
 const atlas = createAtlasInstance({
   tenantId: process.env.ATLAS_TENANT_ID!,
@@ -148,13 +148,6 @@ const atlas = createAtlasInstance({
   s3Endpoint: process.env.ATLAS_S3_ENDPOINT!,
   s3AccessKey: process.env.ATLAS_S3_ACCESS_KEY!,
   s3SecretKey: process.env.ATLAS_S3_SECRET_KEY!,
-  encryptionPassphrase: process.env.ATLAS_ENCRYPTION_PASSPHRASE!,
-});
-
-const offsite = createStorageTarget({
-  s3Endpoint: process.env.OFFSITE_S3_ENDPOINT!,
-  s3AccessKey: process.env.OFFSITE_S3_ACCESS_KEY!,
-  s3SecretKey: process.env.OFFSITE_S3_SECRET_KEY!,
   encryptionPassphrase: process.env.ATLAS_ENCRYPTION_PASSPHRASE!,
 });
 
@@ -169,51 +162,27 @@ interface MailboxReport {
 }
 
 const results: MailboxReport[] = [];
-const replications: Promise<void>[] = [];
 
 for (const mailbox of mailboxes) {
   try {
     const backup = await atlas.outlook.backup(mailbox);
-    const report: MailboxReport = {
+    results.push({
       mailbox,
       snapshotId: backup.snapshot.id,
       stored: backup.summary.stored,
       ok: !backup.summary.interrupted && backup.summary.folderErrors.length === 0,
-    };
-    results.push(report);
-
-    // Replication is S3-to-S3 only and makes no Graph API calls, so it runs
-    // in the background while the next mailbox backs up. The handlers never
-    // reject: an unobserved rejection would crash the job mid-backup.
-    replications.push(
-      atlas.replicateSnapshot(backup.snapshot.id, [offsite]).then(
-        (copies) => {
-          if (copies.some((copy) => copy.status !== 'COMPLETED')) {
-            report.ok = false;
-            report.error = 'offsite copy incomplete';
-          }
-        },
-        (err) => {
-          report.ok = false;
-          report.error = (err as Error).message;
-        },
-      ),
-    );
+    });
   } catch (err) {
     results.push({ mailbox, ok: false, error: (err as Error).message });
   }
 }
-
-await Promise.all(replications);
 
 // Send results wherever your reporting needs them.
 console.log(JSON.stringify(results, null, 2));
 process.exit(results.some((r) => !r.ok) ? 1 : 0);
 ```
 
-Backups run one after another to stay within Graph limits. Each replication starts as soon as its snapshot exists, without blocking the next backup. `Promise.all` waits until every replication has finished. A copy that ends `PARTIAL` or `FAILED` resolves rather than throws, so each handler records the outcome and never rejects.
-
-If the process crashes partway through, `replicateSnapshot` does not retry snapshots it was not given. Run `atlas.replicateMailbox(mailbox, [offsite])` for each mailbox on the next run. It copies every snapshot the target lacks.
+Backups run one after another to stay within Graph limits.
 
 ### OneDrive and SharePoint status check
 
@@ -572,24 +541,3 @@ async function collect_mailbox_metrics(atlas: AtlasInstance, mailbox: string) {
 ### Snapshot pruning
 
 Do not prune snapshots one at a time with `deleteSnapshot`. Outlook and OneDrive manifests record only what changed in their run, and a restore folds in the older manifests of the same owner. Deleting an older manifest silently drops items that newer snapshots still need. Atlas has no chain-aware pruning. To remove an owner's data, use `atlas.outlook.deleteMailboxData` or `atlas.onedrive.deleteOwnerData`.
-
-### OneDrive replication
-
-Copy OneDrive snapshots to an offsite target. `replicateAll` resolves with one result per snapshot even when a copy ends `PARTIAL` or `FAILED`, so check each status.
-
-```typescript
-import type { AtlasInstance, StorageTarget } from '@wisecom/atlas-sdk';
-
-async function replicate_onedrive(atlas: AtlasInstance, ownerId: string, offsite: StorageTarget) {
-  const copies = await atlas.onedrive.replicateAll(ownerId, [offsite]);
-  const incomplete = copies.filter((copy) => copy.status !== 'COMPLETED');
-
-  if (incomplete.length > 0) {
-    throw new Error(
-      `${incomplete.length} of ${copies.length} snapshot(s) for ${ownerId} did not reach the offsite target`,
-    );
-  }
-
-  console.log(`[replicated] ${ownerId}: ${copies.length} snapshot(s) synced to offsite`);
-}
-```

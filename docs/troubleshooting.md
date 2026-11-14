@@ -186,7 +186,7 @@ When one profile works and another fails with `ATLAS_WRONG_PASSPHRASE` after a p
 
 ### Damaged key
 
-If the passphrase is correct and the same error persists, `_meta/dek.enc` is damaged. Recover the key from a replica with `atlas rehydrate`. Without a replica, the data encrypted under that key cannot be read.
+If the passphrase is correct and the same error persists, `_meta/dek.enc` is damaged. Copy `_meta/dek.enc` back from a replica: it is the wrapped key, safe to copy, and opens with the same passphrase. Without a replica, the data encrypted under that key cannot be read.
 
 ### Authentication failure on an object
 
@@ -349,7 +349,7 @@ Another backup is running on onedrive owner <owner-id>, so this operation did no
   Atlas code: ATLAS_OWNER_BUSY
 ```
 
-A backup, restore, deletion, quarantine, replication, or rehydration takes a lease on its mailbox, drive owner, site, or team, and this command found a live one. It exits `12` and has written nothing. The message names the workload, the owner, the operation that holds it, and when its lease runs out. See [Concurrent operations](/reference/sdk#concurrent-operations).
+A backup, restore, deletion, or quarantine takes a lease on its mailbox, drive owner, site, or team, and this command found a live one. It exits `12` and has written nothing. The message names the workload, the owner, the operation that holds it, and when its lease runs out. See [Concurrent operations](/reference/sdk#concurrent-operations).
 
 | Situation                                            | What to do                                                                                                                                                                                                                                    |
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

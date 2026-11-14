@@ -14,7 +14,6 @@ export type {
   OneDriveSdkSnapshotSummary,
   OneDriveSdkFileVersion,
   OneDriveSdkDeletionResult,
-  OneDriveSdkReplicationResult,
   OneDriveSdkStatusResult,
   OneDriveSdkStats,
 } from './api.port';

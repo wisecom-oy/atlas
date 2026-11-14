@@ -56,7 +56,7 @@ Steps:
    - Run `docker compose up -d` in docker/ and wait until the container
      reports healthy.
    Use docker/docker-compose.yml, not docker-compose.dev.yml. The dev file
-   adds a second MinIO for replication testing, which this lab does not need.
+   is for the E2E suite, which this lab does not need.
 4. Build and link the CLI from source with pnpm (the version is pinned in
    package.json's packageManager field; Corepack provides it):
    `pnpm install`, `pnpm run build`, then `pnpm run link-cli`.

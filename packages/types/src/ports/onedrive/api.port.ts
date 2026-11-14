@@ -15,8 +15,6 @@ import type {
 import type { OneDriveSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type { FileSaveOptions, FileSaveResult } from '@/ports/save/file-save.port';
 import type { DeletionResult } from '@/ports/deletion/use-case.port';
-import type { ReplicationResult } from '@/domain/replication/replication';
-import type { StorageTarget } from '@/ports/replication/storage-target.port';
 import type { OneDriveStatusResult } from '@/ports/onedrive/status.port';
 import type { DriveStats } from '@/domain/stats/stats';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';
@@ -47,11 +45,6 @@ export type OneDriveSdkSaveOptions = Camelize<
 > &
   SdkOperationOptions;
 
-/**
- * `StorageTarget` is deliberately not camelised: it is a handle returned by `createStorageTarget`
- * and handed straight back, carrying a `create_context` method rather than data a consumer writes.
- * Its *config* is camelCase, which is the shape a consumer does author.
- */
 export type OneDriveSdkBackupResult = Camelize<OneDriveBackupResult>;
 export type OneDriveSdkVerificationResult = Camelize<OneDriveVerificationResult>;
 export type OneDriveSdkRestoreResult = Camelize<OneDriveRestoreResult>;
@@ -61,7 +54,6 @@ export type OneDriveSdkSnapshotManifest = Camelize<OneDriveSnapshotManifest>;
 export type OneDriveSdkSnapshotSummary = Camelize<OneDriveSnapshotSummary>;
 export type OneDriveSdkFileVersion = Camelize<OneDriveFileVersionRecord>;
 export type OneDriveSdkDeletionResult = Camelize<DeletionResult>;
-export type OneDriveSdkReplicationResult = Camelize<ReplicationResult>;
 export type OneDriveSdkStatusResult = Camelize<OneDriveStatusResult>;
 export type OneDriveSdkStats = Camelize<DriveStats>;
 
@@ -85,18 +77,6 @@ export interface OneDriveApi {
   listFileVersions(ownerId: string, fileRef: string): Promise<OneDriveSdkFileVersion[]>;
   deleteOwnerData(ownerId: string): Promise<OneDriveSdkDeletionResult>;
   deleteSnapshot(ownerId: string, snapshotId: string): Promise<OneDriveSdkDeletionResult>;
-  replicateSnapshot(
-    ownerId: string,
-    snapshotId: string,
-    targets: StorageTarget[],
-  ): Promise<OneDriveSdkReplicationResult[]>;
-  replicateAll(ownerId: string, targets: StorageTarget[]): Promise<OneDriveSdkReplicationResult[]>;
-  rehydrateSnapshot(
-    ownerId: string,
-    snapshotId: string,
-    source: StorageTarget,
-  ): Promise<OneDriveSdkReplicationResult>;
-  rehydrateOwner(ownerId: string, source: StorageTarget): Promise<OneDriveSdkReplicationResult>;
   checkStatus(ownerId: string): Promise<OneDriveSdkStatusResult>;
   /** Aggregates OneDrive backup statistics; without ownerId, tenant-wide across drives. */
   getStats(ownerId?: string): Promise<OneDriveSdkStats>;

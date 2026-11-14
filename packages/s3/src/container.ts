@@ -4,18 +4,12 @@ import {
   MANIFEST_REPOSITORY_TOKEN,
   MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
-  DEK_VALIDATION_FN_TOKEN,
-  STORAGE_TARGET_FACTORY_TOKEN,
   STORAGE_CHECK_USE_CASE_TOKEN,
   STORAGE_DISPOSER_TOKEN,
   IDENTITY_REGISTRY_REPOSITORY_TOKEN,
   STORAGE_INVENTORY_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
-import type {
-  StorageDisposer,
-  StorageInventoryFactory,
-  StorageTargetFactory,
-} from '@wisecom/atlas-types';
+import type { StorageDisposer, StorageInventoryFactory } from '@wisecom/atlas-types';
 import { S3StorageInventory } from '@/adapters/s3-storage-inventory';
 import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
 import { create_s3_client, S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
@@ -23,8 +17,6 @@ import { S3ManifestRepository } from '@/adapters/s3-manifest-repository.adapter'
 import { S3MailboxDeltaCursorRepository } from '@/adapters/s3-mailbox-delta-cursor-repository.adapter';
 import { S3IdentityRegistryRepository } from '@/adapters/s3-identity-registry-repository.adapter';
 import { DefaultTenantContextFactory } from '@/adapters/tenant-context.factory';
-import { validate_dek_match } from '@/adapters/dek-validator';
-import { create_storage_target } from '@/adapters/storage-target.factory';
 import { StorageCheckService } from '@/services/storage-check.service';
 import { BucketCache } from '@/adapters/bucket-cache';
 
@@ -45,10 +37,6 @@ export function bind_s3_storage(container: Container, config: S3Config & CryptoC
     .bind(IDENTITY_REGISTRY_REPOSITORY_TOKEN)
     .to(S3IdentityRegistryRepository)
     .inSingletonScope();
-  container.bind(DEK_VALIDATION_FN_TOKEN).toConstantValue(validate_dek_match);
-  container
-    .bind<StorageTargetFactory>(STORAGE_TARGET_FACTORY_TOKEN)
-    .toConstantValue(create_storage_target);
   container
     .bind<StorageInventoryFactory>(STORAGE_INVENTORY_FACTORY_TOKEN)
     .toConstantValue(

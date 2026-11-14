@@ -353,30 +353,7 @@ const deletion = await atlas.onedrive.deleteOwnerData('user@example.com');
 console.log(`Deleted: ${deletion.deletedObjects} objects`);
 ```
 
-Other methods: `restoreVersion`, `listSnapshots`, `listFileVersions`, `deleteSnapshot`, and the replication methods below.
-
-## Replication
-
-Replication copies encrypted snapshot data to a second S3-compatible target without decrypting it. The replica includes blobs, manifests, version indexes, and delta state, so incremental backups resume after a rehydrate.
-
-```bash
-# Replicate one snapshot, or every snapshot that has not been replicated
-atlas replicate -o user@example.com -s od-snap-123 --target-config ./offsite.json
-atlas replicate -o user@example.com --target-config ./offsite.json
-
-# Recover all of an owner's snapshots, or one snapshot
-atlas rehydrate -o user@example.com --source-config ./offsite.json
-atlas rehydrate -o user@example.com -s od-snap-123 --source-config ./offsite.json
-```
-
-```ts
-const offsite = createStorageTarget({/* ... */});
-
-await atlas.onedrive.replicateAll('user@example.com', [offsite]);
-await atlas.onedrive.rehydrateOwner('user@example.com', offsite);
-```
-
-See [replication](./operations/replication.md) for target setup and disaster recovery.
+Other methods: `restoreVersion`, `listSnapshots`, `listFileVersions`, and `deleteSnapshot`.
 
 ## See also
 

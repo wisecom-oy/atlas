@@ -17,8 +17,8 @@ export interface SnapshotBoundCursor {
  *
  * A cursor says where the last run stopped reading Graph. That is only meaningful on top of the
  * snapshot that run wrote, or left as the newest when it changed nothing. Once that manifest is
- * gone, whether deleted with `delete -s`, moved aside by quarantine, or missing after a
- * rehydration, resuming would skip every change only that snapshot recorded (issue #725).
+ * gone, whether deleted with `delete -s`, moved aside by quarantine, or missing from a
+ * bucket restored from a copy, resuming would skip every change only that snapshot recorded (issue #725).
  *
  * The test is that the manifest object still exists, which costs one listing. It deliberately does
  * not read the manifests to find the newest readable one, as `cursor_describes_head` callers do

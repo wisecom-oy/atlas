@@ -367,7 +367,6 @@ The stored snapshot keeps the raw Graph objects, inline images with their conten
 - **Not covered:** 1:1 chats, group chats, and meeting chats. These belong to individual users and carry separate legal and retention duties. Atlas does not use the metered bulk-export API for them.
 - **Restore:** messages are not written back into Teams. See [Restore](#restore).
 - **Throttling:** Teams calls use their own throttle pool, separate from OneDrive and SharePoint, and are paced per tenant, team, and channel. See [Pacing](#pacing) and [Graph rate limits](/operations/graph-rate-limits#teams-pool).
-- **Replication:** Teams snapshots cannot be replicated or rehydrated yet. Those calls refuse `teams-snap-*` IDs with `Teams snapshots are not replicated yet`.
 
 ## SDK usage
 

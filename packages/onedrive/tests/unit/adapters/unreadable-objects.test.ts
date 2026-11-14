@@ -70,7 +70,7 @@ describe('S3OneDriveManifestRepository with a damaged manifest (issue #631)', ()
     expect(latest.unreadable_keys).toEqual([newest_key]);
   });
 
-  it('keeps the strict listing replication and stats read refusing, naming the key', async () => {
+  it('keeps the strict whole-owner listing refusing, naming the key', async () => {
     const { harness, repo, damaged_key } = await two_snapshots_older_damaged();
 
     const read = repo.list_snapshots_by_owner(harness.ctx, OWNER);

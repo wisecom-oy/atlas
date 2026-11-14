@@ -1,8 +1,8 @@
 """`stats storage` reports what the bucket physically holds (issue #468).
 
 Numbered 37: after the workload suites and the regressions, so the bucket holds every workload's
-blobs, manifests, retained versions and delete markers, and before `test_40_replication.py`, which
-purges primary. The S3 version and multipart listings are the ground truth; the CLI is compared
+blobs, manifests, retained versions and delete markers, and before `test_90_purge`, which empties
+the bucket. The S3 version and multipart listings are the ground truth; the CLI is compared
 against them, never against itself.
 """
 

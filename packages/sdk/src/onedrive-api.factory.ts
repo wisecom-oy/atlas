@@ -11,7 +11,6 @@ import type {
   OneDriveVersionRestoreUseCase,
   OneDriveSaveUseCase,
   OneDriveDeletionUseCase,
-  OneDriveReplicationUseCase,
   OneDriveStatusUseCase,
   UserIdentityResolver,
   StatsUseCase,
@@ -24,7 +23,6 @@ import {
   ONEDRIVE_VERSION_RESTORE_USE_CASE_TOKEN,
   ONEDRIVE_SAVE_USE_CASE_TOKEN,
   ONEDRIVE_DELETION_USE_CASE_TOKEN,
-  ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
   ONEDRIVE_STATUS_USE_CASE_TOKEN,
   USER_IDENTITY_RESOLVER_TOKEN,
   STATS_USE_CASE_TOKEN,
@@ -47,9 +45,6 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
   );
   const save = container.get<OneDriveSaveUseCase>(ONEDRIVE_SAVE_USE_CASE_TOKEN);
   const deletion = container.get<OneDriveDeletionUseCase>(ONEDRIVE_DELETION_USE_CASE_TOKEN);
-  const replication = container.get<OneDriveReplicationUseCase>(
-    ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
-  );
   const status = container.get<OneDriveStatusUseCase>(ONEDRIVE_STATUS_USE_CASE_TOKEN);
   const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
 
@@ -151,26 +146,6 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
     async deleteSnapshot(owner_input, snapshot_id) {
       const owner_id = await resolve_owner_id(owner_input);
       return camelize(await deletion.delete_snapshot(tenant_id, owner_id, snapshot_id));
-    },
-    async replicateSnapshot(owner_input, snapshot_id, targets) {
-      const owner_id = await resolve_owner_id(owner_input);
-      return camelize(await replication.replicate_owner(tenant_id, owner_id, snapshot_id, targets));
-    },
-    async replicateAll(owner_input, targets) {
-      const owner_id = await resolve_owner_id(owner_input);
-      return camelize(
-        await replication.replicate_all_owner_snapshots(tenant_id, owner_id, targets),
-      );
-    },
-    async rehydrateSnapshot(owner_input, snapshot_id, source) {
-      const owner_id = await resolve_owner_id(owner_input);
-      return camelize(
-        await replication.rehydrate_owner_snapshot(tenant_id, owner_id, snapshot_id, source),
-      );
-    },
-    async rehydrateOwner(owner_input, source) {
-      const owner_id = await resolve_owner_id(owner_input);
-      return camelize(await replication.rehydrate_owner(tenant_id, owner_id, source));
     },
     async checkStatus(owner_input) {
       return camelize(

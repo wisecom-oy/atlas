@@ -1,10 +1,10 @@
 ---
-description: 'Typed reference for @wisecom/atlas-sdk: createAtlasInstance, backup, restore, save, and replication methods for multi-tenant services and custom schedulers.'
+description: 'Typed reference for @wisecom/atlas-sdk: createAtlasInstance, backup, restore, save, and verification methods for multi-tenant services and custom schedulers.'
 ---
 
 # SDK reference
 
-`@wisecom/atlas-sdk` embeds Atlas in a Node.js application: multi-tenant services, custom schedulers, portals, and automation that needs typed control over backup, restore, save, and replication. It bundles every internal module, so one install is enough.
+`@wisecom/atlas-sdk` embeds Atlas in a Node.js application: multi-tenant services, custom schedulers, portals, and automation that needs typed control over backup, restore, save, and verification. It bundles every internal module, so one install is enough.
 
 For shell commands, see [CLI Commands](/reference/cli). The CLI (`@wisecom/atlas-cli`) reads `.env` and config files. The SDK reads nothing from the environment.
 
@@ -33,7 +33,7 @@ console.log(result.snapshot.id, result.summary.stored);
 
 `await using` needs TypeScript 5.2 or later, and the SDK requires Node.js 22.8 or later. Without it, call `atlas.dispose()` in a `finally` block. See [Instance lifecycle](#instance-lifecycle).
 
-The API is organized by workload (`atlas.outlook`, `atlas.onedrive`, `atlas.sharepoint`, `atlas.teams`), with tenant-wide methods on the root instance such as `replicateSnapshot`, `getBucketStats`, and `getStorageUsage`.
+The API is organized by workload (`atlas.outlook`, `atlas.onedrive`, `atlas.sharepoint`, `atlas.teams`), with tenant-wide methods on the root instance such as `getBucketStats`, `getStorageUsage`, and `rewrapDataKey`.
 
 ## Configuration
 
@@ -226,7 +226,6 @@ const teamStatus = await atlas.teams.status();
 const check = await atlas.checkStorage({ mode: 'GOVERNANCE', retentionDays: 30 });
 const bucket = await atlas.getBucketStats();
 const usage = await atlas.getStorageUsage({ breakdown: 'owner' });
-await atlas.replicateSnapshot('snapshot-id', [offsite]);
 ```
 
 Method names mirror the CLI: `atlas outlook backup` maps to `atlas.outlook.backup()`, and `atlas onedrive backup` to `atlas.onedrive.backup()`. The SDK also exposes operations the CLI does not. See [SDK examples](/reference/examples) for production patterns.
@@ -256,13 +255,13 @@ Method names mirror the CLI: `atlas outlook backup` maps to `atlas.outlook.backu
 
 `restore`, `save`, and `verify` read a snapshot together with every older snapshot of the mailbox. `restoreMailbox` and `saveMailbox` read every snapshot in the date range. A message that a backup recorded as deleted, in `removed_object_ids`, is left out of every older snapshot in that set. Runs that were interrupted, filtered by folder, excluded Junk Email, or hit a folder error record no removals. See [Delta sync](/operations/delta-sync#deleted-and-moved-messages-outlook).
 
-`deleteSnapshot` rejects with `SnapshotNotNewestError` (`ATLAS_SNAPSHOT_NOT_NEWEST`) when newer snapshots of the mailbox exist, because they are built on the one named and would lose the messages it recorded. `err.snapshot_id` names the refused snapshot and `err.newer_snapshot_ids` the ones to delete first. Nothing is deleted. When a manifest of the mailbox is unreadable it rejects with `UnreadableObjectsError` instead, naming the manifest to quarantine. A successful `deleteSnapshot` also removes the delta cursor, and `deleteMailboxData` removes the cursor and the deleted snapshots' replication records, so the next backup does not resume past the deleted data. The contacts and calendar `deleteSnapshot` remove that mailbox's cursor too.
+`deleteSnapshot` rejects with `SnapshotNotNewestError` (`ATLAS_SNAPSHOT_NOT_NEWEST`) when newer snapshots of the mailbox exist, because they are built on the one named and would lose the messages it recorded. `err.snapshot_id` names the refused snapshot and `err.newer_snapshot_ids` the ones to delete first. Nothing is deleted. When a manifest of the mailbox is unreadable it rejects with `UnreadableObjectsError` instead, naming the manifest to quarantine. A successful `deleteSnapshot` also removes the delta cursor, and `deleteMailboxData` removes the cursor and the deleted snapshots' Atlas 6 replication records, so the next backup does not resume past the deleted data. The contacts and calendar `deleteSnapshot` remove that mailbox's cursor too.
 
 `MailboxSummary.totalObjects` from `listMailboxes()` counts the messages in the latest snapshot's chain, after those removals. `objectCount` from `listSnapshotSummaries()` and `snapshot.objectCount` from `backup()` count the same thing for one snapshot's chain, the set `verify`, `restore` and `save` read. A backup that captured nothing reports the existing newest snapshot and its count. `Manifest.totalObjects` is a high-water mark, the largest message count any single run of the mailbox stored, and never decreases. The stale-delta safeguard reads it to tell an unchanged mailbox from one never backed up.
 
 ### OneDrive and SharePoint
 
-`atlas.onedrive` and `atlas.sharepoint` expose the same operations per drive owner or site: `backup`, `verify`, `restore`, `restoreVersion`, `save`, `listSnapshots`, `listSnapshotSummaries`, `listFileVersions`, `replicateSnapshot`, `replicateAll`, `rehydrateSnapshot`, `checkStatus`, `getStats`, `quarantine(storageKey)`, and a delete method. The delete methods are `deleteOwnerData(ownerId)` and `deleteSnapshot(ownerId, snapshotId)` on OneDrive, and `deleteSiteData(siteId)` and `deleteSnapshot(siteId, snapshotId)` on SharePoint. SharePoint also provides `listSites()`, `resolveSite(urlOrId)`, and `rehydrateSite`. OneDrive provides `rehydrateOwner`.
+`atlas.onedrive` and `atlas.sharepoint` expose the same operations per drive owner or site: `backup`, `verify`, `restore`, `restoreVersion`, `save`, `listSnapshots`, `listSnapshotSummaries`, `listFileVersions`, `checkStatus`, `getStats`, `quarantine(storageKey)`, and a delete method. The delete methods are `deleteOwnerData(ownerId)` and `deleteSnapshot(ownerId, snapshotId)` on OneDrive, and `deleteSiteData(siteId)` and `deleteSnapshot(siteId, snapshotId)` on SharePoint. SharePoint also provides `listSites()` and `resolveSite(urlOrId)`.
 
 ### Snapshot summaries
 
@@ -348,7 +347,6 @@ if (run.snapshot) {
 
 `atlas.contacts` backs up, restores, verifies, and deletes one mailbox's personal contacts. Owner arguments accept an email or Entra object ID.
 
-Contacts snapshots are not replicated or rehydrated yet. `replicateSnapshot` rejects a contacts snapshot ID, and the mailbox and tenant rehydrate methods skip contacts.
 
 | Method                                  | CLI equivalent                | Description                                                               |
 | --------------------------------------- | ----------------------------- | ------------------------------------------------------------------------- |
@@ -367,7 +365,6 @@ See [Contacts backup](/contacts-backup) for the storage layout and restore behav
 
 `atlas.calendar` backs up, restores, verifies, and deletes one mailbox's Outlook calendars, including recurring series and file attachments on events. Owner arguments accept an email or Entra object ID.
 
-Calendar snapshots are not replicated or rehydrated yet. `replicateSnapshot` rejects a calendar snapshot ID, and the mailbox and tenant rehydrate methods skip calendars.
 
 | Method                                  | CLI equivalent                | Description                                                               |
 | --------------------------------------- | ----------------------------- | ------------------------------------------------------------------------- |
@@ -394,13 +391,6 @@ See [Calendar backup](/calendar-backup) for the storage layout and restore behav
 | `getStorageUsage(options?)`              | Bytes the bucket physically holds. See [Storage usage](#storage-usage)                                                                                                    |
 | `resolveUser(email)`                     | Resolves an address to an Entra object ID through Graph                                                                                                                   |
 | `listUsers()`                            | Returns the identity registry for this tenant, or `undefined` when none exists yet                                                                                        |
-| `replicateSnapshot(snapshotId, targets)` | Copies a snapshot and every older snapshot of its mailbox that a target lacks. Returns one result per attempted snapshot and target. See [Replication](#replication)       |
-| `replicateMailbox(mailboxId, targets)`   | Copies every unreplicated snapshot for a mailbox                                                                                                                          |
-| `rehydrateSnapshot(snapshotId, source)`  | Restores a snapshot and the older snapshots of its owner that primary lacks                                                                                               |
-| `rehydrateMailbox(mailboxId, source)`    | Restores a mailbox's snapshots from a replica                                                                                                                             |
-| `rehydrateTenant(source)`                | Restores Outlook, OneDrive, and SharePoint from a replica, reported per workload. Contacts and calendars are not covered                                                  |
-| `getReplicationStatus(snapshotId?)`      | Replication status for one snapshot or all snapshots                                                                                                                      |
-| `getReplicationStatusByOwner(mailboxId)` | Replication status for every snapshot of one owner                                                                                                                        |
 | `rewrapDataKey(newPassphrase?)`          | Re-wraps the tenant data key. See [Key re-wrap](#key-re-wrap)                                                                                                             |
 | `keys`                                   | Re-wraps and purges key wrappers across tenants. See [Re-wrapping several tenants](#re-wrapping-several-tenants)                                                          |
 | `dispose()`                              | Releases the instance. See [Instance lifecycle](#instance-lifecycle)                                                                                                      |
@@ -443,11 +433,10 @@ Outlook keys written by v5 used the SMTP address. They are not reachable under t
 const usage = await atlas.getStorageUsage();
 console.log(usage.storedBytes, usage.totals.noncurrent.bytes, usage.logicalBytesReferenced);
 
-// A replica, measured in slices of 1,000 list requests
-let part = await atlas.getStorageUsage({ target: offsite, maxListRequests: 1000 });
+// Measured in slices of 1,000 list requests
+let part = await atlas.getStorageUsage({ maxListRequests: 1000 });
 while (!part.complete) {
   part = await atlas.getStorageUsage({
-    target: offsite,
     maxListRequests: 1000,
     continuationToken: part.continuationToken,
   });
@@ -456,7 +445,6 @@ while (!part.complete) {
 
 | Option              | Type                    | Description                                                                                            |
 | ------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------ |
-| `target`            | `StorageTarget`         | Measure this replication target instead of the primary storage                                         |
 | `breakdown`         | `'workload' \| 'owner'` | `owner` adds `byOwner`, one row per mailbox, OneDrive owner, or site. Workload rows are always present |
 | `maxListRequests`   | `number`                | Stop after this many S3 requests and return a continuation token                                       |
 | `continuationToken` | `string`                | Resume a run that stopped early                                                                        |
@@ -974,7 +962,7 @@ const atlas = createAtlasInstance({ ...config, throttleCoordinator });
 
 The sequential loop above is the recommended default. Atlas has no scheduler, so running operations at the same time is the host's decision. Atlas refuses the one overlap that damages backup state, two operations on the same mailbox, drive owner, site or team, and the host owns the remaining rules below.
 
-**One operation per owner.** Every backup, restore, version restore, deletion, quarantine, replication and rehydration takes a lease on its owner before it reads or writes that owner's state, and holds it until it ends. A replication or rehydration of one snapshot first reads the snapshot's manifest, or lists the storage that holds it, to learn which owner it is. A second operation on that owner rejects with `OwnerBusyError` (`ATLAS_OWNER_BUSY`, CLI exit `12`) before it writes anything:
+**One operation per owner.** Every backup, restore, version restore, deletion and quarantine takes a lease on its owner before it reads or writes that owner's state, and holds it until it ends. A second operation on that owner rejects with `OwnerBusyError` (`ATLAS_OWNER_BUSY`, CLI exit `12`) before it writes anything:
 
 ```typescript
 import { OwnerBusyError } from '@wisecom/atlas-sdk';
@@ -983,7 +971,7 @@ try {
   await atlas.onedrive.backup(ownerId);
 } catch (err) {
   if (!(err instanceof OwnerBusyError)) throw err;
-  // err.held_by_operation: 'backup' | 'delete' | 'quarantine' | 'restore' | 'replicate' | 'rehydrate' | 'purge' | 'rewrap'
+  // err.held_by_operation: 'backup' | 'delete' | 'quarantine' | 'restore' | 'purge' | 'rewrap'
   // err.lease_expires_at: ISO 8601
   await requeue(ownerId, { notBefore: err.lease_expires_at });
 }
@@ -993,7 +981,7 @@ try {
 | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Object   | One plain JSON object per workload and owner, not encrypted, so operations without the tenant key can take it. See [Owner leases](/operations/storage-layout#owner-leases) for the keys and what it reveals                                                                                                                  |
 | Scope    | A workload and an owner. Mail, contacts, calendar and OneDrive of one user are four leases, so they do not block each other, and neither do two owners                                                                                                                                                                       |
-| Body     | A random ID generated for the run, the operation (`backup`, `delete`, `quarantine`, `restore`, `replicate`, `rehydrate`, or `purge` and `rewrap` on the tenant lease), `acquired_at` and `expires_at`. No host name, user name or process ID                                                                                 |
+| Body     | A random ID generated for the run, the operation (`backup`, `delete`, `quarantine`, `restore`, or `purge` and `rewrap` on the tenant lease), `acquired_at` and `expires_at`. No host name, user name or process ID                                                                                 |
 | Acquire  | A create-only write (`If-None-Match: *`), then a read to confirm the stored holder is this run: one `PUT` and one `GET`                                                                                                                                                                                                      |
 | Lifetime | 5 minutes after the last write                                                                                                                                                                                                                                                                                               |
 | Renewal  | Every 60 seconds: one `GET`, then one `PUT` with `If-Match` on the ETag just read. The timer does not keep the Node.js process alive                                                                                                                                                                                         |
@@ -1003,7 +991,7 @@ The lease adds requests per run and per minute, never per object.
 
 A process that is killed cannot release its lease. The owner then stays busy until the lease expires, at most 5 minutes after the last renewal, and `lease_expires_at` on the error says when. The next operation replaces an expired lease with a compare-and-swap, so of several waiting runs exactly one starts. A lease object that is not valid lease JSON is replaced the same way. One written by a newer Atlas is never replaced: the operation rejects with `ATLAS_FORMAT_UNSUPPORTED`.
 
-A run that holds a lease checks it before each write that advances durable state: the manifest or index, the delta cursor, a Teams checkpoint, a deletion. The check reads no storage. If a renewal found another holder or no lease, or the lease ran out because storage was unreachable for its whole lifetime, the run rejects with `OwnerLeaseLostError` and commits nothing further. `OwnerLeaseLostError` is an `OwnerBusyError` with the same code and exit status, because the remedy is the same. Content objects the run already uploaded stay in the bucket and deduplicate in the next run. A failed renewal alone loses nothing: Atlas retries it every minute, and the check starts failing 30 seconds before the unrenewed expiry. Replication and rehydration take the lease and check it once, when they take it. They do not check it before each write, so a run that loses its lease keeps writing until it ends.
+A run that holds a lease checks it before each write that advances durable state: the manifest or index, the delta cursor, a Teams checkpoint, a deletion. The check reads no storage. If a renewal found another holder or no lease, or the lease ran out because storage was unreachable for its whole lifetime, the run rejects with `OwnerLeaseLostError` and commits nothing further. `OwnerLeaseLostError` is an `OwnerBusyError` with the same code and exit status, because the remedy is the same. Content objects the run already uploaded stay in the bucket and deduplicate in the next run. A failed renewal alone loses nothing: Atlas retries it every minute, and the check starts failing 30 seconds before the unrenewed expiry.
 
 A SharePoint backup with `includeSubsites: true` takes one lease per site. A busy subsite does not stop the others: its result has `summary.healthy: false` and the busy error in `summary.errors`. A subsite listing that fails after retries adds its error to the root result's `summary.errors` and sets that result's `summary.healthy` to `false`. A busy root site rejects the call. `atlas teams backup --all` and the tenant-wide Outlook backup report a busy team or mailbox as that owner's failure and continue.
 
@@ -1015,7 +1003,7 @@ The tenant check costs one extra `GET` per owner acquire, whatever the number of
 
 | Object                   | How concurrent writers are handled                                                                                                                                                                                            |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `_meta/dek.enc`          | Created with `If-None-Match: *`. A losing bootstrap adopts the stored key. Rehydrate and replicate write it conditionally and reject with `DekWriteConflictError` (`ATLAS_STORAGE_FAILURE`) when a different key won the race |
+| `_meta/dek.enc`          | Created with `If-None-Match: *`. A losing bootstrap adopts the stored key                                                                                                                         |
 | `identity-registry.json` | Every write is a compare-and-swap on the ETag. A losing writer re-reads and re-applies its change, up to 8 attempts                                                                                                           |
 | The tenant bucket        | A run that loses the `CreateBucket` race uses the bucket the other run created                                                                                                                                                |
 | Object Lock retention    | Applied to each object a run writes. No run changes the bucket's own lock configuration. An owner lease is never written with retention                                                                                       |
@@ -1025,8 +1013,7 @@ The conditional writes, the lease included, need a backend that honours `If-Matc
 
 **What the host must guarantee.**
 
-- `purgeTenantData()` and `rewrapDataKey()` take the tenant lease described above, so they are refused while any owner of the tenant is busy, including a replication or rehydration of one owner. `rehydrateTenant()` takes no lease. Run it while no backup, deletion, quarantine, replication or rehydration of that tenant is running.
-- Replication takes the lease of the owner it acts on in the primary bucket, the source it reads and where its status record goes. Rehydration takes it in primary, which it writes. `replicateAll` takes the lease of the one owner or site it names, once per call. A replica target takes no lease: every run that writes an owner's replica holds that owner's lease on primary, so two such runs never overlap. Rehydration installs the source's key on primary before it takes the lease, because a lease object already in primary would make a rerun into an empty bucket refuse to install the key.
+- `purgeTenantData()` and `rewrapDataKey()` take the tenant lease described above, so they are refused while any owner of the tenant is busy.
 - Restore takes the source owner's lease in the bucket it reads, also for a cross-tenant restore through `targetTenant`, so it never runs next to a backup, deletion, quarantine or second restore of that owner. A restore whose storage credentials cannot write the lease (HTTP `403`) still runs, as restores always have with read-only credentials, but without a lease. It logs `concurrent-run protection is off for this restore`, and a backup, deletion or second restore of that owner is then not refused. A live lease another operation holds still refuses the restore, owner or tenant, because reading a lease needs no write access.
 - Save, verify, status and the listings only read, so they take no lease and can run next to a backup of the same owner. A deletion or quarantine running at the same time can remove the snapshot they are reading.
 - Keep the clocks of hosts that share a bucket within a few minutes of each other. Expiry compares the `expires_at` one host wrote with another host's clock. A host whose clock is ahead by more than the time left on a live lease, 4 to 5 minutes in steady state, sees it as expired and takes over a running operation. The displaced run notices at its next renewal, within 60 seconds, and stops before its next commit, but both ran for that long.
@@ -1037,61 +1024,6 @@ The conditional writes, the lease included, need a backend that honours `If-Matc
 **Throttling.** Before every HTTP attempt made through a Graph connector, Atlas calls `wait(pool, scope?)` on the instance's throttle coordinator. On every 429, it calls `raise(pool, retry_after_ms, scope?)`, with Graph's `Retry-After` or 30 seconds when there is none. The pool is one of the `GraphServicePool` values: `outlook`, `sharepoint_onedrive`, `identity`, or `teams`. The `teams` pool has its own cooldown, so a Teams throttle does not pause mail or drive requests. The optional `scope` is a `ThrottleScope`, `{ ownerId }`. Outlook requests set it to the normalized mailbox owner id, and Teams requests set it to the normalized team id. Listing the tenant's teams carries no scope. Drive and identity requests pass no scope. Mailbox backup and restore, mailbox discovery, user lookups, every Teams call, and every OneDrive and SharePoint connector call are coordinated. User lookups are also retried like every other Graph call; before 6.1.0 a throttled lookup failed the operation outright. Drive file downloads from pre-authenticated URLs, whole or chunked, and resumable upload chunks use a plain `fetch`, so Atlas coordinates them on the `sharepoint_onedrive` pool too: each attempt waits, and a 429 or 503 with `Retry-After` raises that pool's cooldown. Their own retry backoff still applies on top. The default coordinator keeps one in-memory cooldown per pool, plus one per mailbox for the `outlook` pool and one per team for the `teams` pool. A 429 on one mailbox pauses only that mailbox's requests, and a 429 on one team pauses only that team's requests. A 429 on a drive pauses its other drive and site requests, while the other pools keep running. A coordinator written against the two-argument signature (`wait(pool)`, `raise(pool, retry_after_ms)`) keeps working. JavaScript ignores the extra argument, so such a coordinator treats every Outlook or Teams 429 as pool-wide.
 
 Supply a `throttleCoordinator` when several processes back up the same tenant. Without it, each process only learns about the 429s it receives itself. `wait` runs before every attempt, so answer it from local state, for example a cached cooldown deadline, rather than a network round trip. Cooldowns must not be additive: a shorter `raise` never shortens a longer one already in force. A supplied coordinator fails open. If `wait` rejects, Atlas sends the request anyway, and if `raise` throws or returns a rejected promise, Atlas logs a warning and keeps backing off on Graph's own `Retry-After`. An outage in your shared state costs coordination, not the operation. Per-mailbox request windows and in-flight limits stay inside each instance whichever coordinator is used. So does Teams pacing: set `teamsPacingShare` so the processes of one tenant split its Teams budget. See [Teams pacing](/teams-backup#pacing).
-
-## Replication
-
-Replication copies snapshots to a secondary S3 endpoint and restores them after a loss. A `StorageTarget` needs only S3 credentials and the shared passphrase. It does not need Microsoft 365 credentials, so replication runs entirely between S3 endpoints.
-
-```typescript
-import { createAtlasInstance, createStorageTarget } from '@wisecom/atlas-sdk';
-
-const atlas = createAtlasInstance({/* primary config */});
-
-const offsite = createStorageTarget({
-  targetId: 'offsite-dr',
-  s3Endpoint: 'https://offsite.example.internal',
-  s3AccessKey: '<access-key>',
-  s3SecretKey: '<secret-key>',
-  encryptionPassphrase: '<same-passphrase-as-primary>',
-});
-
-// Copy one snapshot to one or more targets
-const results = await atlas.replicateSnapshot('snapshot-id', [offsite]);
-
-// Copy every unreplicated snapshot for a mailbox
-const mailboxResults = await atlas.replicateMailbox('user@example.com', [offsite]);
-
-// Replication status for one snapshot, or every snapshot for one owner
-const status = await atlas.getReplicationStatus('snapshot-id');
-const ownerStatus = await atlas.getReplicationStatusByOwner('user@example.com');
-
-// Recovery from a replica
-await atlas.rehydrateSnapshot('snapshot-id', offsite);
-await atlas.rehydrateMailbox('user@example.com', offsite);
-
-// Full tenant recovery, reported per workload
-const recovery = await atlas.rehydrateTenant(offsite);
-for (const { workload, result } of recovery.workloads) {
-  console.log(workload, result.objectsCopied, result.objectsSkipped);
-}
-console.log(recovery.total.status);
-```
-
-Replication skips objects that already exist on the target. A snapshot whose manifest already exists on the target is not copied again. `replicateSnapshot`, and the OneDrive and SharePoint `replicateSnapshot` methods, copy the named snapshot together with every older snapshot of its owner that the target lacks, because each manifest holds only one run's changes. They return one result per attempted snapshot and target, including attempts that failed, or a single skipped result for a target that already held the whole chain. `rehydrateSnapshot` does the same toward primary and returns one merged result.
-
-Snapshots are copied oldest first. When one fails, no newer snapshot of the same owner is written in that call. Its result has status `FAILED` or `PARTIAL`, and its `errors` name the snapshots left out. A chain that needs a damaged manifest rejects with `UnreadableObjectsError` before anything is copied.
-
-`createStorageTarget` accepts a `StorageTargetConfig`:
-
-| Option                 | Type                                   | Description                                                                                                                                             |
-| ---------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `targetId`             | `string`                               | Stable ID. Derived from the endpoint when omitted                                                                                                       |
-| `s3Endpoint`           | `string`                               | S3 endpoint URL                                                                                                                                         |
-| `s3AccessKey`          | `string`                               | S3 access key                                                                                                                                           |
-| `s3SecretKey`          | `string`                               | S3 secret key                                                                                                                                           |
-| `s3Region`             | `string`                               | S3 region. Default `us-east-1`                                                                                                                          |
-| `encryptionPassphrase` | `string`                               | Must match the primary passphrase. Replicas share its encryption model                                                                                  |
-| `onStorageRequest`     | `(event: StorageRequestEvent) => void` | Receives one event per S3 request sent to this target, with `target` set to `targetId`. See [Storage request events](/reference/storage-request-events) |
 
 ## Cross-tenant restore
 
@@ -1441,9 +1373,8 @@ try {
 | `UnreadableContentError`            | `ATLAS_CONTENT_UNREADABLE`   | Stored data or MIME content could not be decoded. Not exported                                                                                                                                                                                                                                                      |
 | `UnreadableObjectsError`            | `ATLAS_CONTENT_UNREADABLE`   | Named manifests or version indexes could not be read. See `unreadable_keys` and [Damaged stored objects](#damaged-stored-objects)                                                                                                                                                                                   |
 | `UnsupportedFormatVersionError`     | `ATLAS_FORMAT_UNSUPPORTED`   | Stored Teams content was written by a newer Atlas format. Upgrade Atlas. Not exported                                                                                                                                                                                                                               |
-| `DekOverwriteRefusedError`          | `ATLAS_KEY_CONFLICT`         | Rehydration refused to replace a different data key on a primary that holds other objects. Retrying cannot succeed. Not exported                                                                                                                                                                                    |
 | `SnapshotNotNewestError`            | `ATLAS_SNAPSHOT_NOT_NEWEST`  | Outlook, OneDrive, or SharePoint `deleteSnapshot` refused a snapshot that newer snapshots are built on. See `snapshot_id` and `newer_snapshot_ids`                                                                                                                                                                  |
-| `OwnerBusyError`                    | `ATLAS_OWNER_BUSY`           | Another backup, restore, deletion, quarantine, replication, or rehydration holds the mailbox, drive owner, site, or team, or a purge or key re-wrap holds the tenant. Nothing was written. See `workload`, `owner_id`, `held_by_operation`, `lease_expires_at`, and [Concurrent operations](#concurrent-operations) |
+| `OwnerBusyError`                    | `ATLAS_OWNER_BUSY`           | Another backup, restore, deletion, or quarantine holds the mailbox, drive owner, site, or team, or a purge or key re-wrap holds the tenant. Nothing was written. See `workload`, `owner_id`, `held_by_operation`, `lease_expires_at`, and [Concurrent operations](#concurrent-operations) |
 | `OwnerLeaseLostError`               | `ATLAS_OWNER_BUSY`           | A subclass of `OwnerBusyError`: this run held the owner's lease and lost it before a commit point, so it stopped without writing the manifest, cursor, or deletion that followed                                                                                                                                    |
 
 Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK error is available for logging. Branching does not depend on it.
@@ -1456,15 +1387,15 @@ Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK err
 
 `@wisecom/atlas-sdk` exports an explicit list. Internal domain types and ports are not exported. Infer other result types from `AtlasInstance` rather than importing internal models.
 
-- **Factories and values:** `createAtlasInstance`, `createStorageTarget`, `createTenant`, `getGraphCost`, `getStorageUsageToken`, `GRAPH_SERVICE_LIMITS`
+- **Factories and values:** `createAtlasInstance`, `createTenant`, `getGraphCost`, `getStorageUsageToken`, `GRAPH_SERVICE_LIMITS`
 - **Tenant handles:** `AtlasTenant`, `AtlasTenantConfig`
 - **Instance types:** `AtlasInstance`, `AtlasInstanceConfig`, `LogSink`, `LogFields`, `ThrottleCoordinator`
 - **Sub-API types:** `OutlookApi`, `OneDriveApi`, `SharePointApi`, `TeamsApi`
 - **Workload options and results:** the `Outlook*`, `OneDriveSdk*`, `SharePointSdk*`, and `TeamsSdk*` types each API uses
 - **Operation control:** `SdkOperationOptions`, `OperationProgressEvent`, `OperationProgressCallback`, `OperationProgressPhase`
-- **Storage targets and usage:** `StorageTarget`, `StorageTargetConfig`, `StorageUsage`, `StorageUsageTotals`, `StorageOwnerUsage`, `StorageUsageOptions`, `StorageUsageBreakdown`, `StorageUsageWorkload`, `LogicalWorkload`
+- **Storage usage:** `StorageUsage`, `StorageUsageTotals`, `StorageOwnerUsage`, `StorageUsageOptions`, `StorageUsageBreakdown`, `StorageUsageWorkload`, `LogicalWorkload`
 - **Storage request events:** `StorageRequestEvent`, `StorageRequestObserver`, `StorageRequestWorkload`, `StorageKeyClass`
-- **Shared enums and requests:** `ObjectLockMode`, `ObjectLockRequest`, `BackupSyncMode`, `RehydrationWorkload`, `GraphServicePool`
+- **Shared enums and requests:** `ObjectLockMode`, `ObjectLockRequest`, `BackupSyncMode`, `GraphServicePool`
 - **Graph cost types:** `OperationCost`, `ServicePoolCost`, `GraphServiceLimits`
 - **Quarantine:** `QuarantineResult`
 - **Errors:** `AtlasError`, `AtlasErrorCode`, `AuthError`, `MailboxNotLicensedError`, `NotFoundError`, `ThrottledError`, `WrongPassphraseError`, `ObjectLockRetainedError`, `StorageError`, `ConfigError`, `UnreadableObjectsError`, `SnapshotNotNewestError`, `StoredObjectConflictError`, `RefusedWriteError`, `OwnerBusyError`, `OwnerLeaseLostError`, `ObjectLockVersioningDisabledError`, `ObjectLockUnsupportedError`, `ObjectLockModeRejectedError`, `PreconditionFailedError`

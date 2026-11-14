@@ -67,7 +67,6 @@ describe('onStorageRequest', () => {
       expect.objectContaining({
         command: 'GetObject',
         operation: 'getBucketStats',
-        target: 'primary',
         keyClass: '_meta',
         errorType: 'NoSuchKey',
         statusCode: 404,

@@ -26,7 +26,7 @@ async function head_requests(
 ): Promise<StorageRequestEvent[]> {
   fake = await start_fake_s3(() => ({ status: 200, delay_ms: BACKEND_MS }), sockets);
   const events: StorageRequestEvent[] = [];
-  observe_storage_requests(fake.client, (event) => events.push(event), 'primary');
+  observe_storage_requests(fake.client, (event) => events.push(event));
   const head = (i: number): Promise<unknown> =>
     fake!.client.send(new HeadObjectCommand({ Bucket: 'b', Key: `data/owner/${i}` }));
   if (sequential) {

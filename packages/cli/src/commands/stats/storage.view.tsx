@@ -26,7 +26,7 @@ export async function print_storage_usage(usage: StorageUsage, top: number): Pro
   const visible = { versions: usage.versions_visible, uploads: usage.incomplete_uploads_visible };
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Storage Usage" subtitle={`Target: ${usage.target}`} />
+      <Banner title="Storage Usage" />
       <Text bold>Overview</Text>
       <KeyValueList items={build_overview_items(usage)} />
       <UsageTable heading="By workload" rows={workloads} visible={visible} />

@@ -11,9 +11,10 @@ import { logger } from '@/utils/logger';
 /**
  * The wrapped DEK, deleted last so a blocked purge stays recoverable.
  *
- * Held back as this exact key, not as the whole `_meta/` prefix: replica markers
- * and replication status records share that tree and are themselves encrypted
- * with the DEK, so they have to go before the key that reads them.
+ * Held back as this exact key, not as the whole `_meta/` prefix: other metadata,
+ * including the replication status records and replica marker Atlas 6 wrote,
+ * shares that tree and is encrypted with the DEK, so it has to go before the key
+ * that reads it.
  */
 export const DEK_KEY = '_meta/dek.enc';
 

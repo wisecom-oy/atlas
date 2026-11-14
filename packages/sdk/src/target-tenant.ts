@@ -136,7 +136,6 @@ export async function with_restore_side<T>(
     observe_storage_requests(
       target_container.get<S3Client>(S3_CLIENT_TOKEN),
       container.get<StorageRequestObserver>(STORAGE_OBSERVER_TOKEN),
-      'primary',
     );
   }
   try {

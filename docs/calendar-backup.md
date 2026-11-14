@@ -132,7 +132,6 @@ Object Lock retention, when the bucket uses it, applies to calendar objects writ
 | Item and reference attachments          | Reported as warnings and counted in `attachments_skipped`; the run exits `2`. Not recoverable from the backup.               |
 | Attachments on single exceptions        | Attachments added to one occurrence of a series are not stored. Reported and counted the same way.                           |
 | Read-only calendars                     | Birthdays and read-only shares are skipped. Back them up from their owner if needed.                                         |
-| Calendars in replicas                   | Replication and rehydrate refuse calendar snapshots, as they do for contacts. See [Replication](/reference/sdk#replication). |
 
 Restore into a mailbox is a write against live data. Test with a scratch mailbox first, and check the target calendar's event count after the run.
 
