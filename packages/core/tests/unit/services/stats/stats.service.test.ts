@@ -24,6 +24,7 @@ import {
   readable_manifests,
   readable_summaries,
 } from '@wisecom/atlas-types/testing/readable-listing';
+import { summary_listing } from '../catalog-service.fixtures';
 
 function make_manifest(overrides: Partial<Manifest> = {}): Manifest {
   return {
@@ -103,9 +104,8 @@ describe('StatsService', () => {
       list_readable_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
       list_all_readable: vi.fn().mockResolvedValue(readable_manifests()),
       read_manifest_at: vi.fn(outlook_chain_reads(() => mock_manifests).read_manifest_at),
-      list_snapshot_summaries: vi.fn(
-        outlook_chain_reads(() => mock_manifests).list_snapshot_summaries,
-      ),
+      list_snapshot_summaries: vi.fn().mockResolvedValue(summary_listing([])),
+      list_all_snapshot_summaries: vi.fn().mockResolvedValue(summary_listing([])),
     };
 
     mock_od_manifests = {
@@ -151,16 +151,18 @@ describe('StatsService', () => {
     });
 
     it('aggregates across multiple mailboxes', async () => {
-      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
-        make_manifest({
-          owner_id: 'alice@test.com',
-          entries: [{ object_id: 'o1', storage_key: 'k1', checksum: 'c1', size_bytes: 200 }],
-        }),
-        make_manifest({
-          owner_id: 'bob@test.com',
-          entries: [{ object_id: 'o2', storage_key: 'k2', checksum: 'c2', size_bytes: 300 }],
-        }),
-      ]);
+      vi.mocked(mock_manifests.list_all_snapshot_summaries).mockResolvedValue(
+        summary_listing([
+          make_manifest({
+            owner_id: 'alice@test.com',
+            entries: [{ object_id: 'o1', storage_key: 'k1', checksum: 'c1', size_bytes: 200 }],
+          }),
+          make_manifest({
+            owner_id: 'bob@test.com',
+            entries: [{ object_id: 'o2', storage_key: 'k2', checksum: 'c2', size_bytes: 300 }],
+          }),
+        ]),
+      );
 
       const result = await service.get_bucket_stats('t');
 
@@ -178,7 +180,7 @@ describe('StatsService', () => {
 
   describe('get_mailbox_stats', () => {
     it('returns zeroed stats when mailbox has no manifests', async () => {
-      vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([]);
+      vi.mocked(mock_manifests.list_snapshot_summaries).mockResolvedValue(summary_listing([]));
 
       const result = await service.get_mailbox_stats('t', 'missing@test.com');
 
@@ -189,32 +191,36 @@ describe('StatsService', () => {
     });
 
     it('aggregates every manifest of the requested mailbox', async () => {
-      vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([
-        make_manifest({
-          owner_id: 'alice@test.com',
-          entries: [
-            {
-              object_id: 'o1',
-              storage_key: 'k1',
-              checksum: 'c1',
-              size_bytes: 200,
-              folder_id: 'inbox',
-            },
-          ],
-        }),
-        make_manifest({
-          owner_id: 'alice@test.com',
-          entries: [
-            {
-              object_id: 'o3',
-              storage_key: 'k3',
-              checksum: 'c3',
-              size_bytes: 150,
-              folder_id: 'sent',
-            },
-          ],
-        }),
-      ]);
+      vi.mocked(mock_manifests.list_snapshot_summaries).mockResolvedValue(
+        summary_listing([
+          make_manifest({
+            owner_id: 'alice@test.com',
+            entries: [
+              {
+                object_id: 'o1',
+                storage_key: 'k1',
+                checksum: 'c1',
+                size_bytes: 200,
+                folder_id: 'inbox',
+              },
+            ],
+          }),
+          make_manifest({
+            owner_id: 'alice@test.com',
+            snapshot_id: 'snap-2',
+            created_at: new Date('2026-03-02T10:00:00Z'),
+            entries: [
+              {
+                object_id: 'o3',
+                storage_key: 'k3',
+                checksum: 'c3',
+                size_bytes: 150,
+                folder_id: 'sent',
+              },
+            ],
+          }),
+        ]),
+      );
 
       const result = await service.get_mailbox_stats('t', 'alice@test.com');
 
@@ -226,16 +232,18 @@ describe('StatsService', () => {
     });
 
     it('reads the manifests under the lowercased owner prefix', async () => {
-      vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([
-        make_manifest({
-          owner_id: 'alice@test.com',
-          entries: [{ object_id: 'o1', storage_key: 'k1', checksum: 'c1', size_bytes: 100 }],
-        }),
-      ]);
+      vi.mocked(mock_manifests.list_snapshot_summaries).mockResolvedValue(
+        summary_listing([
+          make_manifest({
+            owner_id: 'alice@test.com',
+            entries: [{ object_id: 'o1', storage_key: 'k1', checksum: 'c1', size_bytes: 100 }],
+          }),
+        ]),
+      );
 
       const result = await service.get_mailbox_stats('t', 'Alice@Test.com');
 
-      expect(mock_manifests.list_by_owner).toHaveBeenCalledWith(
+      expect(mock_manifests.list_snapshot_summaries).toHaveBeenCalledWith(
         expect.anything(),
         'alice@test.com',
       );

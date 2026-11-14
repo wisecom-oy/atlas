@@ -15,7 +15,7 @@ export interface OwnerLeaseRecord {
   readonly format_version: number;
   /** Random id of the run that holds the owner. */
   readonly holder_id: string;
-  /** What the holder is doing: `backup`, `delete`, `quarantine`, `restore`, or `purge` and `rewrap` on the tenant lease. */
+  /** What the holder is doing: `backup`, `delete`, `quarantine`, `restore`, `replicate`, `rehydrate`, or `purge` and `rewrap` on the tenant lease. */
   readonly operation: string;
   /** ISO 8601 UTC time the holder first took the lease. */
   readonly acquired_at: string;

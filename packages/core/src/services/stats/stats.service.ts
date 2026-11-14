@@ -6,7 +6,6 @@ import type {
   OneDriveManifestRepository,
   SharePointManifestRepository,
   OneDriveSnapshotSummary,
-  ReadableSnapshotSummaries,
   SharePointSnapshotSummary,
 } from '@wisecom/atlas-types';
 import type { StatsUseCase } from '@wisecom/atlas-types';
@@ -16,9 +15,12 @@ import {
   MANIFEST_REPOSITORY_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
-  UnreadableObjectsError,
 } from '@wisecom/atlas-types';
-import { aggregate_bucket_stats, aggregate_mailbox_stats } from '@/services/stats/stats-aggregator';
+import {
+  aggregate_bucket_stats_from_summaries,
+  aggregate_mailbox_stats_from_summaries,
+} from '@/services/stats/stats-summary-aggregator';
+import { require_every_summary } from '@/services/stats/require-every-summary';
 import {
   aggregate_drive_stats,
   type DriveManifestSummary,
@@ -31,18 +33,6 @@ function timed<T>(fn: () => T): T & { aggregation_us: number } {
   const result = fn();
   const elapsed_us = Math.round((performance.now() - start) * 1000);
   return { ...result, aggregation_us: elapsed_us };
-}
-
-/**
- * Returns the summaries of a listing, raising when a rowless manifest could not be read: the
- * totals would silently leave that snapshot out, as `list_snapshots_by_owner` refused to do.
- */
-function require_every_summary<T>(listing: ReadableSnapshotSummaries<T>, workload: string): T[] {
-  if (listing.unreadable_keys.length === 0) return listing.summaries;
-  throw new UnreadableObjectsError(
-    `${listing.unreadable_keys.length} ${workload} manifest(s) could not be read`,
-    listing.unreadable_keys,
-  );
 }
 
 /** Maps a OneDrive snapshot summary to the service-agnostic aggregation shape. */
@@ -78,24 +68,26 @@ export class StatsService implements StatsUseCase {
     private readonly _sp_manifests: SharePointManifestRepository,
   ) {}
 
-  /** Loads all manifests and computes bucket-wide statistics. */
+  /** Reads every mailbox's snapshot summaries and computes bucket-wide statistics (#726). */
   async get_bucket_stats(tenant_id: string): Promise<BucketStats> {
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const all = await this._manifests.list_all_manifests(ctx);
-      return timed(() => aggregate_bucket_stats(tenant_id, all));
+      const listing = await this._manifests.list_all_snapshot_summaries(ctx);
+      const summaries = require_every_summary(listing, 'Outlook');
+      return timed(() => aggregate_bucket_stats_from_summaries(tenant_id, summaries));
     } finally {
       ctx.destroy();
     }
   }
 
-  /** Loads manifests for a single mailbox and computes its statistics. */
+  /** Reads one mailbox's snapshot summaries and computes its statistics (#726). */
   async get_mailbox_stats(tenant_id: string, owner_id: string): Promise<MailboxStats> {
     owner_id = normalize_owner_id(owner_id);
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const filtered = await this._manifests.list_by_owner(ctx, owner_id);
-      return timed(() => aggregate_mailbox_stats(owner_id, filtered));
+      const listing = await this._manifests.list_snapshot_summaries(ctx, owner_id);
+      const summaries = require_every_summary(listing, 'Outlook');
+      return timed(() => aggregate_mailbox_stats_from_summaries(owner_id, summaries));
     } finally {
       ctx.destroy();
     }

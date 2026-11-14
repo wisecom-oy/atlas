@@ -16,6 +16,9 @@ import {
   ONEDRIVE_QUARANTINE_USE_CASE_TOKEN,
   OUTLOOK_QUARANTINE_USE_CASE_TOKEN,
   OWNER_LEASE_TOKEN,
+  ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
+  REPLICATION_USE_CASE_TOKEN,
+  SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
   SHAREPOINT_DELETION_USE_CASE_TOKEN,
   SHAREPOINT_QUARANTINE_USE_CASE_TOKEN,
   TEAMS_BACKUP_USE_CASE_TOKEN,
@@ -60,6 +63,9 @@ const LEASE_TAKERS: readonly (readonly [string, symbol | (new (...args: never[])
   ['contacts quarantine', CONTACTS_QUARANTINE_USE_CASE_TOKEN],
   ['calendar quarantine', CALENDAR_QUARANTINE_USE_CASE_TOKEN],
   ['Teams quarantine', TEAMS_QUARANTINE_USE_CASE_TOKEN],
+  ['Outlook replication and rehydration', REPLICATION_USE_CASE_TOKEN],
+  ['OneDrive replication and rehydration', ONEDRIVE_REPLICATION_USE_CASE_TOKEN],
+  ['SharePoint replication and rehydration', SHAREPOINT_REPLICATION_USE_CASE_TOKEN],
 ];
 
 describe('owner lease wiring in the SDK container (issue #623)', () => {

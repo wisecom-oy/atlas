@@ -17,6 +17,7 @@ import {
 } from '@/services/shared/manifest-chain';
 import { return_or_raise_partial } from '@/services/shared/unreadable-object-report';
 import { merge_snapshot_entries } from '@/services/shared/manifest-entry-merger';
+import { build_mailbox_summaries } from '@/services/catalog/mailbox-summary-builder';
 
 @injectable()
 export class CatalogService implements CatalogUseCase {
@@ -26,8 +27,8 @@ export class CatalogService implements CatalogUseCase {
   ) {}
 
   /**
-   * Groups all manifests by mailbox, picking the latest per mailbox
-   * for summary stats (object count, size, last backup time).
+   * Summarises every mailbox from its snapshot summary rows: snapshot count, merged object count,
+   * total size and last backup time. Decrypts only manifests the rows do not describe (#726).
    *
    * @throws UnreadableObjectsError naming each damaged manifest, with the summaries of the readable
    *   ones in `partial_result` (issue #631).
@@ -35,9 +36,9 @@ export class CatalogService implements CatalogUseCase {
   async list_mailboxes(tenant_id: string): Promise<MailboxSummary[]> {
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const listing = await this._manifests.list_all_readable(ctx);
-      const by_mailbox = group_by_mailbox(listing.manifests);
-      return return_or_raise_partial(listing.unreadable_keys, build_mailbox_summaries(by_mailbox));
+      const listing = await this._manifests.list_all_snapshot_summaries(ctx);
+      const summaries = build_mailbox_summaries(listing.summaries);
+      return return_or_raise_partial(listing.unreadable_keys, summaries);
     } finally {
       ctx.destroy();
     }
@@ -145,46 +146,4 @@ export class CatalogService implements CatalogUseCase {
     }
     return resolve_message_ref(chain[0]!, merge_snapshot_entries(chain), ref);
   }
-}
-
-/** Groups manifests into a map keyed by owner_id. */
-function group_by_mailbox(manifests: Manifest[]): Map<string, Manifest[]> {
-  const map = new Map<string, Manifest[]>();
-  for (const m of manifests) {
-    const arr = map.get(m.owner_id) ?? [];
-    arr.push(m);
-    map.set(m.owner_id, arr);
-  }
-  return map;
-}
-
-/**
- * Builds one MailboxSummary per group. The object count is the latest snapshot's merged chain,
- * so messages a later run recorded as removed are not counted (issue #536). total_size_bytes sums
- * every snapshot, since each incremental snapshot only stores newly arrived data.
- * mailbox_purpose comes from the newest manifest that recorded one, so a
- * transient lookup failure in the latest backup does not blank the type.
- */
-function build_mailbox_summaries(groups: Map<string, Manifest[]>): MailboxSummary[] {
-  const summaries: MailboxSummary[] = [];
-
-  for (const [owner_id, manifests] of groups) {
-    manifests.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
-    const latest = manifests[0]!;
-    const purpose = manifests.find((m) => m.mailbox_purpose)?.mailbox_purpose;
-    const owner_email = manifests.find((m) => m.owner_email)?.owner_email;
-    const cumulative_size = manifests.reduce((sum, m) => sum + m.total_size_bytes, 0);
-
-    summaries.push({
-      owner_id,
-      ...(owner_email ? { owner_email } : {}),
-      ...(purpose ? { mailbox_purpose: purpose } : {}),
-      snapshot_count: manifests.length,
-      total_objects: merge_snapshot_entries(manifests).length,
-      total_size_bytes: cumulative_size,
-      last_backup_at: latest.created_at,
-    });
-  }
-
-  return summaries.sort((a, b) => a.owner_id.localeCompare(b.owner_id));
 }

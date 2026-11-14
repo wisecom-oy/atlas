@@ -1,10 +1,17 @@
 /**
  * Plain-node self-check for the rig's pure parts: fixture generation and mutation, rate limiting,
- * paging tokens, reply inlining, and CLI parsing. Needs no network or backup run; the rate limiter
- * reads limits from `@wisecom/atlas-types`, so run `pnpm install` first.
+ * paging tokens, reply inlining, CLI parsing, dead-lease expiry, and that the rig container resolves
+ * every token the scenarios take from it. Needs no network or backup run; the rate limiter reads
+ * limits from `@wisecom/atlas-types`, so run `pnpm install` first.
  * Run: node tools/teams-scale-rig/src/selfcheck.mjs
  */
 import assert from 'node:assert/strict';
+import {
+  TEAMS_BACKUP_USE_CASE_TOKEN,
+  TEAMS_CHANNEL_SHARD_REPOSITORY_TOKEN,
+  TEAMS_INDEX_REPOSITORY_TOKEN,
+} from '@wisecom/atlas-types';
+import { create_teams_container } from './runner/container.mjs';
 import { derive_seed, create_rng } from './fixture/prng.mjs';
 import {
   generate_tenant,
@@ -20,6 +27,7 @@ import { root_json, INLINE_REPLY_LIMIT } from './server/serialize.mjs';
 import { parse_args } from './cli-args.mjs';
 import { diff_snapshots, resume_blob_problems } from './runner/convergence.mjs';
 import { diff_live_content } from './runner/live-content-diff.mjs';
+import { run_lease_checks } from './selfcheck-leases.mjs';
 
 const checks = [];
 function test(name, fn) {
@@ -179,6 +187,20 @@ test('root_json inlines up to the limit and links the rest', () => {
   assert.equal(small['replies@odata.nextLink'], undefined);
 });
 
+/** Tokens the scenarios and runner take from the rig container (backup-run.mjs, convergence.mjs). */
+const RIG_CONTAINER_TOKENS = [
+  TEAMS_BACKUP_USE_CASE_TOKEN,
+  TEAMS_INDEX_REPOSITORY_TOKEN,
+  TEAMS_CHANNEL_SHARD_REPOSITORY_TOKEN,
+];
+
+test('rig container resolves every token the scenarios take from it', () => {
+  // Resolution builds the services without calling them, so inert stubs stand in for the server
+  // and the store.
+  const container = create_teams_container({ client: {}, tenant_factory: {}, time_scale: 1 });
+  for (const token of RIG_CONTAINER_TOKENS) assert.ok(container.get(token), String(token));
+});
+
 test('CLI parsing applies defaults and rejects bad input', () => {
   const opts = parse_args(['sync', '--time-scale', '10', '--teams', '5']);
   assert.equal(opts.scenario, 'sync');
@@ -265,5 +287,7 @@ test('resume_blob_problems flags blobs downloaded again that the store held at t
   });
   assert.deepEqual(clean, { reused: [], unaccounted: [], unmapped: [] });
 });
+
+checks.push(...(await run_lease_checks()));
 
 console.log(`selfcheck: ${checks.length} checks passed`);

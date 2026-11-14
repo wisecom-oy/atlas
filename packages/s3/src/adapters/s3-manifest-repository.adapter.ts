@@ -10,8 +10,7 @@ import type {
   ReadableSnapshotSummaries,
   StorageObjectLockPolicy,
 } from '@wisecom/atlas-types';
-import { StorageError, UnreadableContentError } from '@wisecom/atlas-types';
-import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
+import { UnreadableContentError } from '@wisecom/atlas-types';
 import {
   read_each_readable,
   require_every_object_readable,
@@ -25,27 +24,26 @@ import {
 } from '@/adapters/outlook-manifest-reader';
 import { write_encrypted_json } from '@wisecom/atlas-core/services/shared/stored-json-writer';
 import { forget_snapshot_summary_or_warn } from '@wisecom/atlas-core/services/shared/snapshot-summary-pruner';
-import { list_snapshot_summaries } from '@wisecom/atlas-core/services/shared/snapshot-summary-reader';
+import {
+  list_snapshot_summaries,
+  list_tenant_snapshot_summaries,
+} from '@wisecom/atlas-core/services/shared/snapshot-summary-reader';
 import { record_snapshot_summary_or_warn } from '@wisecom/atlas-core/services/shared/snapshot-summary-writer';
 import {
-  OUTLOOK_MANIFEST_POINTER_PREFIX as MANIFEST_POINTER_PREFIX,
   OUTLOOK_SUMMARY_LAYOUT,
   summarize_outlook_manifest,
 } from '@/adapters/outlook-snapshot-summary-layout';
+import {
+  latest_pointer_key,
+  pointer_manifest_key,
+  read_latest_pointer,
+  snapshot_pointer_key,
+  write_latest_pointer_unless_newer,
+  write_manifest_pointer,
+  type ManifestPointer,
+} from '@/adapters/outlook-manifest-pointers';
 
 const MANIFEST_READ_CONCURRENCY = 8;
-
-interface ManifestPointer {
-  readonly manifest_key: string;
-}
-
-function latest_pointer_key(owner_id: string): string {
-  return `${MANIFEST_POINTER_PREFIX}/owners/${owner_id}/latest.json`;
-}
-
-function snapshot_pointer_key(snapshot_id: string): string {
-  return `${MANIFEST_POINTER_PREFIX}/snapshots/${snapshot_id}.json`;
-}
 
 /**
  * Stores manifests as encrypted JSON in the tenant's S3 bucket.
@@ -56,8 +54,9 @@ export class S3ManifestRepository implements ManifestRepository {
   /**
    * Stores a manifest, then the two pointers that name it, then its row in the mailbox's summary
    * index. The manifest write is create-only, refused when `require_outlook_manifest` would reject
-   * the body, and read back once it lands; nothing after it runs unless it succeeded. `lease` is
-   * checked again right before the summary write.
+   * the body, and read back once it lands; nothing after it runs unless it succeeded. The latest
+   * pointer is kept when it names a newer snapshot (issue #741). `lease` is checked again right
+   * before the summary write.
    */
   async save(ctx: TenantContext, manifest: Manifest, lease?: HeldOwnerLease): Promise<void> {
     const key = outlook_manifest_key(manifest.owner_id, manifest.snapshot_id);
@@ -76,10 +75,10 @@ export class S3ManifestRepository implements ManifestRepository {
 
     // Encrypted once per destination: the two pointers live in different directories, and the
     // binding is what stops one being moved onto the other (issue #350).
-    const pointer: ManifestPointer = { manifest_key: key };
+    const snapshot_pointer: ManifestPointer = { manifest_key: key };
     await Promise.all([
-      write_manifest_pointer(ctx, snapshot_pointer_key(manifest.snapshot_id), pointer),
-      write_manifest_pointer(ctx, latest_pointer_key(manifest.owner_id), pointer),
+      write_manifest_pointer(ctx, snapshot_pointer_key(manifest.snapshot_id), snapshot_pointer),
+      write_latest_pointer_unless_newer(ctx, manifest, key),
     ]);
     await record_snapshot_summary_or_warn(
       ctx,
@@ -112,6 +111,13 @@ export class S3ManifestRepository implements ManifestRepository {
     owner_id: string,
   ): Promise<ReadableSnapshotSummaries<OutlookSnapshotSummary>> {
     return list_snapshot_summaries(ctx, OUTLOOK_SUMMARY_LAYOUT, owner_id);
+  }
+
+  /** Lists every mailbox's snapshots from their summary indexes, decrypting only rowless manifests. */
+  async list_all_snapshot_summaries(
+    ctx: TenantContext,
+  ): Promise<ReadableSnapshotSummaries<OutlookSnapshotSummary>> {
+    return list_tenant_snapshot_summaries(ctx, OUTLOOK_SUMMARY_LAYOUT);
   }
 
   /** Loads a manifest through its snapshot index, with a legacy layout fallback. */
@@ -210,61 +216,6 @@ export class S3ManifestRepository implements ManifestRepository {
     } catch {
       return undefined;
     }
-  }
-}
-
-/**
- * Reads the latest pointer for a status or backup. An absent or unreadable pointer resolves
- * `undefined`, so the caller scans the owner's manifests. A failed fetch raises `StorageError`:
- * a transient error must fail the read, not turn into a damage scan that reports exit 9.
- */
-async function read_latest_pointer(ctx: TenantContext, key: string): Promise<string | undefined> {
-  let encrypted: Buffer;
-  try {
-    encrypted = await ctx.storage.get(key);
-  } catch (err) {
-    if (is_absent_object_error(err)) return undefined;
-    throw new StorageError(`Could not read the Outlook manifest pointer at ${key}`, { cause: err });
-  }
-  try {
-    return pointer_manifest_key(JSON.parse(ctx.decrypt(encrypted, key).toString('utf-8')));
-  } catch {
-    return undefined;
-  }
-}
-
-/** The manifest key a parsed pointer body names. Throws for `null`; undefined when it names none. */
-function pointer_manifest_key(parsed: unknown): string | undefined {
-  const pointer = parsed as Partial<ManifestPointer>;
-  return typeof pointer.manifest_key === 'string' ? pointer.manifest_key : undefined;
-}
-
-/**
- * Stores one pointer, overwriting any previous one. A pointer is a shortcut: every read that finds
- * it missing or unusable falls back to listing the manifests, so it is not read back.
- */
-async function write_manifest_pointer(
-  ctx: TenantContext,
-  key: string,
-  pointer: ManifestPointer,
-): Promise<void> {
-  await write_encrypted_json(
-    ctx,
-    {
-      key,
-      label: 'Outlook manifest pointer',
-      reader_check: require_pointer_names_manifest,
-      write: 'overwrite',
-      confirm_read_back: false,
-    },
-    pointer,
-  );
-}
-
-/** Raises unless the pointer readers would get a manifest key out of the parsed body. */
-function require_pointer_names_manifest(parsed: unknown): void {
-  if (pointer_manifest_key(parsed) === undefined) {
-    throw new Error('the pointer names no manifest key');
   }
 }
 

@@ -43,6 +43,7 @@ The first run downloads every reachable hosted image. The unchanged rerun downlo
 The backup runs in a child process that the rig kills with SIGKILL once it has downloaded a quarter of the expected hosted images. The rig then:
 
 - counts the hosted blobs in the store when the child died,
+- expires the team leases the child could not release, as their five-minute TTL would, so the resume takes them over instead of waiting for them to run out,
 - reruns the backup on the same store and checks that it does not download any blob the store held at the kill,
 - checks that every blob the final snapshot references is either stored at the kill or downloaded on resume,
 - runs a control backup on a fresh store and checks the two converged snapshots match.

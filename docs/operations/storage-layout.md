@@ -14,7 +14,7 @@ atlas-{tenant_id}/
 │   ├── outlook-leases/{owner_id}.json           # owner lease, present while an operation runs
 │   ├── tenant-lease.json                        # tenant lease, present while a purge or key re-wrap runs
 │   ├── outlook-manifests/
-│   │   ├── owners/{owner_id}/latest.json        # latest manifest key per mailbox
+│   │   ├── owners/{owner_id}/latest.json        # latest manifest pointer per mailbox
 │   │   ├── owners/{owner_id}/summary.json       # snapshot summary index per mailbox
 │   │   └── snapshots/{snapshot_id}.json         # manifest key per snapshot
 │   ├── replication/                             # replication status records
@@ -92,19 +92,19 @@ teams/_meta/{team_id}/lease.json
 _meta/tenant-lease.json                  # the whole tenant: purge and key re-wrap
 ```
 
-A backup, deletion, or quarantine holds one lease object for its mailbox, drive owner, site, or team while it runs, so two operations never write the same owner's cursor, pointer, summary index, or checkpoint at once. A restore of a mailbox, drive owner, or site holds the same lease, so a deletion cannot remove the snapshot it is restoring. The object sits next to the owner's delta cursor. See [Concurrent operations](/reference/sdk#concurrent-operations) for the protocol.
+A backup, deletion, quarantine, replication, or rehydration holds one lease object for its mailbox, drive owner, site, or team while it runs, so two operations never write the same owner's cursor, pointer, summary index, or checkpoint at once. A restore of a mailbox, drive owner, or site holds the same lease, so a deletion cannot remove the snapshot it is restoring. The object sits next to the owner's delta cursor. See [Concurrent operations](/reference/sdk#concurrent-operations) for the protocol.
 
 A purge or key re-wrap holds the tenant lease, `_meta/tenant-lease.json`, with the tenant ID as its owner ID. It sits directly under `_meta/`, outside every workload's lease prefix, so no owner scan reads it. While it is live, owner operations of the tenant are refused. While any owner lease is live, the purge or re-wrap is refused. The tenant-side check lists each workload's lease prefix and reads only the objects whose keys are exactly an owner lease, so cursors, snapshot indexes, and other `_meta/` objects are never read as leases.
 
 The lease is not encrypted. It is plain JSON, so that an operation without the tenant key, such as erasing an owner after the passphrase is lost, can still take it. Anyone with read access to the bucket can read:
 
-| Field                       | What it reveals                                                                                                         |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `operation`                 | That a `backup`, `delete`, `quarantine`, or `restore` is running on the owner, or `purge` or `rewrap` on the tenant lease, or last ran if the lease was left behind |
-| `acquired_at`, `expires_at` | When that operation started and when it last renewed the lease, to the minute                                           |
-| `released_at`               | When it finished, present only when the lease could not be deleted                                                      |
-| `holder_id`                 | A random ID generated for that one run. It names no host, user, or process                                              |
-| `format_version`            | The lease format                                                                                                        |
+| Field                       | What it reveals                                                                                                                                                                               |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `operation`                 | That a `backup`, `delete`, `quarantine`, `restore`, `replicate`, or `rehydrate` is running on the owner, or `purge` or `rewrap` on the tenant lease, or last ran if the lease was left behind |
+| `acquired_at`, `expires_at` | When that operation started and when it last renewed the lease, to the minute                                                                                                                 |
+| `released_at`               | When it finished, present only when the lease could not be deleted                                                                                                                            |
+| `holder_id`                 | A random ID generated for that one run. It names no host, user, or process                                                                                                                    |
+| `format_version`            | The lease format                                                                                                                                                                              |
 
 The owner ID is in the key, as it is for every object of that owner. The lease holds no backup content, no item names, and nothing derived from the tenant key.
 
@@ -113,7 +113,7 @@ The owner ID is in the key, as it is for every object of that owner. The lease h
 | Lifetime      | Written when the operation starts, rewritten every 60 seconds, deleted when it ends. If the delete is refused, it is rewritten as released and stays as a free lease. One left by a killed process expires 5 minutes after its last write |
 | Object Lock   | Never written with retention, also when the run uses `--retention-days`. A bucket default retention still locks each version, which is one more reason to remove it                                                                       |
 | Versions      | In a versioned bucket every renewal leaves a noncurrent version of about 200 bytes. The 30-day noncurrent expiry rule removes them                                                                                                        |
-| Deletion      | Deleting an owner removes its lease last, with all versions, so nothing is left under the erased owner's ID. A purge removes the tenant lease last, with all versions, so an erased bucket holds no lease object                                                                                                                               |
+| Deletion      | Deleting an owner removes its lease last, with all versions, so nothing is left under the erased owner's ID. A purge removes the tenant lease last, with all versions, so an erased bucket holds no lease object                          |
 | Replication   | Never copied to a replica. A lease describes a run on this bucket                                                                                                                                                                         |
 | Storage usage | Counted like a delta cursor: under its workload for the prefixed workloads, under `meta` for Outlook. It is not backup data                                                                                                               |
 
@@ -137,7 +137,7 @@ Bucket separation alone does not separate credentials. The CLI's [tenant profile
 | `attachments/{owner_id}/`                      | Attachments from legacy JSON entries, named by keyed hash | Content encrypted; S3 metadata visible.                                 |
 | `manifests/{owner_id}/`                        | Snapshot manifests                                        | Include subjects, senders, folder names, and delta URLs, all encrypted. |
 
-Pointers hold only an encrypted manifest key. Deleting a mailbox or snapshot removes its pointers. The summary index is described in [Snapshot summary index](#snapshot-summary-index).
+Pointers hold an encrypted manifest key. `latest.json` also holds the `created_at` of the manifest it names, so a backup can compare without decrypting that manifest. Before a backup replaces `latest.json`, it reads the current pointer and keeps it when it names a snapshot created later than the one being written. A slower run that finishes last therefore cannot point latest at an older snapshot. The backup logs a warning naming both snapshot IDs, and the older snapshot stays in the catalog. A missing, undecryptable, or older-format pointer is replaced as before, so a damaged pointer never blocks a backup. Deleting a mailbox or snapshot removes its pointers. The summary index is described in [Snapshot summary index](#snapshot-summary-index).
 
 ### Message formats
 
@@ -183,7 +183,7 @@ atlas onedrive list-snapshots -o user@example.com   # one LIST, one summary read
 atlas onedrive status -o user@example.com           # decrypts only the newest manifest
 ```
 
-Outlook, OneDrive, SharePoint, Contacts, and Calendar keep one summary object per mailbox, drive owner, or site. It lists every snapshot with its ID, `created_at`, manifest key, entry count, size, and item totals (messages, files, contacts, or events), plus the owner's address or site name and, for Outlook, the removal count and effective Object Lock retention. It holds no entries. A manifest carries every entry of its run, so before the index `status`, `list`, and `stats` downloaded and decrypted every manifest of the owner. With the index they read one small object, and a restore, save, verify, or `read` decrypts only the manifests its chain needs: a `read` by message index decrypts the target manifest alone, and a chain never decrypts snapshots newer than its target.
+Outlook, OneDrive, SharePoint, Contacts, and Calendar keep one summary object per mailbox, drive owner, or site. It lists every snapshot with its ID, `created_at`, manifest key, entry count, size, and item totals (messages, files, contacts, or events), plus the owner's address or site name and, for Outlook, the removal count and effective Object Lock retention. It holds no entries and no message IDs in the clear. A manifest carries every entry of its run, so before the index `status`, `list`, and `stats` downloaded and decrypted every manifest of the owner. With the index they read one small object, and a restore, save, verify, or `read` decrypts only the manifests its chain needs: a `read` by message index decrypts the target manifest alone, and a chain never decrypts snapshots newer than its target.
 
 | Workload   | Key                                                      |
 | ---------- | -------------------------------------------------------- |
@@ -197,6 +197,8 @@ Outlook, OneDrive, SharePoint, Contacts, and Calendar keep one summary object pe
 
 **Write order.** A backup writes the manifest first, then the Outlook pointers, then rewrites the summary, then the delta cursor. The summary is written only after the manifest's create-only write and its read-back succeeded, so it never names a manifest that failed to store. If the summary write fails, the backup still succeeds and logs a warning, because the manifest is the record. The write is conditional: `If-None-Match` creates the summary, `If-Match` on the ETag that was read replaces it. When another writer changed it in between, Atlas reads, reconciles, and writes once more, then gives up with a warning. A backend that ignores conditional headers lets the later write win, which leaves a stale summary at worst.
 
+**Outlook rows.** An Outlook row also holds the figures the mailbox overview and `stats` sum, computed from the manifest when the backup saves it: message and attachment bytes, and per-folder counts and sizes. It also holds the object IDs of the snapshot's entries and of its removals, each reduced to a 96-bit SHA-256 prefix (16 characters). With these, `atlas outlook list` derives the merged object count of a mailbox from the rows alone. A message counts once, at its newest appearance, and a removal hides the same ID in every older snapshot. A row written by an earlier release has none of these fields. Readers decrypt that one manifest, and the next backup that stores a snapshot rewrites the row.
+
 The summary goes through the same [guarded writer](/security#metadata-is-checked-before-and-after-it-is-stored) as the manifests, without the read-back. The run checks its [owner lease](#owner-leases) again right before the write, because seeding rows on the first backup after an upgrade decrypts every older manifest and can take long. A run that lost the lease raises `OwnerLeaseLostError` there and writes neither the summary nor the cursor.
 
 **The listing decides what exists.** Every read lists the owner's manifest keys, which it did before the index, and reconciles them with the summary rows:
@@ -209,12 +211,14 @@ The summary goes through the same [guarded writer](/security#metadata-is-checked
 A stale summary therefore costs reads, never a wrong answer. Readers never write the repair back, since `list` and `status` may run with read-only credentials or against a locked bucket. The next backup's summary write records the missing rows. The first backup of an owner after upgrading decrypts that owner's older manifests once to seed the summary.
 
 ::: warning Lists and status do not detect damage at rest
-A manifest damaged after its row was written still appears in `list-snapshots`, `outlook list -m`, OneDrive and SharePoint `stats`, and `status`, because those answer from the row. Only a manifest without a row is decrypted and named as unreadable. `verify` reads every manifest in the chain and is the check for damage at rest. Restore, save, and `read` report a damaged manifest when they need it.
+A manifest damaged after its row was written still appears in `list-snapshots`, `outlook list`, `outlook list -m`, `stats`, `stats storage`, and `status`, because those answer from the row. Only a manifest without a row is decrypted and named as unreadable. `verify` reads every manifest in the chain and is the check for damage at rest. Restore, save, and `read` report a damaged manifest when they need it.
 :::
 
 `delete -s` and `quarantine` remove the snapshot's row under the owner's lease, after the manifest is gone and, for `delete -s`, after the delta cursor. Contacts and Calendar `delete -s` is the exception: it runs without the tenant key, so it cannot decrypt the summary to rewrite it. It leaves the row, readers drop it, and the next backup removes it. The rewrite is a compare-and-swap on the summary just read and never creates a summary. If it fails, the command still succeeds with a warning, and readers skip the row. Deleting an owner, mailbox, or site removes its summary along with its other `_meta` objects, and its lease last. During a OneDrive or SharePoint backup with Object Lock retention, the summary is written with the run's retention like the delta cursor, so each rewrite keeps a locked version until it expires. Replicas do not receive the summary, so reads against a replica decrypt every manifest.
 
-Some reads still decrypt every manifest: Outlook `stats` and the all-mailbox `atlas outlook list`, which count messages across the merged chain, recrawl tombstones, and replication of every snapshot. Contacts and Calendar `list -m` answers from the index, but their `listSnapshots` SDK call returns whole manifests and still decrypts every one. Their backups already read only the newest.
+Some reads still decrypt every manifest: recrawl tombstones and replication of every snapshot. Contacts and Calendar `list -m` answers from the index, but their `listSnapshots` SDK call returns whole manifests and still decrypts every one. Their backups already read only the newest.
+
+Outlook rows written before the figures described under **Outlook rows** existed are the exception: the overview, `stats`, and `stats storage` decrypt their manifests until the next backup that stores a snapshot rewrites them.
 
 ## Teams
 

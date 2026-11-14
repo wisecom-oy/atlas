@@ -20,7 +20,7 @@ import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary
 import { render_static_view } from '@/ui/render';
 import { create_backup_progress } from '@/ui/dashboards/backup-progress-factory';
 import { build_object_lock_request } from '@/command-object-lock';
-import { report_run_outcome } from '@/command-run-outcome';
+import { report_backup_verdict, report_run_outcome } from '@/command-run-outcome';
 import { run_interruptible } from '@/adapters/interruptible-run';
 import {
   resolve_owner,
@@ -120,11 +120,7 @@ export async function execute_contacts_backup(
     logger.warn('No snapshot created: the run was interrupted or every change failed.');
   }
 
-  if (summary.healthy) {
-    logger.success('Status: HEALTHY');
-  } else {
-    logger.error('Status: UNHEALTHY');
-  }
+  report_backup_verdict(summary.healthy, (summary.unreadable_keys?.length ?? 0) > 0);
   report_run_outcome(
     { errors: summary.errors, warnings: [], interrupted: result.interrupted },
     'contact',

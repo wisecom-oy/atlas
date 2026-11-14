@@ -80,7 +80,7 @@ describe('S3ManifestRepository.save', () => {
     });
   });
 
-  it('writes the manifest create-only and reads it back once', async () => {
+  it('writes the manifest create-only, reads it back once, and reads the latest pointer once', async () => {
     const mem = in_memory_tenant_context();
     const put = vi.spyOn(mem.ctx.storage, 'put');
     const get = vi.spyOn(mem.ctx.storage, 'get');
@@ -88,7 +88,7 @@ describe('S3ManifestRepository.save', () => {
     await new S3ManifestRepository().save(mem.ctx, make_manifest());
 
     expect(put.mock.calls[0]![5]).toBe(true);
-    expect(get.mock.calls).toEqual([[MANIFEST_KEY]]);
+    expect(get.mock.calls).toEqual([[MANIFEST_KEY], [LATEST_POINTER_KEY]]);
   });
 
   it('overwrites the latest pointer when the owner gets a newer snapshot', async () => {

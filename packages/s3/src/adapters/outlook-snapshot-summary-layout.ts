@@ -16,6 +16,10 @@ import {
   outlook_manifest_key,
   read_outlook_manifest,
 } from '@/adapters/outlook-manifest-reader';
+import {
+  build_outlook_aggregates,
+  parse_outlook_aggregates,
+} from '@wisecom/atlas-core/services/catalog/outlook-snapshot-aggregates';
 
 /** Directory of the per-mailbox manifest pointers, which the summary index sits beside. */
 export const OUTLOOK_MANIFEST_POINTER_PREFIX = '_meta/outlook-manifests';
@@ -44,6 +48,7 @@ export const OUTLOOK_SUMMARY_LAYOUT: SnapshotSummaryLayout<Manifest, OutlookSnap
   read_manifest: read_outlook_manifest,
   summarize: summarize_outlook_manifest,
   parse_details: parse_outlook_summary,
+  is_current: (summary) => summary.aggregates !== undefined,
 };
 
 /** Builds the summary row recorded for an Outlook manifest. */
@@ -65,6 +70,7 @@ export function summarize_outlook_manifest(
     total_objects: manifest.total_objects,
     removed_count: manifest.removed_object_ids?.length ?? 0,
     ...(object_lock?.retain_until ? { object_lock } : {}),
+    aggregates: build_outlook_aggregates(manifest),
   };
 }
 
@@ -80,6 +86,7 @@ function parse_outlook_summary(
   const total_objects = stored_count(row, 'total_objects');
   const removed_count = stored_count(row, 'removed_count');
   const object_lock = parse_object_lock(row.object_lock);
+  const aggregates = parse_outlook_aggregates(row.aggregates);
   if (typeof owner_id !== 'string' || owner_email === null || owner_display_name === null) {
     return undefined;
   }
@@ -87,6 +94,7 @@ function parse_outlook_summary(
   if (total_objects === undefined || removed_count === undefined || object_lock === null) {
     return undefined;
   }
+  if (aggregates === null) return undefined;
   return {
     ...common,
     owner_id,
@@ -96,6 +104,7 @@ function parse_outlook_summary(
     total_objects,
     removed_count,
     ...(object_lock ? { object_lock } : {}),
+    ...(aggregates ? { aggregates } : {}),
   };
 }
 

@@ -29,6 +29,12 @@ export interface SnapshotSummaryLayout<TManifest, TSummary extends SnapshotSumma
     row: Readonly<Record<string, unknown>>,
     common: SnapshotSummary,
   ) => TSummary | undefined;
+  /**
+   * Whether a parsed row carries every field the workload's readers now need. A row that does not
+   * (written before the field existed) is reconciled as rowless: its manifest is decrypted, and the
+   * next write replaces the row (#726). Absent means every parsed row is current.
+   */
+  readonly is_current?: (summary: TSummary) => boolean;
 }
 
 /** Reads an optional string field of a stored row; `null` when present with another type. */
