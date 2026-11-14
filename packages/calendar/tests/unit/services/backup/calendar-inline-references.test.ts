@@ -25,6 +25,25 @@ describe('body_inline_references', () => {
     expect(body_inline_references(payload)).toEqual(['img1']);
   });
 
+  it('reads background attributes and CSS url() references too', () => {
+    const payload = calendar_event('e1', {
+      body: {
+        contentType: 'html',
+        content: `<td background='cid:bg1'><div style="background: url(cid:bg2)">x</div></td>`,
+      },
+    });
+
+    expect(body_inline_references(payload)).toEqual(['bg1', 'bg2']);
+  });
+
+  it('ignores cid: that only appears in the text of the description', () => {
+    const payload = calendar_event('e1', {
+      body: { contentType: 'html', content: '<p>Images use cid:img1 in the MIME part.</p>' },
+    });
+
+    expect(body_inline_references(payload)).toEqual([]);
+  });
+
   it('does not scan a plain-text body', () => {
     const payload = calendar_event('e1', { body: { contentType: 'text', content: 'cid:img1' } });
 
@@ -66,5 +85,20 @@ describe('unresolved_inline_references', () => {
 
     expect(unresolved_inline_references(['img1', 'img2'], listed)).toEqual(['img2']);
     expect(unresolved_inline_references(['img1'], [])).toEqual(['img1']);
+  });
+
+  it('matches content IDs without angle brackets and ignoring case', () => {
+    const listed = [
+      {
+        id: 'a1',
+        name: 'logo.png',
+        kind: 'file' as const,
+        is_inline: true,
+        content_id: '<Image001.PNG@01DA>',
+        size: 3,
+      },
+    ];
+
+    expect(unresolved_inline_references(['image001.png@01DA'], listed)).toEqual([]);
   });
 });

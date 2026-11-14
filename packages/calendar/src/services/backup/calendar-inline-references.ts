@@ -1,8 +1,17 @@
 import type { GraphEventAttachment, GraphEventPayload } from '@wisecom/atlas-types';
 import { is_record } from '@/services/shared/json-record';
 
-/** A `cid:` URL in an HTML attribute, up to the closing quote, whitespace or tag end. */
-const CID_REFERENCE = /cid:([^"'\s<>()]+)/gi;
+/**
+ * A `cid:` URL where HTML loads an image from it: a `src` or `background` attribute, or a CSS
+ * `url()`. A `cid:` that only appears in the text of the description is not a reference.
+ */
+const CID_REFERENCE =
+  /(?:\b(?:src|background)\s*=\s*["']?\s*|url\(\s*["']?\s*)cid:([^"'\s<>()]+)/gi;
+
+/** Content IDs compare without the angle brackets a `Content-ID` header carries, ignoring case. */
+function normalize_content_id(content_id: string): string {
+  return content_id.replace(/^<|>$/g, '').toLowerCase();
+}
 
 /**
  * The content IDs an event body references as inline images, each once. Graph returns the body
@@ -33,6 +42,10 @@ export function unresolved_inline_references(
   references: readonly string[],
   listed: readonly GraphEventAttachment[],
 ): string[] {
-  const carried = new Set(listed.map((attachment) => attachment.content_id));
-  return references.filter((content_id) => !carried.has(content_id));
+  const carried = new Set(
+    listed.flatMap((attachment) =>
+      attachment.content_id === undefined ? [] : [normalize_content_id(attachment.content_id)],
+    ),
+  );
+  return references.filter((content_id) => !carried.has(normalize_content_id(content_id)));
 }
