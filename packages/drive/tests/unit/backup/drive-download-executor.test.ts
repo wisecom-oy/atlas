@@ -1,6 +1,6 @@
 import { binary_graph_response } from '@wisecom/atlas-types/testing/queued-graph-fetch';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { classify_download_failure } from '@wisecom/atlas-m365-graph';
+import { classify_download_failure, DownloadRefusedError } from '@wisecom/atlas-m365-graph';
 import type { CdnChunkDownloader } from '@/backup/cdn-chunk-download';
 import { CdnHttpError } from '@/backup/cdn-chunk-errors';
 import {
@@ -104,6 +104,31 @@ describe.each(BINDINGS)('shared download executor bound to %s', (label, binding)
       BODY,
     );
     expect(fetch_mock).toHaveBeenNthCalledWith(2, FRESH_URL, expect.anything());
+  });
+
+  // Issue #718: the re-resolve of a large file's URL gets the same 403 handling as a download (#246).
+  it('classifies a Graph 403 from the re-resolve as a refusal or a missing grant', async () => {
+    const refusal = Object.assign(new Error('Forbidden'), { statusCode: 403, code: 'notAllowed' });
+    const refused = await executor
+      .resolve_download_url(make_client(undefined, () => Promise.reject(refusal)).client, ITEM)
+      .catch((err: unknown) => err);
+    expect(refused).toBeInstanceOf(DownloadRefusedError);
+
+    const denied = Object.assign(new Error('Forbidden'), { statusCode: 403, code: 'accessDenied' });
+    await expect(
+      executor.resolve_download_url(
+        make_client(undefined, () => Promise.reject(denied)).client,
+        ITEM,
+      ),
+    ).rejects.toThrow(
+      `Missing Microsoft Graph application permissions for ${label}: ${binding.read_permissions}.`,
+    );
+  });
+
+  it('returns the fresh URL from the re-resolve', async () => {
+    await expect(executor.resolve_download_url(make_client().client, ITEM)).resolves.toBe(
+      FRESH_URL,
+    );
   });
 
   it('names the workload and its permissions on a missing grant', () => {
