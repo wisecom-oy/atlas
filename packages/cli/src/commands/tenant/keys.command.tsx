@@ -1,7 +1,11 @@
 import type { Command } from 'commander';
 import type { Container } from 'inversify';
-import { with_tenant } from '@/commands/shared/shared-options';
+import { with_tenant, with_yes } from '@/commands/shared/shared-options';
 import { execute_rewrap, type RewrapOptions } from '@/commands/tenant/keys-rewrap.handlers';
+import {
+  execute_purge_old_wrappers,
+  type PurgeOldWrappersOptions,
+} from '@/commands/tenant/keys-purge.handlers';
 
 type ContainerFactory = () => Container;
 
@@ -15,6 +19,7 @@ type ContainerFactory = () => Container;
 export function register_keys_command(program: Command, get_container: ContainerFactory): void {
   const group = program.command('keys').description('Manage the tenant data keys');
   register_rewrap(group, get_container);
+  register_purge_old_wrappers(group, get_container);
 }
 
 function register_rewrap(group: Command, get_container: ContainerFactory): void {
@@ -49,4 +54,26 @@ function register_rewrap(group: Command, get_container: ContainerFactory): void 
       ].join('\n'),
     );
   with_tenant(rewrap).action((options: RewrapOptions) => execute_rewrap(get_container(), options));
+}
+
+function register_purge_old_wrappers(group: Command, get_container: ContainerFactory): void {
+  const purge = group
+    .command('purge-old-wrappers')
+    .description('Delete noncurrent versions of the wrapped data key that a re-wrap left behind')
+    .option(
+      '--old-passphrase',
+      'prompt for the previous passphrase, to prove an old version holds the same data key',
+    )
+    .addHelpText(
+      'after',
+      [
+        '',
+        'Runs on every tenant profile. Refuses a tenant whose current wrapper the configured',
+        'passphrase cannot open, deletes only versions that unwrap to the current data key,',
+        'and never bypasses Object Lock. Exits 2 while any old wrapper is left.',
+      ].join('\n'),
+    );
+  with_yes(with_tenant(purge)).action((options: PurgeOldWrappersOptions) =>
+    execute_purge_old_wrappers(get_container(), options),
+  );
 }

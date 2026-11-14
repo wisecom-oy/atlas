@@ -3,6 +3,7 @@ import {
   CATALOG_USE_CASE_TOKEN,
   DELETION_USE_CASE_TOKEN,
   DEK_REWRAP_USE_CASE_TOKEN,
+  OLD_WRAPPER_PURGE_USE_CASE_TOKEN,
   TENANT_SET_REWRAP_USE_CASE_TOKEN,
   VERIFICATION_USE_CASE_TOKEN,
   STATS_USE_CASE_TOKEN,
@@ -29,6 +30,7 @@ import { VerificationService } from '@/services/verification/verification.servic
 import { StatsService } from '@/services/stats/stats.service';
 import { StorageUsageService } from '@/services/stats/storage-usage.service';
 import { TenantSetRewrapService } from '@/services/keys/tenant-set-rewrap.service';
+import { OldWrapperPurgeService } from '@/services/keys/old-wrapper-purge.service';
 import { ReplicationService } from '@/services/replication/replication.service';
 import { SharePointReplicationService } from '@/services/replication/sharepoint-replication.service';
 import { OneDriveReplicationService } from '@/services/replication/onedrive-replication.service';
@@ -46,6 +48,8 @@ export function bind_core_services(container: Container): void {
   container.bind(DEK_REWRAP_USE_CASE_TOKEN).toService(DekRewrapService);
   container.bind(TenantSetRewrapService).toSelf();
   container.bind(TENANT_SET_REWRAP_USE_CASE_TOKEN).toService(TenantSetRewrapService);
+  container.bind(OldWrapperPurgeService).toSelf();
+  container.bind(OLD_WRAPPER_PURGE_USE_CASE_TOKEN).toService(OldWrapperPurgeService);
   container.bind(OneDriveDeletionService).toSelf();
   container
     .bind<OneDriveDeletionUseCase>(ONEDRIVE_DELETION_USE_CASE_TOKEN)
