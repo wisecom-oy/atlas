@@ -34,7 +34,7 @@ async function observed(
 ): Promise<{ fake: FakeS3; events: StorageRequestEvent[] }> {
   fake = await start_fake_s3(route);
   const events: StorageRequestEvent[] = [];
-  observe_storage_requests(fake.client, (event) => events.push(event), 'primary');
+  observe_storage_requests(fake.client, (event) => events.push(event));
   return { fake, events };
 }
 
@@ -55,7 +55,6 @@ describe('observe_storage_requests', () => {
       command: 'PutObject',
       workload: 'onedrive',
       keyClass: 'data',
-      target: 'primary',
       attempts: 1,
       retryDelayMs: 0,
       bytes: 4096,
@@ -174,7 +173,7 @@ describe('observe_storage_requests', () => {
     const host_context = new AsyncLocalStorage<string>();
     fake = await start_fake_s3(OK);
     const seen: (string | undefined)[] = [];
-    observe_storage_requests(fake.client, () => seen.push(host_context.getStore()), 'primary');
+    observe_storage_requests(fake.client, () => seen.push(host_context.getStore()));
 
     await host_context.run('attempt-7', () =>
       fake!.client.send(new HeadBucketCommand({ Bucket: BUCKET })),
@@ -193,7 +192,7 @@ describe('observe_storage_requests', () => {
     ['rejects', (async (): Promise<void> => Promise.reject(new Error('host bug'))) as () => void],
   ])('keeps the request outcome when the observer %s', async (_label, observer) => {
     fake = await start_fake_s3(OK);
-    observe_storage_requests(fake.client, observer, 'primary');
+    observe_storage_requests(fake.client, observer);
 
     await expect(
       fake.client.send(new HeadBucketCommand({ Bucket: BUCKET })),

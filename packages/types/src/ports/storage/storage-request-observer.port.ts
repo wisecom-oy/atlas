@@ -21,8 +21,6 @@ export interface StorageRequestEvent {
   readonly operation?: string;
   readonly workload: StorageRequestWorkload;
   readonly keyClass: StorageKeyClass;
-  /** `primary`, or the `targetId` of the replication target that sent the request. */
-  readonly target: string;
   /** When the request started, in epoch milliseconds. */
   readonly startTime: number;
   /** The whole logical request in milliseconds, including SDK retries and backoff. */
