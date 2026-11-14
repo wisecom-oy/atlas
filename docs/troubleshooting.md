@@ -339,7 +339,7 @@ Another backup is running on onedrive owner <owner-id>, so this operation did no
   Atlas code: ATLAS_OWNER_BUSY
 ```
 
-A backup, deletion, or quarantine takes a lease on its mailbox, drive owner, site, or team, and this command found a live one. It exits `12` and has written nothing. The message names the workload, the owner, the operation that holds it, and when its lease runs out. See [Concurrent operations](/reference/sdk#concurrent-operations).
+A backup, restore, deletion, quarantine, replication, or rehydration takes a lease on its mailbox, drive owner, site, or team, and this command found a live one. It exits `12` and has written nothing. The message names the workload, the owner, the operation that holds it, and when its lease runs out. See [Concurrent operations](/reference/sdk#concurrent-operations).
 
 | Situation                                            | What to do                                                                                                                                                                                                                                    |
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
