@@ -1124,6 +1124,8 @@ The instance still reads and decrypts the backup with its own S3 credentials and
 
 Object IDs differ between tenants, so a restore with `targetTenant` and no target fails with a `TypeError` before any Graph or storage call. A `targetTenant` that `createTenant` did not return fails with a `ConfigError`.
 
+An Outlook restore names folders from what the snapshots recorded, so it sends Graph requests only for the target mailbox. The same holds for `outlook.save` and `outlook.saveMailbox` of a user Graph no longer serves. Snapshots written before Atlas 5.2.3 record no folders, and restoring one needs the source mailbox listed. The destination tenant cannot see that mailbox, so the restore rejects with `NotFoundError` before it writes a message.
+
 `createTenant` checks formats without network I/O. `tenantId` is a GUID or an `*.onmicrosoft.com` domain, `clientId` a GUID, and `clientSecret` a single token. The handle keeps the secret in a private field, so `JSON.stringify` and `console.log` of the handle never print it. The destination app needs write permission for the workload being restored there, for example `Mail.ReadWrite` for Outlook. See [Security](/security#tenant-profiles-and-cross-tenant-restore).
 
 Each cross-tenant restore builds its own Graph and S3 clients and releases them when the restore ends, including on failure. The instance's `onStorageRequest` observer still receives every S3 request, with `target` set to `primary`. The instance's `throttleCoordinator` does not apply: the destination tenant has its own Graph budget, so its 429 cooldowns are kept in memory for that restore.
