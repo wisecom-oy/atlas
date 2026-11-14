@@ -12,7 +12,7 @@ Atlas runs on your own infrastructure. Backup data is written to an S3-compatibl
 | ----------------------------------------------------- | ------------------------------------------------------------------------------- |
 | [Storage setup](/self-hosting/storage)                | MinIO on Docker, bind mounts, RAID, filesystem choice, and bucket provisioning. |
 | [Scheduling and bandwidth](/self-hosting/scheduling)  | Bandwidth planning and automating backups with cron or systemd timers.          |
-| [Replication setup](/self-hosting/replication)        | Deployment patterns for a second copy of your backups in another location.      |
+| [Replica setup](/self-hosting/replication)            | Provider replication or a copy tool for a second copy in another location.      |
 
 ## Platform recommendation
 

@@ -30,7 +30,7 @@ Atlas backs up three Microsoft 365 workloads. Each has its own CLI namespace and
 | **SharePoint** | `atlas sharepoint` | Site (URL or Graph site ID)                  | `sharepoint/`  |
 | **Teams**      | `atlas teams`      | Team (Graph team ID)                         | `teams/`       |
 
-All workloads in a tenant share one data encryption key and one S3 bucket. Commands that operate across workloads, such as `atlas replicate`, `atlas rehydrate`, and `atlas stats`, act on the whole tenant.
+All workloads in a tenant share one data encryption key and one S3 bucket. Commands that operate across workloads, such as `atlas stats` and `atlas delete --purge`, act on the whole tenant.
 
 ## Snapshots and manifests
 
@@ -86,7 +86,7 @@ Atlas stores delta state per folder for Outlook, per drive for OneDrive, and per
 | **Tenant**         | A Microsoft 365 organization, identified by its Microsoft Entra tenant ID (a GUID). Each tenant has its own DEK and its own backups across all workloads.                         |
 | **Owner**          | The Entra object ID of a OneDrive user. CLI commands accept an email address or UPN and resolve it to the object ID.                                                               |
 | **Site**           | A SharePoint site, identified by URL or Graph site ID. Storage keys use the site and web GUIDs without the hostname, so renaming the SharePoint domain does not start a new history. |
-| **Replica marker** | The file `_meta/replica.marker`, written to secondary storage targets on first replication. Atlas checks for it to detect a backup command accidentally pointed at a replica instead of primary storage. |
+| **Replica** | A second copy of the tenant bucket, kept by the storage provider or a copy tool in another location. Atlas restores from and verifies it when pointed at its endpoint. See [Replicas](/operations/replication). |
 
 ## See also
 

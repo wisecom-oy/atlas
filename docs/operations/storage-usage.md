@@ -9,7 +9,7 @@ description: Measure how many bytes an Atlas tenant bucket holds with atlas stat
 ```bash
 atlas stats storage                                    # totals and per-workload breakdown
 atlas stats storage --by owner --top 10                # the ten owners and sites holding the most bytes
-atlas stats storage --target-config ./replica.json     # the replica bucket
+ATLAS_S3_ENDPOINT=https://replica.example.com atlas stats storage   # a replica
 ```
 
 The SDK returns the same report from [`getStorageUsage()`](/reference/sdk#storage-usage).
@@ -21,8 +21,6 @@ The SDK returns the same report from [`getStorageUsage()`](/reference/sdk#storag
 | `--json`                | Print the report as JSON. Includes `complete`, `continuation_token`, `versions_visible`, and `measured_at`. |
 | `--max-requests <n>`    | Stop after `n` S3 requests and print a continuation token.                  |
 | `--continue <token>`    | Resume a run from its continuation token.                                   |
-| `--target-endpoint <url>`, `--target-access-key <key>`, `--target-secret-key <key>`, `--target-region <region>` | Measure a replica instead of the primary. Use `-` as the secret key to read it from stdin. |
-| `--target-config <path>` | JSON file with the replica's S3 credentials.                              |
 
 ## Logical and physical sizes
 
@@ -35,7 +33,7 @@ Atlas reports two sizes that answer different questions:
 
 Deduplication keeps physical size below logical size, because one stored object serves every snapshot that references it. Other factors push physical size up: base64 encoding in MIME adds about 33% to attachments, each object carries encryption overhead, noncurrent versions stay until they expire, and legacy index objects and staging leftovers take up space that the manifests do not reference.
 
-A complete report includes `logical_bytes_referenced`, so you can compare the two figures in one place. `logical_bytes_by_workload` splits it across Outlook, OneDrive, SharePoint, and Teams. Reading the manifests requires the tenant's data key. A bucket with no backups, or a replica without the key, returns the physical report only.
+A complete report includes `logical_bytes_referenced`, so you can compare the two figures in one place. `logical_bytes_by_workload` splits it across Outlook, OneDrive, SharePoint, and Teams. Reading the manifests requires the tenant's data key. A bucket with no backups, or a copy without the key, returns the physical report only.
 
 ## Categories
 
@@ -88,10 +86,10 @@ A token is valid only for the tenant, target, and breakdown it was issued for. I
 | `s3:ListMultipartUploadParts`   | Sizing each incomplete upload. Without it, uploads are counted but their bytes are not, and `incomplete_uploads_visible` is `false`.      |
 | `s3:GetObject`                  | `_meta/dek.enc` and manifests, needed only for `logical_bytes_referenced`.                                                                |
 
-The report never writes objects, creates a bucket, or generates key material. A monitoring principal with the read-only actions in [Security](/security#s3-permissions-by-command-class), plus the version and multipart list actions, can run it. Measuring a replica whose bucket does not exist fails with `NoSuchBucket`. It does not create the bucket.
+The report never writes objects, creates a bucket, or generates key material. A monitoring principal with the read-only actions in [Security](/security#s3-permissions-by-command-class), plus the version and multipart list actions, can run it. Measuring an endpoint where the bucket does not exist fails. It does not create the bucket.
 
 ## See also
 
 - [Storage layout](/operations/storage-layout): which prefixes each workload uses
 - [Immutability](/operations/immutability): retention, which keeps noncurrent versions longer
-- [Replication](/operations/replication): measuring a replica
+- [Replicas](/operations/replication): pointing Atlas at a replica

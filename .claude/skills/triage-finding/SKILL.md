@@ -114,7 +114,7 @@ a backup tool, so the ranking is not the usual one.
   `403` as an expired URL. Both cause a real fault to be reported as the wrong
   fault, which is worse than an unhandled one.
 - **Encryption, DEK handling, and key material lifetime.** A tenant context not
-  destroyed on an error path, a key held past its use, a replica missing
+  destroyed on an error path, a key held past its use, a replica copy missing
   `_meta/dek.enc` and therefore unopenable. Label `security`.
 - **Object Lock and retention.** A retained object copied without its policy, a
   mode requested and not honoured. Silent loss of immutability defeats the

@@ -46,16 +46,6 @@ const atlas = createAtlasInstance({
 
 Atlas has no OpenTelemetry dependency. The host owns `@opentelemetry/api` and registers its own meter provider and exporter. A host that writes events to a database or another metrics system passes a different function; an event is a plain object.
 
-The same option on `createStorageTarget` reports requests sent to a replication target. Those events carry the target's `targetId` in `target`. The instance's own requests carry `primary`.
-
-```typescript
-const offsite = createStorageTarget({
-  targetId: 'offsite-dr',
-  /* ...target credentials... */
-  onStorageRequest: record,
-});
-```
-
 Without `onStorageRequest`, Atlas installs no measurement and the storage path is unchanged. The CLI does not install it.
 
 ::: warning Keep the callback cheap
@@ -69,10 +59,9 @@ Atlas reports one event per logical S3 request, after the request settles, wheth
 | Field              | Type       | Description                                                                                                                                                                       |
 | ------------------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `command`          | `string`   | S3 operation: `PutObject`, `UploadPart`, `GetObject`, `HeadObject`, `ListObjectsV2`, and so on                                                                                    |
-| `operation`        | `string?`  | SDK method in progress, such as `backup` or `replicateSnapshot`. Absent outside an SDK method                                                                                     |
+| `operation`        | `string?`  | SDK method in progress, such as `backup` or `restore`. Absent outside an SDK method                                                                                     |
 | `workload`         | `string`   | `outlook`, `onedrive`, `sharepoint`, `shared` (keys under `_meta/` or unknown root keys), or `bucket`                                                                             |
 | `keyClass`         | `string`   | `data`, `attachments`, `manifests`, `index`, `staging`, `_meta`, or `other`                                                                                                       |
-| `target`           | `string`   | `primary`, or the replication target's `targetId`                                                                                                                                 |
 | `startTime`        | `number`   | When the request started, in epoch milliseconds                                                                                                                                   |
 | `durationMs`       | `number`   | The whole logical request, including SDK retries and the sleeps between them                                                                                                      |
 | `attempts`         | `number`   | Attempts the SDK made, including the first. The AWS SDK default is 3                                                                                                              |

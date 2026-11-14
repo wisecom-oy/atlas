@@ -58,13 +58,13 @@ exit "$status"
 | `7`  | `ATLAS_NOT_FOUND` or an unwrapped HTTP `404`, including a `--folder`, `--file-filter`, or `--message` selection that matched nothing                                                                                                                       | Check the selected resource, identifiers, and selectors.                                                                                                                                                                                                                                                                            |
 | `8`  | `ATLAS_OBJECT_LOCK_RETAINED`                                                                                                                                                                                                                               | Respect retention or legal hold. Repeating the same deletion cannot bypass it.                                                                                                                                                                                                                                                      |
 | `9`  | `ATLAS_CONTENT_UNREADABLE`, `ATLAS_FORMAT_UNSUPPORTED`, or a command that skipped a damaged manifest or version index and named it                                                                                                                         | The stored bytes cannot be parsed back, or were written by a newer Atlas format. Repeating the command will not help. For a newer format, upgrade Atlas. For a named manifest or version index, see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes). Otherwise extract the raw content with `save`. |
-| `10` | `ATLAS_KEY_CONFLICT`: `rehydrate` found a different data key on primary next to other objects, so it refused to replace a key that may protect existing backups                                                                                            | Repeating the command will not help. Confirm primary's content is disposable, run `atlas delete --purge`, then rehydrate into the empty bucket.                                                                                                                                                                                     |
+| `10` | Unassigned. It was `ATLAS_KEY_CONFLICT`, raised only by `rehydrate`, which Atlas 7 removed. Kept free so the codes after it keep their numbers | Not returned |
 | `11` | `ATLAS_SNAPSHOT_NOT_NEWEST`: `outlook delete -s`, `onedrive delete -s`, or `sharepoint delete -s` named a snapshot that newer snapshots of the same mailbox, owner, or site are built on                                                                   | Repeating the command will not help. Delete the newer snapshots first, newest first, or delete the whole backup of that mailbox, owner, or site by leaving out `-s`.                                                                                                                                                                |
-| `12` | `ATLAS_OWNER_BUSY`: another backup, restore, deletion, quarantine, replication, or rehydration holds the lease on the same mailbox, drive owner, site, or team, a purge or key re-wrap holds the tenant, or this run lost its lease before it could commit | Nothing was committed. Retry once the other operation ends. If its process was killed, the lease expires 5 minutes after its last renewal, and the message names that time. See [Another operation holds the owner](/troubleshooting#another-operation-holds-the-owner).                                                            |
+| `12` | `ATLAS_OWNER_BUSY`: another backup, restore, deletion, or quarantine holds the lease on the same mailbox, drive owner, site, or team, a purge or key re-wrap holds the tenant, or this run lost its lease before it could commit | Nothing was committed. Retry once the other operation ends. If its process was killed, the lease expires 5 minutes after its last renewal, and the message names that time. See [Another operation holds the owner](/troubleshooting#another-operation-holds-the-owner).                                                            |
 
 ### Run leases
 
-Every backup, restore, deletion, quarantine, replication, rehydration, `atlas delete --purge`, and `atlas keys rewrap` takes a lease before it writes. An owner lease covers one mailbox, drive owner, site, or team. The tenant lease covers the whole tenant and is taken by `atlas delete --purge` and `atlas keys rewrap`. The two kinds exclude each other: a purge or re-wrap exits `12` while any owner lease in the tenant is live, and an owner command exits `12` while a purge or re-wrap runs. Exit `12` always means nothing was written. Leases are stored in the tenant bucket, as described in [Owner leases](/operations/storage-layout#owner-leases).
+Every backup, restore, deletion, quarantine, `atlas delete --purge`, and `atlas keys rewrap` takes a lease before it writes. An owner lease covers one mailbox, drive owner, site, or team. The tenant lease covers the whole tenant and is taken by `atlas delete --purge` and `atlas keys rewrap`. The two kinds exclude each other: a purge or re-wrap exits `12` while any owner lease in the tenant is live, and an owner command exits `12` while a purge or re-wrap runs. Exit `12` always means nothing was written. Leases are stored in the tenant bucket, as described in [Owner leases](/operations/storage-layout#owner-leases).
 
 A purge or re-wrap that exits `12` names the busy owner in its message. Run it when no scheduled backup of the tenant is due, and retry it after the busy operation ends.
 
@@ -130,15 +130,15 @@ error: option '-s <value>' argument 'https://...' is invalid. -s no longer means
 
 Mailboxes and drive owners can be passed as an email address or an Entra object ID. An email is resolved through Microsoft Graph before any storage key is built. Object IDs are used as given. Backups are keyed by object ID, so the address is display metadata only.
 
-Sites accept a browser URL (`https://contoso.sharepoint.com/sites/Engineering`), the Graph short form (`contoso.sharepoint.com:/sites/Engineering`), or a site ID with or without its hostname (`contoso.sharepoint.com,<siteGuid>,<webGuid>` or `<siteGuid>,<webGuid>`). This applies to every command that takes `--site`, including `replicate` and `rehydrate`.
+Sites accept a browser URL (`https://contoso.sharepoint.com/sites/Engineering`), the Graph short form (`contoso.sharepoint.com:/sites/Engineering`), or a site ID with or without its hostname (`contoso.sharepoint.com,<siteGuid>,<webGuid>` or `<siteGuid>,<webGuid>`). This applies to every command that takes `--site`.
 
-Commands that read existing backups (`list-snapshots`, `list-versions`, `save`, `verify`, `status`, `delete`, the source site of `restore`, `atlas stats --site`, `replicate`, and `rehydrate`) drop the hostname from a site ID with string handling alone. They make no Graph call, so backups of a site deleted from SharePoint stay reachable and disaster recovery works while Graph is unavailable. `backup` and `restore --target-site` always resolve through Graph because they work on the live site.
+Commands that read existing backups (`list-snapshots`, `list-versions`, `save`, `verify`, `status`, `delete`, the source site of `restore`, and `atlas stats --site`) drop the hostname from a site ID with string handling alone. They make no Graph call, so backups of a site deleted from SharePoint stay reachable and disaster recovery works while Graph is unavailable. `backup` and `restore --target-site` always resolve through Graph because they work on the live site.
 
 Owner and site IDs are case-insensitive. They are lowercased before they become storage keys, so one identifier always addresses one tree. Storage keys use `<siteGuid>,<webGuid>`, so a SharePoint domain rename does not start a second backup history. See [SharePoint storage layout](../sharepoint-backup.md#storage-layout).
 
 ## atlas outlook
 
-Outlook mailbox backup, restore, and management commands. Mailbox operations live under this group. Storage and replication commands stay at the root.
+Outlook mailbox backup, restore, and management commands. Mailbox operations live under this group. Storage and tenant-wide commands stay at the root.
 
 Mailboxes are identified by Entra object ID. `-m` accepts an email address or an object ID. A value containing `@` is resolved through `GET /users/{email}` before any storage key is built. Backups written by v5 were keyed by address; see [Migrating to v6](/migration/v6).
 
@@ -290,7 +290,7 @@ The check covers the target delta manifest and every older manifest for the same
 
 Entries with no stored blob, such as large attachments skipped by pre-v2.1.0 backups, are reported as **unverifiable**. They fail the run, because a restore cannot reproduce them.
 
-`--fast` confirms that every referenced object exists. It catches the most common damage, such as lifecycle deletion, failed replication, or manual cleanup, at near-zero bandwidth. Run full verification on a schedule, since it also checks ciphertext integrity through the GCM tag.
+`--fast` confirms that every referenced object exists. It catches the most common damage, such as lifecycle deletion, an incomplete copy to a replica, or manual cleanup, at near-zero bandwidth. Run full verification on a schedule, since it also checks ciphertext integrity through the GCM tag.
 
 Only damage counts as a failed object: a key the bucket reports as absent (`NoSuchKey` or `NotFound`), ciphertext that fails its GCM tag, or a checksum mismatch. Any other storage error stops the run and exits with its own category. A `403` exits `4`, and a `503` or network error exits `3`. An expired credential or an outage says nothing about the backup, so it is never reported as a list of failed objects.
 
@@ -521,7 +521,7 @@ Atlas deletes manifests first, then data objects. If a delete is interrupted, th
 
 Every workload's `delete` and `quarantine` takes the [owner lease](/reference/sdk#concurrent-operations) of the mailbox, drive owner, site, or team, so it exits `12` while a backup of the same owner is running, and a backup exits `12` while the deletion runs. The lease is not encrypted, so a deletion that needed no passphrase before still needs none.
 
-`--mailbox` also removes the mailbox's delta cursor (`_meta/outlook-cursors/`) and the replication status records of the deleted snapshots. Records under `_meta/replication/` that belong to a OneDrive snapshot of the same user stay. The next backup of the mailbox is a full backup.
+`--mailbox` also removes the mailbox's delta cursor (`_meta/outlook-cursors/`) and the Atlas 6 replication status records of the deleted snapshots. Records under `_meta/replication/` that belong to a OneDrive snapshot of the same user stay; [Legacy Atlas 6 objects](/operations/replication#legacy-atlas-6-objects) shows how to remove them. The next backup of the mailbox is a full backup.
 
 `--snapshot` accepts only the mailbox's newest snapshot. Each Outlook snapshot stores only the changes of its own run, and every newer snapshot is built from the whole chain before it. Deleting an older link would drop the messages it recorded from every later snapshot and bring back the ones it recorded as deleted. Atlas refuses that with `SnapshotNotNewestError` (`ATLAS_SNAPSHOT_NOT_NEWEST`, exit `11`) and deletes nothing. To remove an older snapshot, delete the newer ones first, newest first, or delete the whole mailbox backup with `--mailbox`. If a manifest of the mailbox cannot be read, the order cannot be checked: the delete is refused with exit `9` and names the damaged manifest, which you move aside with [`atlas outlook quarantine`](#atlas-outlook-quarantine) before retrying.
 
@@ -1296,12 +1296,12 @@ With several services, `--json` returns an object keyed by service name. With on
 
 ### atlas stats storage
 
-Measure the bytes that the tenant bucket, or a replica of it, physically holds, by listing it. `atlas stats` reports logical sizes from the manifests. `atlas stats storage` reports what the bucket stores and a provider bills: current and noncurrent versions, delete markers, staging objects, and incomplete multipart uploads. It breaks these down per workload, and optionally per owner. See [Storage usage](/operations/storage-usage) for what each figure means and what a run costs in list requests.
+Measure the bytes that the tenant bucket physically holds, by listing it. `atlas stats` reports logical sizes from the manifests. `atlas stats storage` reports what the bucket stores and a provider bills: current and noncurrent versions, delete markers, staging objects, and incomplete multipart uploads. It breaks these down per workload, and optionally per owner. See [Storage usage](/operations/storage-usage) for what each figure means and what a run costs in list requests.
 
 ```bash
 atlas stats storage                                   # the tenant bucket, per workload
 atlas stats storage --by owner --top 10               # the ten largest owners and sites
-atlas stats storage --target-config replica.json      # a replica
+ATLAS_S3_ENDPOINT=https://replica.example.com atlas stats storage   # a replica
 atlas stats storage --max-requests 1000 --json        # stop after 1,000 requests, print a token
 atlas stats storage --continue <token> --json         # resume from that token
 ```
@@ -1309,11 +1309,6 @@ atlas stats storage --continue <token> --json         # resume from that token
 | Option                      | Description                                                                              |
 | --------------------------- | ---------------------------------------------------------------------------------------- |
 | `--by <breakdown>`          | `workload` (default) or `owner`, which adds one row per mailbox, OneDrive owner, or site |
-| `--target-endpoint <url>`   | Measure a replica at this S3 endpoint instead of the primary storage                     |
-| `--target-access-key <key>` | Replica S3 access key                                                                    |
-| `--target-secret-key <key>` | Replica S3 secret key. `-` reads it from stdin.                                          |
-| `--target-region <region>`  | Replica S3 region                                                                        |
-| `--target-config <path>`    | JSON file with replica credentials, in the format `atlas replicate` uses                 |
 | `--max-requests <n>`        | Stop after this many S3 requests and print a continuation token                          |
 | `--continue <token>`        | Resume a measurement from its continuation token                                         |
 | `--top <n>`                 | Maximum owner rows with `--by owner` (default 20)                                        |
@@ -1322,7 +1317,7 @@ atlas stats storage --continue <token> --json         # resume from that token
 
 The JSON output includes `totals`, `by_workload`, `stored_bytes`, `list_requests`, and `complete`. It includes `by_owner` with `--by owner`, and `logical_bytes_referenced` on a complete run with readable manifests. If the credentials cannot list versions, multipart uploads, or their parts, the report says so in `versions_visible` and `incomplete_uploads_visible`. The affected columns show `n/a`, and the stored totals become a lower bound.
 
-A run that fails on an S3 error prints a continuation token to stderr, so the next run resumes where this one stopped. Any `--target-*` flag selects a replica. A replica flag without `--target-endpoint` or `--target-config` is refused, so the command never measures primary storage by mistake. The command is read-only. It creates no bucket and no key material. A replica without the tenant bucket fails with `NoSuchBucket`. `--top` and `--json` are shared with `atlas stats` and can appear before or after `storage`.
+A run that fails on an S3 error prints a continuation token to stderr, so the next run resumes where this one stopped. The token is bound to the S3 endpoint and region, so a token from one endpoint is refused on another. The command is read-only. It creates no bucket and no key material. To measure a replica, point `ATLAS_S3_ENDPOINT` and the keys at it. `--top` and `--json` are shared with `atlas stats` and can appear before or after `storage`.
 
 ## atlas list-users
 
@@ -1361,7 +1356,7 @@ atlas keys rewrap --new-passphrase < secret.txt   # non-interactive, for a scrip
 The data key does not change. Nothing in the bucket is re-encrypted, every snapshot stays readable, and the run writes one object. What changes is the wrapper. The key-encryption key (KEK) is derived again from the new passphrase and a fresh salt, under the current KDF parameters. A tenant set up with weaker scrypt parameters is brought up to date by running the command with no flags.
 
 ::: danger This rotates the wrapper, not the data key
-Re-wrapping answers a **leaked passphrase**. It does not answer a compromised bucket. If the data key or the plaintext has already been captured, a new passphrase does not help, because the attacker no longer needs the passphrase. Replication does not help either, since it copies ciphertext under the same key. A compromised data key requires a new bucket and a fresh backup. See [Rotating the data key](/security#rotating-the-data-key).
+Re-wrapping answers a **leaked passphrase**. It does not answer a compromised bucket. If the data key or the plaintext has already been captured, a new passphrase does not help, because the attacker no longer needs the passphrase. A replica does not help either, since it holds ciphertext under the same key. A compromised data key requires a new bucket and a fresh backup. See [Rotating the data key](/security#rotating-the-data-key).
 
 The re-wrap takes the tenant lease first. It exits `12` and writes nothing while any owner of the tenant has a live lease, and owner commands of the tenant exit `12` until it returns. See [Run leases](#run-leases).
 :::
@@ -1448,126 +1443,3 @@ atlas tenants remove fabrikam -y
 | `--all`                   | validate | Validate every profile instead of one                                             |
 
 Profile names are lowercase letters, digits, and dashes, up to 32 characters. Prefer `--client-secret -`: a value passed on the command line can appear in shell history and the process list.
-
-## atlas replicate
-
-Replicate snapshots to a secondary S3-compatible target. Ciphertext is copied as-is, with no decryption. Only unreplicated snapshots and missing objects are transferred. Outlook, OneDrive, and SharePoint manifests hold one run's changes each, so `-s` also copies every older snapshot of the same mailbox, drive owner, or site that the target lacks, oldest first. A snapshot that fails to copy stops its owner's chain: no newer snapshot of that owner is written, and the result names the ones left out. See [What a snapshot holds](/operations/replication#what-a-snapshot-holds). To report progress, use the `status` subcommand. It takes the same scope flags and writes no data. Each `replicate` run takes the owner lease of the mailbox, drive owner or site it copies, in the primary bucket it reads from, so it exits `12` while a backup, deletion, quarantine, restore or rehydration of that owner runs. Target buckets take no lease. See [Concurrent operations](/reference/sdk#concurrent-operations).
-
-```bash
-atlas replicate -s <snapshot-id> \
-  --target-endpoint http://offsite:9000 \
-  --target-access-key <key> \
-  --target-secret-key <secret>
-
-atlas replicate -m user@company.com --target-config ./offsite.json
-
-atlas replicate --site https://contoso.sharepoint.com/sites/Engineering --target-config ./offsite.json
-atlas replicate --site contoso.sharepoint.com,guid,guid -s sp-snap-1735689600000-a1b2c3 --target-config ./offsite.json
-
-atlas replicate -o user@company.com --target-config ./offsite.json
-atlas replicate -o user@company.com -s od-snap-1735689600000-a1b2c3 --target-config ./offsite.json
-
-atlas replicate status
-atlas replicate status -m user@company.com
-atlas replicate status -s <snapshot-id>
-atlas replicate status --site https://contoso.sharepoint.com/sites/Engineering
-atlas replicate status -o user@company.com
-```
-
-| Option                        | Description                                                |
-| ----------------------------- | ---------------------------------------------------------- |
-| `-s, --snapshot <id>`         | Replicate a snapshot and the older snapshots it builds on  |
-| `-m, --mailbox <email-or-id>` | Replicate all unreplicated snapshots for a mailbox         |
-| `--site <url-or-id>`          | Replicate all unreplicated snapshots for a SharePoint site |
-| `-o, --owner <email-or-id>`   | Replicate all unreplicated snapshots for a OneDrive owner  |
-| `--target-endpoint <url>`     | Target S3 endpoint URL                                     |
-| `--target-access-key <key>`   | Target S3 access key                                       |
-| `--target-secret-key <key>`   | Target S3 secret key. `-` reads it from stdin.             |
-| `--target-region <region>`    | Target S3 region (default: `us-east-1`)                    |
-| `--target-config <path>`      | JSON file with the target S3 credentials                   |
-| `-t, --tenant <id>`           | Override the tenant ID from config                         |
-
-`replicate status` accepts the same scope flags (`-s`, `-m`, `--site`, `-o`) and reports replication state without copying anything.
-
-::: tip Target config file
-The target config is a JSON object with `s3_endpoint`, `s3_access_key`, and `s3_secret_key`. It can also include `s3_region` and `target_id`. The encryption passphrase comes from the main Atlas configuration, so it is not stored in this file.
-:::
-
-Pass the secret key with `-` to keep it out of shell history and the process table. An inline secret is written to history, and any local user can read it from the process list while the command runs. That is a long window on a large tenant:
-
-```bash
-atlas replicate -m user@company.com \
-  --target-endpoint http://offsite:9000 \
-  --target-access-key <key> \
-  --target-secret-key - < target-secret.txt
-```
-
-Trailing whitespace and the trailing newline are trimmed. If stdin is empty or unreadable, the command fails and names the option, rather than authenticating with an empty secret. Only the secret key accepts `-`, because the access key ID is not secret and only one option per invocation can read stdin. `--target-config` also works, but you must manage that file's permissions yourself. `-` is preferable when the secret comes from a secret manager or a pipe.
-
-## atlas rehydrate
-
-Recover snapshots from a replica to primary storage. This is a disaster recovery operation, not a bidirectional sync. Snapshots already on primary are skipped. `-s` also recovers every older snapshot of the same owner that primary lacks, and every form stops an owner's chain at the first snapshot that fails. Each `rehydrate` run takes the owner lease of the mailbox, drive owner or site it recovers, in primary, so it exits `12` while a backup, deletion, quarantine, restore or replication of that owner runs. `--all` takes no lease. See [Concurrent operations](/reference/sdk#concurrent-operations).
-
-```bash
-atlas rehydrate -s <snapshot-id> \
-  --source-endpoint http://offsite:9000 \
-  --source-access-key <key> \
-  --source-secret-key <secret>
-
-atlas rehydrate -m user@company.com --source-config ./offsite.json
-atlas rehydrate --all --source-config ./offsite.json
-
-atlas rehydrate --site https://contoso.sharepoint.com/sites/Engineering --source-config ./offsite.json
-atlas rehydrate --site contoso.sharepoint.com,guid,guid -s sp-snap-1735689600000-a1b2c3 --source-config ./offsite.json
-
-atlas rehydrate -o user@company.com --source-config ./offsite.json
-atlas rehydrate -o user@company.com -s od-snap-1735689600000-a1b2c3 --source-config ./offsite.json
-```
-
-| Option                        | Description                                                  |
-| ----------------------------- | ------------------------------------------------------------ |
-| `-s, --snapshot <id>`         | Recover a specific snapshot from the replica                 |
-| `-m, --mailbox <email-or-id>` | Recover all snapshots for a mailbox from the replica         |
-| `--site <url-or-id>`          | Recover all SharePoint snapshots for a site from the replica |
-| `-o, --owner <email-or-id>`   | Recover all OneDrive snapshots for an owner from the replica |
-| `--all`                       | Recover every workload: Outlook, OneDrive, and SharePoint    |
-| `--source-endpoint <url>`     | Source replica S3 endpoint URL                               |
-| `--source-access-key <key>`   | Source replica S3 access key                                 |
-| `--source-secret-key <key>`   | Source replica S3 secret key. `-` reads it from stdin.       |
-| `--source-region <region>`    | Source replica S3 region (default: `us-east-1`)              |
-| `--source-config <path>`      | JSON file with the source S3 credentials                     |
-| `-t, --tenant <id>`           | Override the tenant ID from config                           |
-
-Scopes are matched in this order: `--site`, `-o`/`--owner`, `-s`/`--snapshot`, `-m`/`--mailbox`, `--all`. `-s` works for all three workloads. The snapshot ID shows which workload it belongs to (`od-snap-*` for OneDrive, `sp-snap-*` for SharePoint, `snap-*` for Outlook). Atlas resolves the owner or site from storage, so you do not need to name it again. Combining `--site` or `-o` with `-s` addresses the same single snapshot explicitly.
-
-`-o` and `-m` accept an email or a raw Entra object ID. Recovery resolves an email through Microsoft Graph only. Unlike the `atlas onedrive` and `atlas outlook` commands, it does not write the resolved identity back to primary. That write would create a fresh encryption key in the target bucket and block the replica's key from being copied (see the encryption key warning at the end of this section). Pass the object ID directly when Graph is unreachable or the user has been deleted from the directory.
-
-Pass the secret with `-` so it never reaches shell history or the process table. Stdin rules match [`atlas replicate`](#atlas-replicate): trailing whitespace is trimmed, and empty or unreadable stdin fails with the option named.
-
-```bash
-atlas rehydrate --all \
-  --source-endpoint http://offsite:9000 \
-  --source-access-key <key> \
-  --source-secret-key - < source-secret.txt
-```
-
-`--all` recovers all three workloads: every Outlook mailbox (`manifests/`), every OneDrive owner (`onedrive/manifests/`), and every SharePoint site (`sharepoint/manifests/`) on the replica. Teams is not part of tenant recovery yet, so `--all` always prints `Tenant recovery does not cover teams yet. That data is not restored by this run.` The summary breaks the run down by workload, so a partial recovery is visible:
-
-```
-Workload    Scope        Copied  Skipped  Failed  Size
-outlook     2-snapshots  35      0        0       433.3 KB
-onedrive    1-owners     12      1        0       2.7 MB
-sharepoint  1-sites      59      0        0       7.1 MB
-```
-
-A workload with no objects prints a warning that names it, because the replica held nothing for that workload. Check that against the source before you treat a drill as passed.
-
-::: danger Rehydration is not sync
-Rehydration copies the data you select from a designated replica to primary. It does not merge, diff, or resolve conflicts. After rehydration, primary is the source of truth again. Delta links in recovered manifests can be stale, so the next backup falls back to a full sync automatically.
-:::
-
-::: warning Encryption key safety
-Rehydration needs the replica's encryption key (`_meta/dek.enc`) on primary. Atlas copies it when primary has no key. It replaces an existing key only when that key is provably the only object in primary (a freshly initialized bucket). If primary holds **any** other object, such as Outlook, OneDrive, or SharePoint data or replication records, and its key differs from the source, rehydration aborts with `DekOverwriteRefusedError` (`ATLAS_KEY_CONFLICT`, exit code `10`). Overwriting would make that data permanently unreadable. If primary's content is disposable, run `atlas delete --purge` first, then rehydrate into the empty bucket.
-
-The key write is conditional. If another run stores a different key on primary between the check and the write, for example a backup started against the empty bucket, rehydration aborts with `DekWriteConflictError` and leaves that key untouched. Stop the other run, then rehydrate again. See [Installing the source key without a race](/security#installing-the-source-key-without-a-race).
-:::
