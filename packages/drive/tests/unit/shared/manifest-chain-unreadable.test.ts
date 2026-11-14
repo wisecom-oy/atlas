@@ -3,7 +3,6 @@ import type { SnapshotSummary, TenantContext } from '@wisecom/atlas-types';
 import { UnreadableObjectsError } from '@wisecom/atlas-types';
 import {
   load_drive_chain_entries,
-  snapshot_epoch_of_key,
   type DriveChainManifest,
   type DriveManifestLookup,
 } from '@/shared/manifest-chain';
@@ -163,11 +162,5 @@ describe('drive chain resolution with a damaged manifest (issue #631)', () => {
     );
 
     expect(chain.entries.map((row) => row.entry.file_id).sort()).toEqual(['a', 'b']);
-  });
-
-  it('reads the epoch from both providers snapshot keys', () => {
-    expect(snapshot_epoch_of_key(key_of(1234))).toBe(1234);
-    expect(snapshot_epoch_of_key('sharepoint/manifests/site/sp-snap-99-abc.json')).toBe(99);
-    expect(snapshot_epoch_of_key('onedrive/manifests/owner/whatever.json')).toBeUndefined();
   });
 });

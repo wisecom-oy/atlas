@@ -1,15 +1,30 @@
 import type { Manifest, ManifestRepository, TenantContext } from '@wisecom/atlas-types';
 import { NotFoundError } from '@wisecom/atlas-types';
 import { replicate_snapshot_to_target } from '@/services/replication/snapshot-replicator';
-import type { RehydrationPlan } from '@/services/replication/rehydration-manifests-runner';
+import type { SnapshotChainCopyPlan } from '@/services/replication/snapshot-chain-copier';
 
 export const OUTLOOK_MANIFEST_PREFIX = 'manifests';
 
-/** How the Outlook workload plugs into the shared rehydration runner. */
-export const OUTLOOK_REHYDRATION: RehydrationPlan<Manifest> = {
-  manifest_key: (manifest) =>
-    `${OUTLOOK_MANIFEST_PREFIX}/${manifest.owner_id}/${manifest.snapshot_id}.json`,
-  replicate: (source_ctx, primary_ctx, manifest) =>
+/** Storage key of an Outlook snapshot's manifest. */
+function outlook_manifest_key(manifest: Manifest): string {
+  return `${OUTLOOK_MANIFEST_PREFIX}/${manifest.owner_id}/${manifest.snapshot_id}.json`;
+}
+
+/** How the Outlook workload plugs into the chain copier when copying to a replica. */
+export const OUTLOOK_REPLICATION: SnapshotChainCopyPlan<Manifest> = {
+  manifest_key: outlook_manifest_key,
+  owner_of: (manifest) => manifest.owner_id,
+  copy: (source_ctx, target_ctx, manifest) =>
+    replicate_snapshot_to_target(source_ctx, target_ctx, manifest),
+};
+
+/**
+ * How the Outlook workload plugs into the chain copier when recovering to the primary: no replica
+ * marker, so recovered data on primary is not labelled as a replica of itself.
+ */
+export const OUTLOOK_REHYDRATION: SnapshotChainCopyPlan<Manifest> = {
+  ...OUTLOOK_REPLICATION,
+  copy: (source_ctx, primary_ctx, manifest) =>
     replicate_snapshot_to_target(source_ctx, primary_ctx, manifest, { skip_marker: true }),
 };
 
@@ -36,17 +51,4 @@ export async function list_mailbox_manifests(
 ): Promise<Manifest[]> {
   const manifests = await repo.list_by_owner(ctx, owner_id);
   return manifests.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
-}
-
-/** Finds manifests present on the source but missing from the target. */
-export async function diff_outlook_manifests(
-  source_manifests: Manifest[],
-  target_ctx: TenantContext,
-  owner_id: string,
-): Promise<Manifest[]> {
-  const target_keys = await target_ctx.storage.list(`${OUTLOOK_MANIFEST_PREFIX}/${owner_id}/`);
-  const target_snapshot_ids = new Set(
-    target_keys.map((k) => k.split('/').pop()?.replace('.json', '')).filter(Boolean) as string[],
-  );
-  return source_manifests.filter((m) => !target_snapshot_ids.has(m.snapshot_id));
 }

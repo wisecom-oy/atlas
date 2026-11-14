@@ -67,7 +67,7 @@ export async function replicate_drive_snapshot_objects(
   );
 
   // A manifest is what makes a snapshot reachable, so a partial copy must leave none behind.
-  // diff_drive_manifests decides "already replicated" from manifest presence alone, so writing one
+  // The chain copier decides "already replicated" from manifest presence alone, so writing one
   // after a failed blob copy makes the failure sticky: the next run skips the snapshot and never
   // retries the missing objects. Mirrors the Outlook gate in replicate_snapshot_to_target.
   if (tally.objects_failed > 0) {

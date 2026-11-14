@@ -12,7 +12,26 @@ atlas replicate -s <snapshot-id> --target-config ./offsite.json
 
 ## How replication works
 
-For each snapshot, Atlas:
+### What a snapshot holds
+
+An Outlook, OneDrive, or SharePoint manifest records only the changes of the run that wrote it. A snapshot is that manifest folded together with every older manifest of the same mailbox, drive owner, or site, which is how `verify`, `save`, and `restore` read it. A manifest carries no reference to the one before it, so a copy that holds the newest manifest without the older ones restores less than the original, and `verify` cannot tell.
+
+Replication therefore always works on whole chains:
+
+| Command                                 | Copies                                                                                                 |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `replicate -s <id>`                     | The named snapshot and every older snapshot of its mailbox, drive owner, or site that the target lacks |
+| `replicate -m`, `-o`, `--site`          | Every snapshot of that mailbox, drive owner, or site that the target lacks                             |
+| `rehydrate -s <id>`                     | The named snapshot and every older snapshot of its owner on the replica that primary lacks             |
+| `rehydrate -m`, `-o`, `--site`, `--all` | Every snapshot in scope that primary lacks                                                             |
+
+Snapshots are copied oldest first. When older and newer snapshots share a creation time, the one you named is copied last. Before copying any snapshot, `-s` reads the whole chain on the side it copies from. If a manifest the chain needs cannot be decrypted, or was removed after Atlas listed it, the command fails before any snapshot object or manifest is written and names those keys, the same refusal `verify` gives. Quarantine the damaged manifest, or replicate by mailbox, owner, or site instead.
+
+`rehydrate -s` installs the replica's encryption key on primary before it reads the chain, for Outlook, OneDrive, and SharePoint alike. A refused rehydration can therefore leave that key on a primary that had none. That is the key every rehydration from this replica needs, and a later run accepts it (see [atlas rehydrate](/reference/cli#atlas-rehydrate)).
+
+### Copying one snapshot
+
+For each snapshot it copies, Atlas:
 
 1. Reads the snapshot manifest from primary storage.
 2. Checks which of the manifest's objects (messages, attachments, and file data) the target already holds.
@@ -20,7 +39,7 @@ For each snapshot, Atlas:
 4. Copies the manifest **last**, so a target never holds a manifest that points at missing objects.
 5. Writes a status record to primary storage with the outcome.
 
-Replication is **idempotent**. Running it again skips objects the target already has, so retrying after a failure or interruption is safe.
+Replication is **idempotent**. Running it again skips snapshots whose manifest the target already has and objects it already holds, so retrying after a failure or interruption is safe. A manifest already on the target is never written again. On a versioned or Object Lock bucket every write adds a version that cannot be removed early, so this keeps reruns from piling up locked copies.
 
 ### Copy order and crash safety
 
@@ -35,7 +54,11 @@ Replication is **idempotent**. Running it again skips objects the target already
 
 If replication stops at any point, the target holds some orphan data objects, which are harmless and can be reclaimed. No manifest references a missing object. The next run resumes where the last one stopped.
 
-A run that finishes with failures follows the same rule. If any object fails to copy, Atlas does not write the manifest. The snapshot remains unreplicated, and the next run retries it. Mailbox, owner, and site runs decide which snapshots need replicating by checking for their manifests on the target. A manifest written after a partial copy would make the gap permanent: later runs would report nothing to do while objects stayed missing.
+A run that finishes with failures follows the same rule. If any object fails to copy, Atlas does not write the manifest. The snapshot remains unreplicated, and the next run retries it. Every run decides which snapshots need copying by checking for their manifests on the target. A manifest written after a partial copy would make the gap permanent: later runs would report nothing to do while objects stayed missing.
+
+A failed snapshot also stops its owner's chain. No newer snapshot of that mailbox, drive owner, or site is written in the same run, because it would read as complete while missing everything the failed one recorded. The failed snapshot's result names the snapshots left out, and the command reports a failure. Other owners in the same run carry on. A run never adds a gap to a chain, and the next run resumes at the gap it stopped at.
+
+A gap that predates the run stays open until a run copies the missing links. A target can already hold a newer manifest whose older links are missing, written by `replicate -s` before it copied whole chains or by an older run that continued past a failure. A failed copy of a missing older link leaves that newer manifest in place, so the chain on the target stays incomplete. Rerun until the run reports no failures before you rely on the replica.
 
 ## Safety model
 
@@ -131,7 +154,7 @@ atlas replicate --site contoso.sharepoint.com,<guid>,<guid> -s <snapshot-id> --t
 atlas replicate -o user@company.com --target-config ./offsite.json
 ```
 
-`-m` and `--site` copy only the snapshots the target does not have yet, because Atlas compares manifest lists.
+Every form copies only the snapshots the target does not have yet. `-s` also brings the older snapshots its chain needs, so the first `-s` of a mailbox to an empty target copies the mailbox's history up to that snapshot. Each copied snapshot gets its own status record.
 
 ### Pass credentials inline
 
@@ -179,7 +202,7 @@ const status = await atlas.getReplicationStatus('snapshot-id');
 
 ## Rehydration (disaster recovery)
 
-Rehydration copies data from a target back to primary. It is **not** a sync. It copies only what you ask for, skips snapshots that already exist on primary, and performs no merge or conflict resolution.
+Rehydration copies data from a target back to primary. It is **not** a sync. It copies only what you ask for, skips snapshots that already exist on primary, and performs no merge or conflict resolution. Like replication, `rehydrate -s` brings the older snapshots of the owner that primary lacks, oldest first, and stops at the first one that fails.
 
 ::: tip Use rehydration after primary data loss
 Run `atlas rehydrate` only to recover from data loss on primary. Afterwards, primary is the source of truth again. Delta links in restored manifests may be stale. Atlas detects this and falls back to a full sync on the next backup.

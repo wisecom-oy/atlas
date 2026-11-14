@@ -47,6 +47,11 @@ vi.mock('@/services/replication/drive-snapshot-replicator', () => ({
   replicate_drive_snapshot_objects: vi.fn(async () => tally),
 }));
 const mocked_replicator = vi.mocked(replicate_drive_snapshot_objects);
+/** `snap-N` was taken at N seconds past the epoch, so the ids order the same way as the times. */
+function created_at_of(snapshot_id: string): Date {
+  return new Date(Number(snapshot_id.replace('snap-', '')) * 1000);
+}
+
 type Workload = {
   readonly name: string;
   readonly descriptor:
@@ -60,13 +65,21 @@ const workloads: Workload[] = [
     name: 'onedrive',
     descriptor: ONEDRIVE_REPLICATION,
     manifest: (snapshot_id: string) =>
-      ({ snapshot_id, owner_id: 'owner-1' }) as OneDriveSnapshotManifest,
+      ({
+        snapshot_id,
+        owner_id: 'owner-1',
+        created_at: created_at_of(snapshot_id),
+      }) as OneDriveSnapshotManifest,
   },
   {
     name: 'sharepoint',
     descriptor: SHAREPOINT_REPLICATION,
     manifest: (snapshot_id: string) =>
-      ({ snapshot_id, site_id: 'site-1' }) as SharePointSnapshotManifest,
+      ({
+        snapshot_id,
+        site_id: 'site-1',
+        created_at: created_at_of(snapshot_id),
+      }) as SharePointSnapshotManifest,
   },
 ];
 
@@ -80,7 +93,8 @@ describe.each(workloads)('rehydrate_$name_manifests', (w) => {
   function make_plan(): RehydrationPlan<OneDriveSnapshotManifest | SharePointSnapshotManifest> {
     return {
       manifest_key: (manifest) => drive_manifest_key(w.descriptor as never, manifest as never),
-      replicate: (source_ctx, primary_ctx, manifest) =>
+      owner_of: (manifest) => w.descriptor.owner_id_of(manifest as never),
+      copy: (source_ctx, primary_ctx, manifest) =>
         mocked_replicator(
           source_ctx,
           primary_ctx,

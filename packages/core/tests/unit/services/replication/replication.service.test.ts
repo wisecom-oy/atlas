@@ -16,6 +16,7 @@ import type {
   SharePointReplicationUseCase,
 } from '@wisecom/atlas-types';
 import { stream_from_get } from '@wisecom/atlas-types/testing/stub-object-stream';
+import { outlook_stub_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
@@ -145,6 +146,7 @@ describe('ReplicationService', () => {
       list_by_owner: vi.fn().mockResolvedValue([]),
       list_all_manifests: vi.fn().mockResolvedValue([]),
       list_owner_ids: vi.fn().mockResolvedValue([]),
+      ...outlook_stub_chain_reads(),
       // Replication reads only the strict listings: it must never copy around a damaged manifest.
     } as unknown as ManifestRepository;
 
@@ -213,21 +215,6 @@ describe('ReplicationService', () => {
     await expect(service.replicate_snapshot('tenant-1', 'snap-missing', [target])).rejects.toThrow(
       'No manifest found',
     );
-  });
-
-  it('replicate_mailbox diffs and only replicates missing snapshots', async () => {
-    const m1 = make_manifest('snap-1', 'mbx-1', [make_entry('a')]);
-    const m2 = make_manifest('snap-2', 'mbx-1', [make_entry('b')]);
-
-    vi.mocked(manifests.list_by_owner).mockResolvedValue([m1, m2]);
-    vi.mocked(target_storage.list).mockResolvedValue(['manifests/mbx-1/snap-1.json']);
-    vi.mocked(source_storage.get).mockResolvedValue(Buffer.from('data'));
-    vi.mocked(target_storage.get).mockResolvedValue(Buffer.from('data'));
-
-    const results = await service.replicate_mailbox('tenant-1', 'mbx-1', [target]);
-
-    expect(results).toHaveLength(1);
-    expect(results[0]!.snapshot_id).toBe('snap-2');
   });
 
   it('rehydrate_snapshot skips when manifest exists on primary', async () => {

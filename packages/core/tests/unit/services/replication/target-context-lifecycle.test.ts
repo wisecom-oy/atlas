@@ -41,6 +41,10 @@ vi.mock('@/services/replication/replication-status-repository', () => ({
 
 const CONFIG = { encryption_passphrase: 'p' } as unknown as AtlasConfig;
 
+/** A summary index with no rows: the snapshot's chain is the snapshot alone. */
+const NO_OLDER_SNAPSHOTS = { summaries: [], unreadable_keys: [] };
+const SEALED = { sealed: true, created_at: new Date(0) };
+
 function make_source_context(): { ctx: TenantContext; destroyed: () => number } {
   let destroyed = 0;
   const ctx = {
@@ -59,11 +63,11 @@ function make_source_context(): { ctx: TenantContext; destroyed: () => number } 
 }
 
 function onedrive_manifest(snapshot_id: string): OneDriveSnapshotManifest {
-  return { snapshot_id, owner_id: 'owner-1', sealed: true } as unknown as OneDriveSnapshotManifest;
+  return { snapshot_id, owner_id: 'owner-1', ...SEALED } as unknown as OneDriveSnapshotManifest;
 }
 
 function sharepoint_manifest(snapshot_id: string): SharePointSnapshotManifest {
-  return { snapshot_id, site_id: 'site-1', sealed: true } as unknown as SharePointSnapshotManifest;
+  return { snapshot_id, site_id: 'site-1', ...SEALED } as unknown as SharePointSnapshotManifest;
 }
 
 describe('drive replication target context lifecycle', () => {
@@ -85,6 +89,7 @@ describe('drive replication target context lifecycle', () => {
         list_snapshots_by_owner: vi.fn(async () => manifests),
         list_all_manifests: vi.fn(async () => manifests),
         find_by_snapshot: vi.fn(async () => manifests[0]),
+        list_snapshot_summaries: vi.fn(async () => NO_OLDER_SNAPSHOTS),
       } as unknown as OneDriveManifestRepository;
       return new OneDriveReplicationService(
         tenant_factory,
@@ -109,6 +114,7 @@ describe('drive replication target context lifecycle', () => {
       const stub = stub_storage_target();
       const repo = {
         find_by_snapshot: vi.fn(async () => onedrive_manifest('od-1')),
+        list_snapshot_summaries: vi.fn(async () => NO_OLDER_SNAPSHOTS),
       } as unknown as OneDriveManifestRepository;
       const service = new OneDriveReplicationService(
         tenant_factory,
@@ -147,6 +153,7 @@ describe('drive replication target context lifecycle', () => {
         list_snapshots_by_site: vi.fn(async () => manifests),
         list_all_manifests: vi.fn(async () => manifests),
         find_by_snapshot: vi.fn(async () => manifests[0]),
+        list_snapshot_summaries: vi.fn(async () => NO_OLDER_SNAPSHOTS),
       } as unknown as SharePointManifestRepository;
       return new SharePointReplicationService(
         tenant_factory,
@@ -171,6 +178,7 @@ describe('drive replication target context lifecycle', () => {
       const stub = stub_storage_target();
       const repo = {
         find_by_snapshot: vi.fn(async () => sharepoint_manifest('sp-1')),
+        list_snapshot_summaries: vi.fn(async () => NO_OLDER_SNAPSHOTS),
       } as unknown as SharePointManifestRepository;
       const service = new SharePointReplicationService(
         tenant_factory,
@@ -300,9 +308,9 @@ describe('drive replication context reuse', () => {
     expect(validate_dek).toHaveBeenCalledTimes(2);
   });
 
-  it('still opens one context for the diff when nothing is missing', async () => {
-    // The negative case: no snapshots to copy must not mean no context, since the diff needs one,
-    // and must not mean one per manifest either.
+  it('still opens one context when there is nothing to copy', async () => {
+    // The negative case: no snapshots to copy must not mean no context, since the key check needs
+    // one, and must not mean one per manifest either.
     const stub = stub_storage_target();
     const repo = {
       list_snapshots_by_owner: vi.fn(async () => []),

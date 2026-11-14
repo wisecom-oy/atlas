@@ -9,10 +9,7 @@ import {
   SHAREPOINT_REPLICATION,
   type DriveReplicationDescriptor,
 } from '@/services/replication/drive-replication-descriptor';
-import {
-  collect_drive_ancillary_keys,
-  diff_drive_manifests,
-} from '@/services/replication/drive-replication-result';
+import { collect_drive_ancillary_keys } from '@/services/replication/drive-replication-result';
 
 /**
  * Issue #191: both drive helper files sat at 10% branch coverage, so the "cursor exists" and
@@ -103,63 +100,5 @@ describe.each(workloads)('$name ancillary keys', (w) => {
     expect(
       await collect_drive_ancillary_keys(w.descriptor as never, make_ctx([]), w.owner_id),
     ).toEqual([]);
-  });
-});
-
-describe.each(workloads)('$name manifest diff', (w) => {
-  it('returns only the snapshots absent from the target', async () => {
-    const ctx = make_ctx([`${w.manifest_prefix}/${w.owner_id}/snap-1.json`]);
-    const source = [w.manifest('snap-1'), w.manifest('snap-2')];
-
-    const missing = await diff_drive_manifests(
-      w.descriptor as never,
-      source as never,
-      ctx,
-      w.owner_id,
-    );
-
-    expect(missing).toEqual([w.manifest('snap-2')]);
-  });
-
-  it('returns every snapshot when the target prefix is empty', async () => {
-    const source = [w.manifest('snap-1'), w.manifest('snap-2')];
-
-    const missing = await diff_drive_manifests(
-      w.descriptor as never,
-      source as never,
-      make_ctx([]),
-      w.owner_id,
-    );
-
-    expect(missing).toHaveLength(2);
-  });
-
-  it('returns nothing when the target already holds them all', async () => {
-    const ctx = make_ctx([
-      `${w.manifest_prefix}/${w.owner_id}/snap-1.json`,
-      `${w.manifest_prefix}/${w.owner_id}/snap-2.json`,
-    ]);
-
-    expect(
-      await diff_drive_manifests(
-        w.descriptor as never,
-        [w.manifest('snap-1'), w.manifest('snap-2')] as never,
-        ctx,
-        w.owner_id,
-      ),
-    ).toEqual([]);
-  });
-
-  it('ignores another scope holding the same snapshot id', async () => {
-    const ctx = make_ctx([`${w.manifest_prefix}/other-scope/snap-1.json`]);
-
-    const missing = await diff_drive_manifests(
-      w.descriptor as never,
-      [w.manifest('snap-1')] as never,
-      ctx,
-      w.owner_id,
-    );
-
-    expect(missing).toHaveLength(1);
   });
 });

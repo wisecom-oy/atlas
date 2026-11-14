@@ -1,6 +1,6 @@
 import { normalize_owner_id } from '@/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
-import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
+import type { TenantContextFactory } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { ReplicationUseCase } from '@wisecom/atlas-types';
 import type {
@@ -15,7 +15,6 @@ import type {
   TenantRehydrationResult,
   WorkloadRehydrationResult,
 } from '@wisecom/atlas-types';
-import type { Manifest } from '@wisecom/atlas-types';
 import {
   TENANT_CONTEXT_FACTORY_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
@@ -29,30 +28,24 @@ import {
   rehydrate_drive_snapshot,
 } from '@/services/replication/drive-snapshot-router';
 import {
-  copy_outlook_snapshot_to_target,
-  copy_outlook_snapshot_between,
-  type CopyDeps,
-} from '@/services/replication/outlook-snapshot-copier';
+  rehydrate_outlook_snapshot_chain,
+  replicate_outlook_mailbox_chain,
+  replicate_outlook_snapshot_chain,
+  type OutlookChainPorts,
+} from '@/services/replication/outlook-chain-replication';
 import { rehydrate_manifests } from '@/services/replication/rehydration-manifests-runner';
 import {
-  save_replication_status,
   list_all_replication_status,
   list_replication_status_by_owner,
   list_replication_status_by_snapshot,
 } from '@/services/replication/replication-status-repository';
 import {
-  require_outlook_manifest,
   list_mailbox_manifests,
-  diff_outlook_manifests,
   OUTLOOK_REHYDRATION,
 } from '@/services/replication/outlook-manifest-handler';
 import { ensure_source_dek_on_primary } from '@/services/replication/dek-rehydration-validator';
 import { reject_teams_snapshot } from '@/services/replication/teams-snapshot-guard';
-import {
-  build_skip_result,
-  to_status_record,
-  merge_replication_results,
-} from '@/services/replication/replication-result-builder';
+import { merge_replication_results } from '@/services/replication/replication-result-builder';
 import type { AtlasConfig } from '@/utils/config';
 import { create_primary_target } from '@/services/replication/primary-target-factory';
 import { ATLAS_CONFIG_TOKEN } from '@/utils/config';
@@ -85,16 +78,12 @@ export class ReplicationService implements ReplicationUseCase {
       });
       if (drive !== undefined) return drive;
 
-      const manifest = await require_outlook_manifest(this._manifests, source_ctx, snapshot_id);
-      const results: ReplicationResult[] = [];
-
-      for (const target of targets) {
-        const result = await this.copy_to_target(source_ctx, target, manifest, tenant_id);
-        await save_replication_status(source_ctx, to_status_record(result, target, manifest));
-        results.push(result);
-      }
-
-      return results;
+      return await replicate_outlook_snapshot_chain(
+        this.chain_ports(tenant_id),
+        source_ctx,
+        snapshot_id,
+        targets,
+      );
     } finally {
       source_ctx.destroy();
     }
@@ -108,25 +97,12 @@ export class ReplicationService implements ReplicationUseCase {
     owner_id = normalize_owner_id(owner_id);
     const source_ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const manifests = await list_mailbox_manifests(this._manifests, source_ctx, owner_id);
-      const results: ReplicationResult[] = [];
-
-      for (const target of targets) {
-        const target_ctx = await target.create_context(tenant_id);
-        try {
-          const missing = await diff_outlook_manifests(manifests, target_ctx, owner_id);
-
-          for (const manifest of missing) {
-            const result = await this.copy_to_target(source_ctx, target, manifest, tenant_id);
-            await save_replication_status(source_ctx, to_status_record(result, target, manifest));
-            results.push(result);
-          }
-        } finally {
-          target_ctx.destroy();
-        }
-      }
-
-      return results;
+      return await replicate_outlook_mailbox_chain(
+        this.chain_ports(tenant_id),
+        source_ctx,
+        owner_id,
+        targets,
+      );
     } finally {
       source_ctx.destroy();
     }
@@ -148,25 +124,12 @@ export class ReplicationService implements ReplicationUseCase {
       });
       if (drive !== undefined) return drive;
 
-      const manifest = await require_outlook_manifest(
-        this._manifests,
-        source_ctx,
-        snapshot_id,
-        'source',
-      );
-
-      const manifest_key = `manifests/${manifest.owner_id}/${snapshot_id}.json`;
-      if (await primary_ctx.storage.exists(manifest_key)) {
-        return build_skip_result(snapshot_id, source.target_id, manifest.entries.length);
-      }
-
-      return await this.copy_between(
+      return await rehydrate_outlook_snapshot_chain(
+        this.chain_ports(tenant_id),
         source_ctx,
         primary_ctx,
-        manifest,
-        source.target_id,
-        tenant_id,
-        true,
+        snapshot_id,
+        source,
       );
     } finally {
       source_ctx.destroy();
@@ -284,43 +247,14 @@ export class ReplicationService implements ReplicationUseCase {
     }
   }
 
-  private async copy_to_target(
-    source_ctx: TenantContext,
-    target: StorageTarget,
-    manifest: Manifest,
-    tenant_id: string,
-  ): Promise<ReplicationResult> {
-    return await copy_outlook_snapshot_to_target(
-      source_ctx,
-      target,
-      manifest,
-      this.copy_deps(tenant_id),
-    );
-  }
-
-  private async copy_between(
-    source_ctx: TenantContext,
-    target_ctx: TenantContext,
-    manifest: Manifest,
-    target_id: string,
-    tenant_id: string,
-    is_rehydration = false,
-  ): Promise<ReplicationResult> {
-    return await copy_outlook_snapshot_between(
-      source_ctx,
-      target_ctx,
-      manifest,
-      target_id,
-      this.copy_deps(tenant_id),
-      is_rehydration,
-    );
-  }
-
-  private copy_deps(tenant_id: string): CopyDeps {
+  private chain_ports(tenant_id: string): OutlookChainPorts {
     return {
-      validate_dek: this._validate_dek,
-      passphrase: this._config.encryption_passphrase,
-      tenant_id,
+      manifests: this._manifests,
+      deps: {
+        validate_dek: this._validate_dek,
+        passphrase: this._config.encryption_passphrase,
+        tenant_id,
+      },
     };
   }
 

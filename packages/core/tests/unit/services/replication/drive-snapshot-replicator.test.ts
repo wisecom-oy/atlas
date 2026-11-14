@@ -24,7 +24,6 @@ import {
   type DriveReplicationDescriptor,
 } from '@/services/replication/drive-replication-descriptor';
 import { replicate_drive_snapshot_objects } from '@/services/replication/drive-snapshot-replicator';
-import { diff_drive_manifests } from '@/services/replication/drive-replication-result';
 
 const ONEDRIVE_MANIFEST_KEY = 'onedrive/manifests/owner-1/snapshot-1.json';
 const SHAREPOINT_MANIFEST_KEY = 'sharepoint/manifests/site-1/snapshot-1.json';
@@ -198,13 +197,8 @@ describe.each(workloads)('replicate_$name_snapshot manifest gate (#190)', (w) =>
       w.manifest_key,
     );
 
-    const pending = await diff_drive_manifests(
-      w.descriptor as never,
-      [manifest] as never,
-      target_ctx,
-      w.owner_id,
-    );
-    expect(pending.map((m) => m.snapshot_id)).toEqual(['snapshot-1']);
+    // The chain copier treats a snapshot whose manifest is absent as not yet replicated.
+    expect(await target_ctx.storage.exists(w.manifest_key)).toBe(false);
   });
 
   it('writes no manifest when an ancillary object fails to copy', async () => {
@@ -243,14 +237,6 @@ describe.each(workloads)('replicate_$name_snapshot manifest gate (#190)', (w) =>
     expect(result.objects_failed).toBe(0);
     expect(result.objects_copied).toBe(1);
     expect(result.source_manifest_checksum).toBe(result.replicated_manifest_checksum);
-    expect(target_objects.has(w.manifest_key)).toBe(true);
-    expect(
-      await diff_drive_manifests(
-        w.descriptor as never,
-        [manifest] as never,
-        target_ctx,
-        w.owner_id,
-      ),
-    ).toEqual([]);
+    expect(await target_ctx.storage.exists(w.manifest_key)).toBe(true);
   });
 });
