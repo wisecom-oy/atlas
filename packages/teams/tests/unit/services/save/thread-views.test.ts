@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { TeamsThread } from '@wisecom/atlas-types';
 import { stub_encrypted_object_store } from '@wisecom/atlas-types/testing/stub-encrypted-object-store';
-import { load_saved_thread, type ExportTally } from '@/services/save/thread-views';
-import { message_ref, put_message, stub_save_context, TIMESTAMP } from './save-harness';
-
-function new_tally(): ExportTally {
-  return { errors: [], images_inlined: 0, messages_saved: 0 };
-}
+import { load_saved_thread } from '@/services/save/thread-views';
+import {
+  message_ref,
+  put_blob,
+  put_message,
+  stub_save_context,
+  thread_context,
+  TIMESTAMP,
+} from './save-harness';
 
 function html_body(text: string) {
   return { contentType: 'html', content: text };
@@ -34,9 +37,9 @@ describe('load_saved_thread', () => {
       }),
       replies: {},
     };
-    const tally = new_tally();
+    const { context, tally } = thread_context(ctx);
 
-    const saved = await load_saved_thread(ctx, 'root-1', thread, tally);
+    const saved = await load_saved_thread(context, 'root-1', thread);
 
     expect(saved?.root.kept_version).toBe(true);
     expect(saved?.root.deleted_at).toBe('2025-02-01T00:00:00.000Z');
@@ -59,7 +62,7 @@ describe('load_saved_thread', () => {
       replies: {},
     };
 
-    const saved = await load_saved_thread(ctx, 'root-2', thread, new_tally());
+    const saved = await load_saved_thread(thread_context(ctx).context, 'root-2', thread);
 
     expect(saved?.root.kept_version).toBe(false);
     expect(saved?.root.deleted_at).toBe('2025-02-01T00:00:00.000Z');
@@ -76,9 +79,9 @@ describe('load_saved_thread', () => {
     });
     bucket.delete('gone');
     const thread: TeamsThread = { root: message_ref(missing), replies: {} };
-    const tally = new_tally();
+    const { context, tally } = thread_context(ctx);
 
-    const saved = await load_saved_thread(ctx, 'root-3', thread, tally);
+    const saved = await load_saved_thread(context, 'root-3', thread);
 
     expect(saved).toBeUndefined();
     expect(tally.errors).toHaveLength(1);
@@ -113,9 +116,9 @@ describe('load_saved_thread', () => {
         'reply-a': message_ref(earlier),
       },
     };
-    const tally = new_tally();
+    const { context, tally } = thread_context(ctx);
 
-    const saved = await load_saved_thread(ctx, 'root-4', thread, tally);
+    const saved = await load_saved_thread(context, 'root-4', thread);
 
     expect(saved?.replies.map((reply) => reply.id)).toEqual(['reply-a', 'reply-b']);
     expect(tally.errors).toHaveLength(1);
@@ -135,10 +138,39 @@ describe('load_saved_thread', () => {
     });
     const thread: TeamsThread = { root: message_ref(plain), replies: {} };
 
-    const saved = await load_saved_thread(ctx, 'root-5', thread, new_tally());
+    const saved = await load_saved_thread(thread_context(ctx).context, 'root-5', thread);
 
     expect(saved?.root.author).toBe('Display Name');
     expect(saved?.root.html).toContain('&lt;img src=x onerror=alert(1)&gt;');
     expect(saved?.root.html).not.toContain('<img');
+  });
+
+  it('writes a hosted object of an attachment, which the body never shows, and lists what is missing', async () => {
+    const store = stub_encrypted_object_store();
+    const bucket = new Map<string, Buffer>();
+    const ctx = stub_save_context(store, bucket);
+    const snippet = put_blob(bucket, store, 'snippet', 'code');
+    const message = put_message(bucket, store, 'msg', {
+      id: 'root-6',
+      createdDateTime: TIMESTAMP,
+      body: html_body('<p>see attachment</p>'),
+    });
+    const thread: TeamsThread = {
+      root: message_ref(message, {
+        hosted: { s1: { ...snippet, content_type: 'text/plain' } },
+        hosted_missing: ['s2'],
+      }),
+      replies: {},
+    };
+    const { context, tally, entries } = thread_context(ctx, 'channels/C');
+
+    const saved = await load_saved_thread(context, 'root-6', thread);
+
+    expect(saved?.root.hosted).toEqual([
+      { id: 's1', content_type: 'text/plain', path: 'channels/C/hosted/root-6/s1.txt' },
+    ]);
+    expect(saved?.root.hosted_missing).toEqual(['s2']);
+    expect(entries.has('channels/C/hosted/root-6/s1.txt')).toBe(true);
+    expect(tally.hosted_missing).toHaveLength(1);
   });
 });

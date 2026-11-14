@@ -108,6 +108,8 @@ const SAVE_CASES: SaveCase[] = [
       channels_saved: 0,
       messages_saved: 0,
       images_inlined: 0,
+      hosted_files: 0,
+      hosted_missing: [],
       errors: [],
       interrupted: false,
       total_bytes: 0,

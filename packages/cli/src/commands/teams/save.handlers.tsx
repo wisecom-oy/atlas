@@ -12,6 +12,7 @@ import { KeyValueList } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
 import { resolve_tenant_id } from '@/commands/sharepoint/command.handlers';
 import type { TeamsTenantOptions } from '@/commands/teams/command.handlers';
+import { save_exit_code } from '@/commands/teams/save-exit-code';
 
 export interface TeamsSaveCommandOptions extends TeamsTenantOptions {
   team: string;
@@ -52,19 +53,28 @@ export async function execute_teams_save(
           { label: 'Channels saved', value: String(result.channels_saved) },
           { label: 'Messages saved', value: String(result.messages_saved) },
           { label: 'Images inlined', value: String(result.images_inlined) },
+          { label: 'Hosted files', value: String(result.hosted_files) },
+          { label: 'Hosted content missing', value: String(result.hosted_missing.length) },
         ]}
       />
     </Box>,
   );
   if (result.errors.length > 0) {
     await render_static_view(<ErrorList errors={result.errors} max={result.errors.length} />);
-    process.exitCode = 1;
-  } else if (result.interrupted) {
+  }
+  if (result.hosted_missing.length > 0) {
+    logger.warn('Hosted content the backup never captured, so the archive lacks it:');
+    await render_static_view(
+      <ErrorList errors={result.hosted_missing} max={result.hosted_missing.length} />,
+    );
+  }
+  const exit_code = save_exit_code(result);
+  if (exit_code !== undefined) process.exitCode = exit_code;
+  if (result.interrupted) {
     logger.warn(
       `Export interrupted. ${result.output_path} holds only the channels saved before it.`,
     );
-    process.exitCode = 2;
-  } else {
+  } else if (result.errors.length === 0) {
     const size_mb = (result.total_bytes / (1024 * 1024)).toFixed(1);
     logger.success(`Saved to ${result.output_path} (${size_mb} MB)`);
   }

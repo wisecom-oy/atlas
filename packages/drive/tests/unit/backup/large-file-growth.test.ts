@@ -108,7 +108,8 @@ function pipeline_deps(): DriveLargeFileDeps {
 }
 
 function run_pipeline(ctx: TenantContext): ReturnType<typeof process_large_drive_file> {
-  const connector = { resolve_download_url: vi.fn(async () => undefined) };
+  // Large downloads resolve a fresh URL when they start (issue #718), so the stub must return one.
+  const connector = { resolve_download_url: vi.fn(async () => DOWNLOAD_URL) };
   return process_large_drive_file(pipeline_deps(), connector, large_item(), 'owner-1', ctx);
 }
 

@@ -1183,7 +1183,7 @@ Checks the snapshot's index, channel shards, and every blob it references. Exits
 
 **`atlas teams save`**
 
-Writes one snapshot as a zip archive that opens in a browser. It reads storage only and makes no Graph calls. See [Teams backup](../teams-backup.md#save) for the archive layout. If `--output` names an existing file, Atlas asks `Overwrite? [Y/n]` before it reads storage. Answering `n` exits `0` and leaves the file as it was. With stdin at EOF the question gets no answer, so the command exits `1` and the file is untouched. `-y` overwrites without asking, for scheduled jobs.
+Writes one snapshot as a zip archive that opens in a browser. It reads storage only and makes no Graph calls. See [Teams backup](../teams-backup.md#save) for the archive layout. It exits `1` when a message or hosted file could not be read, and `2` when hosted content the backup never captured is missing from the archive, or Ctrl+C stopped the export. The summary lists each missing item. If `--output` names an existing file, Atlas asks `Overwrite? [Y/n]` before it reads storage. Answering `n` exits `0` and leaves the file as it was. With stdin at EOF the question gets no answer, so the command exits `1` and the file is untouched. `-y` overwrites without asking, for scheduled jobs.
 
 | Option                | Description                                                                               |
 | --------------------- | ----------------------------------------------------------------------------------------- |

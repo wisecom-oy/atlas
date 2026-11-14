@@ -3,22 +3,15 @@ import type {
   TeamsHostedRef,
   TeamsMessageRef,
   TeamsThread,
-  TenantContext,
 } from '@wisecom/atlas-types';
 import type { HostedOwner } from '@/services/backup/hosted-reference-scanner';
 import { error_message } from '@/services/shared/error-message';
 import { escape_html } from '@/services/save/html/escape-html';
 import { sanitize_message_html } from '@/services/save/html/sanitize-message-html';
 import { inline_hosted_images } from '@/services/save/html/hosted-image-inliner';
-import { read_message_content, read_verified_blob } from '@/services/save/message-blob-reader';
-import { append_all } from '@wisecom/atlas-core/utils/append-all';
-
-/** Running totals and non-fatal problems for one export. */
-export interface ExportTally {
-  errors: string[];
-  images_inlined: number;
-  messages_saved: number;
-}
+import { export_hosted_contents, owner_label } from '@/services/save/hosted-content-export';
+import type { SavedHostedFile, ThreadExportContext } from '@/services/save/export-types';
+import { read_message_content } from '@/services/save/message-blob-reader';
 
 /** One message as exported: the Graph content plus the rendered HTML fragment. */
 export interface SavedMessage {
@@ -30,6 +23,10 @@ export interface SavedMessage {
   readonly kept_version: boolean;
   readonly content: TeamsGraphResource;
   readonly html: string;
+  /** Hosted contents of this version written to the archive. */
+  readonly hosted: SavedHostedFile[];
+  /** Hosted content IDs the backup never captured for this version. */
+  readonly hosted_missing: string[];
 }
 
 /** A root message with its replies, oldest first. */
@@ -41,6 +38,7 @@ export interface SavedThread {
 interface MessageSource {
   readonly blob: { storage_key: string; checksum: string; size_bytes: number };
   readonly hosted: Record<string, TeamsHostedRef>;
+  readonly hosted_missing: string[];
   readonly kept_version: boolean;
 }
 
@@ -49,16 +47,15 @@ interface MessageSource {
  * off it); unreadable replies are skipped and reported.
  */
 export async function load_saved_thread(
-  ctx: TenantContext,
+  context: ThreadExportContext,
   root_id: string,
   thread: TeamsThread,
-  tally: ExportTally,
 ): Promise<SavedThread | undefined> {
-  const root = await load_saved_message(ctx, { root_id }, thread.root, tally);
+  const root = await load_saved_message(context, { root_id }, thread.root);
   if (root === undefined) return undefined;
   const replies: SavedMessage[] = [];
   for (const [reply_id, ref] of Object.entries(thread.replies)) {
-    const reply = await load_saved_message(ctx, { root_id, reply_id }, ref, tally);
+    const reply = await load_saved_message(context, { root_id, reply_id }, ref);
     if (reply !== undefined) replies.push(reply);
   }
   return { root, replies: replies.sort(by_created_at) };
@@ -70,23 +67,22 @@ export function by_created_at(a: SavedMessage, b: SavedMessage): number {
 }
 
 async function load_saved_message(
-  ctx: TenantContext,
+  context: ThreadExportContext,
   owner: HostedOwner,
   ref: TeamsMessageRef,
-  tally: ExportTally,
 ): Promise<SavedMessage | undefined> {
   const source = message_source(ref);
-  const label =
-    owner.reply_id === undefined ? `message ${owner.root_id}` : `reply ${owner.reply_id}`;
   let content: TeamsGraphResource;
   try {
-    content = await read_message_content(ctx, source.blob);
+    content = await read_message_content(context.ctx, source.blob);
   } catch (err) {
-    tally.errors.push(`${label}: ${error_message(err)}`);
+    context.tally.errors.push(`${owner_label(owner)}: ${error_message(err)}`);
     return undefined;
   }
-  const html = await render_body(ctx, owner, content, source.hosted, tally);
-  tally.messages_saved++;
+  const hosted = await export_hosted_contents(context, owner, source.hosted, source.hosted_missing);
+  const rendered = render_body(owner, content, hosted.data_uris);
+  context.tally.images_inlined += rendered.inlined;
+  context.tally.messages_saved++;
   return {
     id: owner.reply_id ?? owner.root_id,
     author: author_of(content),
@@ -94,44 +90,43 @@ async function load_saved_message(
     deleted_at: ref.deleted_at,
     kept_version: source.kept_version,
     content,
-    html,
+    html: rendered.html,
+    hosted: hosted.files,
+    hosted_missing: hosted.missing,
   };
 }
 
 /**
  * A deleted message shows the last live version kept before the deletion. Without one, the
- * tombstone itself is the only content there is.
+ * tombstone itself is the only content there is. The kept version does not record the hosted
+ * contents the backup missed, so none are listed for it.
  */
 function message_source(ref: TeamsMessageRef): MessageSource {
   if (ref.deleted_at !== undefined && ref.kept !== undefined) {
-    return { blob: ref.kept, hosted: ref.kept.hosted, kept_version: true };
+    return { blob: ref.kept, hosted: ref.kept.hosted, hosted_missing: [], kept_version: true };
   }
-  return { blob: ref, hosted: ref.hosted, kept_version: false };
+  return {
+    blob: ref,
+    hosted: ref.hosted,
+    hosted_missing: ref.hosted_missing ?? [],
+    kept_version: false,
+  };
 }
 
-async function render_body(
-  ctx: TenantContext,
+/** The message body as HTML, with its images embedded from `data_uris`. */
+function render_body(
   owner: HostedOwner,
   content: TeamsGraphResource,
-  hosted: Record<string, TeamsHostedRef>,
-  tally: ExportTally,
-): Promise<string> {
+  data_uris: ReadonlyMap<string, string>,
+): { html: string; inlined: number } {
   const body = content.body as { contentType?: unknown; content?: unknown } | null | undefined;
   const text = typeof body?.content === 'string' ? body.content : '';
-  if (body?.contentType === 'text') return `<div class="plain">${escape_html(text)}</div>`;
-  // ponytail: body only. Cards and attachment images are not rendered; the JSON keeps them.
-  const inlined = await inline_hosted_images(
-    sanitize_message_html(text),
-    owner,
-    hosted,
-    async (ref) => {
-      const bytes = await read_verified_blob(ctx, ref);
-      return `data:${ref.content_type ?? ''};base64,${bytes.toString('base64')}`;
-    },
-  );
-  tally.images_inlined += inlined.inlined;
-  append_all(tally.errors, inlined.errors);
-  return inlined.html;
+  if (body?.contentType === 'text') {
+    return { html: `<div class="plain">${escape_html(text)}</div>`, inlined: 0 };
+  }
+  // ponytail: body only. Cards and attachments are not rendered; their hosted files are written and
+  // messages.json lists them.
+  return inline_hosted_images(sanitize_message_html(text), owner, data_uris);
 }
 
 function author_of(content: TeamsGraphResource): string {

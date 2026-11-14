@@ -36,15 +36,15 @@ Channel messages are read with `ChannelMessage.Read.All`, a protected Microsoft 
 
 ## What is backed up
 
-| Item                                   | Coverage                                                                                                                  |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Channel messages                       | Every root message in each channel the team hosts, including private channels                                             |
-| Replies                                | Each reply is its own blob, linked from its thread. A deleted reply keeps its last live version in `kept`                 |
-| Reactions, mentions, edits             | Kept in the raw Graph objects, as Graph returned them. `lastEditedDateTime` shows the last edit                           |
-| Inline images                          | Stored as encrypted bytes. The image URLs in each message are kept                                                        |
-| System messages                        | Stored with their thread, as Graph returns them                                                                           |
-| File attachments                       | Recorded as links. Atlas does not download them. Files live in SharePoint; see [Team files](#team-files)                  |
-| Team settings, members, channels, tabs | Raw Graph objects                                                                                                         |
+| Item                                   | Coverage                                                                                                                                                    |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Channel messages                       | Every root message in each channel the team hosts, including private channels                                                                               |
+| Replies                                | Each reply is its own blob, linked from its thread. A deleted reply keeps its last live version in `kept`                                                   |
+| Reactions, mentions, edits             | Kept in the raw Graph objects, as Graph returned them. `lastEditedDateTime` shows the last edit                                                             |
+| Hosted content                         | Inline images, code snippets, and other hosted objects, from the body, attachments, and cards. Stored as encrypted bytes. The URLs in each message are kept |
+| System messages                        | Stored with their thread, as Graph returns them                                                                                                             |
+| File attachments                       | Recorded as links. Atlas does not download them. Files live in SharePoint; see [Team files](#team-files)                                                    |
+| Team settings, members, channels, tabs | Raw Graph objects                                                                                                                                           |
 
 Channels owned by another tenant are skipped with the warning `Channel <id> is owned by another tenant; skipped`. Atlas compares each channel's `tenantId` with the tenant GUID, so `-t` must be that GUID. A domain such as `contoso.onmicrosoft.com` fails with a `ConfigError` before any Graph call, because no channel's `tenantId` is a domain and every channel would read as foreign. The tenant also names the bucket, so a GUID run writes to `atlas-<guid>`, separate from an `atlas-<domain>` bucket. A team whose channels are all owned by another tenant backs up nothing and prints `Status: UNHEALTHY` with exit `2`.
 
@@ -103,13 +103,13 @@ Each team runs independently and is reported when it finishes. A channel error i
 
 Each run that creates a snapshot prints these counters:
 
-| Counter | Meaning |
-| ------- | ------- |
+| Counter   | Meaning                                                                                                                                  |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `changed` | Threads whose stored record differs from the previous run. New threads count too, and so does a recheck that downloaded an inline image. |
-| `stored` | Messages whose blob was written in this run. |
-| `dedup` | Messages whose blob already existed, so nothing was written. A forced full read reports unchanged messages here. |
-| `hosted` | Inline images written in this run. |
-| `deleted` | Threads recorded as deleted in this run. Printed only when above zero. |
+| `stored`  | Messages whose blob was written in this run.                                                                                             |
+| `dedup`   | Messages whose blob already existed, so nothing was written. A forced full read reports unchanged messages here.                         |
+| `hosted`  | Inline images written in this run.                                                                                                       |
+| `deleted` | Threads recorded as deleted in this run. Printed only when above zero.                                                                   |
 
 After the counters, the run lists each channel with its outcome (`completed`, `incomplete`, `interrupted`, `failed`, or `not_started`), its read mode, and the roots it applied, then the Graph requests per limit class with the achieved rate and the number of `429` answers.
 
@@ -138,22 +138,42 @@ atlas teams save --team <team-id> -s <snapshot-id> --output teams.zip
 atlas teams save --team <team-id> -s <snapshot-id> --channel <channel-id> --output channel.zip
 ```
 
-| Option                | Description                                                        |
-| --------------------- | ------------------------------------------------------------------ |
-| `--team <id>`         | Team ID (required)                                                 |
-| `-s, --snapshot <id>` | Snapshot to save (required)                                        |
-| `--channel <id>`      | Save only this channel                                             |
-| `--output <path>`     | Zip file to write (default `teams-<snapshot-id>-<timestamp>.zip`)  |
-| `-y, --yes`           | Overwrite an existing output without asking                        |
-| `-t, --tenant <id>`   | Override the tenant ID from config                                 |
+| Option                | Description                                                       |
+| --------------------- | ----------------------------------------------------------------- |
+| `--team <id>`         | Team ID (required)                                                |
+| `-s, --snapshot <id>` | Snapshot to save (required)                                       |
+| `--channel <id>`      | Save only this channel                                            |
+| `--output <path>`     | Zip file to write (default `teams-<snapshot-id>-<timestamp>.zip`) |
+| `-y, --yes`           | Overwrite an existing output without asking                       |
+| `-t, --tenant <id>`   | Override the tenant ID from config                                |
 
 If `--output` names an existing file, Atlas asks `Overwrite? [Y/n]` before it reads storage. Answering `n` exits `0` and leaves the file as it was. With stdin at EOF, as under cron or systemd with `/dev/null`, no answer is read, so the command exits `1` and the file is untouched. Pass `-y` to overwrite without the question. The question is asked by default because a previous export can be the only copy of a snapshot that retention has since removed.
 
-The archive holds `team.json`, which lists the saved channels, and one folder per channel with `messages.json` and `index.html`. Each page sets a Content-Security-Policy that allows only inline styles and embedded images. Scripts, frames, forms, `on*` event attributes, and `<meta>` or `<base>` elements are removed from message bodies before the page is written. Hosted images are embedded as `data:` URIs, so the page loads nothing over the network.
+The archive holds `team.json`, which lists the saved channels and the team's members, and one folder per channel. The folder holds `messages.json`, `index.html`, and a `hosted/` folder of files.
 
-Only message bodies are rendered. File attachments are not included. A deleted message shows its last kept version, marked as deleted. A deleted message with no kept version appears as a tombstone.
+```text
+team.json
+channels/<channel>/messages.json   channel, members, tabs, files folder, shared-with teams, threads
+channels/<channel>/index.html      the messages as a page
+channels/<channel>/hosted/<message-id>/<content-id>.<ext>
+```
 
-A message or image that cannot be read is listed in the command output, and the export continues. The command exits `1` in that case, and the archive still holds everything else. Ctrl+C stops the export after the current channel: the archive is still written with the channels finished so far, and the command exits `2`. The full option list is in the [CLI reference](/reference/cli#atlas-teams).
+`messages.json` holds the channel as the backup stored it, from the channel's shard. `members` is the channel's own member list, or empty when `members_from_team` is `true`, in which case the members are the team's and sit in `team.json`. `tabs` lists the channel's tabs. `files_folder` gives the drive ID, item ID, and web URL of the Files folder, or `null` when none was stored. `files_folder_unavailable` is `true` when Graph refused the folder with `403`. `shared_with_teams` lists the teams a shared channel is shared with, or `null` for a standard channel. Each message lists its `hosted` files as `{ id, content_type, path }`, and its `hosted_missing` IDs, the hosted contents the backup never captured. Hosted-content IDs can run to hundreds of characters, so an ID longer than 64 characters, or one with characters other than letters, digits, `_` and `-`, is shortened in the file name to a 32-character prefix and 16 hex characters of its SHA-256. Use `path` in `messages.json` to find a file, not the ID.
+
+Every hosted content of a message is written as its own file, whatever its type. That covers inline images, code snippets, and the images or other objects that attachments and cards reference. The extension follows the stored content type for PNG, JPEG, GIF, BMP, WebP, and plain text. HTML is saved as `.txt`, and every other type as `.bin`, so no file in the archive runs when it is opened. The page embeds inline images as `data:` URIs, so it loads nothing over the network. Other hosted files are linked only by `messages.json`.
+
+Each page sets a Content-Security-Policy that allows only inline styles and embedded images. Scripts, frames, forms, `on*` event attributes, and `<meta>` or `<base>` elements are removed from message bodies before the page is written. Cards and attachments are not rendered in the page. Their hosted files are in the archive, and `messages.json` keeps their JSON.
+
+A deleted message shows its last kept version, marked as deleted. A deleted message with no kept version appears as a tombstone. The kept version does not record hosted content the backup missed, so `hosted_missing` is empty for it. File attachments are not downloaded. Their links stay in `messages.json`, and the files stay in SharePoint (see [Team files](#team-files)).
+
+Two kinds of problem are reported in the command output, and the archive still holds everything else:
+
+| Problem                                                                                                               | Exit |
+| --------------------------------------------------------------------------------------------------------------------- | ---- |
+| A message, reply, or hosted file could not be read or failed its checksum. It is left out of the archive              | `1`  |
+| Hosted content the backup never captured (`hosted_missing`). The `<img>` keeps its Graph URL and the summary lists it | `2`  |
+
+Ctrl+C stops the export after the current channel: the archive is still written with the channels finished so far, and the command exits `2`. An error takes precedence over the `2` for uncaptured content. The full option list is in the [CLI reference](/reference/cli#atlas-teams).
 
 ### status
 
@@ -232,6 +252,7 @@ teams/
 Snapshot indexes, channel shards, and channel cursors carry `format_version: 1`. Blobs do not. An object whose `format_version` is missing or not `1` is unreadable. An object with a higher version is refused with an error that names its key and says to upgrade Atlas.
 
 Known limits of Format 1:
+
 - A reply that Graph stops listing without a deletion notice is carried over as live.
 - A reply that Graph deletes before Atlas has listed it is not stored.
 - `verify` checks a channel shard by decrypting it, not against its checksum in the index.
@@ -316,12 +337,12 @@ Without `--full`, the cached result stays in place.
 
 Atlas paces Teams requests before Graph has to throttle them. Microsoft meters Teams reads per application per tenant, and again per team and per channel. Atlas spaces its requests at 80 % of each published limit:
 
-| Scope | Requests | Paced at |
-| ----- | -------- | -------- |
-| Tenant | Channel messages, replies, and inline images | 16 per second |
-| Tenant | Team, members, channels, tabs, and files folder | 24 per second |
-| Team | Team, members, channels, tabs, and files folder | 3.2 per second |
-| Channel | Channel messages, replies, and inline images | 0.8 per second |
+| Scope   | Requests                                        | Paced at       |
+| ------- | ----------------------------------------------- | -------------- |
+| Tenant  | Channel messages, replies, and inline images    | 16 per second  |
+| Tenant  | Team, members, channels, tabs, and files folder | 24 per second  |
+| Team    | Team, members, channels, tabs, and files folder | 3.2 per second |
+| Channel | Channel messages, replies, and inline images    | 0.8 per second |
 
 Every request in one Atlas process shares these budgets, including requests from several teams backed up at once. The remaining 20 % leaves room for other applications and for Graph's sustained window, which Microsoft evaluates below the listed rate.
 
