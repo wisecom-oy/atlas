@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TeamsSnapshotIndex } from '@wisecom/atlas-types';
+import type { TeamsChannelShard, TeamsSnapshotIndex } from '@wisecom/atlas-types';
 import {
   channel_document,
   channel_folder_name,
@@ -83,33 +83,52 @@ describe('team_document', () => {
   });
 });
 
+const SHARD = {
+  format_version: 1,
+  team_id: 'team-1',
+  channel_id: 'c1',
+  channel: { id: 'c1', displayName: 'General' },
+  members: [{ id: 'm1', displayName: 'Member' }],
+  tabs: [{ id: 't1', displayName: 'Wiki' }],
+  shared_with_teams: [{ id: 's1', displayName: 'Partner' }],
+  files_folder: { drive_id: 'd1', item_id: 'i1', web_url: 'https://contoso.example/files' },
+  read_mode: 'full',
+  threads: {},
+} as unknown as TeamsChannelShard;
+
+const THREADS = [
+  {
+    root: {
+      id: 'r1',
+      author: 'A',
+      created_at: '2025-01-01T00:00:00.000Z',
+      deleted_at: '2025-01-02T00:00:00.000Z',
+      kept_version: true,
+      content: { id: 'r1' },
+      html: '<p>x</p>',
+      hosted: [
+        { id: 'h1', content_type: 'image/png', path: 'channels/General-c1/hosted/r1/h1.png' },
+      ],
+      hosted_missing: ['h2'],
+    },
+    replies: [
+      {
+        id: 'p1',
+        author: 'B',
+        created_at: '2025-01-01T01:00:00.000Z',
+        kept_version: false,
+        content: { id: 'p1' },
+        html: '<p>y</p>',
+        hosted: [],
+        hosted_missing: [],
+      },
+    ],
+  },
+];
+
 describe('channel_document', () => {
   it('nests replies under their root and keeps the kept-version marker', () => {
-    const document = JSON.parse(
-      channel_document('team-1', 'c1', { id: 'c1', displayName: 'General' }, [
-        {
-          root: {
-            id: 'r1',
-            author: 'A',
-            created_at: '2025-01-01T00:00:00.000Z',
-            deleted_at: '2025-01-02T00:00:00.000Z',
-            kept_version: true,
-            content: { id: 'r1' },
-            html: '<p>x</p>',
-          },
-          replies: [
-            {
-              id: 'p1',
-              author: 'B',
-              created_at: '2025-01-01T01:00:00.000Z',
-              kept_version: false,
-              content: { id: 'p1' },
-              html: '<p>y</p>',
-            },
-          ],
-        },
-      ]),
-    );
+    const document = JSON.parse(channel_document('team-1', SHARD, THREADS));
 
     expect(document.channel).toEqual({ id: 'c1', displayName: 'General' });
     expect(document.threads).toHaveLength(1);
@@ -118,5 +137,50 @@ describe('channel_document', () => {
     expect(document.threads[0].root.message).toEqual({ id: 'r1' });
     expect(document.threads[0].replies[0].id).toBe('p1');
     expect(document.threads[0].replies[0].kept_version).toBe(false);
+  });
+
+  it('carries the channel members, tabs, files folder and shared-with teams from the shard', () => {
+    const document = JSON.parse(channel_document('team-1', SHARD, []));
+
+    expect(document.channel_id).toBe('c1');
+    expect(document.members_from_team).toBe(false);
+    expect(document.members).toEqual([{ id: 'm1', displayName: 'Member' }]);
+    expect(document.tabs).toEqual([{ id: 't1', displayName: 'Wiki' }]);
+    expect(document.shared_with_teams).toEqual([{ id: 's1', displayName: 'Partner' }]);
+    expect(document.files_folder).toEqual({
+      drive_id: 'd1',
+      item_id: 'i1',
+      web_url: 'https://contoso.example/files',
+    });
+    expect(document.files_folder_unavailable).toBe(false);
+  });
+
+  it('marks a standard channel whose members come from the team, and a missing files folder', () => {
+    const shard = {
+      ...SHARD,
+      members: [],
+      members_from_team: true,
+      shared_with_teams: undefined,
+      files_folder: undefined,
+      files_folder_unavailable: true,
+    } as unknown as TeamsChannelShard;
+
+    const document = JSON.parse(channel_document('team-1', shard, []));
+
+    expect(document.members_from_team).toBe(true);
+    expect(document.members).toEqual([]);
+    expect(document.shared_with_teams).toBeNull();
+    expect(document.files_folder).toBeNull();
+    expect(document.files_folder_unavailable).toBe(true);
+  });
+
+  it('lists each message hosted file by archive path, and the hosted content still missing', () => {
+    const document = JSON.parse(channel_document('team-1', SHARD, THREADS));
+
+    expect(document.threads[0].root.hosted).toEqual([
+      { id: 'h1', content_type: 'image/png', path: 'channels/General-c1/hosted/r1/h1.png' },
+    ]);
+    expect(document.threads[0].root.hosted_missing).toEqual(['h2']);
+    expect(document.threads[0].replies[0].hosted).toEqual([]);
   });
 });

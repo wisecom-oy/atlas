@@ -1,7 +1,7 @@
 import {
   TEAMS_FORMAT_VERSION,
   type TeamsChannelIndexEntry,
-  type TeamsGraphResource,
+  type TeamsChannelShard,
   type TeamsSnapshotIndex,
 } from '@wisecom/atlas-types';
 import type { SavedMessage, SavedThread } from '@/services/save/thread-views';
@@ -50,18 +50,27 @@ export function team_document(index: TeamsSnapshotIndex, channels: ExportedChann
   return JSON.stringify(document, null, 2);
 }
 
-/** Per-channel `messages.json`: the channel resource and every thread with its messages. */
+/**
+ * Per-channel `messages.json`: the channel with its members, tabs, files folder and shared-with
+ * teams as the shard stored them, then every thread with its messages. `members_from_team` means
+ * the members are the team's, listed in `team.json`.
+ */
 export function channel_document(
   team_id: string,
-  channel_id: string,
-  channel: TeamsGraphResource,
+  shard: TeamsChannelShard,
   threads: SavedThread[],
 ): string {
   const document = {
     format_version: TEAMS_FORMAT_VERSION,
     team_id,
-    channel_id,
-    channel,
+    channel_id: shard.channel_id,
+    channel: shard.channel,
+    members_from_team: shard.members_from_team === true,
+    members: shard.members,
+    tabs: shard.tabs,
+    shared_with_teams: shard.shared_with_teams ?? null,
+    files_folder: shard.files_folder ?? null,
+    files_folder_unavailable: shard.files_folder_unavailable === true,
     threads: threads.map((thread) => ({
       root: message_entry(thread.root),
       replies: thread.replies.map(message_entry),
@@ -76,5 +85,7 @@ function message_entry(message: SavedMessage): Record<string, unknown> {
     deleted_at: message.deleted_at,
     kept_version: message.kept_version,
     message: message.content,
+    hosted: message.hosted,
+    hosted_missing: message.hosted_missing,
   };
 }

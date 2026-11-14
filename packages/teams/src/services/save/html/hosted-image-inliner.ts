@@ -1,16 +1,13 @@
-import type { TeamsHostedRef } from '@wisecom/atlas-types';
-import { error_message } from '@/services/shared/error-message';
 import {
   hosted_id_after,
   hosted_path_prefix,
   type HostedOwner,
 } from '@/services/backup/hosted-reference-scanner';
 
-/** Result of inlining: the rewritten HTML, how many images were inlined, and non-fatal failures. */
+/** Result of inlining: the rewritten HTML and how many images were inlined. */
 export interface InlinedImages {
   readonly html: string;
   readonly inlined: number;
-  readonly errors: string[];
 }
 
 /**
@@ -19,54 +16,39 @@ export interface InlinedImages {
  */
 const IMG_TAG_RE = /<img\b[^>]*>/g;
 const SRC_ATTRIBUTE_RE = /\ssrc="([^"]*)"/;
-const IMAGE_TYPE_RE = /^image\/[a-z0-9.+-]+$/i;
 
 /**
- * Replaces each `<img src>` that points at one of this message's hosted contents with a `data:`
- * URI, so the saved page shows the image offline. `load` returns the data URI for one reference
- * and throws when the blob is missing or damaged; that image keeps its source and is reported.
+ * Replaces each `<img src>` that points at one of this message's hosted images with the data URI
+ * `data_uris` holds for that image, so the saved page shows it offline. An image with no entry
+ * keeps its source; the export reports why when it writes the map.
  */
-export async function inline_hosted_images(
+export function inline_hosted_images(
   html: string,
   owner: HostedOwner,
-  hosted: Record<string, TeamsHostedRef>,
-  load: (ref: TeamsHostedRef) => Promise<string>,
-): Promise<InlinedImages> {
+  data_uris: ReadonlyMap<string, string>,
+): InlinedImages {
   const prefix = hosted_path_prefix(owner);
-  const errors: string[] = [];
   let inlined = 0;
   let output = '';
   let cursor = 0;
   for (const match of html.matchAll(IMG_TAG_RE)) {
     const start = match.index ?? 0;
     output += html.slice(cursor, start);
-    const tag = await inline_tag(match[0], prefix, hosted, load, errors);
+    const tag = inline_tag(match[0], prefix, data_uris);
     if (tag !== match[0]) inlined++;
     output += tag;
     cursor = start + match[0].length;
   }
-  return { html: output + html.slice(cursor), inlined, errors };
+  return { html: output + html.slice(cursor), inlined };
 }
 
-async function inline_tag(
-  tag: string,
-  prefix: string,
-  hosted: Record<string, TeamsHostedRef>,
-  load: (ref: TeamsHostedRef) => Promise<string>,
-  errors: string[],
-): Promise<string> {
+function inline_tag(tag: string, prefix: string, data_uris: ReadonlyMap<string, string>): string {
   const src = SRC_ATTRIBUTE_RE.exec(tag);
   if (src === null) return tag;
   const id = hosted_id_after(unescape_attribute(src[1] ?? ''), prefix);
-  const ref = id === undefined ? undefined : hosted[id];
-  if (ref === undefined || !IMAGE_TYPE_RE.test(ref.content_type ?? '')) return tag;
-  try {
-    const data_uri = await load(ref);
-    return tag.slice(0, src.index) + ` src="${data_uri}"` + tag.slice(src.index + src[0].length);
-  } catch (err) {
-    errors.push(`hosted image ${id}: ${error_message(err)}`);
-    return tag;
-  }
+  const data_uri = id === undefined ? undefined : data_uris.get(id);
+  if (data_uri === undefined) return tag;
+  return tag.slice(0, src.index) + ` src="${data_uri}"` + tag.slice(src.index + src[0].length);
 }
 
 /** Reverses the escaping `escape_html` applies to attribute values. */

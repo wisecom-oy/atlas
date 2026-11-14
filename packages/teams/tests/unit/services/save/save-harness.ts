@@ -8,6 +8,11 @@ import type {
 } from '@wisecom/atlas-types';
 import type { StubEncryptedObjectStore } from '@wisecom/atlas-types/testing/stub-encrypted-object-store';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
+import {
+  empty_export_tally,
+  type ExportTally,
+  type ThreadExportContext,
+} from '@/services/save/export-types';
 
 export const TEAM = 'a1b2c3d4-e5f6-4789-8abc-0123456789ab';
 export const TIMESTAMP = '2025-01-01T00:00:00.000Z';
@@ -65,4 +70,20 @@ export function stub_save_context(
     create_content_hmac: () => stub_tenant_create_content_hmac(),
     destroy: vi.fn(),
   } as unknown as TenantContext;
+}
+
+/**
+ * The export context of one channel for a unit test: entries land in `entries` by path, and the
+ * tally is fresh.
+ */
+export function thread_context(
+  ctx: TenantContext,
+  directory = 'channels/test',
+): { context: ThreadExportContext; tally: ExportTally; entries: Map<string, Buffer> } {
+  const entries = new Map<string, Buffer>();
+  const tally = empty_export_tally();
+  const write = vi.fn(async (path: string, content: Buffer) => {
+    entries.set(path, content);
+  });
+  return { context: { ctx, directory, write, tally }, tally, entries };
 }

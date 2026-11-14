@@ -21,7 +21,11 @@ import {
   type ExportedChannel,
 } from '@/services/save/archive-layout';
 import { export_channel } from '@/services/save/channel-export';
-import type { ExportTally } from '@/services/save/thread-views';
+import {
+  empty_export_tally,
+  type ArchiveEntrySink,
+  type ExportTally,
+} from '@/services/save/export-types';
 
 /** Everything the archive writer needs for one export run. */
 export interface ArchiveWriteRequest {
@@ -45,7 +49,7 @@ export async function write_save_archive(request: ArchiveWriteRequest): Promise<
   const file_archive = create_file_archive(target);
   const { archive, promise, publish, abort } = file_archive;
   try {
-    const tally: ExportTally = { errors: [], images_inlined: 0, messages_saved: 0 };
+    const tally = empty_export_tally();
     const { saved, processed } = await append_channels(request, file_archive, tally);
     emit_operation_progress(options, {
       operation: 'save',
@@ -81,6 +85,8 @@ export async function write_save_archive(request: ArchiveWriteRequest): Promise<
       channels_saved: saved.length,
       messages_saved: tally.messages_saved,
       images_inlined: tally.images_inlined,
+      hosted_files: tally.hosted_files,
+      hosted_missing: tally.hosted_missing,
       errors: tally.errors,
       output_path,
       total_bytes,
@@ -110,6 +116,8 @@ async function append_channels(
 ): Promise<{ saved: ExportedChannel[]; processed: number }> {
   const { options, channels } = request;
   const saved: ExportedChannel[] = [];
+  const write: ArchiveEntrySink = (path, content) =>
+    append_archive_entry(file_archive, path, content);
   let processed = 0;
   emit_operation_progress(options, {
     operation: 'save',
@@ -124,17 +132,15 @@ async function append_channels(
       entry,
       folder: channel_folder_name(entry.channel_id, entry.display_name),
     };
-    const files = await export_channel(
+    const exported_ok = await export_channel(
       request.ctx,
       request.shards,
       request.team_id,
       exported,
       tally,
+      write,
     );
-    for (const file of files ?? []) {
-      await append_archive_entry(file_archive, file.path, Buffer.from(file.content, 'utf8'));
-    }
-    if (files !== undefined) saved.push(exported);
+    if (exported_ok) saved.push(exported);
     processed++;
     emit_operation_progress(options, {
       operation: 'save',
