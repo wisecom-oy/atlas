@@ -402,6 +402,7 @@ See [Calendar backup](/calendar-backup) for the storage layout and restore behav
 | `getReplicationStatus(snapshotId?)`      | Replication status for one snapshot or all snapshots                                                                                                                      |
 | `getReplicationStatusByOwner(mailboxId)` | Replication status for every snapshot of one owner                                                                                                                        |
 | `rewrapDataKey(newPassphrase?)`          | Re-wraps the tenant data key. See [Key re-wrap](#key-re-wrap)                                                                                                             |
+| `keys`                                   | Re-wraps and purges key wrappers across tenants. See [Re-wrapping several tenants](#re-wrapping-several-tenants)                                                          |
 | `dispose()`                              | Releases the instance. See [Instance lifecycle](#instance-lifecycle)                                                                                                      |
 
 When a drive or site backup creates no snapshot, `summary.noSnapshotReason` explains why. Its value is `'no_changes'` when content exists and nothing changed, or `'no_content'` when the drive or site holds nothing to protect. The field is set only when a completed run creates no snapshot. Branch on the reason:
@@ -1152,13 +1153,46 @@ console.log(result.passphraseChanged, result.previousKdfId, result.kdfId);
 
 The data key does not change, so nothing in the bucket is re-encrypted and every snapshot stays readable. **This rotates the wrapper, not the key.** An attacker who already holds the data key or plaintext is not affected. Use re-wrap after a leaked passphrase, not after a compromised bucket.
 
-Buckets are versioned, and noncurrent versions expire after 30 days. Until they expire, someone with the old passphrase and permission to read object versions can still unwrap the data key from the old wrapper. Treat the rotation as complete only after that version expires, or after the leaked reader's `s3:GetObjectVersion` permission is revoked.
+Buckets are versioned. The replaced wrapper stays as a noncurrent version, and someone with the old passphrase and permission to read object versions can still unwrap the data key from it. Delete it with `keys.purgeOldWrappers`, described below, or revoke the leaked reader's `s3:GetObjectVersion` permission.
 
 A wrong current passphrase is rejected before anything is written. After the write, the blob is read back and unwrapped before the promise resolves, so a resolved call means the tenant opens with the new passphrase. If that check fails, the previous wrapper is restored and the call throws `DekRewrapVerificationError`. If the restore also fails, the call throws `DekRewrapRollbackError` and the stored wrapper is in an unknown state. Neither class is exported. Both extend `StorageError`, so branch on `ATLAS_STORAGE_FAILURE`, and inspect the bucket before retrying.
 
 The call takes the tenant lease before it reads the wrapper, so it rejects with `OwnerBusyError` and changes nothing while any owner of the tenant has a live lease. Owner operations of the tenant are refused with `OwnerBusyError` until it returns. See [Concurrent operations](#concurrent-operations).
 
 Update the instance configuration afterwards. Nothing reads the new passphrase until you do, and an instance still built with the old passphrase fails its next operation.
+
+### Re-wrapping several tenants
+
+`rewrapDataKey` covers this instance's tenant only. When several tenants share one passphrase, a passphrase change must cover all of them before any instance is built with the new value. Otherwise every tenant left behind fails with `WrongPassphraseError`. `atlas.keys` does that across tenants, using this instance's S3 settings.
+
+```typescript
+const report = await atlas.keys.rewrapTenantKeys({
+  tenantIds: ['<tenant-id-1>', '<tenant-id-2>'],
+  newPassphrase,
+});
+
+if (!report.complete) {
+  // Keep the old passphrase. Rerun later: tenants already re-wrapped are skipped.
+}
+```
+
+| Method                                | Description                                                                                 |
+| ------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `keys.rewrapTenantKeys(options?)`     | Re-wraps each tenant still under the current passphrase. Safe to repeat                     |
+| `keys.purgeOldWrappers(options?)`     | Deletes noncurrent `_meta/dek.enc` versions that hold the current data key                  |
+
+| Option                | Applies to         | Default                    | Description                                                     |
+| --------------------- | ------------------ | -------------------------- | --------------------------------------------------------------- |
+| `tenantIds`           | both               | this instance's tenant     | Every tenant whose key shares the passphrase. Duplicates count once |
+| `currentPassphrase`   | `rewrapTenantKeys` | the configured passphrase  | The passphrase the stored keys open with now                    |
+| `newPassphrase`       | `rewrapTenantKeys` | the configured passphrase  | The passphrase to wrap under. Equal to the current one for a KDF-only refresh |
+| `previousPassphrases` | `purgeOldWrappers` | `[]`                       | Passphrases an old version may be wrapped under                 |
+
+`rewrapTenantKeys` resolves with `outcomes`, one per tenant in request order, `passphraseChanged`, and `complete`. Each outcome has a `tenantId` and a `status`: `rewrapped` (with `previousKdfId` and `kdfId`), `already_rewrapped`, `no_key`, `unopenable`, `busy` or `failed` (both with `detail`). `complete` is `true` when every tenant is `rewrapped`, `already_rewrapped` or `no_key`. Only then may the old passphrase be retired. One tenant failing does not stop the others, and the promise resolves rather than rejects for those per-tenant results. It rejects with `ConfigError` before touching any tenant when `newPassphrase` is shorter than 14 UTF-8 bytes. Each tenant runs under its tenant lease.
+
+`purgeOldWrappers` resolves with `outcomes` and `complete`. Each tenant outcome has a `status` of `purged`, `versions_left`, `no_key`, `current_unopenable`, `busy` or `failed`, and lists its noncurrent `versions`, each `deleted`, `retained`, `unverified`, `different_key` or `failed`. The configured passphrase must open a tenant's current wrapper, or nothing of that tenant is deleted. Only versions that unwrap to the current data key are deleted, and Object Lock governance retention is never bypassed. Each tenant runs under its tenant lease, taken as `rewrap`. See [Old wrapper versions](/security#old-wrapper-versions).
+
+The SDK never changes its own configuration. After a complete rotation, build new instances with the new passphrase.
 
 ## Graph cost tracking
 

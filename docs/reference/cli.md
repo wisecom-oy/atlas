@@ -50,7 +50,7 @@ exit "$status"
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `0`  | Success, help, or a command with no failure reported                                                                                                                                                                                                       | Continue normally.                                                                                                                                                                                                                                                                                                                  |
 | `1`  | Unexpected or unclassified failure, invalid command usage, a command-reported failure without a typed exception, or `ATLAS_WRITE_REFUSED`: Atlas refused to store a manifest, index, or cursor it built                                                    | Inspect stderr. Do not assume the failure is transient. For a refused write see [Refused and unconfirmed metadata writes](/troubleshooting#refused-and-unconfirmed-metadata-writes).                                                                                                                                                |
-| `2`  | Partial backup, restore, or save: item errors, skipped files, integrity failures, a soft interrupt, or an unmatched `--folder` or `--file-filter` value                                                                                                    | Inspect the partial result before relying on it.                                                                                                                                                                                                                                                                                    |
+| `2`  | Partial backup, restore, or save: item errors, skipped files, integrity failures, a soft interrupt, or an unmatched `--folder` or `--file-filter` value, a `keys rewrap` that left a tenant under the old passphrase, or a `keys purge-old-wrappers` that left an old wrapper | Inspect the partial result before relying on it.                                                                                                                                                                                                                                                                                    |
 | `3`  | Throttling retry budget exhausted, a recognized network error, or transient HTTP `429`, `500`, `502`, `503`, `504`                                                                                                                                         | Schedule a later attempt. A timeout does not prove a write was never committed, so inspect partial work before repeating a restore.                                                                                                                                                                                                 |
 | `4`  | `ATLAS_AUTH_DENIED`, `ATLAS_MAILBOX_NOT_LICENSED`, or an unwrapped HTTP `401` or `403`                                                                                                                                                                     | Correct credentials, permissions, admin consent, or licensing before retrying.                                                                                                                                                                                                                                                      |
 | `5`  | `ATLAS_WRONG_PASSPHRASE`: the data key would not unwrap                                                                                                                                                                                                    | Supply the original tenant passphrase. Never pad it or delete the wrapped key. If it is correct, investigate possible corruption.                                                                                                                                                                                                   |
@@ -1341,44 +1341,103 @@ When the registry is empty, the command prints `No users registered yet. Run a b
 
 ## atlas keys
 
-Manage the tenant data key. The only verb is `rewrap`.
+Manage the data keys of every tenant profile. The encryption passphrase is shared by every profile, so both verbs cover every profile's tenant by default.
 
 ```bash
-atlas keys rewrap                       # re-wrap under the configured passphrase, current KDF parameters
-atlas keys rewrap --new-passphrase      # prompt for a new passphrase, twice, with no echo
-atlas keys rewrap --new-passphrase < secret.txt   # non-interactive, for a scripted rotation
+atlas keys rewrap                         # every profile: re-wrap under the configured passphrase, current KDF parameters
+atlas keys rewrap --new-passphrase        # every profile: prompt for a new passphrase, twice, with no echo
+atlas keys rewrap --new-passphrase < new.txt                    # non-interactive rotation
+atlas keys rewrap --old-passphrase        # finish a rotation after the configured passphrase already changed
+atlas keys purge-old-wrappers --old-passphrase                  # delete the old wrappers once the rotation is done
 ```
 
-| Subcommand    | Description                                                                     |
-| ------------- | ------------------------------------------------------------------------------- |
-| `keys rewrap` | Re-wrap `_meta/dek.enc` under a new passphrase, current KDF parameters, or both |
+| Subcommand                | Description                                                                                         |
+| ------------------------- | --------------------------------------------------------------------------------------------------- |
+| `keys rewrap`             | Re-wrap `_meta/dek.enc` of every profile's tenant under a new passphrase, current KDF parameters, or both |
+| `keys purge-old-wrappers` | Delete the noncurrent versions of `_meta/dek.enc` that a re-wrap left behind                        |
 
-| Option              | Description                                                               |
-| ------------------- | ------------------------------------------------------------------------- |
-| `--new-passphrase`  | Prompt for a new passphrase. Omit it to re-wrap under the configured one. |
-| `-t, --tenant <id>` | Override the tenant ID from config                                        |
+### keys rewrap
 
-The data key does not change. Nothing in the bucket is re-encrypted, every snapshot stays readable, and the run writes one object. What changes is the wrapper. The key-encryption key (KEK) is derived again from the new passphrase and a fresh salt, under the current KDF parameters. A tenant set up with weaker scrypt parameters is brought up to date by running the command with no flags.
+| Option              | Description                                                                                                         |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `--new-passphrase`  | Prompt for a new passphrase. Omit it to re-wrap under the configured one                                            |
+| `--old-passphrase`  | Prompt for the passphrase the keys are still wrapped under. Use it when the configured passphrase already changed |
+| `-t, --tenant <id>` | Re-wrap one tenant only. With `--new-passphrase` it also needs `--allow-partial`                                    |
+| `--allow-partial`   | Allow `--tenant` to change the passphrase of one tenant while other profiles stay under the old one                |
+
+The command covers the tenant of every profile in the encrypted config store and in `atlas.config.json`, plus the tenant this run resolved. A tenant listed twice is re-wrapped once. Tenants run one after another, each under its own tenant lease, so a busy tenant is reported and skipped rather than stopping the rest.
+
+Each tenant gets one result:
+
+| Result                      | Meaning                                                                                  |
+| --------------------------- | ---------------------------------------------------------------------------------------- |
+| `re-wrapped`                | The key opened with the old passphrase and now opens with the new one                    |
+| `already re-wrapped`        | The key already opens with the new passphrase. Nothing was written                       |
+| `no key yet`                | The tenant has no bucket or no key. Its first backup creates one under the configured passphrase |
+| `neither passphrase opens it` | Nothing was written. Check the passphrase, or pass `--old-passphrase`                  |
+| `busy, skipped`             | Another operation holds the tenant or one of its owners. Nothing was written             |
+| `failed`                    | The re-wrap of that tenant stopped with the error printed below the table                |
+
+The run is complete when every tenant is `re-wrapped`, `already re-wrapped`, or `no key yet`. Only then is the old passphrase retired:
+
+| Where the passphrase came from     | What a complete run does                                                       |
+| ---------------------------------- | ------------------------------------------------------------------------------ |
+| The encrypted config store         | Writes the new passphrase there and reads it back                             |
+| `ATLAS_ENCRYPTION_PASSPHRASE`      | Writes nothing. Prints that the variable must be changed where it is defined  |
+| `atlas.config.json`                | Writes nothing. Prints the path of the file to change                         |
+
+Any other result exits `2`, writes no configuration, and names every tenant still under the old passphrase. Keep the old passphrase, fix what the table reports, and run the same command again. A rerun recognises tenants already under the new passphrase and skips them, so it only re-wraps what is left. If the configured passphrase was changed by hand before every tenant finished, run `atlas keys rewrap --old-passphrase` to move the rest to the configured one.
+
+`--tenant` with `--new-passphrase` is refused unless `--allow-partial` is given, and the refusal names the profiles that would be left behind. After the configured passphrase changes, every command for those profiles fails with exit code `5` until they are re-wrapped. A run with `--allow-partial` always exits `2` and never writes the configuration. `--tenant` without `--new-passphrase` refreshes the KDF parameters of that tenant only and needs no flag.
+
+The data key does not change. Nothing in the bucket is re-encrypted, every snapshot stays readable, and each tenant costs one object write. What changes is the wrapper. The key-encryption key (KEK) is derived again from the new passphrase and a fresh salt, under the current KDF parameters. Running the command with no flags brings tenants set up with weaker scrypt parameters up to date.
 
 ::: danger This rotates the wrapper, not the data key
-Re-wrapping answers a **leaked passphrase**. It does not answer a compromised bucket. If the data key or the plaintext has already been captured, a new passphrase does not help, because the attacker no longer needs the passphrase. Replication does not help either, since it copies ciphertext under the same key. A compromised data key requires a new bucket and a fresh backup. See [Rotating the data key](/security#rotating-the-data-key).
+Re-wrapping answers a **leaked passphrase**. It does not answer a compromised bucket. If the data key or the plaintext has already been captured, a new passphrase does not help, because the attacker no longer needs the passphrase. A compromised data key requires a new bucket and a fresh backup. See [Rotating the data key](/security#rotating-the-data-key).
 
-The re-wrap takes the tenant lease first. It exits `12` and writes nothing while any owner of the tenant has a live lease, and owner commands of the tenant exit `12` until it returns. See [Run leases](#run-leases).
+Each tenant's re-wrap takes its tenant lease first. A tenant with a live owner lease is reported as `busy, skipped`, and owner commands of a tenant exit `12` while it is re-wrapped. See [Run leases](#run-leases).
 :::
 
-::: warning The old passphrase stays valid until the replaced version expires
-Atlas buckets are versioned, and noncurrent versions expire after 30 days. A re-wrap writes a new current `_meta/dek.enc` and keeps the version it replaced. Anyone holding the old passphrase, with permission to read object versions, can still unwrap the same unchanged data key from that version until it expires. Delete the noncurrent versions of `_meta/dek.enc` where policy and Object Lock allow. Alternatively, revoke the leaked reader's `s3:GetObjectVersion` permission, which closes the window immediately.
+::: warning The old passphrase stays valid until the replaced version is gone
+Atlas buckets are versioned. A re-wrap writes a new current `_meta/dek.enc` and keeps the version it replaced, which still opens with the old passphrase. Run [`atlas keys purge-old-wrappers`](#keys-purge-old-wrappers) once the rotation is complete. See [Old wrapper versions](/security#old-wrapper-versions).
 :::
 
-The new passphrase is prompted for and confirmed, not accepted as a flag value. That keeps it out of shell history and the process table. When input is piped, the passphrase is read from stdin in full, with no confirmation step.
+Passphrases are prompted for, not accepted as flag values. That keeps them out of shell history and the process table. The new passphrase is asked twice and the old one once. When input is piped, one flag reads stdin whole. With both `--old-passphrase` and `--new-passphrase`, stdin must hold exactly two lines: the old passphrase, then the new one.
 
-The order is deliberate. Atlas first unwraps the stored key with the current passphrase, so a wrong passphrase fails before anything is written. After the write, it reads the blob back and unwraps it with the new passphrase. The run reports success only when the key that comes back matches the key that went in. A wrapper that cannot be unwrapped would make the bucket unreadable, and finding that out at the next backup is too late. Keep both passphrases until a read succeeds with the new one.
+The order is deliberate. Atlas first checks which passphrase opens each stored key, so a wrong passphrase fails before anything is written. After the write, it reads the blob back and unwraps it with the new passphrase. A tenant counts as re-wrapped only when the key that comes back matches the key that went in. A wrapper that cannot be unwrapped would make the bucket unreadable, and finding that out at the next backup is too late.
 
-After the command succeeds, update `ATLAS_ENCRYPTION_PASSPHRASE` or run `atlas config set encryption.passphrase`. Nothing reads the new value until you do.
+If `_meta/dek.enc` is under an Object Lock retention policy, the write is refused until retention expires. The tenant is reported as `failed`, with a message that the stored key is unchanged, rather than a bare access denial that looks like a credentials fault.
 
-If `_meta/dek.enc` is under an Object Lock retention policy, the write is refused until retention expires. The command reports that the stored key is unchanged, rather than returning a bare access denial that looks like a credentials fault.
+Atlas classifies a failed write by the response's HTTP status and S3 error code, never by its message text. An HTTP `412` or the `PreconditionFailed` code means another run changed `_meta/dek.enc` during the re-wrap, and the tenant fails without overwriting it. An HTTP `403` or the `AccessDenied` code gets the retention explanation above. Any other failure, such as a `500`, is reported as the storage error it is.
 
-Atlas classifies a failed write by the response's HTTP status and S3 error code, never by its message text. An HTTP `412` or the `PreconditionFailed` code means another run changed `_meta/dek.enc` during the re-wrap, and the command stops without overwriting it. An HTTP `403` or the `AccessDenied` code gets the retention explanation above. Any other failure, such as a `500`, is reported as the storage error it is.
+### keys purge-old-wrappers
+
+```bash
+atlas keys purge-old-wrappers --old-passphrase      # asks for the old passphrase, then for confirmation
+atlas keys purge-old-wrappers -y --old-passphrase < old.txt   # scripted
+```
+
+| Option              | Description                                                                                  |
+| ------------------- | -------------------------------------------------------------------------------------------- |
+| `--old-passphrase`  | Prompt for the previous passphrase, so an old version can be proven to hold the same data key |
+| `-t, --tenant <id>` | Purge one tenant only                                                                        |
+| `-y, --yes`         | Skip the confirmation. Required when the old passphrase is piped on stdin                    |
+
+The command lists the versions of `_meta/dek.enc` in each tenant bucket and deletes the noncurrent ones that hold the current data key. It never deletes the current version. Each tenant runs under its tenant lease, taken as a re-wrap.
+
+A tenant is refused, with nothing deleted, unless the configured passphrase opens its current wrapper. That proves the re-wrap finished and the configuration was switched. Each noncurrent version is unwrapped with the configured passphrase and the one given with `--old-passphrase`. Only a version that unwraps to the same data key as the current one is deleted:
+
+| Version result | Meaning                                                                                                   |
+| -------------- | --------------------------------------------------------------------------------------------------------- |
+| deleted        | It held the current data key and is gone                                                                  |
+| retained       | Object Lock or a bucket policy refused the delete. Governance retention is never bypassed                 |
+| unverified     | No supplied passphrase opens it. Rerun with `--old-passphrase`                                            |
+| different key  | It holds another data key, which may still protect retained data. It is kept                              |
+| failed         | Reading or deleting it failed. The error is printed                                                       |
+
+A storage backend whose version listing does not state which version is current gets nothing deleted, and the tenant is reported as `failed`. The command exits `0` only when no old wrapper is left in any covered bucket, and `2` otherwise.
+
+The old versions are the only way back to the old passphrase. Run the purge after the configured passphrase was switched and a backup or restore succeeded with it. Deleting versions needs `s3:ListBucketVersions`, `s3:GetObjectVersion`, and `s3:DeleteObjectVersion`.
 
 ## atlas config
 
