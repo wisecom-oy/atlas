@@ -190,4 +190,17 @@ describe('atlas keys rewrap --old-passphrase', () => {
     expect(mocks.update_secure_config).not.toHaveBeenCalled();
     expect(process.exitCode).toBeUndefined();
   });
+
+  it('treats the same value typed as old and new as retiring the configured passphrase', async () => {
+    // The pair is equal, so the use case reports no change, yet the configured OLD would be
+    // overwritten while the left-out tenant b is still wrapped under it.
+    mocks.prompt_key_passphrases.mockResolvedValue({ old: NEW, new: NEW });
+
+    await run(['--old-passphrase', '--new-passphrase', '--tenant', 'a', '--allow-partial']);
+
+    expect(process.exitCode).toBe(2);
+    expect(mocks.update_secure_config).not.toHaveBeenCalled();
+    expect(store['encryption_passphrase']).toBe(OLD);
+    expect(output.join('\n')).toMatch(/old passphrase.*: b\./);
+  });
 });

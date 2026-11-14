@@ -76,12 +76,16 @@ export async function execute_rewrap(container: Container, options: RewrapOption
 
   await render_static_view(<DataTable columns={COLUMNS} rows={report.outcomes.map(to_row)} />);
   log_failure_details(report.outcomes);
-  // Tenants left out by `--tenant` only matter when the passphrase changes: a KDF refresh of one
-  // tenant leaves the others exactly as usable as before.
-  const left_behind = report.passphrase_changed ? scope.left_out : [];
+  // Tenants left out by `--tenant` only matter when a passphrase is being retired: a KDF refresh
+  // of one tenant leaves the others exactly as usable as before. Retiring covers both the pair
+  // this run re-wrapped between and the configured value it would overwrite: typing the same
+  // value twice still replaces a configured passphrase the left-out tenants are wrapped under.
+  const retires_passphrase =
+    report.passphrase_changed || next_passphrase !== config.encryption_passphrase;
+  const left_behind = retires_passphrase ? scope.left_out : [];
   const finished = report.complete && left_behind.length === 0;
   if (!finished) {
-    report_partial_rewrap(report, left_behind);
+    report_partial_rewrap(report, left_behind, retires_passphrase);
     process.exitCode = EXIT_PARTIAL;
     return;
   }
@@ -105,12 +109,13 @@ function switch_configured_passphrase(new_passphrase: string): void {
 function report_partial_rewrap(
   report: TenantSetRewrapReport,
   left_behind: readonly string[],
+  retires_passphrase: boolean,
 ): void {
   const unsettled = report.outcomes
     .filter((o) => o.status === 'unopenable' || o.status === 'busy' || o.status === 'failed')
     .map((o) => o.tenant_id);
   const remaining = [...unsettled, ...left_behind].join(', ');
-  if (!report.passphrase_changed) {
+  if (!retires_passphrase) {
     logger.warn(`Not finished: ${remaining} kept the wrapper they had. Run the command again.`);
     return;
   }
