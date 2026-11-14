@@ -1,14 +1,11 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { StoredBlobRef, TenantContext } from '@wisecom/atlas-types';
+import type { LargeFileContent, StoredBlobRef, TenantContext } from '@wisecom/atlas-types';
+import { UnreadableContentError } from '@wisecom/atlas-types';
 import { stub_encrypted_object_store } from '@wisecom/atlas-types/testing/stub-encrypted-object-store';
-import {
-  LARGE_UPLOAD_CHUNK,
-  upload_content_to_session,
-} from '@wisecom/atlas-drive/restore/upload-session';
-import { download_and_decrypt_blob } from '@/services/restore/blob-restore';
-import { DriveDecryptAuthError } from '@wisecom/atlas-drive/restore/decrypt-auth-error';
+import { LARGE_UPLOAD_CHUNK, upload_content_to_session } from '@/restore/upload-session';
+import { DAMAGED_OBJECT_REASON, read_restore_content } from '@/restore/restore-content-read';
 
 /**
  * Issue #343: restore decrypted the whole object into memory before the first byte went to Graph,
@@ -20,6 +17,13 @@ import { DriveDecryptAuthError } from '@wisecom/atlas-drive/restore/decrypt-auth
 const UPLOAD_URL = 'https://graph.test/upload/session-1';
 const OBJECT_BYTES = 48 * 1024 * 1024;
 const SOURCE_CHUNK = 4 * 1024 * 1024;
+
+/** The content a restore would upload; fails the test when the reader refused the file. */
+async function readable_content(ctx: TenantContext, ref: StoredBlobRef): Promise<LargeFileContent> {
+  const read = await read_restore_content(ctx, ref);
+  if (read.kind !== 'readable') throw new Error(`unexpectedly unrestorable: ${read.reason}`);
+  return read.content;
+}
 
 /** Digest of what a party ended up with, which is how the two sides are compared. */
 function sha256_hex(data: Buffer): string {
@@ -151,10 +155,10 @@ describe('streamed large restore (issue #343)', { timeout: LARGE_OBJECT_TIMEOUT_
     const harness = stored_object();
     const session = stub_session(harness);
 
-    const content = await download_and_decrypt_blob(harness.ctx, harness.ref);
+    const content = await readable_content(harness.ctx, harness.ref);
     expect(Buffer.isBuffer(content)).toBe(false);
 
-    await upload_content_to_session(UPLOAD_URL, content!, harness.ref.file_name);
+    await upload_content_to_session(UPLOAD_URL, content, harness.ref.file_name);
 
     // Digests, not a deep buffer comparison: 48 MiB of element-by-element equality is minutes.
     expect(sha256_hex(Buffer.concat(session.uploaded))).toBe(sha256_hex(harness.plaintext));
@@ -170,10 +174,10 @@ describe('streamed large restore (issue #343)', { timeout: LARGE_OBJECT_TIMEOUT_
     const harness = stored_object({ wrong_checksum: true });
     const session = stub_session(harness);
 
-    const content = await download_and_decrypt_blob(harness.ctx, harness.ref);
+    const content = await readable_content(harness.ctx, harness.ref);
 
     await expect(
-      upload_content_to_session(UPLOAD_URL, content!, harness.ref.file_name),
+      upload_content_to_session(UPLOAD_URL, content, harness.ref.file_name),
     ).rejects.toThrow(/Checksum mismatch/);
 
     // Everything Graph received is still uncommitted, and the session is gone.
@@ -181,27 +185,28 @@ describe('streamed large restore (issue #343)', { timeout: LARGE_OBJECT_TIMEOUT_
     expect(session.deletes()).toBe(1);
   });
 
-  it('reports a failed authentication tag as an auth error and abandons the session', async () => {
+  it('reports a failed authentication tag as damage to this file and abandons the session', async () => {
     const harness = stored_object({ corrupt: true });
     const session = stub_session(harness);
 
-    const content = await download_and_decrypt_blob(harness.ctx, harness.ref);
+    const content = await readable_content(harness.ctx, harness.ref);
+    const upload = upload_content_to_session(UPLOAD_URL, content, harness.ref.file_name);
 
-    await expect(
-      upload_content_to_session(UPLOAD_URL, content!, harness.ref.file_name),
-    ).rejects.toBeInstanceOf(DriveDecryptAuthError);
+    // A per-file error, not the wrong-passphrase error that stopped the whole restore (#712).
+    await expect(upload).rejects.toBeInstanceOf(UnreadableContentError);
+    await expect(upload).rejects.toThrow(DAMAGED_OBJECT_REASON);
     expect(session.deletes()).toBe(1);
   });
 
   it('skips an entry the manifest cannot verify rather than restoring it unchecked', async () => {
     const harness = stored_object();
 
-    const content = await download_and_decrypt_blob(harness.ctx, {
+    const read = await read_restore_content(harness.ctx, {
       ...harness.ref,
       checksum: undefined,
     } as StoredBlobRef);
 
-    expect(content).toBeUndefined();
+    expect(read).toEqual({ kind: 'unrestorable', reason: expect.stringMatching(/no checksum/) });
   });
 
   it('refuses to commit when the source is longer than the manifest recorded', async () => {
@@ -212,13 +217,13 @@ describe('streamed large restore (issue #343)', { timeout: LARGE_OBJECT_TIMEOUT_
     const understated = 2 * LARGE_UPLOAD_CHUNK;
     const session = stub_session(harness);
 
-    const content = await download_and_decrypt_blob(harness.ctx, {
+    const content = await readable_content(harness.ctx, {
       ...harness.ref,
       size_bytes: understated,
     } as StoredBlobRef);
 
     await expect(
-      upload_content_to_session(UPLOAD_URL, content!, harness.ref.file_name),
+      upload_content_to_session(UPLOAD_URL, content, harness.ref.file_name),
     ).rejects.toThrow(/more content than the \d+ byte\(s\) recorded for it/);
 
     expect(

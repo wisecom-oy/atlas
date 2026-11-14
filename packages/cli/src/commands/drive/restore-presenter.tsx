@@ -30,8 +30,9 @@ export interface DriveRestoreSummary {
 }
 
 /**
- * Prints what a drive snapshot restore wrote and sets its exit code: errors exit 1, skips and an
- * interrupt exit 2, and an interrupted run says so instead of reporting success (issue #682).
+ * Prints what a drive snapshot restore wrote and sets its exit code. A file that failed, a skip,
+ * and an interrupt all exit 2, as Outlook restore does (issue #712), and an interrupted run says so
+ * instead of reporting success (issue #682). A run that cannot start throws a category exit.
  */
 export async function report_drive_restore(
   title: string,
@@ -56,7 +57,7 @@ export async function report_drive_restore(
   report_unmatched_file_filters(result.unmatched_file_filters);
   if (result.errors.length > 0) {
     await render_static_view(<ErrorList errors={result.errors} max={result.errors.length} />);
-    process.exitCode = 1;
+    process.exitCode = EXIT_PARTIAL;
   } else if (result.interrupted) {
     logger.warn(
       `Restore interrupted after ${result.files_restored} file(s) -- exit ${EXIT_PARTIAL}`,

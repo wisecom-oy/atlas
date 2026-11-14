@@ -31,8 +31,7 @@ import {
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
-import { download_and_decrypt } from '@/services/restore/restore-content';
-import { DriveDecryptAuthError } from '@wisecom/atlas-drive/restore/decrypt-auth-error';
+import { read_restore_content } from '@wisecom/atlas-drive/restore/restore-content-read';
 import {
   describe_unresolved_destination,
   resolve_destination_library,
@@ -297,13 +296,14 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
         return 'skipped';
       }
 
-      const content = await download_and_decrypt(ctx, entry);
-      if (!content) {
-        // The specific cause is already logged; recording it here is what makes a
-        // restore that verified nothing exit non-zero instead of reporting success.
-        errors.push(`${entry.file_name}: content unavailable or failed verification; skipped`);
+      // A damaged object fails only its own file, and the run goes on (issue #712). Recording the
+      // reason is what makes the run exit partial instead of reporting success.
+      const read = await read_restore_content(ctx, entry);
+      if (read.kind === 'unrestorable') {
+        errors.push(`${entry.file_name}: ${read.reason}; skipped`);
         return 'skipped';
       }
+      const content = read.content;
 
       // The blob reader streams anything past the small-file limit, so the shape it returned is
       // the upload to use.
@@ -336,9 +336,6 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
       );
       return 'restored';
     } catch (err) {
-      // A failed tag means the key does not fit the snapshot, which fails every remaining file
-      // too. Aborting surfaces that as a key error instead of N skipped files (issue #633).
-      if (err instanceof DriveDecryptAuthError) throw err;
       // An upload cut short by Ctrl+C is the run stopping, not a failed file (issue #682).
       if (is_active_run_cancelled()) return 'cancelled';
       const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;

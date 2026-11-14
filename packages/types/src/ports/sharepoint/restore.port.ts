@@ -40,8 +40,9 @@ export interface SharePointRestoreUseCase {
   /**
    * Restores files from a SharePoint snapshot back to the site's document libraries.
    *
-   * Rejects with WrongPassphraseError on the first object that fails AES-GCM authentication,
-   * since a key that does not fit one object fails every other one too.
+   * Rejects with WrongPassphraseError when the data key does not unwrap, before anything is
+   * written. A stored object that is missing, fails AES-GCM authentication, or mismatches its
+   * checksum is one damaged file: it is listed in `errors` and the rest are restored.
    */
   restore_sharepoint(
     tenant_id: string,

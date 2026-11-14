@@ -9,7 +9,11 @@ import { Banner } from '@/ui/components/banner';
 import { ErrorList } from '@/ui/components/error-list';
 import { KeyValueList } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
-import { report_skipped_items, report_unmatched_file_filters } from '@/command-run-outcome';
+import {
+  EXIT_PARTIAL,
+  report_skipped_items,
+  report_unmatched_file_filters,
+} from '@/command-run-outcome';
 import { confirm_output_overwrite } from '@/commands/shared/output-overwrite-guard';
 import {
   resolve_tenant_id,
@@ -60,8 +64,9 @@ export async function execute_sharepoint_save(
   if (result.integrity_failures.length > 0)
     logger.warn(`Integrity failures: ${result.integrity_failures.length}`);
   if (result.errors.length > 0) {
+    // A file that could not be read is a partial archive, the exit 2 printed above (issue #712).
     await render_static_view(<ErrorList errors={result.errors} max={result.errors.length} />);
-    process.exitCode = 1;
+    process.exitCode = EXIT_PARTIAL;
   } else {
     const size_mb = (result.total_bytes / (1024 * 1024)).toFixed(1);
     logger.success(`Saved to ${result.output_path} (${size_mb} MB)`);

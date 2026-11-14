@@ -1,14 +1,14 @@
 /**
- * Issue #633. Version restore shares the snapshot restore policy: a stored version that fails
- * AES-GCM authentication aborts the rollback as a key error instead of being skipped while every
- * other version is attempted with the same key.
+ * Issue #712, which reverses #633. Version restore shares the snapshot restore policy: a stored
+ * version that is damaged fails only its own file, and the rollback goes on. A data key that does
+ * not unwrap still stops the run before any version is read.
  */
 import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, expect, it, vi } from 'vitest';
 import { WrongPassphraseError, type TenantContext } from '@wisecom/atlas-types';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import type { DriveFileVersionIndexView, DriveFileVersionRecord } from '@/drive-ports';
-import { DriveDecryptAuthError } from '@/restore/decrypt-auth-error';
+import { DAMAGED_OBJECT_REASON } from '@/restore/restore-content-read';
 import { restore_drive_version, type DriveVersionRestoreDeps } from '@/restore/version-restore';
 import { readable_indexes } from '@wisecom/atlas-types/testing/readable-listing';
 
@@ -35,8 +35,8 @@ function index(file_id: string): DriveFileVersionIndexView {
   return { file_id, versions: [version] };
 }
 
-/** Version restore deps where the blob reader fails authentication for the named files. */
-function make_deps(failing: readonly string[]) {
+/** Version restore deps where the stored objects of the named files are damaged. */
+function make_deps(damaged: readonly string[]) {
   const ctx = { destroy: vi.fn() } as unknown as TenantContext;
   const connector = {
     upload_small_file: vi.fn().mockResolvedValue(undefined),
@@ -50,25 +50,41 @@ function make_deps(failing: readonly string[]) {
     leases: stub_owner_leases().leases,
     connector,
     list_indexes: vi.fn().mockResolvedValue(readable_indexes([index('file-1'), index('file-2')])),
-    download_blob: vi.fn(async (_ctx: TenantContext, version: DriveFileVersionRecord) => {
-      if (failing.includes(version.file_name)) throw new DriveDecryptAuthError(version.file_name);
-      return Buffer.from('content');
-    }),
+    download_blob: vi.fn(async (_ctx: TenantContext, version: DriveFileVersionRecord) =>
+      damaged.includes(version.file_name)
+        ? ({ kind: 'unrestorable', reason: DAMAGED_OBJECT_REASON } as const)
+        : ({ kind: 'readable', content: Buffer.from('content') } as const),
+    ),
     ensure_folder_path: vi.fn().mockResolvedValue('folder-1'),
   };
   return { ctx, connector, deps };
 }
 
-describe('restore_drive_version after a decrypt authentication failure', () => {
-  it('aborts with a key error before restoring the next version', async () => {
+describe('restore_drive_version past a damaged stored version (issue #712)', () => {
+  it('restores the other version and names the damaged file', async () => {
     const { ctx, connector, deps } = make_deps(['file-1.docx']);
+
+    const result = await restore_drive_version(deps, 'tenant-1', 'owner-1', { before: CUTOFF });
+
+    expect(deps.download_blob).toHaveBeenCalledTimes(2);
+    expect(connector.upload_small_file).toHaveBeenCalledTimes(1);
+    expect(result.files_restored).toBe(1);
+    expect(result.files_skipped).toBe(1);
+    expect(result.errors).toEqual([`/Documents/file-1.docx: ${DAMAGED_OBJECT_REASON}`]);
+    expect(ctx.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops with the wrong-passphrase error before reading when the key does not unwrap', async () => {
+    const { connector, deps } = make_deps([]);
+    vi.mocked(deps.tenant_factory.create_readonly).mockRejectedValueOnce(
+      new WrongPassphraseError('Could not unwrap the data key'),
+    );
 
     const restore = restore_drive_version(deps, 'tenant-1', 'owner-1', { before: CUTOFF });
 
     await expect(restore).rejects.toBeInstanceOf(WrongPassphraseError);
-    expect(deps.download_blob).toHaveBeenCalledTimes(1);
+    expect(deps.download_blob).not.toHaveBeenCalled();
     expect(connector.upload_small_file).not.toHaveBeenCalled();
-    expect(ctx.destroy).toHaveBeenCalledTimes(1);
   });
 
   it('still reports any other per-version failure as a skip', async () => {
