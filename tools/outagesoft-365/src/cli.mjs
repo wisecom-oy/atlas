@@ -5,16 +5,16 @@
  */
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { render_faults_table, render_profiles_table } from './catalog-tables.mjs';
-import { parse_run_args } from './cli-args.mjs';
-import { run_doctor } from './doctor.mjs';
+import { render_faults_table, render_profiles_table } from './cli/catalog-tables.mjs';
+import { parse_run_args } from './cli/cli-args.mjs';
+import { run_doctor } from './cli/doctor.mjs';
 import { write_compare } from './report/write-compare.mjs';
 import { write_report } from './report/write-report.mjs';
-import { run_command } from './run-command.mjs';
-import { PREREAD_BODY_CAP_BYTES } from './request-facts.mjs';
-import { newest_run_dir, tool_home } from './run-directory.mjs';
-import { run_selfcheck } from './selfcheck.mjs';
-import { as_usage_error, EXIT_INTERNAL, EXIT_USAGE, UsageError } from './tool-errors.mjs';
+import { run_command } from './run/run-command.mjs';
+import { PREREAD_BODY_CAP_BYTES } from './request/request-facts.mjs';
+import { newest_run_dir, tool_home } from './run/run-directory.mjs';
+import { run_selfcheck } from './selfcheck/selfcheck.mjs';
+import { as_usage_error, EXIT_INTERNAL, EXIT_USAGE, UsageError } from './shared/tool-errors.mjs';
 
 const USAGE = `outagesoft-365: run a command against an unreliable Microsoft Graph
 

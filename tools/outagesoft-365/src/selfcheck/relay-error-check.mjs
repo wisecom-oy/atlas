@@ -9,9 +9,9 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { open_journal } from '../journal.mjs';
-import { start_relay } from '../relay-server.mjs';
-import { encode_relay_path } from '../relay-route.mjs';
+import { open_journal } from '../relay/journal.mjs';
+import { start_relay } from '../relay/relay-server.mjs';
+import { encode_relay_path } from '../request/relay-route.mjs';
 
 /** Registers the relay-error check. */
 export async function run_relay_error_check({ work, fake, check }) {

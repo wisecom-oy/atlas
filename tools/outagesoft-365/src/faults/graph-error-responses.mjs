@@ -7,7 +7,7 @@
  * Request ids in `innerError` are random GUIDs from the fault's sub-seed, so a
  * replay sends byte-identical bodies apart from the date.
  */
-import { create_rng, rng_guid } from '../seeded-random.mjs';
+import { create_rng, rng_guid } from '../planning/seeded-random.mjs';
 
 const DRIVE_SERVICES = new Set(['onedrive', 'sharepoint', 'transfer']);
 

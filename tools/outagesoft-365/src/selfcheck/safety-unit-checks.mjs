@@ -9,17 +9,21 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { normalize_url } from '../../../graph-tap/redact.mjs';
-import { exit_code_for } from '../child-process.mjs';
-import { parse_run_args } from '../cli-args.mjs';
-import { fault_applies, get_fault } from '../fault-catalog.mjs';
-import { plan_fault } from '../fault-planner.mjs';
+import { exit_code_for } from '../run/child-process.mjs';
+import { parse_run_args } from '../cli/cli-args.mjs';
+import { fault_applies, get_fault } from '../faults/fault-catalog.mjs';
+import { plan_fault } from '../planning/fault-planner.mjs';
 import { build_error_response } from '../faults/graph-error-responses.mjs';
-import { create_identity_ordinals } from '../identity-ordinals.mjs';
-import { classify_service, is_m365_host } from '../m365-hosts.mjs';
-import { get_profile, total_rate } from '../profiles.mjs';
-import { base_identity, compose_identity, content_range_start } from '../request-identity.mjs';
-import { find_project_root } from '../run-directory.mjs';
-import { request_rng } from '../seeded-random.mjs';
+import { create_identity_ordinals } from '../request/identity-ordinals.mjs';
+import { classify_service, is_m365_host } from '../request/m365-hosts.mjs';
+import { get_profile, total_rate } from '../planning/profiles.mjs';
+import {
+  base_identity,
+  compose_identity,
+  content_range_start,
+} from '../request/request-identity.mjs';
+import { find_project_root } from '../run/run-directory.mjs';
+import { request_rng } from '../planning/seeded-random.mjs';
 import { TENANT_CONTENT } from './journal-assertions.mjs';
 
 const G1 = '11111111-2222-3333-4444-555555555555';
@@ -214,7 +218,7 @@ export async function run_safety_unit_checks(check) {
   });
   await check('concurrent first runs agree on one identity key', async () => {
     const home = mkdtempSync(join(tmpdir(), 'outagesoft-365-key-'));
-    const store = new URL('../identity-key-store.mjs', import.meta.url).href;
+    const store = new URL('../run/identity-key-store.mjs', import.meta.url).href;
     const source = `const { load_or_create_identity_key } = await import(${JSON.stringify(store)});
       process.stdout.write(load_or_create_identity_key(${JSON.stringify(home)}).toString('hex'));`;
     const keys = await Promise.all(

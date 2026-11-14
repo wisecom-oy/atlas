@@ -8,7 +8,7 @@
  * response and then decides not to apply must still forward every byte.
  */
 import { performance } from 'node:perf_hooks';
-import { deliver_chunk, end_response, exchange_sleep, write_head } from '../exchange.mjs';
+import { deliver_chunk, end_response, exchange_sleep, write_head } from '../relay/exchange.mjs';
 
 /** Largest response a fault may hold in memory (mutations, reordering, unknown-length truncation). */
 export const BUFFER_CAP_BYTES = 4 * 1024 * 1024;

@@ -12,8 +12,8 @@ import {
   deliver_chunk,
   exchange_sleep,
   write_head,
-} from '../exchange.mjs';
-import { client_response_headers } from '../upstream-forwarder.mjs';
+} from '../relay/exchange.mjs';
+import { client_response_headers } from '../relay/upstream-forwarder.mjs';
 import {
   buffer_body,
   make_throttle,

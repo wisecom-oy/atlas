@@ -11,10 +11,10 @@
  * Choices that need randomness (which items, how many) come from the fault's
  * recorded sub-seed, so a replay mutates the same items.
  */
-import { decode_content, is_json_content_type } from '../body-encoding.mjs';
-import { send_response } from '../exchange.mjs';
-import { create_rng, rng_guid } from '../seeded-random.mjs';
-import { client_response_headers } from '../upstream-forwarder.mjs';
+import { decode_content, is_json_content_type } from '../relay/body-encoding.mjs';
+import { send_response } from '../relay/exchange.mjs';
+import { create_rng, rng_guid } from '../planning/seeded-random.mjs';
+import { client_response_headers } from '../relay/upstream-forwarder.mjs';
 import { buffer_body, send_buffered_then_rest } from './response-streaming.mjs';
 
 /** Fault ids implemented here. */

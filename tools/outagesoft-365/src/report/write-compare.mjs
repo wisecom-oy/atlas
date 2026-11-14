@@ -7,9 +7,13 @@
  * report every changed delta token as a lost item.
  */
 import { basename, join, resolve } from 'node:path';
-import { journal_path, stream_journal } from './journal-reader.mjs';
-import { compare_censuses, compare_refusal, create_identity_census } from './compare-model.mjs';
-import { render_compare_markdown, render_compare_terminal } from './render-compare.mjs';
+import { journal_path, stream_journal } from './journal/journal-reader.mjs';
+import {
+  compare_censuses,
+  compare_refusal,
+  create_identity_census,
+} from './analysis/compare-model.mjs';
+import { render_compare_markdown, render_compare_terminal } from './render/render-compare.mjs';
 import { write_file_atomically } from './write-report.mjs';
 
 async function take_census(run_dir) {

@@ -3,19 +3,19 @@
  * Fast and deterministic; they run before the end-to-end scenarios.
  */
 import assert from 'node:assert/strict';
-import { parse_run_args } from '../cli-args.mjs';
-import { parse_duration } from '../duration.mjs';
-import { FAULTS } from '../fault-catalog.mjs';
-import { plan_fault } from '../fault-planner.mjs';
-import { classify_kind, classify_service, is_m365_host } from '../m365-hosts.mjs';
-import { parse_outage_spec } from '../outage-schedule.mjs';
-import { validate_profile } from '../profile-file.mjs';
-import { decode_relay_path, encode_relay_path } from '../relay-route.mjs';
-import { is_idempotent, request_cursor, base_identity } from '../request-identity.mjs';
-import { effective_rates } from '../run-plan.mjs';
-import { request_rng } from '../seeded-random.mjs';
+import { parse_run_args } from '../cli/cli-args.mjs';
+import { parse_duration } from '../shared/duration.mjs';
+import { FAULTS } from '../faults/fault-catalog.mjs';
+import { plan_fault } from '../planning/fault-planner.mjs';
+import { classify_kind, classify_service, is_m365_host } from '../request/m365-hosts.mjs';
+import { parse_outage_spec } from '../planning/outage-schedule.mjs';
+import { validate_profile } from '../planning/profile-file.mjs';
+import { decode_relay_path, encode_relay_path } from '../request/relay-route.mjs';
+import { is_idempotent, request_cursor, base_identity } from '../request/request-identity.mjs';
+import { effective_rates } from '../run/run-plan.mjs';
+import { request_rng } from '../planning/seeded-random.mjs';
 import { build_error_response } from '../faults/graph-error-responses.mjs';
-import { redact_request_url } from '../journal.mjs';
+import { redact_request_url } from '../relay/journal.mjs';
 import { DEFAULT_HOSTS } from '../../../graph-tap/redact.mjs';
 
 const BASE_PLAN = {

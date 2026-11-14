@@ -33,7 +33,9 @@ export const MAX_PARAM_LEN = 160;
 
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const GUID_ANYWHERE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
-const EMAIL = /[A-Za-z0-9._%+-]+(?:@|%40)[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+// The local part is bounded so a long run of its characters with no `@` cannot
+// make the scan quadratic. 256 covers a 64-character local part fully percent-encoded.
+const EMAIL = /[A-Za-z0-9._%+-]{1,256}(?:@|%40)[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const SINGLE_QUOTED = /'(?:[^']|'')*'/g;
 const DOUBLE_QUOTED = /"[^"]*"/g;
 

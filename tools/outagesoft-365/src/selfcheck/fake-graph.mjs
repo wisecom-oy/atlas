@@ -12,6 +12,9 @@ import { gzipSync } from 'node:zlib';
 /** Text present in every fake response body; must never appear in any output file. */
 export const BODY_MARKER = 'BODY_CONTENT_MARKER_7f3a';
 
+/** Upper bound on the `?delay=` a request may ask for, so a response timer is never unbounded. */
+const MAX_DELAY_MS = 10_000;
+
 /** A Graph-like collection page with three items and a nextLink. */
 function collection_page() {
   return JSON.stringify({
@@ -62,7 +65,8 @@ export async function start_fake_graph() {
     });
     req.on('end', () => {
       const url = new URL(req.url, 'http://fake');
-      const delay = Number(url.searchParams.get('delay') ?? 0);
+      const requested_delay = Number(url.searchParams.get('delay')) || 0;
+      const delay = Math.min(Math.max(requested_delay, 0), MAX_DELAY_MS);
       setTimeout(() => {
         let body = Buffer.from(body_for(req.url));
         const headers = { 'content-type': 'application/json; charset=utf-8' };

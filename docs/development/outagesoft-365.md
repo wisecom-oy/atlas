@@ -637,18 +637,23 @@ following the repository's public-data rules.
 
 ## Files
 
-| Path                                                                                            | Purpose                                                                                   |
-| ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `tools/outagesoft-365/outagesoft-365`                                                           | Shell entry point                                                                         |
-| `tools/outagesoft-365/src/cli.mjs`                                                              | Command dispatch: `run`, `report`, `compare`, `profiles`, `faults`, `doctor`, `selfcheck` |
-| `tools/outagesoft-365/src/preload.mjs`, `preload-node-https.mjs`                                | The `fetch` and `node:https` re-routes                                                    |
-| `tools/outagesoft-365/src/relay-server.mjs`                                                     | The relay: token check, classification, planning, execution, journaling                   |
-| `tools/outagesoft-365/src/fault-catalog*.mjs`, `faults/`                                        | Fault definitions and their wire shapes                                                   |
-| `tools/outagesoft-365/src/profiles.mjs`                                                         | Built-in profiles                                                                         |
-| `tools/outagesoft-365/src/request-identity.mjs`, `identity-ordinals.mjs`, `replay-schedule.mjs` | Identity keys, page and session ordinals, and replay                                      |
-| `tools/outagesoft-365/src/report/`                                                              | Report, verdicts, and `compare`                                                           |
-| `tools/outagesoft-365/src/selfcheck.mjs`, `selfcheck/`                                          | End-to-end check against a local fake Graph                                               |
-| `tools/graph-tap/redact.mjs`                                                                    | URL redaction shared with graph-tap                                                       |
+Paths are relative to `tools/outagesoft-365/`.
+
+| Path                                      | Purpose                                                                                                                  |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `outagesoft-365`                          | Shell entry point                                                                                                        |
+| `src/cli.mjs`                             | Command dispatch: `run`, `report`, `compare`, `profiles`, `faults`, `doctor`, `selfcheck`                                |
+| `src/cli/`                                | Argument parsing, the `profiles` and `faults` tables, and `doctor`                                                       |
+| `src/run/`                                | One run: the plan, the run directory, the child process, and the identity key                                            |
+| `src/preload/`                            | The `fetch` and `node:https` re-routes loaded into the child                                                             |
+| `src/relay/`                              | The relay: token check, fault execution, upstream forwarding, and the journal                                            |
+| `src/request/`                            | Host allowlist, service classification, relay routing, and request identity keys                                         |
+| `src/planning/`                           | Profiles, outage windows, the seeded fault decision, and replay                                                          |
+| `src/faults/`                             | Fault catalog and the wire shape of each fault                                                                           |
+| `src/report/`                             | `report` and `compare`: `journal/` reads a run, `analysis/` builds the model, `verdicts/` judges it, `render/` prints it |
+| `src/selfcheck/`, `src/report/selfcheck/` | End-to-end check against a local fake Graph, and the report checks                                                       |
+| `src/shared/`                             | Duration parsing and tool errors                                                                                         |
+| `tools/graph-tap/redact.mjs`              | URL redaction shared with graph-tap (repository path)                                                                    |
 
 ## Verify after changing the tool
 

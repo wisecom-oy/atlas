@@ -7,11 +7,11 @@
  */
 import { chmod, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { journal_path, read_run_info, stream_journal } from './journal-reader.mjs';
-import { assemble_report_model } from './report-model.mjs';
-import { create_first_pass, create_second_pass } from './report-passes.mjs';
-import { render_markdown } from './render-markdown.mjs';
-import { render_terminal } from './render-terminal.mjs';
+import { journal_path, read_run_info, stream_journal } from './journal/journal-reader.mjs';
+import { assemble_report_model } from './analysis/report-model.mjs';
+import { create_first_pass, create_second_pass } from './analysis/report-passes.mjs';
+import { render_markdown } from './render/render-markdown.mjs';
+import { render_terminal } from './render/render-terminal.mjs';
 
 /**
  * Writes a file through a temporary sibling and a rename, with mode 0600 like the engine's own

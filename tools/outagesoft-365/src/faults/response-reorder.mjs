@@ -9,8 +9,8 @@
  * comes first. The timeout matters: with no concurrent traffic nothing could
  * ever overtake it, and two held responses would otherwise wait on each other.
  */
-import { exchange_sleep } from '../exchange.mjs';
-import { client_response_headers } from '../upstream-forwarder.mjs';
+import { exchange_sleep } from '../relay/exchange.mjs';
+import { client_response_headers } from '../relay/upstream-forwarder.mjs';
 import { buffer_body, send_buffered_then_rest } from './response-streaming.mjs';
 
 /** Creates the relay-wide reorder gate. */
