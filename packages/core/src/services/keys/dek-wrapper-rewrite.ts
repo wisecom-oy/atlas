@@ -59,7 +59,7 @@ export async function rewrite_wrapper(
     }
 
     const written = await storage.get_with_etag(DEK_KEY);
-    await settle_written_wrapper(storage, { stored, written, rewrapped }, keys, tenant_id);
+    await settle_written_wrapper(storage, lease, { stored, written, rewrapped }, keys, tenant_id);
     await assert_rewrap_opens(written.data, keys.next, tenant_id, dek);
 
     logger.info(`Re-wrapped the data key for ${tenant_id}; no data object was touched`);
@@ -85,6 +85,7 @@ interface WrittenState {
  */
 async function settle_written_wrapper(
   storage: ObjectStorage,
+  lease: HeldOwnerLease,
   state: WrittenState,
   keys: WrapperKeys,
   tenant_id: string,
@@ -97,6 +98,11 @@ async function settle_written_wrapper(
   );
   if (verdict === 'foreign') throw new DekWrapperChangedError(DEK_KEY, undefined);
   if (verdict === 'unusable') {
+    // A run whose lease lapsed may be looking at a wrapper a newer run, holding the lease now,
+    // wrote under a third passphrase. Rolling that back would undo a finished rotation, so a lost
+    // lease leaves the blob as it is and the run fails with OwnerLeaseLostError. The check is in
+    // memory and narrows the window rather than closing it.
+    lease.assert_held();
     // Nobody can open what is there, so putting the previous wrapper back is strictly an
     // improvement. Conditional on its ETag, so a writer arriving in between still wins.
     await restore_previous_wrapper(storage, state, keys.current, tenant_id);
