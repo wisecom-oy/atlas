@@ -18,18 +18,12 @@ import {
   erase_leased_owner_scopes,
   run_owner_erasure,
 } from '@/services/deletion/shared/leased-owner-deletion';
+import { sweep_tenant_bucket } from '@/services/deletion/shared/tenant-purge-sweep';
+import { run_with_owner_lease } from '@/services/lease/run-with-owner-lease';
 import { logger } from '@/utils/logger';
 import { quarantined_copies_of } from '@/services/quarantine/stored-object-quarantine';
 import { assert_outlook_snapshot_is_newest } from '@/services/deletion/outlook-snapshot-order-guard';
 
-/**
- * The wrapped DEK, deleted last so a blocked purge stays recoverable.
- *
- * Held back as this exact key, not as the whole `_meta/` prefix: replica markers
- * and replication status records share that tree and are themselves encrypted
- * with the DEK, so they have to go before the key that reads them.
- */
-const DEK_KEY = '_meta/dek.enc';
 const OUTLOOK_MANIFEST_POINTER_PREFIX = '_meta/outlook-manifests';
 
 /** The mailbox's delta cursor, written by `S3MailboxDeltaCursorRepository`. */
@@ -163,17 +157,18 @@ export class DeletionService implements DeletionUseCase {
    * The DEK goes last and only if nothing survived: dropping the key while its
    * ciphertext is still retained would leave data that can neither be restored
    * nor claimed erased.
+   *
+   * Takes the tenant lease before the first write, so it is refused with
+   * `OwnerBusyError` while any owner of the tenant has a live lease, and while
+   * a re-wrap runs (issue #739). The lease is released at the end, on failure too.
    */
   async purge_tenant(tenant_id: string): Promise<DeletionResult> {
-    const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
-
-    const data = await delete_scopes(storage, [''], [DEK_KEY]);
-    if (has_survivors(data)) {
-      logger.error('Tenant purge left objects behind; keeping the DEK so they stay recoverable.');
-      return data;
-    }
-
-    const dek = await delete_scopes(storage, [DEK_KEY]);
-    return merge_deletion_results(data, dek);
+    const ctx = await this._tenant_factory.create_storage_only(tenant_id);
+    return run_with_owner_lease(
+      this._leases,
+      ctx,
+      { workload: 'tenant', owner_id: tenant_id, operation: 'purge' },
+      (lease) => sweep_tenant_bucket(ctx.storage, lease),
+    );
   }
 }

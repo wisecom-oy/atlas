@@ -90,8 +90,14 @@ export async function erase_leased_owner_scopes(
   return result;
 }
 
-/** Removes every version of the lease object; a failure is logged and the lease expires instead. */
-async function erase_lease_versions(storage: DeletionStorage, lease_key: string): Promise<void> {
+/**
+ * Removes every version of a lease object, the one a purge holds included; a failure is logged
+ * and the lease expires instead.
+ */
+export async function erase_lease_versions(
+  storage: DeletionStorage,
+  lease_key: string,
+): Promise<void> {
   try {
     await delete_scopes(storage, [lease_key]);
   } catch (err) {
