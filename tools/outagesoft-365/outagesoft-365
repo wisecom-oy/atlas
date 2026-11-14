@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+#
+# outagesoft-365: run a command against an unreliable Microsoft Graph.
+#
+# A thin wrapper; everything lives in src/cli.mjs. Run `outagesoft-365 help`.
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "outagesoft-365: node is required (>= 22.22.2) but not installed" >&2
+  exit 1
+fi
+
+exec node "$DIR/src/cli.mjs" "$@"

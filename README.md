@@ -117,7 +117,7 @@ pnpm run lint            # eslint
 pnpm run docs:dev        # local docs site
 ```
 
-Developer tooling lives in [`tools/`](./tools): CPU profiling for the backup and restore pipelines, Graph request tracing, and a diagnostics dump for bug reports.
+Developer tooling lives in [`tools/`](./tools): CPU profiling for the backup and restore pipelines, Graph request tracing, Graph fault injection, and a diagnostics dump for bug reports.
 
 ## Contributing
 
