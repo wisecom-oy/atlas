@@ -150,7 +150,7 @@ describe('OneDriveVersionRestoreService', () => {
 
     expect(result.files_restored).toBe(0);
     expect(result.files_skipped).toBe(1);
-    expect(result.errors[0]).toMatch(/could not be read or verified/);
+    expect(result.errors[0]).toMatch(/does not match its recorded SHA-256 checksum/);
     // Nothing may reach the live drive when the bytes cannot be trusted.
     expect(mocks.connector.upload_small_file).not.toHaveBeenCalled();
   });

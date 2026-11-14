@@ -174,10 +174,9 @@ async function report_version_restore(
 
   if (result.interrupted) logger.warn('Run was interrupted before every version was restored.');
 
-  // Same contract as snapshot restore: skips exit 2, errors exit 1, and errors win. A scripted
+  // Same contract as snapshot restore: a failed version, a skip and an interrupt exit 2. A scripted
   // rollback could not tell a clean run from a total failure while this exited 0 either way
   // (issue #362).
   report_skipped_items(result.files_skipped, 'File');
-  if (result.interrupted) process.exitCode = EXIT_PARTIAL;
-  if (result.errors.length > 0) process.exitCode = 1;
+  if (result.interrupted || result.errors.length > 0) process.exitCode = EXIT_PARTIAL;
 }

@@ -28,7 +28,7 @@ import type {
 } from '@/drive-ports';
 import { select_versions_to_restore, type SelectedVersion } from '@/versioning/version-selection';
 import { build_restored_file_name, split_parent_path } from '@/versioning/version-placement';
-import { DriveDecryptAuthError } from '@/restore/decrypt-auth-error';
+import type { RestoreContentRead } from '@/restore/restore-content-read';
 
 /** The upload surface of a drive connector; both provider connectors satisfy it structurally. */
 export interface DriveUploadConnector {
@@ -65,11 +65,11 @@ export interface DriveVersionRestoreDeps {
     ctx: TenantContext,
     owner_id: string,
   ) => Promise<ReadableVersionIndexListing<DriveFileVersionIndexView>>;
-  /** Reads a stored version blob, verifying it, or returns undefined when it cannot be trusted. */
+  /** Reads a stored version blob, verifying it, or says why it cannot be restored. */
   readonly download_blob: (
     ctx: TenantContext,
     version: DriveFileVersionRecord,
-  ) => Promise<LargeFileContent | undefined>;
+  ) => Promise<RestoreContentRead>;
   /** Resolves or creates the folder chain the restored file goes into, within one drive. */
   readonly ensure_folder_path: (
     tenant_id: string,
@@ -254,10 +254,9 @@ async function restore_one_version(
   const { version, original_path } = candidate;
   const drive_id = version.drive_id;
   try {
-    const content = await deps.download_blob(ctx, version);
-    if (!content) {
-      return { error: `${original_path}: stored version could not be read or verified` };
-    }
+    const read = await deps.download_blob(ctx, version);
+    if (read.kind === 'unrestorable') return { error: `${original_path}: ${read.reason}` };
+    const content = read.content;
 
     const { parent_path } = split_parent_path(original_path);
     const parent_id = await deps.ensure_folder_path(
@@ -321,8 +320,6 @@ async function restore_one_version(
       },
     };
   } catch (err) {
-    // Same policy as snapshot restore: a failed tag is a key error, not a per-version skip (#633).
-    if (err instanceof DriveDecryptAuthError) throw err;
     // An upload cut short by Ctrl+C is the run stopping, not a failed version (issue #682).
     if (is_active_run_cancelled()) return { cancelled: true };
     const msg = `${original_path}: ${err instanceof Error ? err.message : String(err)}`;

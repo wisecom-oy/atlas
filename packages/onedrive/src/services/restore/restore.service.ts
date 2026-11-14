@@ -31,8 +31,7 @@ import {
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
-import { download_and_decrypt_blob } from '@/services/restore/blob-restore';
-import { DriveDecryptAuthError } from '@wisecom/atlas-drive/restore/decrypt-auth-error';
+import { read_restore_content } from '@wisecom/atlas-drive/restore/restore-content-read';
 import {
   select_drive_entries,
   with_unmatched_file_filters,
@@ -241,17 +240,13 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
         return { restored: false, error: `Could not create folder path: ${target_path}` };
       }
 
-      const content = await download_and_decrypt_blob(ctx, entry);
-      if (!content) {
-        // The specific cause is already logged; recording it here is what makes a restore that
-        // wrote nothing exit non-zero instead of counting a missing blob as a quiet skip. The
-        // SharePoint twin has always done this, so the same event used to exit 2 here and 1
-        // there (issue #358).
-        return {
-          restored: false,
-          error: `${entry.file_name}: content unavailable or failed verification; skipped`,
-        };
+      // A damaged object fails only its own file, and the run goes on (issue #712). Recording the
+      // reason is what makes the run exit partial instead of counting it as a quiet skip (#358).
+      const read = await read_restore_content(ctx, entry);
+      if (read.kind === 'unrestorable') {
+        return { restored: false, error: `${entry.file_name}: ${read.reason}; skipped` };
       }
+      const content = read.content;
 
       // The blob reader streams anything past the small-file limit, so the shape it returned is
       // the upload to use.
@@ -282,9 +277,6 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       logger.info(`Restored: ${target_path}/${placement.file_name}`);
       return { restored: true };
     } catch (err) {
-      // A failed tag means the key does not fit the snapshot, which fails every remaining file
-      // too. Aborting surfaces that as a key error instead of N skipped files (issue #633).
-      if (err instanceof DriveDecryptAuthError) throw err;
       // An upload cut short by Ctrl+C is the run stopping, not a failed file (issue #682).
       if (is_active_run_cancelled()) return { restored: false, cancelled: true };
       const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;

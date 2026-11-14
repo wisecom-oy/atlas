@@ -66,14 +66,14 @@ describe('drive restore-version exit codes', () => {
       { from: 'user' },
     );
 
-  it('exits 1 when a version restore failed', async () => {
+  it('exits partial when a version restore failed, as snapshot restore does (issue #712)', async () => {
     restore_version.mockResolvedValue(
       make_result({ files_restored: 0, errors: ['/Report.docx: content missing from storage'] }),
     );
 
     await run();
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(EXIT_PARTIAL);
   });
 
   it('exits partial when files were skipped without errors', async () => {
@@ -84,14 +84,14 @@ describe('drive restore-version exit codes', () => {
     expect(process.exitCode).toBe(EXIT_PARTIAL);
   });
 
-  it('reports an error over a skip when both happened', async () => {
+  it('exits partial when a skip and a failed version both happened', async () => {
     restore_version.mockResolvedValue(
       make_result({ files_skipped: 1, errors: ['/Budget.xlsx: upload refused'] }),
     );
 
     await run();
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(EXIT_PARTIAL);
   });
 
   it('leaves a clean rollback at 0', async () => {

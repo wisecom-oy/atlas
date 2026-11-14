@@ -38,8 +38,9 @@ export interface OneDriveRestoreUseCase {
   /**
    * Restores files from a OneDrive snapshot to the target user's drive.
    *
-   * Rejects with WrongPassphraseError on the first object that fails AES-GCM authentication,
-   * since a key that does not fit one object fails every other one too.
+   * Rejects with WrongPassphraseError when the data key does not unwrap, before anything is
+   * written. A stored object that is missing, fails AES-GCM authentication, or mismatches its
+   * checksum is one damaged file: it is listed in `errors` and the rest are restored.
    */
   restore_onedrive(
     tenant_id: string,

@@ -100,7 +100,7 @@ atlas onedrive restore -o user@example.com -s od-snap-123 \
 | `replace`          | Overwrites the existing file                                   |
 | `fail`             | Skips the file and logs an error                               |
 
-Restored files keep their original created and modified timestamps. Each file is decrypted and checked against its SHA-256 checksum before upload. A file whose stored bytes do not match the manifest is reported as a restore error, is not created, and makes the run exit non-zero.
+Restored files keep their original created and modified timestamps. Each file is decrypted and checked against its SHA-256 checksum before upload. A file whose stored object is missing, fails AES-GCM authentication, or does not match the manifest is reported as a restore error with the reason and is not created. The rest of the snapshot is restored, and the run exits `2`. A wrong passphrase stops the run with exit `5` before anything is written.
 
 Ctrl+C stops a restore at once when it lands in a Graph retry or throttle wait. A write already sent to Graph is never cut off, because Graph may have committed it: a file up to 4 MiB is one request, and a larger file's final chunk is the request that creates it, so that request finishes and the file counts as restored if Graph accepted it. A larger file stopped before its final chunk is not created, and its upload session is deleted. The command prints the files restored so far and exits `2`, and a file stopped before it was written is not reported as failed. A second Ctrl+C exits at once with status `130` and skips this, so a file whose upload was in flight may or may not exist: check the destination before retrying, especially with `--in-place`. `restore-version` behaves the same way.
 

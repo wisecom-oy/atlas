@@ -197,7 +197,9 @@ The authentication tag on an encrypted object does not match its contents. There
 
 The affected items cannot be decrypted in any of these cases. The other items in the snapshot are unaffected.
 
-A OneDrive or SharePoint restore stops at the first such object with `Atlas code: ATLAS_WRONG_PASSPHRASE` and exit code `5`, rather than skipping it and moving on. With a wrong key every object fails, and a run of skipped files would read as a partial restore instead of a key problem. Files restored before the stop stay in the target. Once verify has confirmed that only a few objects are damaged, restore the rest with `--file-filter`.
+An Outlook, OneDrive, or SharePoint restore skips such an object, lists the item with the reason, restores the rest, and exits `2`. For OneDrive and SharePoint the reason reads `stored object failed AES-GCM authentication: it was damaged or altered in storage`. A wrong passphrase is reported differently: the data key does not unwrap, and the run stops with `ATLAS_WRONG_PASSPHRASE` and exit `5` before it writes anything. A restore only reads content objects after the snapshot's manifests have decrypted under the same key, so one object that fails its tag is damage to that object, not a wrong key.
+
+Restore an item from an earlier snapshot whose copy of it is intact, or extract what remains with `save`.
 
 ## Object Lock errors
 
