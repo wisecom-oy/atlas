@@ -8,7 +8,7 @@ Bugs whose regression guard lives better elsewhere are named at the bottom of th
 faked here.
 
 Numbered 35 on purpose: after the workload suites, so their blobs exist to be tampered with, and
-before `test_40_replication.py`, which purges primary and rehydrates only what it replicated.
+before `test_90_purge`, which empties the bucket.
 """
 
 from __future__ import annotations

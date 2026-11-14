@@ -17,8 +17,6 @@ Each suite is a lifecycle — every step depends on the previous one:
   streaming restore instead of the small-file path.
 - **Regression guards** (`test_35`): one case per shipped bug that only reproduces against real
   infrastructure.
-- **Disaster recovery** (`test_40`): replicate to the replica MinIO → purge primary → rehydrate →
-  verify the recovered data decrypts.
 - **Workload deletion** (`test_85`): `onedrive delete` and `sharepoint delete` drop one snapshot
   manifest, keep the shared blobs, and leave the other workloads' objects untouched.
 - **Purge** (`test_90`): `delete --purge` must leave an empty bucket.
@@ -36,7 +34,7 @@ Two rules keep results trustworthy:
 ## Adding a test
 
 - **New assertion on an existing workload**: one function in the matching `tests/test_*.py`, using
-  the existing fixtures (`cli`, `graph`, `s3`, `s3_replica`, `settings`, `run_marker`, `exports`).
+  the existing fixtures (`cli`, `graph`, `s3`, `settings`, `run_marker`, `exports`).
 - **New workload**: one `tests/test_*.py` plus seed/probe helpers in `atlas_e2e/`.
 - Anything created must carry `run_marker` in its name, or teardown will not find it.
 - Prefer Graph state and S3 keys over CLI output; never parse the Ink tables (they wrap — #94).
@@ -52,7 +50,7 @@ Two rules keep results trustworthy:
 
 ```bash
 pnpm run build                                             # the suite runs dist/cli.mjs, not src
-docker compose -f e2e/docker-compose.e2e.yml up -d --wait  # MinIO on 9000 (+ replica on 9002)
+docker compose -f e2e/docker-compose.e2e.yml up -d --wait  # MinIO on 9000
 
 cd e2e
 export E2E_TENANT_ID=...              # Entra tenant GUID

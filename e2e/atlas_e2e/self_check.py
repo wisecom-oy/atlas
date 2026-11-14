@@ -30,7 +30,6 @@ _FAKE = Settings(
     passphrase="passphrase-44444444",
     mailbox="john.doe@example.com",
     s3_endpoint="http://127.0.0.1:9000",
-    s3_replica_endpoint="http://127.0.0.1:9002",
     s3_access_key="access-55555555",
     s3_secret_key="secretkey-66666666",
     s3_region="us-east-1",
