@@ -7,7 +7,12 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { delete_scopes, type DeletionStorage } from '@/services/deletion/shared/prefix-deleter';
+import {
+  delete_scopes,
+  has_survivors,
+  type DeletionStorage,
+} from '@/services/deletion/shared/prefix-deleter';
+import { holds_lease } from '@/services/lease/holds-lease';
 import { run_with_owner_lease } from '@/services/lease/run-with-owner-lease';
 import { logger } from '@/utils/logger';
 
@@ -86,20 +91,47 @@ export async function erase_leased_owner_scopes(
 ): Promise<DeletionResult> {
   lease.assert_held();
   const result = await delete_scopes(storage, scopes, [lease.storage_key]);
-  await erase_lease_versions(storage, lease.storage_key);
+  await erase_lease_if_held(storage, lease);
   return result;
 }
 
 /**
- * Removes every version of a lease object, the one a purge holds included; a failure is logged
- * and the lease expires instead.
+ * Removes the lease's versions only while the run still holds the lease. A run that lost it skips
+ * this, because the key may already belong to a successor whose lease this would erase.
+ */
+export async function erase_lease_if_held(
+  storage: DeletionStorage,
+  lease: HeldOwnerLease,
+): Promise<void> {
+  if (holds_lease(lease)) {
+    await erase_lease_versions(storage, lease.storage_key);
+    return;
+  }
+  logger.warn(
+    `Lease at ${lease.storage_key} was lost before it was erased; it is left in place for its successor.`,
+  );
+}
+
+/**
+ * Removes every version of a lease object, the one a purge holds included. A failure is logged
+ * and the lease expires instead, and so does a version that survives the removal.
  */
 export async function erase_lease_versions(
   storage: DeletionStorage,
   lease_key: string,
 ): Promise<void> {
   try {
-    await delete_scopes(storage, [lease_key]);
+    const result = await delete_scopes(storage, [lease_key]);
+    if (has_survivors(result)) {
+      const survivors =
+        result.retained_objects +
+        result.retained_manifests +
+        result.failed_objects +
+        result.failed_manifests;
+      logger.warn(
+        `${survivors} version(s) of the lease at ${lease_key} survived its removal; the lease expires on its own.`,
+      );
+    }
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     logger.warn(`Could not remove the versions of the lease at ${lease_key}: ${reason}`);

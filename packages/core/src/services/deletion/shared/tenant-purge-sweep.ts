@@ -1,5 +1,5 @@
 import type { DeletionResult, HeldOwnerLease } from '@wisecom/atlas-types';
-import { erase_lease_versions } from '@/services/deletion/shared/leased-owner-deletion';
+import { erase_lease_if_held } from '@/services/deletion/shared/leased-owner-deletion';
 import {
   delete_scopes,
   has_survivors,
@@ -34,7 +34,7 @@ export async function sweep_tenant_bucket(
   const result = has_survivors(data)
     ? keep_dek_after_survivors(data)
     : await delete_dek_after_clean_sweep(storage, lease, data);
-  await erase_lease_versions(storage, lease.storage_key);
+  await erase_lease_if_held(storage, lease);
   return result;
 }
 

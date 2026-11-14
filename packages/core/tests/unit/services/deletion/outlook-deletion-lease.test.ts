@@ -59,7 +59,8 @@ describe('Outlook deletion under the mailbox lease (issue #623)', () => {
     await service.delete_mailbox_data('t', 'User@Test.com');
 
     expect(leases.requests).toEqual([LEASE]);
-    expect(leases.events).toEqual(['acquire', 'assert', 'release']);
+    // Checked before the first delete, and again before the lease object is erased.
+    expect(leases.events).toEqual(['acquire', 'assert', 'assert', 'release']);
     expect(factory.create).not.toHaveBeenCalled();
   });
 
