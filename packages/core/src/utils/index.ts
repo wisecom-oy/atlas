@@ -18,6 +18,7 @@ export {
   unknown_profile_message,
 } from './tenant-profiles';
 export type { StoredConfig, TenantProfile } from './tenant-profiles';
+export { GRAPH_ENV_VARS, find_overridden_fields } from './graph-env-overrides';
 export {
   read_secure_config,
   update_secure_config,
