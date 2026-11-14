@@ -11,7 +11,7 @@ export type { GraphServiceLimits, OperationCost, ServicePoolCost } from '@/publi
 /** Requested Object Lock protection, as a caller writes it: `{ mode, retentionDays }`. */
 export type ObjectLockRequest = Camelize<InternalObjectLockRequest>;
 
-/** Physical usage of a tenant bucket or replica, as `getStorageUsage` returns it. */
+/** Physical usage of a tenant bucket, as `getStorageUsage` returns it. */
 export type StorageUsage = Camelize<InternalStorageUsage>;
 
 /** Counts for one workload or owner within a `StorageUsage`. */
