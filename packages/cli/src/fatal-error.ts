@@ -17,9 +17,9 @@ const ATLAS_EXIT_CODES = {
   ATLAS_CONFIG_INVALID: 6,
   // Written by a newer Atlas: rerunning cannot help, upgrading does. Same category as unreadable.
   ATLAS_FORMAT_UNSUPPORTED: 9,
-  // The destination holds a different data key that may protect existing backups. Every rerun is
-  // refused the same way until an operator purges that bucket (issue #659).
-  ATLAS_KEY_CONFLICT: 10,
+  // Exit 10 belonged to ATLAS_KEY_CONFLICT, which only `rehydrate` raised and which went with it
+  // (#769). It stays unassigned: the codes after it keep their numbers, and a script that branched
+  // on 10 never matches a different failure.
   // Newer snapshots depend on the one asked for. Rerunning is refused the same way until they are
   // deleted first, so it is an operator decision, not a retry (issue #704).
   ATLAS_SNAPSHOT_NOT_NEWEST: 11,

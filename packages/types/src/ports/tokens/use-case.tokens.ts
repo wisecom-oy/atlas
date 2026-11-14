@@ -10,7 +10,6 @@ export const STATS_USE_CASE_TOKEN = Symbol.for('StatsUseCase');
 export const STORAGE_USAGE_USE_CASE_TOKEN = Symbol.for('StorageUsageUseCase');
 export const STATUS_USE_CASE_TOKEN = Symbol.for('StatusUseCase');
 export const TENANT_ORCHESTRATOR_TOKEN = Symbol.for('TenantBackupOrchestrator');
-export const REPLICATION_USE_CASE_TOKEN = Symbol.for('ReplicationUseCase');
 export const ONEDRIVE_BACKUP_USE_CASE_TOKEN = Symbol.for('OneDriveBackupUseCase');
 export const ONEDRIVE_CATALOG_USE_CASE_TOKEN = Symbol.for('OneDriveCatalogUseCase');
 export const ONEDRIVE_VERIFICATION_USE_CASE_TOKEN = Symbol.for('OneDriveVerificationUseCase');
@@ -21,12 +20,10 @@ export const SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN = Symbol.for(
   'SharePointSiteTreeBackupUseCase',
 );
 export const SHAREPOINT_VERIFICATION_USE_CASE_TOKEN = Symbol.for('SharePointVerificationUseCase');
-export const SHAREPOINT_REPLICATION_USE_CASE_TOKEN = Symbol.for('SharePointReplicationUseCase');
 export const SHAREPOINT_RESTORE_USE_CASE_TOKEN = Symbol.for('SharePointRestoreUseCase');
 export const SHAREPOINT_SAVE_USE_CASE_TOKEN = Symbol.for('SharePointSaveUseCase');
 export const SHAREPOINT_CATALOG_USE_CASE_TOKEN = Symbol.for('SharePointCatalogUseCase');
 export const ONEDRIVE_DELETION_USE_CASE_TOKEN = Symbol.for('OneDriveDeletionUseCase');
-export const ONEDRIVE_REPLICATION_USE_CASE_TOKEN = Symbol.for('OneDriveReplicationUseCase');
 export const ONEDRIVE_STATUS_USE_CASE_TOKEN = Symbol.for('OneDriveStatusUseCase');
 export const SHAREPOINT_DELETION_USE_CASE_TOKEN = Symbol.for('SharePointDeletionUseCase');
 export const SHAREPOINT_STATUS_USE_CASE_TOKEN = Symbol.for('SharePointStatusUseCase');

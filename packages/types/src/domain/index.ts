@@ -1,6 +1,5 @@
 export * from './shared';
 export type * from './outlook';
-export * from './replication';
 export type * from './stats';
 export type * from './onedrive';
 export type * from './contacts';
