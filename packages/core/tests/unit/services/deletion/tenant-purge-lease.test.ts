@@ -81,19 +81,15 @@ describe('purge under the tenant lease', () => {
   it('holds the lease during the sweep: an owner backup started mid-sweep is refused', async () => {
     let owner_attempt: unknown;
     let attempted = false;
-    let bucket: LeaseHarness | undefined;
     const { service, h } = purge_rig((inner) => ({
       delete: async (key: string) => {
         if (!attempted && key === DATA) {
           attempted = true;
-          owner_attempt = await bucket!.leases
-            .acquire(bucket!.ctx, OUTLOOK_BACKUP)
-            .catch((e: unknown) => e);
+          owner_attempt = await h.leases.acquire(h.ctx, OUTLOOK_BACKUP).catch((e: unknown) => e);
         }
         return inner.delete(key);
       },
     }));
-    bucket = h;
 
     await service.purge_tenant(TENANT);
 

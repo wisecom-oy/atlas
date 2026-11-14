@@ -55,21 +55,19 @@ describe('re-wrapping the tenant key under the tenant lease', () => {
   });
 
   it('refuses an owner backup that starts while the wrapper is being written', async () => {
-    let harness: LeaseHarness | undefined;
     let owner_attempt: unknown;
     let attempted = false;
     const rig = await rewrap_rig((inner) => ({
       put: async (key, data, metadata, policy, if_match, if_none_match) => {
         if (key === DEK_KEY && !attempted) {
           attempted = true;
-          owner_attempt = await harness!.leases
-            .acquire(harness!.ctx, OUTLOOK_BACKUP)
+          owner_attempt = await rig.h.leases
+            .acquire(rig.h.ctx, OUTLOOK_BACKUP)
             .catch((e: unknown) => e);
         }
         return inner.put(key, data, metadata, policy, if_match, if_none_match);
       },
     }));
-    harness = rig.h;
 
     await rig.service.rewrap_tenant_dek(TENANT, NEW_PASSPHRASE);
 
