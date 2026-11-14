@@ -174,7 +174,7 @@ Atlas stores the data key wrapped by the passphrase in the bucket at `_meta/dek.
 2. Run [`atlas keys rewrap --new-passphrase`](/reference/cli#keys-rewrap). It re-wraps the tenant of every profile, because they all share the passphrase.
 3. When it exits `0`, the new passphrase is already in the encrypted config store if it came from there. Otherwise set `ATLAS_ENCRYPTION_PASSPHRASE`, or the value in `atlas.config.json`, as the command prints.
 
-Atlas checks which passphrase opens each key before it writes, and reads the new wrapper back after. A tenant reported as `failed` may still hold its previous wrapper or the new one, depending on where it stopped: the error says which, and [Rewrapping the passphrase](/security#rewrapping-the-passphrase) lists the cases.
+Atlas checks which passphrase opens each key before it writes, and reads the new wrapper back after. A tenant reported as `failed` may hold its previous wrapper, the new one, or, after a failed restore, a wrapper in an unknown state. The error does not always say which. Before rerunning, check which passphrase opens the tenant's current `_meta/dek.enc`: a read-only command against that tenant exits `5` when the configured passphrase does not open it, so try it under each passphrase in turn. [Rewrapping the passphrase](/security#rewrapping-the-passphrase) lists the cases.
 
 ### One profile fails after a passphrase change
 

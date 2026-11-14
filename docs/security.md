@@ -61,7 +61,7 @@ The order of operations protects each tenant. Atlas checks which passphrase open
 
 | Stored after the write | What Atlas does |
 | --- | --- |
-| A wrapper that opens with neither passphrase | Restores the previous wrapper with a conditional write, confirms it opens, and reports the failure. If the restore or its check fails, the error says so, and the stored wrapper stays unopenable until a working one is put back |
+| A wrapper that opens with neither passphrase | Restores the previous wrapper with a conditional write, confirms it opens, and reports the failure. If the restore or its check fails, the error says so, and the stored wrapper is in an unknown state: the restore may have landed, or another run may have written in between. Check which passphrase opens it before running anything else against the tenant |
 | A wrapper that opens with either passphrase but is not the one this run wrote | Leaves it in place and reports that another run changed the key. That wrapper belongs to the other run |
 | This run's wrapper, but it does not unwrap to the same key | Reports the failure without a restore. The new wrapper stays current |
 
