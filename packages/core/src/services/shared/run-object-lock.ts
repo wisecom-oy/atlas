@@ -139,6 +139,11 @@ export class ObjectLockingStorage implements ObjectStorage {
     return this._inner.delete_version(key, version_id);
   }
 
+  /** Reads one object version, when the wrapped storage can. */
+  get get_version(): ObjectStorage['get_version'] {
+    return this._inner.get_version?.bind(this._inner);
+  }
+
   /** Probes bucket immutability readiness. */
   probe_immutability(
     request?: StorageImmutabilityProbeRequest,

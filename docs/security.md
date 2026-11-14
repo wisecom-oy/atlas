@@ -42,7 +42,7 @@ The wrapped DEK sits next to the data with its KDF parameters in plaintext. Anyo
 Byte length is a floor, not an entropy guarantee. For production, use at least five random words or 20 random characters.
 
 ::: danger A lost passphrase cannot be recovered
-There is no recovery path. Without the passphrase the DEK cannot be unwrapped, and every backup for that tenant is permanently unreadable. Changing `ATLAS_ENCRYPTION_PASSPHRASE` without re-wrapping the stored key causes authentication failures on the next run. Run `atlas keys rewrap --new-passphrase` first, and change the configured value only after it succeeds. Store the passphrase in a password manager or a secrets vault, with a second copy kept offline.
+There is no recovery path. Without the passphrase the DEK cannot be unwrapped, and every backup for that tenant is permanently unreadable. Changing `ATLAS_ENCRYPTION_PASSPHRASE` without re-wrapping the stored keys causes authentication failures on the next run. Change it with `atlas keys rewrap --new-passphrase`, which re-wraps every profile first. See [Rotation procedure](#rotation-procedure). Store the passphrase in a password manager or a secrets vault, with a second copy kept offline.
 :::
 
 The SDK's `validate()` method checks S3 `HeadBucket` access on the tenant bucket, unwraps the existing `_meta/dek.enc` with the configured passphrase when one exists, and acquires a Graph token. A wrong passphrase fails with `WrongPassphraseError`. A tenant with no key yet passes that step. It writes nothing and does not confirm that writes are permitted or that Graph consent is in place.
@@ -53,17 +53,61 @@ The SDK's `validate()` method checks S3 `HeadBucket` access on the tenant bucket
 atlas keys rewrap --new-passphrase
 ```
 
-`atlas keys rewrap` derives a new KEK and rewrites `_meta/dek.enc` under it. The DEK inside is unchanged, so no data objects are re-encrypted and every snapshot stays readable. It is a single object write regardless of tenant size.
+`atlas keys rewrap` derives a new KEK and rewrites `_meta/dek.enc` under it, for the tenant of every profile. The DEK inside is unchanged, so no data objects are re-encrypted and every snapshot stays readable. It is one small object write per tenant regardless of tenant size.
 
 The command rotates the wrapper, not the key. It defeats a leaked passphrase, because whoever holds the old one can no longer open the current wrapper. It does not help against someone who already has the DEK or plaintext decrypted with it. For that case, see [Rotating the data key](#rotating-the-data-key).
 
-The order of operations protects the tenant. Atlas unwraps the stored key with the current passphrase before writing anything. After the write, it reads the blob back, unwraps it with the new passphrase, and compares the result with the key it wrote. If verification fails, it restores the previous wrapper and confirms that it still opens before reporting the error. Keep both passphrases until a read succeeds with the new one.
+The order of operations protects each tenant. Atlas checks which passphrase opens the stored key before writing anything. After the write, it reads the blob back, unwraps it with the new passphrase, and compares the result with the key it wrote. What happens when that check fails depends on what is stored:
 
-::: warning Revocation is not immediate on a versioned bucket
-Atlas enables bucket versioning and expires noncurrent versions after 30 days. A re-wrap does not remove the previous `_meta/dek.enc` version. Until that version expires, anyone holding the old passphrase and `s3:GetObjectVersion` can still unwrap the DEK.
+| Stored after the write | What Atlas does |
+| --- | --- |
+| A wrapper that opens with neither passphrase | Restores the previous wrapper with a conditional write, confirms it opens, and reports the failure. If the restore or its check fails, the error says so, and the stored wrapper is in an unknown state: the restore may have landed, or another run may have written in between. Check which passphrase opens it before running anything else against the tenant |
+| A wrapper that opens with either passphrase but is not the one this run wrote | Leaves it in place and reports that another run changed the key. That wrapper belongs to the other run |
+| This run's wrapper, but it does not unwrap to the same key | Reports the failure without a restore. The new wrapper stays current |
 
-Treat a re-wrap as complete only after the old version is gone. Delete the noncurrent versions of `_meta/dek.enc` explicitly where policy and Object Lock allow it. Otherwise, revoke the leaked principal's `s3:GetObjectVersion`, which closes the window immediately.
+A read-back request that fails is reported as the storage error it is, without a restore. A run that lost its tenant lease before a restore fails with `ATLAS_OWNER_BUSY` and does not restore, because the wrapper it would replace may belong to a newer run that holds the lease now.
+
+### Why every profile is re-wrapped
+
+The passphrase is a shared setting. Every tenant profile's key is wrapped under it, each with its own salt. Re-wrapping one tenant and then changing the configured passphrase leaves every other profile wrapped under the old one: those tenants then fail with `ATLAS_WRONG_PASSPHRASE` on every command, and the old passphrase must be kept to open them, which defeats the rotation.
+
+So the command covers every profile, and it switches the configured passphrase only when every tenant is either re-wrapped or has no key yet. A run that leaves any tenant behind exits `2`, changes no configuration, and names those tenants. Rerunning it finishes the job: a tenant already under the new passphrase is detected by unwrapping, and skipped. `--tenant` narrows a passphrase change to one tenant only together with `--allow-partial`.
+
+### Rotation procedure
+
+1. **Re-wrap every profile.** Run `atlas keys rewrap --new-passphrase` when no backup is scheduled. Each tenant takes its tenant lease, so a tenant with a running operation is reported `busy, skipped`. Rerun until the command exits `0`.
+2. **Switch the configured passphrase.** A complete run stores the new passphrase in the encrypted config store when that is where the passphrase came from. When it came from `ATLAS_ENCRYPTION_PASSPHRASE` or `atlas.config.json`, the command changes nothing there and prints where to change it. Change it in every place that runs Atlas: schedulers, CI secrets, other hosts. If some tenants were missed and the configured value already changed, `atlas keys rewrap --old-passphrase` moves them from the old passphrase to the configured one.
+3. **Prove the new passphrase.** Run a backup or a restore of each tenant with the new configuration.
+4. **Remove the old wrappers.** Run `atlas keys purge-old-wrappers --old-passphrase`. See [Old wrapper versions](#old-wrapper-versions).
+5. **Cover copies Atlas does not manage.** A bucket replicated by the storage provider, an export of `_meta/dek.enc`, or a backup of the bucket each holds its own copy. See below.
+6. **Retire the old passphrase** from password managers and vaults only after the steps above, and after a wider look at what else it protected.
+
+### Old wrapper versions
+
+Atlas creates buckets with versioning on and expires noncurrent versions after 30 days. A re-wrap does not remove the previous `_meta/dek.enc` version, and that version still opens with the old passphrase. Until it is gone, anyone holding the old passphrase and `s3:GetObjectVersion` on the bucket can unwrap the unchanged DEK. The 30-day rule only exists on buckets Atlas created and where the lifecycle request succeeded, so do not rely on it.
+
+```bash
+atlas keys purge-old-wrappers --old-passphrase
+```
+
+The purge refuses a tenant unless the configured passphrase opens its current wrapper, so it cannot run before the configuration is switched. It deletes a noncurrent version only when that version unwraps to the same DEK as the current one. A version holding a different DEK is kept, because it may still protect data an Object Lock retains. A version no supplied passphrase opens is kept and reported. The current version is never deleted. A backend whose version listing does not name exactly one current version gets nothing deleted. A bucket whose `_meta/dek.enc` has no current version, for example behind a delete marker, has no key to compare against, so its old versions are reported as left and kept.
+
+Deleting the old versions removes the way back to the old passphrase. Run the purge only after a backup or restore succeeded with the new one.
+
+::: warning When old versions cannot be deleted
+Object Lock refuses to delete a version under COMPLIANCE retention until its retain-until date passes, and under GOVERNANCE retention unless the caller sends a bypass that Atlas never sends. The purge reports such versions as `retained` and exits `2`. Until they expire, close the window another way:
+
+- Deny `s3:GetObjectVersion` on `_meta/dek.enc` to every principal that does not need it. A reader without it cannot fetch the old version.
+- Rotate the S3 access keys that the leaked passphrase may have travelled with. The old wrapper is useless to someone who cannot read the bucket.
+- If neither is possible, treat the DEK as exposed for the retention period and plan a [data key rotation](#rotating-the-data-key).
 :::
+
+### Copies outside the bucket
+
+The re-wrap and the purge act on the buckets Atlas opens with its configured endpoint. Other copies of `_meta/dek.enc` keep whatever wrapper they were made with.
+
+- **Provider-side bucket replication** copies the re-wrapped `_meta/dek.enc` to the replica, but not the purge of old versions. See [Replicas](#replicas).
+- **Bucket backups, exports and snapshots** of the storage system carry the old wrapper for as long as they are kept. Expire them, or restrict who can read them.
 
 ## Rotating the data key
 
@@ -164,10 +208,12 @@ A replica made by your storage provider or a copy tool holds the same ciphertext
 
 | Risk | Effect | Mitigation |
 | --- | --- | --- |
-| Passphrase leaks | Every replica is readable by whoever also holds its S3 keys | Rotate with `atlas keys rewrap`; the new wrapper reaches the replica as a new version. Delete old `_meta/dek.enc` versions on the replica too, because a versioned replica keeps them |
+| Passphrase leaks | Every replica is readable by whoever also holds its S3 keys | Rotate with `atlas keys rewrap`; the new wrapper reaches the replica as a new version. Purge the old `_meta/dek.enc` versions on the replica too, as described below |
 | Primary S3 keys stolen | The attacker can delete on the primary | Separate replica credentials, delete-marker replication off, Object Lock on the replica bucket |
 | Replica S3 keys stolen | The attacker reads ciphertext only, and can delete unless Object Lock prevents it | Read-only keys for the Atlas host; Object Lock retention |
 | A backup pointed at the replica | Writes fork the history | Give the Atlas host read-only keys on the replica, so the first write fails |
+
+A versioned replica keeps the old wrappers after a rotation. AWS S3 replication never replicates the deletion of a specific version, so a version `atlas keys purge-old-wrappers` deletes on the primary stays on the replica. Other providers differ, so check yours. Run `atlas keys purge-old-wrappers --old-passphrase` against the replica as well, by pointing `ATLAS_S3_ENDPOINT` and the S3 credentials at it for that run; add `-y` when the old passphrase is piped on stdin. This works when the replica bucket has the same `atlas-<tenant-id>` name. The run writes its tenant lease and deletes versions there, so it needs write credentials for that one run, not the read-only keys the Atlas host keeps for the replica. Otherwise rely on a noncurrent-version lifecycle rule on the replica and accept the window it leaves.
 
 Atlas 6 wrote replication status records under `_meta/replication/`, encrypted with the data key, and a plaintext `_meta/replica.marker` on each replica. Atlas 7 ignores both. See [Legacy Atlas 6 objects](/operations/replication#legacy-atlas-6-objects).
 
@@ -513,6 +559,7 @@ Atlas separates read and write storage access, so an operator who only browses n
 | Storage usage: `stats storage`                                                                                                                                                                                                     | Read-only actions plus `s3:ListBucketVersions`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts` | None         |
 | Restore and save: `restore`, `restore-version`, `save`                                                                                                                                                                             | Read-only actions. The writes go to Microsoft 365 or a local file, not to the bucket                           | None         |
 | Delete: `delete`, `keys rewrap`                                                                                                                                                                                                      | Read-only actions plus `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`                             | None         |
+| Old key wrappers: `keys purge-old-wrappers`                                                                                                                                                                                        | Delete actions plus `s3:ListBucketVersions`, `s3:GetObjectVersion`                                                           | None         |
 | Provisioning: `backup`, `teams backup`                                                                                                                                                                                              | All of the above plus `s3:CreateBucket` and lifecycle or lock configuration                                    | Yes          |
 
 Only the provisioning row creates a bucket or writes `_meta/dek.enc`. Every other command fails with `No backups found for tenant <id>` (exit `7`) when the tenant has no bucket, or, for commands that decrypt, no data key. A mistyped tenant ID or profile therefore leaves nothing behind.

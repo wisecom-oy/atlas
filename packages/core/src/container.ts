@@ -3,6 +3,8 @@ import {
   CATALOG_USE_CASE_TOKEN,
   DELETION_USE_CASE_TOKEN,
   DEK_REWRAP_USE_CASE_TOKEN,
+  OLD_WRAPPER_PURGE_USE_CASE_TOKEN,
+  TENANT_SET_REWRAP_USE_CASE_TOKEN,
   VERIFICATION_USE_CASE_TOKEN,
   STATS_USE_CASE_TOKEN,
   STORAGE_USAGE_USE_CASE_TOKEN,
@@ -22,6 +24,8 @@ import { SharePointDeletionService } from '@/services/deletion/sharepoint-deleti
 import { VerificationService } from '@/services/verification/verification.service';
 import { StatsService } from '@/services/stats/stats.service';
 import { StorageUsageService } from '@/services/stats/storage-usage.service';
+import { TenantSetRewrapService } from '@/services/keys/tenant-set-rewrap.service';
+import { OldWrapperPurgeService } from '@/services/keys/old-wrapper-purge.service';
 
 export function bind_core_services(container: Container): void {
   container.bind<OwnerLeasePort>(OWNER_LEASE_TOKEN).toConstantValue(new StorageOwnerLeases());
@@ -31,6 +35,10 @@ export function bind_core_services(container: Container): void {
   container.bind(DELETION_USE_CASE_TOKEN).toService(DeletionService);
   container.bind(DekRewrapService).toSelf();
   container.bind(DEK_REWRAP_USE_CASE_TOKEN).toService(DekRewrapService);
+  container.bind(TenantSetRewrapService).toSelf();
+  container.bind(TENANT_SET_REWRAP_USE_CASE_TOKEN).toService(TenantSetRewrapService);
+  container.bind(OldWrapperPurgeService).toSelf();
+  container.bind(OLD_WRAPPER_PURGE_USE_CASE_TOKEN).toService(OldWrapperPurgeService);
   container.bind(OneDriveDeletionService).toSelf();
   container
     .bind<OneDriveDeletionUseCase>(ONEDRIVE_DELETION_USE_CASE_TOKEN)

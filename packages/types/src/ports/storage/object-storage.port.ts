@@ -22,6 +22,12 @@ export interface StorageObjectVersion {
   readonly key: string;
   readonly version_id: string;
   readonly is_delete_marker: boolean;
+  /**
+   * True for the version a plain GET returns, false for a noncurrent one, and absent when the
+   * listing did not say. Anything that deletes only noncurrent versions must test for `false`,
+   * so an adapter that leaves it out deletes nothing.
+   */
+  readonly is_latest?: boolean;
 }
 
 export interface MultipartUploadHandle {
@@ -83,6 +89,12 @@ export interface ObjectStorage {
 
   /** Deletes a specific object version or delete marker. */
   delete_version(key: string, version_id: string): Promise<void>;
+
+  /**
+   * Reads one specific version of an object. Optional: an adapter without it cannot serve a
+   * caller that must inspect old versions, and that caller refuses rather than guessing.
+   */
+  readonly get_version?: ((key: string, version_id: string) => Promise<Buffer>) | undefined;
 
   /** Validates bucket immutability readiness for optional lock policy. */
   probe_immutability(

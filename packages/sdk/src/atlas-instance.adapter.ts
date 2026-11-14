@@ -25,6 +25,7 @@ import { NotFoundError, type TenantContextFactory } from '@wisecom/atlas-types';
 import { create_outlook_api } from '@/outlook-api.factory';
 import { create_onedrive_api } from '@/onedrive-api.factory';
 import { create_contacts_api } from '@/contacts-api.factory';
+import { create_keys_api } from '@/keys-api.factory';
 import { create_calendar_api } from '@/calendar-api.factory';
 import { create_sharepoint_api } from '@/sharepoint-api.factory';
 import { create_teams_api } from '@/teams-api.factory';
@@ -69,6 +70,7 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
     teams: scoped(create_teams_api(tenant_id, container)),
     contacts: scoped(create_contacts_api(tenant_id, container)),
     calendar: scoped(create_calendar_api(tenant_id, container)),
+    keys: scoped(create_keys_api(tenant_id, atlas_config.encryption_passphrase, container)),
 
     async validate() {
       await validate_instance(container, tenant_id);

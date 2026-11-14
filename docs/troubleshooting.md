@@ -171,10 +171,18 @@ This error has the code `ATLAS_WRONG_PASSPHRASE`. Check that `ATLAS_ENCRYPTION_P
 Atlas stores the data key wrapped by the passphrase in the bucket at `_meta/dek.enc`. Changing the passphrase without re-wrapping that key makes the data unreadable. To change it safely:
 
 1. Keep the current passphrase configured.
-2. Run [`atlas keys rewrap --new-passphrase`](/reference/cli#atlas-keys).
-3. Set `ATLAS_ENCRYPTION_PASSPHRASE` to the new value.
+2. Run [`atlas keys rewrap --new-passphrase`](/reference/cli#keys-rewrap). It re-wraps the tenant of every profile, because they all share the passphrase.
+3. When it exits `0`, the new passphrase is already in the encrypted config store if it came from there. Otherwise set `ATLAS_ENCRYPTION_PASSPHRASE`, or the value in `atlas.config.json`, as the command prints.
 
-Atlas checks that the new wrapper opens before it replaces the old one, so a failed rewrap changes nothing.
+Atlas checks which passphrase opens each key before it writes, and reads the new wrapper back after. A tenant reported as `failed` may hold its previous wrapper, the new one, or, after a failed restore, a wrapper in an unknown state. The error does not always say which. Before rerunning, check which passphrase opens the tenant's current `_meta/dek.enc`: a read-only command against that tenant exits `5` when the configured passphrase does not open it, so try it under each passphrase in turn. [Rewrapping the passphrase](/security#rewrapping-the-passphrase) lists the cases.
+
+### One profile fails after a passphrase change
+
+When one profile works and another fails with `ATLAS_WRONG_PASSPHRASE` after a passphrase change, the failing tenant's key is still wrapped under the old passphrase. That happens when the configured value was changed by hand, or an older Atlas re-wrapped one tenant only. Run `atlas keys rewrap --old-passphrase` and type the old passphrase: every tenant still under it is moved to the configured one, and tenants already moved are skipped.
+
+### Re-wrap exits 2
+
+`atlas keys rewrap` exits `2` when some tenant was not re-wrapped: busy, failed, or opened by neither passphrase. The table names each one, and the configuration is unchanged. Keep the old passphrase, fix the cause, and run the same command again. See [keys rewrap](/reference/cli#keys-rewrap).
 
 ### Damaged key
 

@@ -27,6 +27,65 @@ export async function prompt_new_passphrase(): Promise<string> {
   return first;
 }
 
+/** The passphrases a key command asked for. Each is present only when its flag was given. */
+export interface KeyCommandPassphrases {
+  readonly old?: string;
+  readonly new?: string;
+}
+
+/**
+ * Reads the old passphrase, the new one, or both, without echo.
+ *
+ * A terminal asks for each in turn: the old one once, since a typo there only fails to open
+ * anything, and the new one twice. Piped stdin with one flag is read whole, as
+ * {@link prompt_new_passphrase} does. Piped stdin with both flags must hold exactly two lines,
+ * the old passphrase first.
+ *
+ * @throws Error when an answer is empty, the two new answers differ, or piped stdin does not
+ *   hold one line per requested passphrase.
+ */
+export async function prompt_key_passphrases(wanted: {
+  readonly old: boolean;
+  readonly new: boolean;
+}): Promise<KeyCommandPassphrases> {
+  if (!wanted.old && !wanted.new) return {};
+  if (!process.stdin.isTTY && wanted.old && wanted.new) return read_two_piped_passphrases();
+  const old_passphrase = wanted.old ? await prompt_old_passphrase() : undefined;
+  const new_passphrase = wanted.new ? await prompt_new_passphrase() : undefined;
+  return {
+    ...(old_passphrase !== undefined ? { old: old_passphrase } : {}),
+    ...(new_passphrase !== undefined ? { new: new_passphrase } : {}),
+  };
+}
+
+/** Reads the passphrase the stored keys are still wrapped under, once. */
+async function prompt_old_passphrase(): Promise<string> {
+  if (!process.stdin.isTTY) {
+    const piped = readFileSync(0, 'utf-8').replace(/\r?\n$/, '');
+    if (piped.length === 0) {
+      throw new Error('No old passphrase on stdin. Pipe one in, or run the command interactively.');
+    }
+    return piped;
+  }
+  const answer = await ask_hidden('Old passphrase: ');
+  if (answer.length === 0) throw new Error('The old passphrase cannot be empty.');
+  return answer;
+}
+
+/** Splits piped stdin into the old passphrase and the new one, one per line. */
+function read_two_piped_passphrases(): KeyCommandPassphrases {
+  const lines = readFileSync(0, 'utf-8')
+    .replace(/\r?\n$/, '')
+    .split(/\r?\n/);
+  if (lines.length !== 2 || lines.some((line) => line.length === 0)) {
+    throw new Error(
+      'With --old-passphrase and --new-passphrase, stdin must hold exactly two non-empty lines: ' +
+        'the old passphrase, then the new one. Nothing was changed.',
+    );
+  }
+  return { old: lines[0]!, new: lines[1]! };
+}
+
 /** Prompts on a TTY with echo suppressed. */
 async function ask_hidden(prompt: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
