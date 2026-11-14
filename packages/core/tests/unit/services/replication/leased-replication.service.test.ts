@@ -59,7 +59,10 @@ function harness(): Harness {
     tenant_factory: {
       create: vi.fn(async () => bucket.ctx),
       create_readonly,
-      create_storage_only: vi.fn(async () => ({ storage: bucket.ctx.storage })),
+      create_storage_only: vi.fn(async () => ({
+        tenant_id: bucket.ctx.tenant_id,
+        storage: bucket.ctx.storage,
+      })),
     },
     manifests: { find_by_snapshot, list_all_manifests } as never,
     leases: new StorageOwnerLeases({
