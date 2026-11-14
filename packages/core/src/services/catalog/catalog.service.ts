@@ -3,7 +3,12 @@ import { inject, injectable } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { Manifest, ManifestEntry, OutlookSnapshotSummary } from '@wisecom/atlas-types';
-import type { MailboxSummary, ReadMessageResult, CatalogUseCase } from '@wisecom/atlas-types';
+import type {
+  CatalogUseCase,
+  MailboxSummary,
+  OutlookSnapshotListing,
+  ReadMessageResult,
+} from '@wisecom/atlas-types';
 import {
   TENANT_CONTEXT_FACTORY_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
@@ -18,6 +23,7 @@ import {
 import { return_or_raise_partial } from '@/services/shared/unreadable-object-report';
 import { merge_snapshot_entries } from '@/services/shared/manifest-entry-merger';
 import { build_mailbox_summaries } from '@/services/catalog/mailbox-summary-builder';
+import { count_objects_by_snapshot } from '@/services/catalog/snapshot-object-count';
 
 @injectable()
 export class CatalogService implements CatalogUseCase {
@@ -66,7 +72,7 @@ export class CatalogService implements CatalogUseCase {
 
   /**
    * Lists a mailbox's snapshots from its summary index, newest first, decrypting only manifests
-   * the index has no row for (#625).
+   * the index has no row for (#625). Each carries the message count of its merged chain (#711).
    *
    * @throws UnreadableObjectsError naming each rowless manifest that could not be read, with the
    *   summaries in `partial_result`.
@@ -74,12 +80,13 @@ export class CatalogService implements CatalogUseCase {
   async list_snapshot_summaries(
     tenant_id: string,
     owner_id: string,
-  ): Promise<OutlookSnapshotSummary[]> {
+  ): Promise<OutlookSnapshotListing[]> {
     owner_id = normalize_owner_id(owner_id);
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const listing = await this._manifests.list_snapshot_summaries(ctx, owner_id);
-      return return_or_raise_partial(listing.unreadable_keys, listing.summaries);
+      const listings = with_object_counts(listing.summaries);
+      return return_or_raise_partial(listing.unreadable_keys, listings);
     } finally {
       ctx.destroy();
     }
@@ -146,4 +153,15 @@ export class CatalogService implements CatalogUseCase {
     }
     return resolve_message_ref(chain[0]!, merge_snapshot_entries(chain), ref);
   }
+}
+
+/** Adds to each summary row the message count of the chain it heads. */
+function with_object_counts(
+  summaries: readonly OutlookSnapshotSummary[],
+): OutlookSnapshotListing[] {
+  const counts = count_objects_by_snapshot(summaries);
+  return summaries.map((summary) => ({
+    ...summary,
+    object_count: counts.get(summary.snapshot_id) ?? 0,
+  }));
 }

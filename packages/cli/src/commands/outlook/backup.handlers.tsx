@@ -97,11 +97,12 @@ async function backup_single_mailbox(
   );
   if (result === undefined) return;
   // A run cancelled before it read any folder reports a placeholder snapshot that was never stored.
+  // The count is the snapshot's merged chain, the figure verify, restore and save report (#711).
   if (result.snapshot_stored !== false) {
     logger.success(
       `Snapshot ${result.snapshot.id} -- ` +
-        `${result.manifest.total_objects} objects, ` +
-        format_bytes(result.manifest.total_size_bytes),
+        `${result.snapshot.object_count} objects ` +
+        `(${format_bytes(result.manifest.total_size_bytes)} captured by this run)`,
     );
   }
   report_excluded_folders(result.summary.excluded_folders);

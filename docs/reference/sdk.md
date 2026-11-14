@@ -258,7 +258,7 @@ Method names mirror the CLI: `atlas outlook backup` maps to `atlas.outlook.backu
 
 `deleteSnapshot` rejects with `SnapshotNotNewestError` (`ATLAS_SNAPSHOT_NOT_NEWEST`) when newer snapshots of the mailbox exist, because they are built on the one named and would lose the messages it recorded. `err.snapshot_id` names the refused snapshot and `err.newer_snapshot_ids` the ones to delete first. Nothing is deleted. When a manifest of the mailbox is unreadable it rejects with `UnreadableObjectsError` instead, naming the manifest to quarantine. A successful `deleteSnapshot` also removes the delta cursor, and `deleteMailboxData` removes the cursor and the deleted snapshots' replication records, so the next backup does not resume past the deleted data. The contacts and calendar `deleteSnapshot` remove that mailbox's cursor too.
 
-`MailboxSummary.totalObjects` from `listMailboxes()` counts the messages in the latest snapshot's chain, after those removals. `Manifest.totalObjects` is a high-water mark, the largest message count any single run of the mailbox stored, and never decreases. The stale-delta safeguard reads it to tell an unchanged mailbox from one never backed up.
+`MailboxSummary.totalObjects` from `listMailboxes()` counts the messages in the latest snapshot's chain, after those removals. `objectCount` from `listSnapshotSummaries()` and `snapshot.objectCount` from `backup()` count the same thing for one snapshot's chain, the set `verify`, `restore` and `save` read. A backup that captured nothing reports the existing newest snapshot and its count. `Manifest.totalObjects` is a high-water mark, the largest message count any single run of the mailbox stored, and never decreases. The stale-delta safeguard reads it to tell an unchanged mailbox from one never backed up.
 
 ### OneDrive and SharePoint
 
@@ -279,6 +279,7 @@ const newest = snapshots[0]; // { snapshotId, createdAt, manifestKey, entryCount
 | `manifestKey`                    | all                  | Storage key of the snapshot's manifest                            |
 | `entryCount`                     | all                  | Entries in this snapshot's own manifest, which holds one delta    |
 | `totalSizeBytes`                 | all                  | The manifest's `totalSizeBytes`                                   |
+| `objectCount`                    | Outlook              | Messages in the snapshot's chain, after recorded removals         |
 | `totalObjects`, `removedCount`   | Outlook              | Message high-water mark, and message IDs the run recorded removed |
 | `objectLock`                     | Outlook              | Effective Object Lock mode and `retainUntil`, when set            |
 | `totalFiles`                     | OneDrive, SharePoint | The manifest's `totalFiles`                                       |
