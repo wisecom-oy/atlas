@@ -12,11 +12,10 @@ import type {
   TransferProgressReporter,
 } from '@wisecom/atlas-types';
 import {
-  build_folder_map,
   group_entries_by_folder,
   count_unique_folders,
 } from '@/services/restore/folder-restore-planner';
-import { folder_listing_for } from '@/services/restore/recoverable-items-filter';
+import { resolve_folder_paths } from '@/services/shared/recorded-folder-catalog';
 import { resolve_mailbox_entries } from '@/services/shared/mailbox-entry-resolver';
 import {
   refuse_blank_message_ref,
@@ -139,7 +138,11 @@ export class SaveService implements SaveUseCase {
       }
       const ctx = await this._tenant_factory.create_readonly(tenant_id);
       try {
-        const { manifests, entries: filtered } = await resolve_mailbox_entries(
+        const {
+          manifests,
+          entries: filtered,
+          folder_manifests,
+        } = await resolve_mailbox_entries(
           ctx,
           this._manifests,
           this._connector,
@@ -166,7 +169,7 @@ export class SaveService implements SaveUseCase {
           owner_id,
           'mailbox',
           filtered,
-          manifests,
+          folder_manifests,
           options,
           target,
           output_path,
@@ -191,14 +194,12 @@ export class SaveService implements SaveUseCase {
     target: ArchiveTarget,
     output_path: string,
   ): Promise<SaveResult> {
-    const folder_map = await build_folder_map(
-      this._connector,
-      tenant_id,
-      owner_id,
-      manifests,
-      folder_listing_for(entries),
-    );
+    // Backfilled first, so the folder map knows every folder it must name.
     await backfill_missing_folder_ids(ctx, entries);
+    const folder_map = await resolve_folder_paths(
+      { connector: this._connector, tenant_id, owner_id, manifests },
+      entries,
+    );
 
     const groups = group_entries_by_folder(entries);
     const skip_integrity = options.skip_integrity_check ?? false;

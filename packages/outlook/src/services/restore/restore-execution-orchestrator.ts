@@ -19,14 +19,17 @@ import {
   attachment_shortfall_warning,
   count_attachment_kinds,
 } from '@/services/restore/restored-message-report';
-import { build_folder_map, ensure_subfolder } from '@/services/restore/folder-restore-planner';
-import { folder_listing_for } from '@/services/restore/recoverable-items-filter';
+import { ensure_subfolder } from '@/services/restore/folder-restore-planner';
+import { resolve_folder_paths } from '@/services/shared/recorded-folder-catalog';
 import type { OperationControlOptions, TransferProgressReporter } from '@wisecom/atlas-types';
 import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
+
+/** The folder_id of a legacy MIME entry, whose RFC 822 payload records no source folder. */
+const UNKNOWN_FOLDER_ID = '__unknown__';
 
 /** Creates one message via Graph from its stored payload, then uploads attachments. */
 export async function restore_one_entry(
@@ -250,13 +253,10 @@ export async function restore_single_message(
 ): Promise<RestoreResult> {
   const folder_id = await resolve_source_folder_id(ctx, entry);
 
-  const listing = folder_listing_for([entry]);
-  const folder_map = await build_folder_map(
-    connector,
-    tenant_id,
-    source_mailbox,
-    manifests,
-    listing,
+  const named = folder_id === UNKNOWN_FOLDER_ID ? [] : [{ ...entry, folder_id }];
+  const folder_map = await resolve_folder_paths(
+    { connector, tenant_id, owner_id: source_mailbox, manifests },
+    named,
   );
   const created_folders = new Map<string, string>();
   const target_fid = await ensure_subfolder(
@@ -303,7 +303,7 @@ export async function restore_single_message(
  */
 async function resolve_source_folder_id(ctx: TenantContext, entry: ManifestEntry): Promise<string> {
   if (entry.folder_id) return entry.folder_id;
-  if (entry.payload_format === 'mime') return '__unknown__';
+  if (entry.payload_format === 'mime') return UNKNOWN_FOLDER_ID;
   return extract_folder_id_from_json(await decrypt_and_parse_message(ctx, entry));
 }
 

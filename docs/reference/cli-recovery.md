@@ -67,6 +67,7 @@ Before you run a cross-tenant restore:
 - The destination owner exists in the destination tenant and holds the license for that workload.
 - The destination app registration has write permissions there: `Mail.ReadWrite` (Outlook), `Contacts.ReadWrite` (contacts), `Calendars.ReadWrite` (calendar), `Files.ReadWrite.All` (OneDrive), or `Sites.ReadWrite.All` (SharePoint).
 - `ATLAS_*` environment variables do not apply to the target profile. Set its credentials only in the profile.
+- An Outlook restore names folders from what the snapshots recorded and sends Graph requests only for the target mailbox. Snapshots written before Atlas 5.2.3 record no folders. For those the restore has to list the source mailbox through the destination tenant's app, which cannot see it, so the run exits `7` before it writes a message. See [atlas outlook restore](/reference/cli#atlas-outlook-restore).
 
 `--target-profile` applies to `outlook`, `contacts`, `calendar`, `onedrive`, and `sharepoint` restores. `restore-version` does not accept it and writes into the source tenant. See [Tenant profiles](/configuration#tenant-profiles) and [Security](/security#tenant-profiles-and-cross-tenant-restore).
 

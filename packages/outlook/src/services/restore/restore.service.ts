@@ -12,11 +12,10 @@ import {
   parse_restore_destination,
 } from '@/services/restore/restore-destination';
 import {
-  build_folder_map,
   group_entries_by_folder,
   count_unique_folders,
 } from '@/services/restore/folder-restore-planner';
-import { folder_listing_for } from '@/services/restore/recoverable-items-filter';
+import { resolve_folder_paths } from '@/services/shared/recorded-folder-catalog';
 import { resolve_mailbox_entries } from '@/services/shared/mailbox-entry-resolver';
 import {
   refuse_blank_message_ref,
@@ -216,7 +215,11 @@ export class RestoreService implements RestoreUseCase {
 
     await assert_mailbox_exists(this._connector, tenant_id, target);
 
-    const { manifests, entries: filtered } = await resolve_mailbox_entries(
+    const {
+      manifests,
+      entries: filtered,
+      folder_manifests,
+    } = await resolve_mailbox_entries(
       ctx,
       this._manifests,
       this._connector,
@@ -243,7 +246,7 @@ export class RestoreService implements RestoreUseCase {
       target,
       'mailbox',
       filtered,
-      manifests,
+      folder_manifests,
       options,
     );
   }
@@ -259,14 +262,12 @@ export class RestoreService implements RestoreUseCase {
     manifests: readonly Manifest[],
     options: RestoreOptions,
   ): Promise<RestoreResult> {
-    const folder_map = await build_folder_map(
-      this._connector,
-      tenant_id,
-      source_mailbox,
-      manifests,
-      folder_listing_for(entries),
-    );
+    // Backfilled first, so the folder map knows every folder it must name.
     await backfill_missing_folder_ids(ctx, entries);
+    const folder_map = await resolve_folder_paths(
+      { connector: this._connector, tenant_id, owner_id: source_mailbox, manifests },
+      entries,
+    );
 
     const groups = group_entries_by_folder(entries);
     const root = await open_restore_root(

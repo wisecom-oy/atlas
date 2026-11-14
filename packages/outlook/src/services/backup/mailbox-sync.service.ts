@@ -15,6 +15,7 @@ import {
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { sync_single_folder_with_progress } from '@/services/backup/folder-sync-attempt';
 import { persist_mailbox_run, resolve_resume_state } from '@/services/backup/mailbox-run-persister';
+import { count_run_objects, distinct_unreadable_keys } from '@/services/backup/run-object-count';
 import { warn_if_replica } from '@/services/backup/replica-marker-warning';
 import { resolve_backup_folders } from '@/services/shared/folder-selector';
 import { resolve_progress_reporter } from '@/services/shared/backup-progress-resolver';
@@ -113,13 +114,19 @@ export class MailboxSyncService implements BackupUseCase {
         options.should_interrupt?.() === true || options.abort_signal?.aborted === true;
       const should_force_stop: () => boolean = options.should_force_stop ?? always_false;
 
-      const { previous, saved_links, previous_entry_count, mode, unreadable_keys } =
-        await resolve_resume_state(
-          { manifests: this._manifests, cursors: this._cursors },
-          ctx,
-          owner_id,
-          options.force_full === true,
-        );
+      const resume = await resolve_resume_state(
+        { manifests: this._manifests, cursors: this._cursors },
+        ctx,
+        owner_id,
+        options.force_full === true,
+      );
+      const { previous, saved_links, previous_entry_count, mode } = resume;
+      // Read even on a full run: the snapshot it writes still heads the whole chain (issue #711).
+      const chain_rows = await this._manifests.list_snapshot_summaries(ctx, owner_id);
+      const unreadable_keys = distinct_unreadable_keys(
+        resume.unreadable_keys,
+        chain_rows.unreadable_keys,
+      );
 
       const folders = folder_selection.folders;
       const warnings: string[] = [];
@@ -249,7 +256,7 @@ export class MailboxSyncService implements BackupUseCase {
         manifest,
         snapshot,
         previous,
-        all_entries.length,
+        count_run_objects(chain_rows.summaries, manifest, previous),
       );
 
       interrupted ||= should_interrupt();

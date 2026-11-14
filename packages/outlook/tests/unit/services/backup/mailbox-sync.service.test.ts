@@ -18,7 +18,7 @@ import { SnapshotStatus } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
-import { latest_readable } from '@wisecom/atlas-types/testing/readable-listing';
+import { latest_readable, readable_summaries } from '@wisecom/atlas-types/testing/readable-listing';
 import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { make_delta } from './mailbox-sync.fixtures';
 
@@ -115,7 +115,8 @@ describe('MailboxSyncService', () => {
       find_latest_readable: vi.fn().mockResolvedValue(latest_readable(undefined)),
       list_all_manifests: vi.fn().mockResolvedValue([]),
       list_owner_ids: vi.fn().mockResolvedValue([]),
-      // A backup reads only the newest readable manifest; the listings are not stubbed.
+      // A backup reads the newest readable manifest and the summary rows its count builds on.
+      list_snapshot_summaries: vi.fn().mockResolvedValue(readable_summaries()),
     } as unknown as ManifestRepository;
 
     mock_factory = {

@@ -5,7 +5,7 @@ import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN, html_to_text } from '@wisecom/atlas-core';
 import type { CatalogUseCase, MailboxSummary } from '@wisecom/atlas-types';
 import { CATALOG_USE_CASE_TOKEN, NotFoundError } from '@wisecom/atlas-types';
-import type { AttachmentEntry, OutlookSnapshotSummary } from '@wisecom/atlas-types';
+import type { AttachmentEntry, OutlookSnapshotListing } from '@wisecom/atlas-types';
 import { format_bytes } from '@/command-formatters';
 import { logger } from '@wisecom/atlas-core';
 import { describe_scope_conflict, resolve_outlook_scope } from '@/commands/outlook/scope';
@@ -182,9 +182,9 @@ async function print_mailbox_snapshots(
     { key: 'size', header: 'Size' },
     { key: 'created', header: 'Created' },
   ];
-  const rows = snapshots.map((s: OutlookSnapshotSummary) => ({
+  const rows = snapshots.map((s: OutlookSnapshotListing) => ({
     snapshot: s.snapshot_id,
-    objects: String(s.total_objects),
+    objects: String(s.object_count),
     size: format_bytes(s.total_size_bytes),
     created: s.created_at.toISOString().slice(0, 19).replace('T', ' '),
   }));
@@ -213,7 +213,12 @@ async function print_snapshot_messages(
 
   logger.info(`Snapshot ${snapshot_id}`);
   logger.info(`Mailbox: ${manifest.owner_id}`);
-  logger.info(`${total} message(s), ${format_bytes(manifest.total_size_bytes)}\n`);
+  // The listing is this run's own manifest; the snapshot's chain count is on `list -m` (#711).
+  logger.info(
+    `${total} message(s) captured by this snapshot's run, ` +
+      `${format_bytes(manifest.total_size_bytes)}. ` +
+      'Restore and save also read earlier runs; list -m shows the snapshot total.\n',
+  );
 
   const has_att = entries.some((e) => e.attachments && e.attachments.length > 0);
 

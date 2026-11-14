@@ -5,6 +5,7 @@ import type { AtlasConfig, ConfigKeySpec, StoredConfig } from '@wisecom/atlas-co
 import {
   CONFIG_KEYS,
   find_config_key,
+  find_overridden_fields,
   logger,
   mask_secret,
   read_env_overrides,
@@ -140,7 +141,7 @@ async function execute_set(spec: ConfigKeySpec, value: string): Promise<void> {
   logger.success(`Saved ${spec.key} to the encrypted store`);
 
   const sources = read_sources();
-  if (sources.env[spec.field] !== undefined && sources.env[spec.field] !== value) {
+  if (find_overridden_fields({ [spec.field]: value }, sources.env, [spec.field]).length > 0) {
     logger.warn(
       `An ATLAS_* environment variable currently overrides ${spec.key}; ` +
         'the stored value will not take effect until it is unset.',

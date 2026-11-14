@@ -71,18 +71,4 @@ describe('RestoreService - folders deleted from the source mailbox (issue #690)'
 
     expect(result.restored_count).toBe(2);
   });
-
-  it('still fails when the source mailbox folder listing answers 404', async () => {
-    vi.mocked(harness.mock_manifests.find_by_snapshot).mockResolvedValue(
-      manifest_with_vanished_folders(),
-    );
-    vi.mocked(harness.mock_connector.list_mail_folders).mockRejectedValue(
-      Object.assign(new Error('ErrorItemNotFound'), { statusCode: 404 }),
-    );
-
-    await expect(harness.service.restore_snapshot('test-tenant', 'snap-1')).rejects.toMatchObject({
-      statusCode: 404,
-    });
-    expect(harness.mock_restore.create_message).not.toHaveBeenCalled();
-  });
 });

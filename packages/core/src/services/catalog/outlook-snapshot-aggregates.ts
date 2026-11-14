@@ -134,7 +134,7 @@ function folder_totals(folders: Map<string, FolderAccumulator>): SnapshotFolderT
 }
 
 /** Hashes each distinct ID once and concatenates the 16-character results. */
-function join_hashed_ids(object_ids: readonly string[]): string {
+export function join_hashed_ids(object_ids: readonly string[]): string {
   return [...new Set(object_ids)].map(hash_object_id).join('');
 }
 

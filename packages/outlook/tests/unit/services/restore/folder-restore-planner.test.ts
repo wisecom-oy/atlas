@@ -1,10 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { MailboxConnector, Manifest, RestoreConnector } from '@wisecom/atlas-types';
-import {
-  build_folder_map,
-  ensure_subfolder,
-  list_known_folders,
-} from '@/services/restore/folder-restore-planner';
+import type { RestoreConnector } from '@wisecom/atlas-types';
+import { ensure_subfolder } from '@/services/restore/folder-restore-planner';
 
 function make_restore_connector(): RestoreConnector {
   let counter = 0;
@@ -103,62 +99,7 @@ describe('ensure_subfolder', () => {
   });
 });
 
-describe('build_folder_map', () => {
-  it('maps Drafts and Outbox, so their messages restore into the restore root', async () => {
-    // Restore recreates folders by path, so a folder missing from enumeration
-    // lands in "Unknown" instead of its own folder (issue #142).
-    const connector = {
-      list_mail_folders: vi.fn().mockResolvedValue([
-        { folder_id: 'f-inbox', display_name: 'Inbox', folder_path: 'Inbox', total_item_count: 1 },
-        {
-          folder_id: 'f-drafts',
-          display_name: 'Drafts',
-          folder_path: 'Drafts',
-          total_item_count: 1,
-        },
-        {
-          folder_id: 'f-outbox',
-          display_name: 'Outbox',
-          folder_path: 'Outbox',
-          total_item_count: 1,
-        },
-      ]),
-    } as unknown as MailboxConnector;
-
-    const map = await build_folder_map(connector, 't', 'user@test.com');
-
-    expect(map.get('f-drafts')).toBe('Drafts');
-    expect(map.get('f-outbox')).toBe('Outbox');
-  });
-
-  it('names folders from the newest manifest recording them, then from the live listing', async () => {
-    // A folder deleted or moved since the backup keeps its recorded path (issue #690).
-    const connector = {
-      list_mail_folders: vi.fn().mockResolvedValue([
-        { folder_id: 'f-moved', display_name: 'Moved', folder_path: 'Deleted Items/Moved' },
-        { folder_id: 'f-live', display_name: 'Live', folder_path: 'Live' },
-      ]),
-    } as unknown as MailboxConnector;
-    const recorded = (folders: Array<[string, string]>) =>
-      ({
-        folders: folders.map(([folder_id, folder_path]) => ({ folder_id, folder_path })),
-      }) as unknown as Manifest;
-
-    const map = await build_folder_map(connector, 't', 'user@test.com', [
-      recorded([['f-moved', 'Projects/Moved']]),
-      recorded([
-        ['f-moved', 'Old Name'],
-        ['f-gone', 'Gone'],
-      ]),
-    ]);
-
-    expect(Object.fromEntries(map)).toEqual({
-      'f-moved': 'Projects/Moved',
-      'f-gone': 'Gone',
-      'f-live': 'Live',
-    });
-  });
-
+describe('ensure_subfolder for Drafts', () => {
   it('recreates a Drafts folder under the restore root', async () => {
     const connector = make_restore_connector();
     const folder_map = new Map([['f-drafts', 'Drafts']]);
@@ -174,26 +115,5 @@ describe('build_folder_map', () => {
     );
 
     expect(vi.mocked(connector.create_mail_folder).mock.calls.map((c) => c[2])).toEqual(['Drafts']);
-  });
-});
-
-describe('list_known_folders', () => {
-  it('keeps the recorded path and takes a missing well-known role from the live listing', async () => {
-    const connector = {
-      list_mail_folders: vi
-        .fn()
-        .mockResolvedValue([
-          { folder_id: 'f-inbox', folder_path: 'Saapuneet', well_known_name: 'inbox' },
-        ]),
-    } as unknown as MailboxConnector;
-    const recorded = { folders: [{ folder_id: 'f-inbox', folder_path: 'Old Inbox' }] };
-
-    const folders = await list_known_folders(connector, 't', 'user@test.com', [
-      recorded as unknown as Manifest,
-    ]);
-
-    expect(folders).toEqual([
-      { folder_id: 'f-inbox', folder_path: 'Old Inbox', well_known_name: 'inbox' },
-    ]);
   });
 });
