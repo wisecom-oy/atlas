@@ -13,7 +13,7 @@ import {
   build_store,
   read_store,
   update_store,
-  warn_graph_env_overrides,
+  warn_graph_env_vars_set,
 } from '@/commands/tenant/tenant-profile-store';
 
 /** Prints every profile with a masked secret, the selected one marked, and where it is defined. */
@@ -35,7 +35,7 @@ export function execute_list_profiles(global_profile: string | undefined): void 
   if (env !== undefined) {
     logger.info(`ATLAS_PROFILE selects "${env}" for this shell`);
   }
-  warn_graph_env_overrides();
+  warn_graph_env_vars_set();
 }
 
 /** Makes a profile the stored active profile. */

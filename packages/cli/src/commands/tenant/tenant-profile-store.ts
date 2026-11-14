@@ -1,13 +1,12 @@
 import type { StoredConfig, TenantProfile } from '@wisecom/atlas-core';
 import {
+  GRAPH_ENV_VARS,
   logger,
   normalize_stored_config,
   read_env_overrides,
   read_secure_config,
   update_secure_config,
 } from '@wisecom/atlas-core';
-
-const GRAPH_ENV_VARS = ['ATLAS_TENANT_ID', 'ATLAS_CLIENT_ID', 'ATLAS_CLIENT_SECRET'];
 
 /** Reads the encrypted store with legacy top-level Graph fields moved into `tenants.default`. */
 export function read_store(): StoredConfig {
@@ -46,9 +45,9 @@ export function read_graph_env_overrides(): Partial<TenantProfile> {
   };
 }
 
-/** Warns when ATLAS_* Graph variables override the selected profile. */
-export function warn_graph_env_overrides(): void {
-  const present = GRAPH_ENV_VARS.filter((name) => process.env[name]);
+/** Warns when any ATLAS_* Graph variable is set, since each one overrides the selected profile. */
+export function warn_graph_env_vars_set(): void {
+  const present = Object.values(GRAPH_ENV_VARS).filter((name) => process.env[name]);
   if (present.length > 0) {
     logger.warn(
       `Environment ${present.join(', ')} override the selected profile's credentials for this run.`,

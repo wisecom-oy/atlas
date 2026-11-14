@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Command } from 'commander';
+import { ConfigError } from '@wisecom/atlas-types';
 import { register_tenants_command } from '@/commands/tenant/tenants.command';
 
 const dotenv_mocks = vi.hoisted(() => ({ config: vi.fn() }));
@@ -184,7 +185,7 @@ describe('atlas tenants validate', () => {
       tenants: { home: HOME, work: WORK },
       active_tenant: 'work',
     });
-    mocks.read_env_overrides.mockReturnValue({ client_id: OTHER_CLIENT });
+    mocks.read_env_overrides.mockReturnValue({ ...WORK, client_id: OTHER_CLIENT });
 
     await run(['validate', '--all']);
 
@@ -192,6 +193,41 @@ describe('atlas tenants validate', () => {
       [CONTOSO, CLIENT],
       [TENANT, OTHER_CLIENT],
     ]);
+    expect(output.join('\n')).toContain(
+      'Environment variables override tenant profile "work" for this run: ATLAS_CLIENT_ID.',
+    );
+  });
+
+  it('refuses a partial override that changes the selected identity before any probe', async () => {
+    mocks.read_secure_config.mockReturnValue({
+      ...S3,
+      tenants: { work: WORK },
+      active_tenant: 'work',
+    });
+    mocks.read_env_overrides.mockReturnValue({ tenant_id: CONTOSO });
+
+    const failure = run(['validate']);
+
+    await expect(failure).rejects.toBeInstanceOf(ConfigError);
+    await expect(failure).rejects.toMatchObject({
+      cause: { message: expect.stringContaining('would combine two identities') },
+    });
+    expect(azure_mocks.created).toEqual([]);
+    expect(s3_mocks.send).not.toHaveBeenCalled();
+  });
+
+  it('leaves a named profile other than the selected one unchecked, as the variables skip it', async () => {
+    mocks.read_secure_config.mockReturnValue({
+      ...S3,
+      tenants: { home: HOME, work: WORK },
+      active_tenant: 'work',
+    });
+    mocks.read_env_overrides.mockReturnValue({ tenant_id: CONTOSO });
+
+    await run(['validate', 'home']);
+
+    expect(azure_mocks.attempted).toEqual([CONTOSO]);
+    expect(process.exitCode).toBeUndefined();
   });
 
   it('validates env-only Graph credentials as the selected profile when no profiles are stored', async () => {

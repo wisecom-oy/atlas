@@ -19,6 +19,13 @@ export {
 } from './tenant-profiles';
 export type { StoredConfig, TenantProfile } from './tenant-profiles';
 export {
+  GRAPH_ENV_VARS,
+  assert_override_keeps_one_identity,
+  find_graph_env_overrides,
+  find_overridden_fields,
+  warn_graph_env_overrides,
+} from './graph-env-overrides';
+export {
   read_secure_config,
   update_secure_config,
   secure_config_dir,

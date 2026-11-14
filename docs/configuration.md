@@ -60,6 +60,23 @@ Shared settings, including the passphrase, are the same for every profile. One S
 `ATLAS_TENANT_ID`, `ATLAS_CLIENT_ID`, and `ATLAS_CLIENT_SECRET` replace the selected profile's values. Do not export them while you use several profiles, or one command can mix credentials from two tenants. They never apply to the `--target-profile` of a cross-tenant restore.
 :::
 
+Atlas checks the three variables against the selected profile before a command does any work:
+
+| Variables set                                         | Result                                                                                                        |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| None, or only values equal to the profile's           | Runs silently.                                                                                                |
+| Any, with no stored profile selected                  | Runs silently. The variables are the whole identity, as in a CI job that sets all three.                      |
+| Any that fill a field the profile leaves empty        | Runs silently. A profile without a secret can take `ATLAS_CLIENT_SECRET` from the environment.                |
+| All three, replacing profile values                   | Runs, with a warning on stderr that names the variables and the profile.                                      |
+| Some but not all, replacing only the client secret    | Runs, with the same warning. A secret cannot select another tenant or app, so a wrong one fails sign-in.      |
+| Some but not all, changing the tenant ID or client ID | Refused with exit code `6` (`ATLAS_CONFIG_INVALID`) before any Graph or S3 call, because it mixes identities. |
+
+```text
+[!] Environment variables override tenant profile "contoso" for this run: ATLAS_TENANT_ID, ATLAS_CLIENT_ID, ATLAS_CLIENT_SECRET.
+```
+
+The warning names variables, never their values.
+
 ## Sources and precedence
 
 Atlas merges sources in this order. A later source overrides an earlier one:

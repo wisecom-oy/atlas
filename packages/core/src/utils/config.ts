@@ -5,6 +5,11 @@ import { config as load_dotenv } from 'dotenv';
 import { logger } from '@/utils/logger';
 import { read_secure_config } from '@/utils/secure-config-store';
 import {
+  assert_override_keeps_one_identity,
+  find_graph_env_overrides,
+  warn_graph_env_overrides,
+} from '@/utils/graph-env-overrides';
+import {
   find_profile,
   profile_names,
   select_profile_name,
@@ -62,7 +67,8 @@ export interface LoadConfigOptions {
  *   3. .env file (loaded into process.env via dotenv, does NOT overwrite existing vars)
  *   4. Real environment variables (always win)
  * Graph credentials come from the selected tenant profile, and ATLAS_* Graph variables override
- * that profile only. Throws if the profile is unknown or any required field is missing.
+ * that profile only. Warns on stderr when they replace a profile value, and throws when a partial
+ * override changes its tenant or client ID, the profile is unknown, or a required field is missing.
  */
 export function load_config(options: LoadConfigOptions = {}): AtlasConfig {
   // quiet: dotenv's load banner goes to stdout, which corrupts pipeable output
@@ -75,11 +81,15 @@ export function load_config(options: LoadConfigOptions = {}): AtlasConfig {
   if (profile === undefined && name !== DEFAULT_PROFILE) {
     throw new Error(unknown_profile_message(name, profile_names(file_config, secure_config)));
   }
+  const env = read_env_overrides();
+  const overridden = find_graph_env_overrides(profile, env);
+  assert_override_keeps_one_identity(name, env, overridden);
+  warn_graph_env_overrides(name, overridden);
   return merge_and_validate({
     ...shared_settings(file_config),
     ...shared_settings(secure_config),
     ...profile,
-    ...read_env_overrides(),
+    ...env,
   });
 }
 

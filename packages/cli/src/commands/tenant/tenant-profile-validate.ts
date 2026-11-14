@@ -1,11 +1,16 @@
+import type { GraphConfig } from '@wisecom/atlas-core';
 import {
+  assert_override_keeps_one_identity,
+  find_graph_env_overrides,
   find_profile,
   profile_names,
   read_env_overrides,
   select_profile_name,
   try_load_config_file,
   unknown_profile_message,
+  warn_graph_env_overrides,
 } from '@wisecom/atlas-core';
+import { ConfigError } from '@wisecom/atlas-types';
 import { probe_graph, probe_s3 } from '@/commands/tenant/config-probes';
 import { read_graph_env_overrides, read_store } from '@/commands/tenant/tenant-profile-store';
 
@@ -46,6 +51,9 @@ export async function execute_validate_profiles(
     selected,
     env_only: Object.keys(env_graph).length > 0,
   });
+  if (targets.includes(selected)) {
+    check_selected_profile_overrides(selected, find_profile(selected, file, stored), env_graph);
+  }
 
   let ok = true;
   for (const target of targets) {
@@ -57,6 +65,25 @@ export async function execute_validate_profiles(
 
   if (!(await probe_s3({ ...file, ...stored, ...read_env_overrides() }))) ok = false;
   if (!ok) process.exitCode = 1;
+}
+
+/**
+ * Applies the run-time override rules of `load_config` before any probe: a partial override that
+ * changes the profile's tenant or client ID is a ConfigError (exit 6), and any other replaced
+ * value is named in a warning.
+ */
+function check_selected_profile_overrides(
+  selected: string,
+  profile: Partial<GraphConfig> | undefined,
+  env_graph: Partial<GraphConfig>,
+): void {
+  const overridden = find_graph_env_overrides(profile, env_graph);
+  try {
+    assert_override_keeps_one_identity(selected, env_graph, overridden);
+  } catch (cause) {
+    throw new ConfigError(`Cannot validate tenant profile "${selected}".`, { cause });
+  }
+  warn_graph_env_overrides(selected, overridden);
 }
 
 /** Picks the profiles to validate; a name must be stored, or be the selected profile backed by ATLAS_* credentials. */
