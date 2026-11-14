@@ -84,7 +84,7 @@ The new bucket must sit on a different endpoint or S3 account. The first backup 
 
 Earlier snapshots stay in the old bucket under the old DEK. Restore them with the old endpoint, credentials, and passphrase. Nothing is migrated or re-encrypted. Once the old snapshots are no longer needed, remove them with `atlas delete --purge` against the old storage. Objects under Object Lock retention cannot be deleted before their retain-until date, and the purge reports them as retained rather than failed.
 
-Replication cannot rotate the key. It copies ciphertext unchanged and refuses a target whose DEK differs from the primary's ([DEK mismatch protection](#dek-mismatch-protection)).
+A replica holds the same key, so a new key needs a new replica too. See [Replicas](#replicas).
 
 Rotation limits exposure to data written after the rotation. It targets a DEK that has left the process, through memory, a core dump, or a compromised host. Data already written under the old key remains readable with that key for as long as the old bucket exists, including noncurrent versions and Object Lock retained objects. Atlas has no in-place re-key, because that would mean rewriting a bucket while objects are split between two keys.
 
@@ -100,7 +100,7 @@ Each object gets a fresh random 12-byte IV. Reusing an IV under the same key wou
 
 ### What a ciphertext is bound to
 
-Because one DEK encrypts the whole tenant, the GCM tag alone proves only that bytes came from that tenant's key. Atlas binds the header and the object's scope as associated data, so a ciphertext decrypts only where it was written. The scope is the key's directory: `onedrive/data/{owner_id}/`, `contacts/data/{owner_id}/`, `calendar/data/{owner_id}/`, `manifests/{owner_id}/`, or `_meta/replication/{owner}/{snapshot}/`.
+Because one DEK encrypts the whole tenant, the GCM tag alone proves only that bytes came from that tenant's key. Atlas binds the header and the object's scope as associated data, so a ciphertext decrypts only where it was written. The scope is the key's directory: `onedrive/data/{owner_id}/`, `contacts/data/{owner_id}/`, `calendar/data/{owner_id}/`, or `manifests/{owner_id}/`.
 
 | Attack                                               | Result                                                                                                         |
 | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
@@ -158,41 +158,18 @@ Storage prefixes use the Entra object ID, not the SMTP address. For OneDrive, `a
 
 Bucket listings therefore do not reveal which email account owns a subtree unless someone can correlate Graph IDs. Address-keyed objects written by v5 are not renamed or aliased. They stay under their old prefixes until something deletes them, and Object Lock expiry only makes them deletable. See [Migrating to v6](/migration/v6).
 
-## Replication security
+## Replicas
 
-Replication uses a shared encryption model. All targets share the master passphrase and the tenant DEK, and ciphertext is copied byte for byte with no decryption or re-encryption. The wrapped DEK is copied to each target on first replication.
+A replica made by your storage provider or a copy tool holds the same ciphertext and the same wrapped data key (`_meta/dek.enc`), and opens with the same passphrase. Atlas does not copy data itself, so it holds no credentials for the replica during backups.
 
-This has two consequences:
+| Risk | Effect | Mitigation |
+| --- | --- | --- |
+| Passphrase leaks | Every replica is readable by whoever also holds its S3 keys | Rotate with `atlas keys rewrap`; the new wrapper reaches the replica as a new version. Delete old `_meta/dek.enc` versions on the replica too, because a versioned replica keeps them |
+| Primary S3 keys stolen | The attacker can delete on the primary | Separate replica credentials, delete-marker replication off, Object Lock on the replica bucket |
+| Replica S3 keys stolen | The attacker reads ciphertext only, and can delete unless Object Lock prevents it | Read-only keys for the Atlas host; Object Lock retention |
+| A backup pointed at the replica | Writes fork the history | Give the Atlas host read-only keys on the replica, so the first write fails |
 
-- **One passphrase protects every copy.** Compromising it exposes data on every target.
-- **Each target needs separate S3 credentials.** Use an independent principal per endpoint, such as a dedicated MinIO user or a scoped IAM role. A compromised target credential exposes only that target's ciphertext, and it cannot reach other targets.
-
-Replication status sidecars under `_meta/replication/` are encrypted with the DEK, so target endpoints, checksums, and errors are not exposed at rest.
-
-Atlas closes each target's context when its copy ends, on success or failure, and zeroes the passphrase buffer.
-
-A marker file, `_meta/replica.marker`, is written to each target on first replication. If `atlas outlook backup` runs against a replica, Atlas logs a warning, which guards the primary-is-truth rule.
-
-### DEK mismatch protection
-
-Before each replication or rehydration, Atlas checks that the source and target share a DEK. If the primary was purged and re-initialized with a new DEK, replication to a target that still holds the old DEK is refused with an explicit error. Without this check, objects encrypted under two keys would coexist on one target, and the older ones would become permanently unreadable.
-
-The check runs once per target per run, before the first snapshot is copied. It unwraps both DEKs, which costs two scrypt derivations. A target that fails the check receives no writes.
-
-### Installing the source key without a race
-
-Rehydration copies the replica's wrapped key to primary, and replication copies the primary's key to a new target. Every such write is conditional, so a key another process stores after Atlas checks the bucket is never replaced:
-
-| Primary holds                        | Rehydration does                                                               |
-| ------------------------------------ | ------------------------------------------------------------------------------ |
-| No `_meta/dek.enc`                   | Writes the source key create-only, with `If-None-Match: *`                     |
-| The source key                       | Nothing                                                                        |
-| A different key and nothing else     | Replaces it with `If-Match` on the ETag read before the bucket was found empty |
-| A different key and any other object | Nothing, aborts with `DekOverwriteRefusedError`                                |
-
-A different key with nothing else beside it is one Atlas generated on a bucket that never received data, for example by a backup that failed before its first upload. Replication writes a target's key only when the target has none, create-only.
-
-When a conditional write is refused with `412 Precondition Failed`, Atlas reads the stored key. If it is byte-identical to the source key, another run installed the same key and the copy continues. Otherwise the run stops with `DekWriteConflictError` and leaves the stored key as it is. The threat is a backup that bootstraps its own key on an empty primary while rehydration runs: without the condition, rehydration replaced that key and every object the backup had written became unreadable. A refused run wrote nothing, so stop every other operation on the tenant and rerun it. This is defence in depth, not a lock. A backup that opens the generated key after the emptiness check and before the replacement changes nothing Atlas can compare, so it is not detected. Rehydration must still run alone, and on a backend that ignores conditional headers the guarantee does not hold (see [Storage](/self-hosting/storage#protecting-the-tenant-data-key)).
+Atlas 6 wrote replication status records under `_meta/replication/`, encrypted with the data key, and a plaintext `_meta/replica.marker` on each replica. Atlas 7 ignores both. See [Legacy Atlas 6 objects](/operations/replication#legacy-atlas-6-objects).
 
 ## Integrity validation
 
@@ -250,7 +227,7 @@ Which objects get the last two steps:
 | Teams snapshot index                                                                          | Yes                  | Yes       |
 | Outlook, OneDrive, SharePoint, contacts, and calendar delta cursors                           | No                   | Yes       |
 | Outlook, OneDrive, SharePoint, Contacts, and Calendar snapshot summary indexes                | No, compare-and-swap | No        |
-| Outlook manifest pointers, Teams channel shards, cursors, and checkpoints, replication status | No                   | No        |
+| Outlook manifest pointers, Teams channel shards, cursors, and checkpoints                     | No                   | No        |
 
 The read-back is limited to objects a run writes once, so a run makes at most three extra `GET` requests per mailbox, owner, site, or team. Teams writes one shard and one cursor per changed channel and checkpoint objects per page, so those are checked and decrypted back but not read back.
 
@@ -498,7 +475,6 @@ An SDK host can pass `onStorageRequest` to receive one event per S3 request. See
 | ----------------------------------------------------------------------------------- | --------------------------------------------------- |
 | S3 command and SDK method names                                                     | Object keys, listing prefixes, upload IDs           |
 | `workload` and `keyClass`, from an allowlist over the leading key segments          | Bucket names, which contain the tenant ID           |
-| `target`: `primary` or the host-chosen replication `targetId`                       | Endpoint hostnames, URLs, credentials, signatures   |
 | Timings, attempt count, retry delay, payload byte count, HTTP status, S3 error code | Tenant, mailbox, owner, or site IDs, content hashes |
 
 Keys are never classified by pattern-matching their contents. A known leading segment such as `data` or `manifests` maps to a class, and anything else becomes `other`. An unexpected key layout therefore cannot leak an identifier into a label.
@@ -521,7 +497,7 @@ Atlas accepts plain `http://` endpoints because local MinIO needs them. Content 
 | Request pattern           | Which owners are backed up, when, and how much data                                                                    |
 | Unauthenticated responses | A forged `200` to `PutObject` makes a backup report success for an object never stored. Only a later `verify` finds it |
 
-Atlas warns once per run for each plain `http://` endpoint whose host is not loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`). This covers the primary and replication targets. It does not refuse the endpoint, because a self-hosted setup may terminate TLS on a trusted network. Use `https://` for any endpoint on another machine.
+Atlas warns once per run for each plain `http://` endpoint whose host is not loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`). It does not refuse the endpoint, because a self-hosted setup may terminate TLS on a trusted network. Use `https://` for any endpoint on another machine.
 
 The bundled `docker/docker-compose.yml` publishes MinIO on `127.0.0.1` only and has no fallback root password, so it does not start until one is set. Root on the bucket can bypass governance-mode Object Lock and delete every backup that is not under compliance retention, which makes the root password and the bind address the two controls that decide who can reach the archive. Widening the bind address is an explicit `MINIO_BIND_ADDRESS` setting. See [Network exposure](/self-hosting/storage#network-exposure).
 
@@ -536,12 +512,12 @@ Atlas separates read and write storage access, so an operator who only browses n
 | Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `contacts list`, `calendar list`, `sharepoint list`, `teams list-snapshots`, `teams verify`, `teams status`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                | None         |
 | Storage usage: `stats storage`                                                                                                                                                                                                     | Read-only actions plus `s3:ListBucketVersions`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts` | None         |
 | Restore and save: `restore`, `restore-version`, `save`                                                                                                                                                                             | Read-only actions. The writes go to Microsoft 365 or a local file, not to the bucket                           | None         |
-| Delete and replicate: `delete`, `replicate`, `keys rewrap`                                                                                                                                                                         | Read-only actions plus `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`                             | None         |
-| Provisioning: `backup`, `teams backup`, `rehydrate`                                                                                                                                                                                | All of the above plus `s3:CreateBucket` and lifecycle or lock configuration                                    | Yes          |
+| Delete: `delete`, `keys rewrap`                                                                                                                                                                                                      | Read-only actions plus `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`                             | None         |
+| Provisioning: `backup`, `teams backup`                                                                                                                                                                                              | All of the above plus `s3:CreateBucket` and lifecycle or lock configuration                                    | Yes          |
 
 Only the provisioning row creates a bucket or writes `_meta/dek.enc`. Every other command fails with `No backups found for tenant <id>` (exit `7`) when the tenant has no bucket, or, for commands that decrypt, no data key. A mistyped tenant ID or profile therefore leaves nothing behind.
 
-Backups, restores, deletions, quarantines, replications, and rehydrations also write, renew, and delete the [owner lease](/operations/storage-layout#owner-leases) of the mailbox, drive owner, site, or team they act on. A purge and a key re-wrap do the same with the tenant lease. Replication and rehydration already write status records or manifests to the bucket, so they need lease write access too and do not fall back to running without a lease. A principal that may write but not delete, for example under a policy that denies `DeleteObject` on `_meta/*`, marks the lease released in place with a conditional write instead. A restore whose credentials cannot write the lease runs without one and logs that concurrent-run protection is off for it, so read-only restore credentials keep working at the cost of that protection. The lease keeps Atlas runs apart. It is not an access control: it is unencrypted and unauthenticated, so anyone who can write to the bucket can remove or forge it, and anyone who can do that can already delete the backups.
+Backups, restores, deletions, and quarantines also write, renew, and delete the [owner lease](/operations/storage-layout#owner-leases) of the mailbox, drive owner, site, or team they act on. A purge and a key re-wrap do the same with the tenant lease. A principal that may write but not delete, for example under a policy that denies `DeleteObject` on `_meta/*`, marks the lease released in place with a conditional write instead. A restore whose credentials cannot write the lease runs without one and logs that concurrent-run protection is off for it, so read-only restore credentials keep working at the cost of that protection. The lease keeps Atlas runs apart. It is not an access control: it is unencrypted and unauthenticated, so anyone who can write to the bucket can remove or forge it, and anyone who can do that can already delete the backups.
 
 `storage-check` is read-only except for its conditional-write probe, which puts and deletes one object under `_meta/storage-check/`. With read-only credentials the probe reports `not probed` and the rest of the check still runs.
 

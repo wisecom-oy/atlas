@@ -21,7 +21,6 @@ _SECRETS = (
 # MinIO runs in the runner and is thrown away with it, so its credentials are not secrets.
 _DEFAULTS = {
     "E2E_S3_ENDPOINT": "http://127.0.0.1:9000",
-    "E2E_S3_REPLICA_ENDPOINT": "http://127.0.0.1:9002",
     "E2E_S3_ACCESS_KEY": "minioadmin",
     "E2E_S3_SECRET_KEY": "minioadmin",
     "E2E_S3_REGION": "us-east-1",
@@ -46,7 +45,6 @@ class Settings:
     passphrase: str = field(repr=False)
     mailbox: str = field(repr=False)
     s3_endpoint: str
-    s3_replica_endpoint: str
     s3_access_key: str = field(repr=False)
     s3_secret_key: str = field(repr=False)
     s3_region: str
@@ -64,7 +62,7 @@ class Settings:
         """Workloads this run actually backs up, in storage-prefix terms.
 
         A workload whose identifier is unset is skipped by its own suite, so no later suite may
-        demand its objects. Shared so replication, per-workload deletion and the tenant purge all
+        demand its objects. Shared so per-workload deletion and the tenant purge
         assert against the same set instead of each hardcoding one prefix (issue #210).
         """
         workloads = ["outlook"]
@@ -114,7 +112,6 @@ def load() -> Settings:
         passphrase=os.environ["E2E_ENCRYPTION_PASSPHRASE"],
         mailbox=os.environ["E2E_MAILBOX"],
         s3_endpoint=value("E2E_S3_ENDPOINT"),
-        s3_replica_endpoint=value("E2E_S3_REPLICA_ENDPOINT"),
         s3_access_key=value("E2E_S3_ACCESS_KEY"),
         s3_secret_key=value("E2E_S3_SECRET_KEY"),
         s3_region=value("E2E_S3_REGION"),

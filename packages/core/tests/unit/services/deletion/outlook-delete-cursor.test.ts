@@ -68,7 +68,7 @@ describe('Outlook deletion and the delta cursor', () => {
       `_meta/outlook-manifests/owners/${OWNER}/summary.json`,
       CURSOR_KEY,
       `_meta/replication/${OWNER}/snap-2/replica-a.json`,
-      // A OneDrive snapshot of the same user shares the replication tree.
+      // Atlas 6 records. A OneDrive snapshot of the same user shares the tree.
       `_meta/replication/${OWNER}/onedrive-snap/replica-a.json`,
       `_meta/outlook-cursors/someone.else@example.com.json`,
       `data/${OWNER}/aaa`,
@@ -93,7 +93,7 @@ describe('Outlook deletion and the delta cursor', () => {
     service = container.get(DeletionService);
   });
 
-  it('delete -m removes the cursor and the deleted snapshots replication records only', async () => {
+  it('delete -m removes the cursor and the deleted snapshots legacy replication records only', async () => {
     await service.delete_mailbox_data('t', OWNER);
 
     expect(bucket.keys.has(CURSOR_KEY)).toBe(false);

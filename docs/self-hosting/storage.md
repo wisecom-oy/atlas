@@ -97,7 +97,7 @@ Do not place the MinIO data directory on NTFS, FAT32, or network filesystems suc
 
 A single drive is acceptable only for a home lab or personal testing. A single drive failure loses every backup on it. Do not use a single drive in a professional or business environment.
 
-Redundant storage protects against hardware failure. It does not protect against deletion, ransomware, or corruption that reaches every mirror, so pair it with a second copy in another location (see [Replication setup](/self-hosting/replication)).
+Redundant storage protects against hardware failure. It does not protect against deletion, ransomware, or corruption that reaches every mirror, so pair it with a second copy in another location (see [Replica setup](/self-hosting/replication)).
 
 | RAID level                      | Minimum drives | Behaviour                                                 | Usable capacity  | Suited to                                     |
 | ------------------------------- | -------------- | --------------------------------------------------------- | ---------------- | --------------------------------------------- |
@@ -229,8 +229,8 @@ Removing the default changes no existing object. Objects already written keep th
 
 Migrate one tenant at a time. Atlas names the bucket `atlas-<tenant_id>` on whichever endpoint it uses, and bucket names are unique per endpoint (across all of AWS S3). The replacement must therefore sit on a different endpoint, and the legacy bucket keeps its name until you retire it. On AWS S3, the in-place option above may avoid a migration.
 
-1. **Create a lock-capable bucket** on the new endpoint with the name `atlas-<tenant_id>`: `aws s3api create-bucket --bucket atlas-<tenant_id> --object-lock-enabled-for-bucket`, or `mc mb --with-lock` for MinIO. `atlas replicate` creates a missing bucket the same way, so pre-creating only sets the region or other options.
-2. **Replicate into it.** Run `atlas replicate -m <mailbox> --target-config ./new-endpoint.json` for each mailbox, `-o <owner>` for each OneDrive owner, and `--site <site-url>` for each SharePoint site. The file holds the new endpoint and its credentials, not a bucket name. Each run copies the data key first, then the snapshots, and verifies checksums. See [Replication](/operations/replication) for the ordering and safety rules.
+1. **Create a lock-capable bucket** on the new endpoint with the name `atlas-<tenant_id>`: `aws s3api create-bucket --bucket atlas-<tenant_id> --object-lock-enabled-for-bucket`, or `mc mb --with-lock` for MinIO.
+2. **Copy into it.** Stop scheduled backups, then run `rclone copy legacy:atlas-<tenant_id> new:atlas-<tenant_id> --checksum` or `mc mirror legacy/atlas-<tenant_id> new/atlas-<tenant_id>`. Every object must keep its key, including `_meta/dek.enc`, because each object is encrypted with its location as associated data. See [Replica setup](/self-hosting/replication#rclone-or-mc-mirror).
 3. **Point Atlas at the new endpoint.** Atlas resolves the bucket from the tenant ID alone, so cutover changes the endpoint and keys, not the bucket: `atlas config set s3.endpoint <new-endpoint>`, `s3.access-key`, and `s3.secret-key`. The legacy bucket on the old endpoint is no longer read.
 4. **Verify.** Run `atlas storage-check -t <id>`. It should report `lock-capable`. Then run the verify command for each workload, such as `atlas outlook verify -m <mailbox> -s <snapshot-id>`.
 5. **Retire the old bucket** after one full backup cycle has succeeded against the new one.
@@ -240,8 +240,6 @@ Until a tenant is migrated, its legacy bucket keeps working for backups. Only `-
 ## Protecting the tenant data key
 
 Each tenant bucket stores its wrapped data-encryption key at `_meta/dek.enc`. Atlas writes this object once, with a create-only conditional write (`If-None-Match: *`). If two processes bootstrap the same tenant at the same time, the second write fails with `412 Precondition Failed`, and that process uses the key already stored. Overwriting a live key would make every object encrypted with it permanently unreadable.
-
-Rehydration and replication copy the source key the same way. Rehydration replaces a freshly generated key on an otherwise empty primary only with `If-Match` on the ETag it read first. If a different key wins either race, the run stops with `DekWriteConflictError` and the stored key is unchanged.
 
 Add a bucket policy that blocks overwrites of the key object, so a buggy or outdated client cannot replace it. This example is for AWS S3, using the [`s3:if-none-match` condition key](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes-enforce.html):
 
@@ -291,7 +289,7 @@ A run that changed nothing writes no snapshot and reads back only its cursor. Th
 atlas storage-check   # the `Conditional writes` row must read `supported`
 ```
 
-A backup, restore, deletion, quarantine, replication, or rehydration holds a small unencrypted lease object for its mailbox, drive owner, site, or team, so a second operation on the same owner fails with `ATLAS_OWNER_BUSY` (exit `12`) instead of overwriting the first one's delta cursor. A purge or key re-wrap holds one tenant lease, `_meta/tenant-lease.json`, the same way, and every owner operation of the tenant reads it. The lease is taken with `If-None-Match: *`, renewed and taken over with `If-Match`, and read back after every acquire. See [Concurrent operations](/reference/sdk#concurrent-operations) and [Owner leases](/operations/storage-layout#owner-leases).
+A backup, restore, deletion, or quarantine holds a small unencrypted lease object for its mailbox, drive owner, site, or team, so a second operation on the same owner fails with `ATLAS_OWNER_BUSY` (exit `12`) instead of overwriting the first one's delta cursor. A purge or key re-wrap holds one tenant lease, `_meta/tenant-lease.json`, the same way, and every owner operation of the tenant reads it. The lease is taken with `If-None-Match: *`, renewed and taken over with `If-Match`, and read back after every acquire. See [Concurrent operations](/reference/sdk#concurrent-operations) and [Owner leases](/operations/storage-layout#owner-leases).
 
 | Consideration     | Detail                                                                                                                                                                                                                                                                                                |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

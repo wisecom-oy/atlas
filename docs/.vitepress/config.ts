@@ -145,7 +145,7 @@ export default defineConfig({
           { text: 'Overview', link: '/self-hosting/' },
           { text: 'Storage', link: '/self-hosting/storage' },
           { text: 'Scheduling and bandwidth', link: '/self-hosting/scheduling' },
-          { text: 'Replication setup', link: '/self-hosting/replication' },
+          { text: 'Replica setup', link: '/self-hosting/replication' },
         ],
       },
       {
@@ -154,7 +154,7 @@ export default defineConfig({
           { text: 'Delta sync', link: '/operations/delta-sync' },
           { text: 'Storage layout', link: '/operations/storage-layout' },
           { text: 'Storage usage', link: '/operations/storage-usage' },
-          { text: 'Replication', link: '/operations/replication' },
+          { text: 'Replicas', link: '/operations/replication' },
           { text: 'Graph rate limits', link: '/operations/graph-rate-limits' },
           { text: 'Troubleshooting', link: '/troubleshooting' },
         ],

@@ -9,8 +9,8 @@ import {
 } from '@/services/shared/drive-manifest-chain-loader';
 
 /**
- * The drive chain loader moved to core so replication (issue #714) and the drive restore, save and
- * verify paths read a chain the same way. The refusal cases stay covered in the drive package.
+ * The drive chain loader lives in core so the drive restore, save and verify paths read a chain
+ * the same way. The refusal cases stay covered in the drive package.
  */
 const CTX = {} as TenantContext;
 

@@ -78,12 +78,6 @@ def s3(settings: config.Settings) -> Any:
 
 
 @pytest.fixture(scope="session")
-def s3_replica(settings: config.Settings) -> Any:
-    """S3 client for the replica MinIO (used by the replication suite)."""
-    return storage.client(settings, settings.s3_replica_endpoint)
-
-
-@pytest.fixture(scope="session")
 def graph(settings: config.Settings) -> Iterator[Graph]:
     """Graph client with app-only auth."""
     client = Graph(settings)

@@ -27,11 +27,11 @@ INDEX_PREFIXES = {
 }
 
 
-def client(settings: Settings, endpoint: str | None = None) -> Any:
+def client(settings: Settings) -> Any:
     """An S3 client for MinIO: path-style addressing, no retries beyond botocore's default."""
     return boto3.client(
         "s3",
-        endpoint_url=endpoint or settings.s3_endpoint,
+        endpoint_url=settings.s3_endpoint,
         aws_access_key_id=settings.s3_access_key,
         aws_secret_access_key=settings.s3_secret_key,
         region_name=settings.s3_region,

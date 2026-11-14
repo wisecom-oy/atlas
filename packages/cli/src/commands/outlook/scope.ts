@@ -7,8 +7,7 @@
  * (issue #201). Only the last one lost data the operator asked for, but all three made the flags
  * mean whatever the handler happened to check first.
  *
- * `-s` wins, matching `atlas replicate`, which checks `--snapshot` before `--mailbox`. A snapshot
- * id names exactly one thing, so it is the narrower request of the two, and narrower should not be
+ * `-s` wins. A snapshot id names exactly one thing, so it is the narrower request of the two, and narrower should not be
  * silently widened.
  */
 

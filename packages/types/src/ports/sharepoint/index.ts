@@ -14,7 +14,6 @@ export type {
   SharePointSdkSnapshotSummary,
   SharePointSdkFileVersion,
   SharePointSdkDeletionResult,
-  SharePointSdkReplicationResult,
   SharePointSdkStatusResult,
   SharePointSdkSite,
   SharePointSdkStats,

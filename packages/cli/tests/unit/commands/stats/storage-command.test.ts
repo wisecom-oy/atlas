@@ -28,16 +28,16 @@ afterEach(() => {
 
 describe('atlas stats storage', () => {
   it.each([
-    ['--target-access-key', 'key'],
-    ['--target-secret-key', 'secret'],
-    ['--target-region', 'eu-west-1'],
+    ['--target-endpoint', 'https://s3.example.com'],
+    ['--target-config', 'replica.json'],
   ])(
-    'refuses %s without a replica endpoint instead of measuring primary storage',
+    'refuses the removed %s flag instead of measuring primary storage (issue #769)',
     async (flag, value) => {
       const measure = vi.fn();
+      vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
       await expect(run(program_with(measure), 'storage', flag, value)).rejects.toThrow(
-        /Target credentials required/,
+        /unknown option/,
       );
       expect(measure).not.toHaveBeenCalled();
     },

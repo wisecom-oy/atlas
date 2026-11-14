@@ -33,9 +33,8 @@ export async function ensure_bucket_exists(
   client: S3Client,
   bucket: string,
   cache: BucketCache,
-  skip_cache = false,
 ): Promise<void> {
-  if (!skip_cache && cache.is_bucket_checked(bucket)) return;
+  if (cache.is_bucket_checked(bucket)) return;
 
   const exists = await bucket_exists(client, bucket).catch((err: unknown) => {
     throw invalid_bucket_name_error(bucket, err) ?? err;

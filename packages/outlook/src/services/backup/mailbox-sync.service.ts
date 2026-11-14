@@ -16,7 +16,6 @@ import {
 import { sync_single_folder_with_progress } from '@/services/backup/folder-sync-attempt';
 import { persist_mailbox_run, resolve_resume_state } from '@/services/backup/mailbox-run-persister';
 import { count_run_objects, distinct_unreadable_keys } from '@/services/backup/run-object-count';
-import { warn_if_replica } from '@/services/backup/replica-marker-warning';
 import { resolve_backup_folders } from '@/services/shared/folder-selector';
 import { resolve_progress_reporter } from '@/services/shared/backup-progress-resolver';
 import {
@@ -104,7 +103,6 @@ export class MailboxSyncService implements BackupUseCase {
         owner_id,
         operation: 'backup',
       });
-      await warn_if_replica(ctx);
       const snapshot = create_pending_snapshot(tenant_id, owner_id, {
         owner_email: options.owner_email,
         owner_display_name: options.owner_display_name,

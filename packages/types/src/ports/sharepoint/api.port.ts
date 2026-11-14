@@ -16,8 +16,6 @@ import type {
   SharePointSnapshotManifest,
 } from '@/domain/sharepoint/manifest';
 import type { SharePointSnapshotSummary } from '@/domain/shared/snapshot-summary';
-import type { ReplicationResult } from '@/domain/replication/replication';
-import type { StorageTarget } from '@/ports/replication/storage-target.port';
 import type { FileSaveOptions, FileSaveResult } from '@/ports/save/file-save.port';
 import type { DeletionResult } from '@/ports/deletion/use-case.port';
 import type { SharePointSite } from '@/ports/sharepoint/connector.port';
@@ -51,10 +49,6 @@ export type SharePointSdkSaveOptions = Camelize<
 > &
   SdkOperationOptions;
 
-/**
- * `StorageTarget` is deliberately not camelised: it is a handle returned by `createStorageTarget`
- * and handed straight back, carrying a `create_context` method rather than data a consumer writes.
- */
 export type SharePointSdkBackupResult = Camelize<SharePointBackupResult>;
 export type SharePointSdkVerificationResult = Camelize<SharePointVerificationResult>;
 export type SharePointSdkRestoreResult = Camelize<SharePointRestoreResult>;
@@ -64,7 +58,6 @@ export type SharePointSdkSnapshotManifest = Camelize<SharePointSnapshotManifest>
 export type SharePointSdkSnapshotSummary = Camelize<SharePointSnapshotSummary>;
 export type SharePointSdkFileVersion = Camelize<SharePointFileVersionRecord>;
 export type SharePointSdkDeletionResult = Camelize<DeletionResult>;
-export type SharePointSdkReplicationResult = Camelize<ReplicationResult>;
 export type SharePointSdkStatusResult = Camelize<SharePointStatusResult>;
 export type SharePointSdkSite = Camelize<SharePointSite>;
 export type SharePointSdkStats = Camelize<DriveStats>;
@@ -103,18 +96,6 @@ export interface SharePointApi {
   resolveSite(urlOrId: string): Promise<SharePointSdkSite>;
   deleteSiteData(siteId: string): Promise<SharePointSdkDeletionResult>;
   deleteSnapshot(siteId: string, snapshotId: string): Promise<SharePointSdkDeletionResult>;
-  replicateSnapshot(
-    siteId: string,
-    snapshotId: string,
-    targets: StorageTarget[],
-  ): Promise<SharePointSdkReplicationResult[]>;
-  replicateAll(siteId: string, targets: StorageTarget[]): Promise<SharePointSdkReplicationResult[]>;
-  rehydrateSnapshot(
-    siteId: string,
-    snapshotId: string,
-    source: StorageTarget,
-  ): Promise<SharePointSdkReplicationResult>;
-  rehydrateSite(siteId: string, source: StorageTarget): Promise<SharePointSdkReplicationResult>;
   checkStatus(siteId: string): Promise<SharePointSdkStatusResult>;
   /** Aggregates SharePoint backup statistics; without siteId, tenant-wide across sites. */
   getStats(siteId?: string): Promise<SharePointSdkStats>;

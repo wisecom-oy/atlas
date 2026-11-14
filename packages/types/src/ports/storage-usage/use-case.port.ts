@@ -1,9 +1,6 @@
 import type { StorageUsage, StorageUsageBreakdown } from '@/domain/stats/storage-usage';
-import type { StorageTarget } from '@/ports/replication/storage-target.port';
 
 export interface StorageUsageRequest {
-  /** Measures this replication target instead of the primary storage. */
-  readonly target?: StorageTarget | undefined;
   /** `owner` adds a per-owner and per-site breakdown. The workload breakdown is always present. */
   readonly breakdown?: StorageUsageBreakdown | undefined;
   /** Resumes a measurement that stopped early. */
@@ -16,7 +13,6 @@ export interface StorageUsageRequest {
 
 /** The same request in the SDK's camelCase, with the SDK's `signal` spelling. */
 export interface StorageUsageOptions {
-  readonly target?: StorageTarget;
   readonly breakdown?: StorageUsageBreakdown;
   readonly continuationToken?: string;
   readonly maxListRequests?: number;

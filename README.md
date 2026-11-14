@@ -25,7 +25,7 @@ Recovery is only useful if it still works when the production environment cannot
 | **Content-addressed storage**   | Messages, attachments, and files keyed by SHA-256 of the plaintext                                                   | Identical content is stored once; re-runs do not re-upload               |
 | **Storage-level immutability**  | S3 Object Lock with time-based retention                                                                             | Retention is enforced by the storage layer, not by application logic     |
 | **Delta synchronisation**       | Graph delta cursors per folder, drive, and library                                                                   | Incremental runs; a single failed item does not replay the whole backlog |
-| **Snapshot replication**        | Ciphertext copied as-is to a secondary S3 target                                                                     | A second, independent copy for disaster recovery                         |
+| **Replica restore and verify**  | Point Atlas at your storage provider's replica and restore or verify from it                                         | A second, independent copy for disaster recovery, kept by the provider   |
 | **Open implementation**         | Apache-2.0, no proprietary archive format                                                                            | The recovery path can be audited rather than assumed                     |
 
 Large files stream without touching disk: transfers at or above 64 MiB are downloaded, encrypted, and assembled into multipart uploads in bounded memory.
@@ -58,7 +58,7 @@ atlas teams backup --team <team-id>
 
 Backups need a Microsoft Entra ID app registration and an S3 bucket. [Getting Started](https://wisecom-oy.github.io/atlas/getting-started) covers both, and [Microsoft Entra ID setup](https://wisecom-oy.github.io/atlas/azure-ad-setup) lists the exact Graph permissions and why each is required.
 
-Restores, verification, catalogue queries, replication, and retention are documented in the [CLI reference](https://wisecom-oy.github.io/atlas/reference/cli).
+Restores, verification, catalogue queries, and retention are documented in the [CLI reference](https://wisecom-oy.github.io/atlas/reference/cli).
 
 ## Scope
 

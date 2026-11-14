@@ -180,36 +180,6 @@ If a required value is missing or malformed, Atlas exits with an error that list
 
 Atlas always addresses buckets in path style (`https://host/bucket-name`) by setting `forcePathStyle: true`. MinIO and most self-hosted S3-compatible services require this form. AWS S3 accepts it as well.
 
-Each tenant's data lives in a bucket named `atlas-<tenant-id>`. Atlas creates it, with the tenant's data key, on the tenant's first backup or rehydrate, and it needs `s3:CreateBucket` for that. Every other command, including restore, save, delete, and email lookups, opens only an existing bucket and fails with `No backups found for tenant <id>` otherwise, so a profile with the wrong tenant ID leaves no bucket behind. See [S3 permissions by command class](/security#s3-permissions-by-command-class).
+Each tenant's data lives in a bucket named `atlas-<tenant-id>`. Atlas creates it, with the tenant's data key, on the tenant's first backup, and it needs `s3:CreateBucket` for that. Every other command, including restore, save, delete, and email lookups, opens only an existing bucket and fails with `No backups found for tenant <id>` otherwise, so a profile with the wrong tenant ID leaves no bucket behind. See [S3 permissions by command class](/security#s3-permissions-by-command-class).
 
 S3 bucket names are 3 to 63 lowercase letters, digits, dots, or dashes, so the tenant ID must fit in the 57 characters after `atlas-`. `atlas tenants add` stores the tenant ID in lowercase. Prefer the tenant GUID: a domain and the GUID of the same tenant name two different buckets, and a long domain does not fit. Before creating a bucket whose name S3 would reject, Atlas stops with a `ConfigError` that names the rule. An existing bucket is used as it is, whatever its name.
-
-## Replication target config
-
-`atlas replicate` takes `--target-config`, and `atlas rehydrate` takes `--source-config`. Each points to a JSON file with the credentials for one secondary storage target:
-
-```json
-{
-  "target_id": "offsite-dr",
-  "s3_endpoint": "https://offsite.example.com",
-  "s3_access_key": "offsite-key",
-  "s3_secret_key": "offsite-secret",
-  "s3_region": "us-east-1"
-}
-```
-
-| Field           | Required | Description                                            |
-| --------------- | -------- | ------------------------------------------------------ |
-| `target_id`     | No       | Stable identifier for the target. Generated if omitted |
-| `s3_endpoint`   | Yes      | S3 endpoint URL for the target                         |
-| `s3_access_key` | Yes      | Access key for the target                              |
-| `s3_secret_key` | Yes      | Secret key for the target                              |
-| `s3_region`     | No       | Region for the target. Default `us-east-1`             |
-
-The encryption passphrase is not in this file. All targets share the primary's passphrase and tenant key, so a target config holds only storage credentials. Atlas refuses to replicate to a target whose key differs from the primary's. See [Replication security](/security#replication-security).
-
-::: danger Restrict target config files too
-Target config files hold S3 credentials. Apply the same `chmod 600` rule as the main config file, and keep them out of version control.
-:::
-
-See also: [Security model](/security), [Entra ID app registration](/azure-ad-setup), [CLI reference](/reference/cli).

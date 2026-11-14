@@ -13,7 +13,6 @@ export type * from './stats';
 export type * from './save';
 export type * from './shared';
 export type * from './status';
-export type * from './replication';
 export type * from './atlas';
 export type * from './onedrive';
 export type * from './contacts';

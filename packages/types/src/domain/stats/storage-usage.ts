@@ -44,8 +44,6 @@ export interface StorageOwnerUsage {
 }
 
 export interface StorageUsage {
-  /** `primary`, or the `target_id` of the storage target that was measured. */
-  readonly target: string;
   /** When the first call of this measurement started. */
   readonly started_at: string;
   /** When this call finished. */

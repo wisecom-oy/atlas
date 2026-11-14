@@ -25,7 +25,6 @@ import type {
   SharePointSdkRestoreOptions,
   SharePointSdkStatusResult,
   SdkOperationOptions,
-  StorageTargetConfig,
 } from '@/index';
 import { camelize } from '@wisecom/atlas-types/public/case-convert';
 import { GRAPH_SERVICE_LIMITS } from '@/public-values';
@@ -64,7 +63,6 @@ const config_is_camel: NoSnakeKeys<AtlasInstanceConfig> = true;
 const cost_is_camel: NoSnakeKeys<OperationCost> = true;
 const object_lock_request_is_camel: NoSnakeKeys<ObjectLockRequest> = true;
 const operation_options_are_camel: NoSnakeKeys<SdkOperationOptions> = true;
-const storage_target_config_is_camel: NoSnakeKeys<StorageTargetConfig> = true;
 
 const outlook_options_are_camel: NoSnakeKeys<
   OutlookBackupOptions | OutlookRestoreOptions | OutlookSaveOptions
@@ -97,7 +95,6 @@ describe('public surface', () => {
     expect([
       config_is_camel,
       operation_options_are_camel,
-      storage_target_config_is_camel,
       outlook_options_are_camel,
       outlook_results_are_camel,
       onedrive_options_are_camel,
@@ -106,7 +103,7 @@ describe('public surface', () => {
       sharepoint_results_are_camel,
       cost_is_camel,
       object_lock_request_is_camel,
-    ]).toEqual(Array.from({ length: 11 }, () => true));
+    ]).toEqual(Array.from({ length: 10 }, () => true));
   });
 
   it('keeps the keys of maps Atlas did not choose', () => {

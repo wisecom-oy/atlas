@@ -11,6 +11,7 @@ import type {
   StorageListedObject,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import type { S3Config } from '@/utils/config';
 import { StorageUsageService } from '@/services/stats/storage-usage.service';
 
 const PAGES_PER_PREFIX = 250;
@@ -70,6 +71,7 @@ describe('StorageUsageService memory', () => {
       {} as OneDriveManifestRepository,
       {} as SharePointManifestRepository,
       {} as TeamsIndexRepository,
+      { s3_endpoint: 'https://s3.example', s3_region: 'us-east-1' } as S3Config,
     );
     collect_garbage();
     const before = process.memoryUsage().heapUsed;

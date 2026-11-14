@@ -1,294 +1,108 @@
 ---
-description: Copy completed Atlas snapshots from your primary bucket to secondary S3-compatible targets with atlas replicate, including safety rules and disaster recovery.
+description: Keep a second copy of Atlas backups with your storage provider's replication, then restore from and verify that replica with Atlas.
 ---
 
-# Replication
+# Replicas
 
-Replication copies completed snapshots from your primary bucket to one or more secondary S3-compatible targets. It is built into Atlas and needs no external sync tool.
+Your storage provider keeps the second copy of your backups. Atlas restores from that copy and verifies it, using the same commands it runs against the primary bucket.
 
 ```bash
-atlas replicate -s <snapshot-id> --target-config ./offsite.json
+# Check a replica: point the S3 settings at it for this run only
+ATLAS_S3_ENDPOINT=https://replica.example.com \
+ATLAS_S3_ACCESS_KEY=<replica-read-only-key> \
+ATLAS_S3_SECRET_KEY=<replica-read-only-secret> \
+  atlas outlook verify -m user@example.com -s <snapshot-id> --fast
 ```
 
-## How replication works
+Setup recipes for AWS S3, MinIO, Backblaze B2, rclone, and `mc mirror` are in [Replica setup](/self-hosting/replication).
 
-### What a snapshot holds
+## What a replica needs
 
-An Outlook, OneDrive, or SharePoint manifest records only the changes of the run that wrote it. A snapshot is that manifest folded together with every older manifest of the same mailbox, drive owner, or site, which is how `verify`, `save`, and `restore` read it. A manifest carries no reference to the one before it, so a copy that holds the newest manifest without the older ones restores less than the original, and `verify` cannot tell.
+Atlas reads a replica exactly as it reads the primary. A copy is usable when all of these hold:
 
-Replication therefore always works on whole chains:
+| Requirement | Why |
+| --- | --- |
+| Every object, under the same key | Each object is encrypted (AES-256-GCM) with its key's directory as associated data, so a moved object fails to decrypt. |
+| `_meta/dek.enc` is copied | It is the wrapped data key. Without it nothing on the replica can be decrypted. |
+| The same encryption passphrase | The passphrase unwraps `_meta/dek.enc`. A replica is no use without it. |
+| The bucket is named `atlas-<tenant-id>` | Atlas derives the bucket name from the tenant ID and has no override yet. |
 
-| Command                                 | Copies                                                                                                 |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `replicate -s <id>`                     | The named snapshot and every older snapshot of its mailbox, drive owner, or site that the target lacks |
-| `replicate -m`, `-o`, `--site`          | Every snapshot of that mailbox, drive owner, or site that the target lacks                             |
-| `rehydrate -s <id>`                     | The named snapshot and every older snapshot of its owner on the replica that primary lacks             |
-| `rehydrate -m`, `-o`, `--site`, `--all` | Every snapshot in scope that primary lacks                                                             |
-
-Snapshots are copied oldest first. When older and newer snapshots share a creation time, the one you named is copied last. Before copying any snapshot, `-s` reads the whole chain on the side it copies from. If a manifest the chain needs cannot be decrypted, or was removed after Atlas listed it, the command fails before any snapshot object or manifest is written and names those keys, the same refusal `verify` gives. Quarantine the damaged manifest, or replicate by mailbox, owner, or site instead.
-
-`rehydrate -s` installs the replica's encryption key on primary before it reads the chain, for Outlook, OneDrive, and SharePoint alike. A refused rehydration can therefore leave that key on a primary that had none. That is the key every rehydration from this replica needs, and a later run accepts it (see [atlas rehydrate](/reference/cli#atlas-rehydrate)).
-
-### Copying one snapshot
-
-For each snapshot it copies, Atlas:
-
-1. Reads the snapshot manifest from primary storage.
-2. Checks which of the manifest's objects (messages, attachments, and file data) the target already holds.
-3. Copies the missing objects as raw ciphertext. Nothing is decrypted or re-encrypted. Each object is read from primary once and streamed to the target, so memory stays bounded however large the object is (see [Bandwidth](/self-hosting/replication#bandwidth)).
-4. Copies the manifest **last**, so a target never holds a manifest that points at missing objects.
-5. Writes a status record to primary storage with the outcome.
-
-Replication is **idempotent**. Running it again skips snapshots whose manifest the target already has and objects it already holds, so retrying after a failure or interruption is safe. A manifest already on the target is never written again. On a versioned or Object Lock bucket every write adds a version that cannot be removed early, so this keeps reruns from piling up locked copies.
-
-### Copy order and crash safety
-
-| Step | Object                                      | Notes                                                                                           |
-| ---- | ------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| 1    | DEK validation                              | Passes when the target has no key yet. Refuses before any write if the key differs.             |
-| 2    | `_meta/dek.enc`                             | Copied to the target if absent.                                                                 |
-| 3    | `_meta/replica.marker`                      | Written to the target. Rehydration to primary skips it.                                         |
-| 4    | Data and attachment objects                 | Copied in manifest order, skipping objects already present.                                     |
-| 5    | Ancillary objects (OneDrive and SharePoint) | File version indexes and delta cursors.                                                         |
-| 6    | Manifest                                    | **Always last.**                                                                                |
-
-If replication stops at any point, the target holds some orphan data objects, which are harmless and can be reclaimed. No manifest references a missing object. The next run resumes where the last one stopped.
-
-A run that finishes with failures follows the same rule. If any object fails to copy, Atlas does not write the manifest. The snapshot remains unreplicated, and the next run retries it. Every run decides which snapshots need copying by checking for their manifests on the target. A manifest written after a partial copy would make the gap permanent: later runs would report nothing to do while objects stayed missing.
-
-A failed snapshot also stops its owner's chain. No newer snapshot of that mailbox, drive owner, or site is written in the same run, because it would read as complete while missing everything the failed one recorded. The failed snapshot's result names the snapshots left out, and the command reports a failure. Other owners in the same run carry on. A run never adds a gap to a chain, and the next run resumes at the gap it stopped at.
-
-A gap that predates the run stays open until a run copies the missing links. A target can already hold a newer manifest whose older links are missing, written by `replicate -s` before it copied whole chains or by an older run that continued past a failure. A failed copy of a missing older link leaves that newer manifest in place, so the chain on the target stays incomplete. Rerun until the run reports no failures before you rely on the replica.
-
-## Safety model
-
-### Primary is authoritative
-
-::: danger Never back up to a replica
-Primary storage is the source of truth during normal operation. Targets receive data only through replication. Do not run `atlas outlook backup` or other backup commands against a replica bucket. Atlas detects the replica marker and logs a warning when it happens.
+::: warning AWS S3 and Backblaze B2 replicas need a bucket-name override
+Bucket names on AWS S3 and Backblaze B2 are unique across the whole provider, so a replica on the same provider must have a different name, and Atlas cannot open it yet. The override is tracked in [#768](https://github.com/wisecom-oy/atlas/issues/768). Until it ships, keep the replica on another endpoint under the same name: a MinIO deployment, another S3-compatible provider, or a copy made with `rclone` or `mc mirror`.
 :::
 
-Replication flows one way, from primary to target. Atlas performs no bidirectional sync and no conflict resolution. Recovering data from a target is a separate, explicit operation: [rehydration](#rehydration-disaster-recovery).
+Replicas that `atlas replicate` wrote under Atlas 6 already meet every requirement. They hold the same bucket name on a different endpoint, so Atlas 7 reads them as they are.
 
-### Shared encryption
+## Restore and verify from a replica
 
-All copies use the same passphrase and the same per-tenant data-encryption key (DEK). Ciphertext is copied as-is, so replication involves no cryptographic work. The wrapped DEK (`_meta/dek.enc`) reaches the target on the first replication.
+Point the S3 settings at the replica for one run. Environment variables override the configured endpoint and keys, so nothing on the host changes:
 
-::: warning A passphrase compromise reaches every copy
-Anyone who has the passphrase can read every target. Limit the damage with separate S3 credentials for each target. Keys for one target do not grant access to another, but they do not protect the data either. Keep the passphrase in a password manager or secrets store with its own backup.
+```bash
+export ATLAS_S3_ENDPOINT=https://replica.example.com
+export ATLAS_S3_ACCESS_KEY=<replica-read-only-key>
+export ATLAS_S3_SECRET_KEY=<replica-read-only-secret>
+
+atlas outlook list
+atlas outlook verify -m user@example.com -s <snapshot-id>
+atlas onedrive verify -o user@example.com -s <snapshot-id>
+atlas sharepoint verify --site <site-url> -s <snapshot-id>
+atlas outlook restore -s <snapshot-id>
+atlas stats storage                     # physical bytes the replica holds
+```
+
+Give Atlas **read-only** credentials on the replica. `verify`, `list`, `stats`, and `save` never write. A restore takes an [owner lease](/operations/storage-layout#owner-leases) when it can write, and with read-only credentials it runs without one and says so. A backup pointed at a replica by mistake then fails on its first write instead of forking the history.
+
+::: danger Never back up into a replica
+Backups write manifests, cursors, and the summary index. Written into a replica, they diverge from the primary, and the provider may overwrite them on its next sync. Keep backups on the primary and give the Atlas host no write access to the replica.
 :::
 
-### DEK mismatch
+### Leases on a replica
 
-Before the first copy to a target in each run, Atlas checks that the target's key matches the primary's. If a tenant was purged and re-initialized on primary, it has a new DEK. Atlas then refuses to write to a target that still holds objects under the old key:
+Provider replication copies the [lease objects](/operations/storage-layout#owner-leases) a running backup writes. A lease expires 5 minutes after its holder last renewed it. A restore from the replica may therefore refuse an owner with exit code `12` for up to 5 minutes after the primary's backup of that owner stopped. Wait and rerun.
 
-```
-Error: Target has a different encryption key than the source.
-Purge the target before replicating from a re-initialized primary.
-```
+## Consistency
 
-Without this check, the old objects on the target would become permanently unreadable.
+Providers replicate object by object, in no guaranteed order. A copy taken while a backup runs can hold a manifest before every object it references has arrived.
 
-### Object Lock is not replicated
+- Schedule `rclone` and `mc mirror` runs after the backups finish.
+- Run `verify --fast` against the replica on a schedule. It checks that every referenced object exists with one `HeadObject` per key and downloads nothing.
+- Run a full `verify` on the replica periodically. It downloads, decrypts, and hashes every object, which is the only proof the replica restores.
 
-Replication copies raw ciphertext without lock metadata. If the target needs immutability, enable Object Lock on that target's bucket separately. See [Immutability](/operations/immutability).
+## Deletes and immutability
 
-## Replica status
+A replica protects you only if deletions on the primary do not reach it.
 
-Atlas stores one encrypted status record per snapshot and target in the primary bucket. The layout depends on the workload:
+| Setting | Recommendation | Why |
+| --- | --- | --- |
+| Delete-marker replication | Off | Otherwise an `atlas delete`, a purge, or an attacker with primary credentials deletes the replica too. |
+| Copy tools | `rclone copy` or `mc mirror` without `--remove` | `rclone sync` deletes on the destination whatever is gone from the source. |
+| Object Lock | On, on the replica bucket | Locks set on the primary are not carried to a bucket without its own Object Lock. Enable it when you create the replica bucket. See [Immutability](/operations/immutability). |
+| Credentials | Separate keys per bucket | Primary keys must not be able to delete on the replica. |
 
-```
-atlas-{tenant_id}/
-└── _meta/
-    └── replication/
-        ├── {owner_id}/                            # Outlook
-        │   └── {snapshot_id}/
-        │       └── {target_id}.json
-        ├── onedrive/{owner_id}/                   # OneDrive
-        │   └── {snapshot_id}/
-        │       └── {target_id}.json
-        └── sharepoint/{site_id}/                  # SharePoint
-            └── {snapshot_id}/
-                └── {target_id}.json
-```
+Retention on the replica means `atlas delete` on the primary no longer removes that data everywhere. Plan erasure requests with the replica's retention in mind.
 
-Each record holds the target ID, status (`COMPLETED`, `PARTIAL`, or `FAILED`), object and byte counts, timestamps, manifest checksum, and the last error.
+## Key rotation and replicas
 
-```bash
-atlas replicate status                          # all snapshots, all targets
-atlas replicate status -m user@company.com      # one mailbox
-atlas replicate status --site <site-id>         # one SharePoint site
-atlas replicate status -s <snapshot-id>         # one snapshot
-```
+All copies share the passphrase and the tenant data key. `atlas keys rewrap` writes a new `_meta/dek.enc` on the primary, and provider replication carries it to the replica as a new version. A copy tool carries it on its next run.
 
-## CLI usage
+Older versions of `_meta/dek.enc`, wrapped under the old passphrase, stay on a versioned replica. AWS S3 never replicates a delete that names a version, so removing old wrappers on the primary does not remove them on the replica. Delete them on the replica too when a passphrase is retired because it leaked.
 
-### Replicate with a target config file
+## Legacy Atlas 6 objects
 
-The `--target-config` file holds the target's S3 settings:
+Atlas 6 wrote replication status records under `_meta/replication/` in the primary bucket and `_meta/replica.marker` in each replica. Atlas 7 writes neither and reads neither.
 
-```json
-{
-  "target_id": "offsite-dr",
-  "s3_endpoint": "https://offsite.example.com:9000",
-  "s3_access_key": "<access-key>",
-  "s3_secret_key": "<secret-key>",
-  "s3_region": "us-east-1"
-}
-```
-
-`s3_endpoint`, `s3_access_key`, and `s3_secret_key` are required. `target_id` and `s3_region` are optional. The passphrase comes from your main Atlas configuration, not from this file.
+They are inert. `atlas stats storage` counts them under `meta`, a tenant purge deletes them, and `atlas outlook delete -m` still removes the records of the snapshots it deletes. To remove the rest once, run against the primary bucket:
 
 ```bash
-# One snapshot
-atlas replicate -s <snapshot-id> --target-config ./offsite.json
-
-# All unreplicated snapshots for a mailbox
-atlas replicate -m user@company.com --target-config ./offsite.json
-
-# A SharePoint site, or one of its snapshots
-atlas replicate --site contoso.sharepoint.com,<guid>,<guid> --target-config ./offsite.json
-atlas replicate --site contoso.sharepoint.com,<guid>,<guid> -s <snapshot-id> --target-config ./offsite.json
-
-# OneDrive owner
-atlas replicate -o user@company.com --target-config ./offsite.json
+aws s3 rm --recursive s3://atlas-<tenant-id>/_meta/replication/
+# or, for MinIO
+mc rm --recursive --force <alias>/atlas-<tenant-id>/_meta/replication/
 ```
 
-Every form copies only the snapshots the target does not have yet. `-s` also brings the older snapshots its chain needs, so the first `-s` of a mailbox to an empty target copies the mailbox's history up to that snapshot. Each copied snapshot gets its own status record.
-
-### Pass credentials inline
-
-Use flags instead of a file if you prefer:
-
-```bash
-atlas replicate -s <snapshot-id> \
-  --target-endpoint https://offsite.example.com:9000 \
-  --target-access-key <key> \
-  --target-secret-key -
-```
-
-`--target-secret-key -` reads the secret from standard input, which keeps it out of shell history and the process list.
-
-SharePoint replication also copies file version indexes and delta cursors alongside the data. Rehydration then restores incremental sync correctly. OneDrive replication copies the same set.
-
-## SDK usage
-
-```typescript
-import { createAtlasInstance, createStorageTarget } from '@wisecom/atlas-sdk';
-
-const atlas = createAtlasInstance({ /* primary config */ });
-
-const offsite = createStorageTarget({
-  targetId: 'offsite-dr',
-  s3Endpoint: 'https://offsite.example.com:9000',
-  s3AccessKey: '<access-key>',
-  s3SecretKey: '<secret-key>',
-  encryptionPassphrase: '<same-passphrase-as-primary>',
-});
-
-// Replicate one snapshot, or every unreplicated snapshot for a mailbox
-const results = await atlas.replicateSnapshot('snapshot-id', [offsite]);
-const mailboxResults = await atlas.replicateMailbox('user@company.com', [offsite]);
-
-// OneDrive and SharePoint
-await atlas.onedrive.replicateAll('owner-id', [offsite]);
-await atlas.onedrive.replicateSnapshot('owner-id', 'od-snap-123', [offsite]);
-await atlas.sharepoint.replicateAll('site-id', [offsite]);
-await atlas.sharepoint.replicateSnapshot('site-id', 'sp-snap-123', [offsite]);
-
-// Replication status for a snapshot
-const status = await atlas.getReplicationStatus('snapshot-id');
-```
-
-## Rehydration (disaster recovery)
-
-Rehydration copies data from a target back to primary. It is **not** a sync. It copies only what you ask for, skips snapshots that already exist on primary, and performs no merge or conflict resolution. Like replication, `rehydrate -s` brings the older snapshots of the owner that primary lacks, oldest first, and stops at the first one that fails.
-
-::: tip Use rehydration after primary data loss
-Run `atlas rehydrate` only to recover from data loss on primary. Afterwards, primary is the source of truth again. Delta links in restored manifests may be stale. Atlas detects this and falls back to a full sync on the next backup.
-:::
-
-### Recovery commands
-
-```bash
-# One snapshot
-atlas rehydrate -s <snapshot-id> \
-  --source-endpoint https://offsite.example.com:9000 \
-  --source-access-key <key> \
-  --source-secret-key -
-
-# All snapshots for a mailbox
-atlas rehydrate -m user@company.com --source-config ./offsite.json
-
-# A SharePoint site, or one of its snapshots
-atlas rehydrate --site contoso.sharepoint.com,<guid>,<guid> --source-config ./offsite.json
-atlas rehydrate --site contoso.sharepoint.com,<guid>,<guid> -s <snapshot-id> --source-config ./offsite.json
-
-# Everything: Outlook, OneDrive, and SharePoint
-atlas rehydrate --all --source-config ./offsite.json
-```
-
-`--all` reads the three manifest roots: `manifests/` (Outlook), `onedrive/manifests/`, and `sharepoint/manifests/`. It reports copied, skipped, and failed counts for each workload. If a workload yields no objects, Atlas names it in a warning, so an incomplete recovery drill cannot pass unnoticed.
-
-Teams is not replicated yet. Passing a `teams-snap-*` ID to replication or rehydration fails with `Teams snapshots are not replicated yet`, and tenant recovery names Teams as not covered.
-
-### SDK rehydration
-
-```typescript
-// One snapshot (Outlook, OneDrive, and SharePoint ids all work)
-await atlas.rehydrateSnapshot('snapshot-id', offsite);
-
-// One workload at a time
-await atlas.rehydrateMailbox('user@company.com', offsite);
-await atlas.onedrive.rehydrateOwner('owner-id', offsite);
-await atlas.onedrive.rehydrateSnapshot('owner-id', 'od-snap-123', offsite);
-await atlas.sharepoint.rehydrateSite('site-id', offsite);
-await atlas.sharepoint.rehydrateSnapshot('site-id', 'sp-snap-123', offsite);
-
-// Full tenant recovery across all workloads
-const recovery = await atlas.rehydrateTenant(offsite);
-recovery.workloads.forEach((w) => console.log(w.workload, w.result.objectsCopied));
-```
-
-## Runbook: recovering from primary failure
-
-1. **Make sure the primary bucket exists** and is reachable, even if it is empty.
-
-2. **Confirm the passphrase.** It must match the one used when the replica was written. Atlas cannot read recovered data with a different passphrase.
-
-3. **Rehydrate every workload:**
-
-   ```bash
-   atlas rehydrate --all --source-config ./offsite.json
-   ```
-
-4. **Verify the recovered data:**
-
-   ```bash
-   atlas outlook list                                          # list recovered mailboxes
-   atlas outlook verify -m <mailbox> -s <snapshot-id>          # Outlook integrity
-   atlas onedrive verify -o <owner> -s <snapshot-id>           # OneDrive integrity
-   atlas sharepoint verify --site <site-url> -s <snapshot-id>  # SharePoint integrity
-   ```
-
-5. **Run a fresh backup** to capture changes made after the last replication:
-
-   ```bash
-   atlas outlook backup -m <mailbox>
-   atlas onedrive backup -o <owner>
-   atlas sharepoint backup --site <site-url>
-   ```
-
-   Stale delta links are detected automatically, and Atlas falls back to a full sync.
-
-6. **Replicate again** so the target is current:
-
-   ```bash
-   atlas replicate -m user@company.com --target-config ./offsite.json
-   ```
+Objects still under Object Lock retention are refused until it expires.
 
 ## See also
 
-- [Storage layout](/operations/storage-layout): the object keys that replication copies
-- [Immutability](/operations/immutability): Object Lock on a replica bucket
-- [Replication setup](/self-hosting/replication): deployment patterns and scheduling
+- [Replica setup](/self-hosting/replication): provider replication and copy tools, step by step
+- [Immutability](/operations/immutability): Object Lock on the replica bucket
+- [Storage layout](/operations/storage-layout): the objects a replica holds

@@ -63,7 +63,7 @@ async function read_or_capture_unreadable<T>(
 
 /**
  * Returns `items` when nothing was skipped, and raises otherwise. For reads whose answer is wrong
- * without every object, such as a restore chain or a replication copy.
+ * without every object, such as a restore chain or a whole-tenant listing.
  *
  * One damaged object raises the error its read raised, so the reason stays as specific as it was.
  * Several raise one `UnreadableObjectsError` naming every key, with the first reason as its cause.

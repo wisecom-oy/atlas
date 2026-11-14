@@ -16,7 +16,6 @@ import {
   UnreadableObjectsError,
   WrongPassphraseError,
 } from '@wisecom/atlas-types';
-import { DekOverwriteRefusedError } from '@wisecom/atlas-core/services/replication/dek-rehydration-validator';
 import { handle_fatal_error } from '@/fatal-error';
 
 let previous_exit_code: typeof process.exitCode;
@@ -141,12 +140,6 @@ describe('fatal CLI errors', () => {
     handle_fatal_error(new UnreadableContentError('Header block exceeds the 1 MiB limit'));
     expect(process.exitCode).toBe(9);
     expect(diagnostics.join('\n')).toContain('ATLAS_CONTENT_UNREADABLE');
-  });
-
-  it('gives a refused data-key overwrite its own code and exit category (issue #659)', () => {
-    handle_fatal_error(new DekOverwriteRefusedError('tenant-example'));
-    expect(process.exitCode).toBe(10);
-    expect(diagnostics.join('\n')).toContain('Atlas code: ATLAS_KEY_CONFLICT');
   });
 
   it('gives a refused delete of a snapshot newer ones depend on its own exit category (#704)', () => {

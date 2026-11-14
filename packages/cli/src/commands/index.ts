@@ -6,6 +6,4 @@ export { register_sharepoint_command } from './sharepoint/sharepoint.command';
 export { register_teams_command } from '@/commands/teams/teams.command';
 export { register_stats_command } from './stats/stats.command';
 export { register_storage_check_command } from './tenant/storage-check.command';
-export { register_replicate_command } from './tenant/replicate.command';
-export { register_rehydrate_command } from './tenant/rehydrate.command';
 export { register_list_users_command } from './tenant/list-users.command';

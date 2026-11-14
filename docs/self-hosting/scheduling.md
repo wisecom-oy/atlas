@@ -130,5 +130,5 @@ If off-hours runs are not enough, put the backup server on a **separate ISP conn
 ## See also
 
 - [Storage setup](/self-hosting/storage)
-- [Replication setup](/self-hosting/replication)
+- [Replica setup](/self-hosting/replication)
 - [Graph rate limits](/operations/graph-rate-limits)
