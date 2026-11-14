@@ -17,6 +17,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { normalize_url } from './redact.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const work = mkdtempSync(join(tmpdir(), 'graph-tap-selfcheck-'));
@@ -226,6 +227,81 @@ check('request bodies are not recorded without --bodies', () => {
   assert.ok(!raw.includes('hello'), 'body captured despite --bodies being off');
 });
 
+/**
+ * Tenant content in URLs, checked directly against the shared redaction module:
+ * these shapes need real Microsoft 365 hosts, which a local server cannot be.
+ */
+const G1 = '11111111-2222-3333-4444-555555555555';
+const G2 = '66666666-7777-8888-9999-000000000000';
+const TENANT_SHAPES = [
+  [
+    'https://graph.microsoft.com',
+    '/v1.0/users/jane@contoso.com/drive/root:/Finance/Q1%20budget.xlsx:/content',
+    'graph.microsoft.com/v1.0/users/{upn}/drive/root:/{path}:/content',
+  ],
+  [
+    'https://graph.microsoft.com',
+    '/v1.0/sites/contoso.sharepoint.com:/sites/finance-team',
+    'graph.microsoft.com/v1.0/sites/{host}:/{path}',
+  ],
+  [
+    'https://graph.microsoft.com',
+    `/v1.0/sites/contoso.sharepoint.com,${G1},${G2}/drives`,
+    'graph.microsoft.com/v1.0/sites/{site}/drives',
+  ],
+  [
+    'https://contoso-my.sharepoint.com',
+    `/personal/jane_contoso_com/_api/v2.0/drives/b!AbC123/items/01ABCDEF/uploadSession?guid='${G1}'&tempauth=xyz`,
+    "{tenant}-my.sharepoint.com/personal/{upn}/_api/v2.0/drives/{id}/items/{id}/uploadSession?guid='{value}'&tempauth=<3b>",
+  ],
+  [
+    'https://contoso.sharepoint.com',
+    '/sites/finance-team/Shared%20Documents/Q1%20budget.xlsx',
+    '{tenant}.sharepoint.com/sites/{site}/{path}/{path}',
+  ],
+  [
+    'https://graph.microsoft.com',
+    `/v1.0/users?$filter=startswith(displayName,'finance')&$search="budget"`,
+    "graph.microsoft.com/v1.0/users?$filter=startswith(displayName,'{value}')&$search={value}",
+  ],
+  [
+    'https://graph.microsoft.com',
+    '/v1.0/users/jane/mailFolders/inbox/messages/AAMk1/attachments',
+    'graph.microsoft.com/v1.0/users/{id}/mailFolders/inbox/messages/{id}/attachments',
+  ],
+  [
+    'https://login.microsoftonline.com',
+    '/contoso.onmicrosoft.com/oauth2/v2.0/token',
+    'login.microsoftonline.com/{tenant}/oauth2/v2.0/token',
+  ],
+  [
+    'https://login.microsoftonline.com',
+    '/common/discovery/instance',
+    'login.microsoftonline.com/common/discovery/instance',
+  ],
+  [
+    'https://outlook.office.com',
+    "/api/v2.0/Users('jane@contoso.com')/Messages('AAMk')/AttachmentSessions('x')?authtoken=abcd",
+    "outlook.office.com/api/v2.0/Users('{value}')/Messages('{value}')/AttachmentSessions('{value}')?authtoken=<4b>",
+  ],
+  [
+    'https://graph.microsoft.com',
+    '/v1.0/users/x/messages?$filter=from/emailAddress/address eq jane@contoso.com',
+    'graph.microsoft.com/v1.0/users/{id}/messages?$filter=from/emailAddress/address eq {upn}',
+  ],
+];
+
+check('tenant content in urls is templated (paths, sites, hosts, literals, tenants)', () => {
+  for (const [origin, path, expected] of TENANT_SHAPES) {
+    const got = normalize_url(origin, path);
+    assert.equal(got, expected);
+    assert.ok(!/contoso|finance|budget|jane/i.test(got), `tenant content survived: ${got}`);
+  }
+});
+
 for (const name of checks) console.log(`  ok  ${name}`);
-for (const name of skipped) console.log(`  --  ${name} (this runtime emits no response body chunks)`);
-console.log(`\n${checks.length} checks passed${skipped.length ? `, ${skipped.length} skipped` : ''}`);
+for (const name of skipped)
+  console.log(`  --  ${name} (this runtime emits no response body chunks)`);
+console.log(
+  `\n${checks.length} checks passed${skipped.length ? `, ${skipped.length} skipped` : ''}`,
+);

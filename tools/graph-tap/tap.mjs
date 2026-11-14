@@ -20,9 +20,7 @@ import dc from 'node:diagnostics_channel';
 import { mkdirSync, openSync, writeSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { brotliDecompressSync, constants, gunzipSync, inflateSync } from 'node:zlib';
-
-/** Hosts worth recording. Anything else (S3, MinIO, telemetry) is ignored. */
-const DEFAULT_HOSTS = String.raw`graph\.microsoft\.com|login\.microsoftonline\.com|\.sharepoint\.com|1drv\.(com|ms)|officeapps\.live\.com`;
+import { DEFAULT_HOSTS, normalize_url } from './redact.mjs';
 
 /**
  * The only response headers kept. Everything else undici reports -- ags
@@ -52,18 +50,6 @@ const KEEP_REQUEST_HEADERS = new Set([
   'if-match',
 ]);
 
-/**
- * Query parameters whose values are opaque and enormous: delta and skip tokens
- * run to kilobytes, and `tempauth`/`guestaccesstoken` on pre-authenticated
- * download URLs are credentials that grant file access on their own. Both are
- * replaced by their byte count, which is all an analysis needs.
- */
-const ELIDE_PARAMS =
-  /^(\$deltatoken|\$skiptoken|\$skip|token|tempauth|guestaccesstoken|access_token|id_token|refresh_token|code|client_secret|password|sig|se|sp|sv|skoid|st|spr|sr|nonce|state|cv|authkey)$/i;
-
-/** Longest a single kept query value may be before it is truncated. */
-const MAX_PARAM_LEN = 160;
-
 const host_filter = new RegExp(process.env.GRAPH_TAP_HOSTS || DEFAULT_HOSTS, 'i');
 const capture_all = process.env.GRAPH_TAP_ALL === '1';
 const capture_bodies = process.env.GRAPH_TAP_BODIES === '1';
@@ -83,50 +69,6 @@ const run_started = Date.now();
 /** Per-request state, keyed by the request object undici shares across channels. */
 const tracked = new WeakMap();
 const totals = { requests: 0, by_status: {}, rx: 0, tx: 0 };
-
-const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * Collapses a path into a shape: concrete identifiers become placeholders so
- * thousands of per-message calls group into one row instead of one row each.
- */
-function template_path(path) {
-  return path
-    .split('/')
-    .map((seg) => {
-      if (!seg) return seg;
-      if (GUID.test(seg)) return '{guid}';
-      if (seg.includes('@') && seg.includes('.')) return '{upn}';
-      // Outlook item ids, drive item ids and site ids: long and opaque.
-      if (seg.length > 40) return '{id}';
-      if (/^\d+$/.test(seg) && seg.length > 3) return '{n}';
-      if (/^[A-Za-z0-9_-]{20,}$/.test(seg) && /\d/.test(seg) && /[A-Za-z]/.test(seg)) return '{id}';
-      return seg;
-    })
-    .join('/');
-}
-
-/** Elides credential and cursor values, keeping their size, and templates ids. */
-function normalize_url(origin, full_path) {
-  const q = full_path.indexOf('?');
-  const path = template_path(q === -1 ? full_path : full_path.slice(0, q));
-  const host = origin.replace(/^https?:\/\//, '');
-  if (q === -1) return `${host}${path}`;
-
-  const params = full_path
-    .slice(q + 1)
-    .split('&')
-    .map((pair) => {
-      const eq = pair.indexOf('=');
-      if (eq === -1) return pair;
-      const key = pair.slice(0, eq);
-      const value = pair.slice(eq + 1);
-      if (ELIDE_PARAMS.test(decodeURIComponent(key))) return `${key}=<${value.length}b>`;
-      const decoded = decodeURIComponent(value);
-      return `${key}=${decoded.length > MAX_PARAM_LEN ? `${decoded.slice(0, MAX_PARAM_LEN)}…` : decoded}`;
-    });
-  return `${host}${path}?${params.join('&')}`;
-}
 
 /** Picks an allowlisted subset out of undici's flat name/value header arrays. */
 function pick_headers(raw, allow) {
