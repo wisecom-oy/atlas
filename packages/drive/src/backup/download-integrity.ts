@@ -16,11 +16,16 @@ export class DownloadIntegrityError extends Error {
 }
 
 /**
- * Fails a `206` that does not deliver exactly the requested range.
+ * Fails a `206` that does not deliver exactly the requested range, or that comes from a file of a
+ * different size than the transfer was planned with.
  *
  * RFC 9110 requires `Content-Range` on a partial response, so a missing header is itself a reason
  * to distrust the body: without it there is nothing to say which bytes of the file arrived, and a
  * server answering every range with the same chunk would be indistinguishable from a correct one.
+ *
+ * The total is compared with `planned_total_bytes`, the size the ranges were cut from. A file that
+ * grew after its delta listing still answers each range correctly, so only the total reveals that
+ * the other ranges no longer describe the same file (issue #721). A total of `*` is not compared.
  */
 export function assert_range_chunk(
   item_id: string,
@@ -28,6 +33,7 @@ export function assert_range_chunk(
   range_end: number,
   content_range: string | null,
   body_length: number,
+  planned_total_bytes: number,
 ): void {
   const expected_length = range_end - range_start + 1;
   if (body_length !== expected_length) {
@@ -48,6 +54,12 @@ export function assert_range_chunk(
     throw new DownloadIntegrityError(
       `Range bytes=${range_start}-${range_end} of ${item_id} was answered with ` +
         `bytes ${satisfied.start}-${satisfied.end}`,
+    );
+  }
+  if (satisfied.total !== undefined && satisfied.total !== planned_total_bytes) {
+    throw new DownloadIntegrityError(
+      `Range bytes=${range_start}-${range_end} of ${item_id} came from a ${satisfied.total} byte ` +
+        `file, but the transfer was planned for ${planned_total_bytes} bytes`,
     );
   }
 }
@@ -91,9 +103,18 @@ export async function* size_checked_chunks(
   assert_transferred_size(item_id, transferred, expected_bytes);
 }
 
-/** Parses the `bytes <start>-<end>/<size>` form; anything else, including `*`, is unusable. */
-function parse_content_range(header: string | null): { start: number; end: number } | undefined {
-  const match = /^bytes (\d+)-(\d+)\/(?:\d+|\*)$/.exec(header?.trim() ?? '');
+/**
+ * Parses the `bytes <start>-<end>/<total>` form. The total is undefined when the server sends `*`,
+ * which is a valid answer that says nothing about the file's size; anything else is unusable.
+ */
+function parse_content_range(
+  header: string | null,
+): { start: number; end: number; total: number | undefined } | undefined {
+  const match = /^bytes (\d+)-(\d+)\/(\d+|\*)$/.exec(header?.trim() ?? '');
   if (!match) return undefined;
-  return { start: Number(match[1]), end: Number(match[2]) };
+  return {
+    start: Number(match[1]),
+    end: Number(match[2]),
+    total: match[3] === '*' ? undefined : Number(match[3]),
+  };
 }
