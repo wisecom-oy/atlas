@@ -7,7 +7,7 @@ import {
 import type { DriveWorkload } from '@/drive-ports';
 import { DRIVE_WORKLOAD_LABEL } from '@/backup/drive-workload-label';
 import { stream_whole_file_in_chunks } from '@/backup/whole-file-stream';
-import { size_checked_chunks } from '@/backup/download-integrity';
+import { DownloadIntegrityError, size_checked_chunks } from '@/backup/download-integrity';
 import { CdnHttpError, ChunkDownloadError, RangeIgnoredError } from '@/backup/cdn-chunk-errors';
 import {
   CHUNK_SIZE_BYTES,
@@ -163,6 +163,9 @@ async function download_chunk_with_retry(
       abort_signal?.throwIfAborted();
       // Not retryable and not a failure: the caller switches strategy on it.
       if (err instanceof RangeIgnoredError) throw err;
+      // Not retryable: a file that changed size under the transfer answers the same range the same
+      // way again. Passed up unwrapped so the failure keeps its type (issue #721).
+      if (err instanceof DownloadIntegrityError) throw err;
       if (!is_cdn_retryable(err) || attempt === MAX_CHUNK_RETRIES) {
         const position = `${chunk_index}/${total_chunks} of ${label} item ${request.item_id}`;
         throw new ChunkDownloadError(
