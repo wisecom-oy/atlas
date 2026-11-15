@@ -6,7 +6,10 @@ import type {
   OneDriveManifestEntry,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { stub_folder_color_reader } from '@wisecom/atlas-types/testing/stub-folder-color-reader';
 import { DriveSharingCapture } from '@wisecom/atlas-drive/backup/sharing-capture';
+import { DriveFolderColorCapture } from '@wisecom/atlas-drive/backup/folder-color-capture';
+import { DriveItemMetadataCapture } from '@wisecom/atlas-drive/backup/item-metadata-capture';
 import { digest_permissions } from '@wisecom/atlas-drive/permissions/permission-digest';
 import {
   process_delta_item,
@@ -60,8 +63,8 @@ function known_file_state(): DriveTrackingState {
   };
 }
 
-function capture(permissions: DrivePermission[], previous = PREVIOUS): DriveSharingCapture {
-  return new DriveSharingCapture(
+function capture(permissions: DrivePermission[], previous = PREVIOUS): DriveItemMetadataCapture {
+  const sharing = new DriveSharingCapture(
     {
       fetch_item_permissions: vi.fn(
         async (_d: string, ids: readonly string[]) => new Map(ids.map((id) => [id, permissions])),
@@ -69,12 +72,16 @@ function capture(permissions: DrivePermission[], previous = PREVIOUS): DriveShar
     },
     async () => previous,
   );
+  return new DriveItemMetadataCapture(
+    sharing,
+    new DriveFolderColorCapture(stub_folder_color_reader().connector),
+  );
 }
 
 async function process(
   item: OneDriveDeltaItem,
   state: DriveTrackingState,
-  sharing: DriveSharingCapture,
+  capture: DriveItemMetadataCapture,
 ) {
   return process_delta_item(
     {} as OneDriveConnector,
@@ -87,7 +94,7 @@ async function process(
     () => {},
     { watermarks: {}, rows: new Map() },
     undefined,
-    sharing,
+    capture,
   );
 }
 

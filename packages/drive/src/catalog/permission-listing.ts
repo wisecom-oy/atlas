@@ -1,5 +1,6 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import type {
+  DriveFolderColorItem,
   DriveItemPermissions,
   DrivePermissionListing,
   TenantContext,
@@ -14,6 +15,7 @@ import {
 } from '@/shared/manifest-chain';
 import { join_drive_path } from '@/shared/logical-path';
 import { entry_kind } from '@/shared/entry-kind';
+import { present_folder_color } from '@/shared/folder-color';
 
 /** What the permission listing reads. */
 export interface DrivePermissionCatalogDeps<TManifest extends DriveChainManifest> {
@@ -22,8 +24,9 @@ export interface DrivePermissionCatalogDeps<TManifest extends DriveChainManifest
 }
 
 /**
- * Lists who had access to what at a snapshot: every live item whose newest entry in the snapshot's
- * folded chain carries non-inherited permissions, sorted by path. The newest snapshot is used when
+ * Lists who had access to what at a snapshot, and how folders were coloured: every live item whose
+ * newest entry in the snapshot's folded chain carries non-inherited permissions, and every live
+ * folder whose newest entry carries a colour, each sorted by path. The newest snapshot is used when
  * none is named. Answered from the backup alone; no Graph call is made.
  *
  * @throws NotFoundError when the owning segment has no snapshot, or not the one named.
@@ -39,7 +42,11 @@ export async function list_drive_permissions<TManifest extends DriveChainManifes
     const owner = normalize_owner_id(owner_id);
     const target = snapshot_id ?? (await newest_snapshot_id(deps.manifests, ctx, owner));
     const chain = await load_drive_chain_entries(deps.manifests, ctx, owner, target);
-    return { snapshot_id: target, items: items_with_permissions(chain.entries) };
+    return {
+      snapshot_id: target,
+      items: items_with_permissions(chain.entries),
+      folder_colors: folders_with_colors(chain.entries),
+    };
   } finally {
     ctx.destroy();
   }
@@ -67,5 +74,24 @@ function items_with_permissions(rows: readonly DriveChainEntryRow[]): DriveItemP
       kind: entry_kind(entry),
       permissions: entry.permissions ?? [],
     }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function folders_with_colors(rows: readonly DriveChainEntryRow[]): DriveFolderColorItem[] {
+  return rows
+    .map(({ entry }) => entry)
+    .filter((entry) => entry.change_type !== 'deleted')
+    .flatMap((entry) => {
+      const folder_color = present_folder_color(entry.folder_color);
+      if (folder_color === undefined) return [];
+      return [
+        {
+          file_id: entry.file_id,
+          drive_id: entry.drive_id,
+          path: join_drive_path(entry.parent_path, entry.file_name),
+          folder_color,
+        },
+      ];
+    })
     .sort((a, b) => a.path.localeCompare(b.path));
 }

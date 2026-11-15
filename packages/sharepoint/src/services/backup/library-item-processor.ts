@@ -1,5 +1,6 @@
 import type {
   DriveEntryKind,
+  DriveFolderColor,
   SharePointChangeType,
   SharePointDeltaItem,
   SharePointManifestEntry,
@@ -24,13 +25,17 @@ import { is_download_url_expired } from '@wisecom/atlas-drive/backup/large-file-
 import { classify_change_type } from '@/services/backup/change-classifier';
 import { process_folder_item } from '@wisecom/atlas-drive/backup/folder-item-processor';
 import {
-  DriveSharingCapture,
+  type DriveSharingCapture,
   permission_digests,
   record_file_permission_digest,
   with_captured_permissions,
   type PermissionObservation,
 } from '@wisecom/atlas-drive/backup/sharing-capture';
 import { plan_sharing_only_change } from '@wisecom/atlas-drive/backup/sharing-only-change';
+import {
+  create_item_metadata_capture,
+  type DriveItemMetadataCapture,
+} from '@wisecom/atlas-drive/backup/item-metadata-capture';
 import {
   collect_run_versions,
   sync_file_versions,
@@ -44,6 +49,8 @@ export interface FileTrackingState {
   previous_kind_by_file_id: Record<string, DriveEntryKind>;
   /** Digest of each item's captured permissions; see `SharePointDeltaCursor`. */
   permission_digest_by_item_id?: Record<string, string>;
+  /** Colour of each coloured folder's newest entry; see `SharePointDeltaCursor`. */
+  folder_color_by_item_id?: Record<string, DriveFolderColor>;
 }
 
 export interface LibraryProcessingState {
@@ -84,11 +91,11 @@ export async function process_delta_item(
   versions: RunVersionCollector,
   version_stats: VersionStatsState,
   abort_signal?: AbortSignal,
-  sharing: DriveSharingCapture = new DriveSharingCapture(connector),
+  capture: DriveItemMetadataCapture = create_item_metadata_capture(connector),
 ): Promise<void> {
   const effective_kind = resolve_backed_up_kind(item, tracking.previous_kind_by_file_id);
   if (effective_kind !== 'file') {
-    const entry = await process_folder_item(item, tracking, sharing);
+    const entry = await process_folder_item(item, tracking, capture);
     if (entry)
       library_state.library_entries.push({ ...entry, library_name: library_state.library_name });
     return;
@@ -115,9 +122,10 @@ export async function process_delta_item(
     return;
   }
 
-  const observation = await sharing.observe(item, tracking);
+  const observation = await capture.sharing.observe(item, tracking);
   const change_type =
-    classified ?? (await sharing_only_change(item, observation, tracking, library_state, sharing));
+    classified ??
+    (await sharing_only_change(item, observation, tracking, library_state, capture.sharing));
   if (change_type === undefined) return;
 
   // Quarantined content is never served, so attempting the download only burns
@@ -199,7 +207,7 @@ export async function process_item_guarded(
   versions: RunVersionCollector,
   version_stats: VersionStatsState,
   abort_signal?: AbortSignal,
-  sharing?: DriveSharingCapture,
+  capture?: DriveItemMetadataCapture,
 ): Promise<void> {
   try {
     await process_delta_item(
@@ -213,7 +221,7 @@ export async function process_item_guarded(
       versions,
       version_stats,
       abort_signal,
-      sharing,
+      capture,
     );
   } catch (err) {
     // A cancelled transfer is the run stopping, not the item failing. Recording it would spend one

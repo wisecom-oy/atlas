@@ -11,7 +11,7 @@ import {
   record_item_failure,
   retryable_items,
 } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
-import type { DriveSharingCapture } from '@wisecom/atlas-drive/backup/sharing-capture';
+import type { DriveItemMetadataCapture } from '@wisecom/atlas-drive/backup/item-metadata-capture';
 import {
   process_item_guarded,
   type FileTrackingState,
@@ -40,7 +40,7 @@ export async function retry_failed_items(
   should_interrupt?: () => boolean,
   on_item_processed?: (item: ProcessedItemRef) => void,
   abort_signal?: AbortSignal,
-  sharing?: DriveSharingCapture,
+  capture?: DriveItemMetadataCapture,
 ): Promise<boolean> {
   for (const record of retryable_items(library_state.failed_items, drive_id)) {
     if (should_interrupt?.() === true) return true;
@@ -74,7 +74,7 @@ export async function retry_failed_items(
         versions,
         version_stats,
         abort_signal,
-        sharing,
+        capture,
       );
     } catch (err) {
       // Cancelled mid-retry: the item keeps the attempt count it already had, and the caller

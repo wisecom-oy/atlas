@@ -46,3 +46,17 @@ export interface StoredBlobRef {
   readonly file_name: string;
   readonly size_bytes: number;
 }
+
+/**
+ * A folder's colour, read from the `_ColorHex`, `_ColorTag` and `_Emoji` columns of its list item.
+ * The colour is not on the `driveItem` and delta cannot carry it, so backup reads it separately.
+ * Only non-empty values are kept; a folder without a colour stores none of them.
+ */
+export interface DriveFolderColor {
+  /** `_ColorHex`: the palette index the web UI wrote, a string such as `"6"`, not a hex value. */
+  readonly color_hex?: string;
+  /** `_ColorTag`. */
+  readonly color_tag?: string;
+  /** `_Emoji`. */
+  readonly emoji?: string;
+}

@@ -1,4 +1,9 @@
-export type { DriveItemIdentity, DriveFileSystemInfo, StoredBlobRef } from './item-metadata';
+export type {
+  DriveItemIdentity,
+  DriveFileSystemInfo,
+  DriveFolderColor,
+  StoredBlobRef,
+} from './item-metadata';
 export type {
   DriveEntryKind,
   DrivePermission,

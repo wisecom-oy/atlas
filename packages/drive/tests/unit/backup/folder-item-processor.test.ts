@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { DrivePermission } from '@wisecom/atlas-types';
 import type { DriveDeltaItem } from '@/drive-ports';
 import { process_folder_item, type DriveItemTracking } from '@/backup/folder-item-processor';
+import { stub_folder_color_reader } from '@wisecom/atlas-types/testing/stub-folder-color-reader';
 import { DriveSharingCapture } from '@/backup/sharing-capture';
+import { DriveFolderColorCapture } from '@/backup/folder-color-capture';
+import { DriveItemMetadataCapture } from '@/backup/item-metadata-capture';
 import { digest_permissions } from '@/permissions/permission-digest';
 
 const GRANT: DrivePermission = { roles: ['write'], granted_to: { type: 'user', id: 'jane-id' } };
@@ -31,12 +34,17 @@ function item(fields: Partial<DriveDeltaItem>): DriveDeltaItem {
   };
 }
 
-function capture(permissions: DrivePermission[] | undefined): DriveSharingCapture {
-  return new DriveSharingCapture({
+/** A capture whose permission reads answer `permissions` (undefined: they fail) and no folder is coloured. */
+function capture(permissions: DrivePermission[] | undefined): DriveItemMetadataCapture {
+  const sharing = new DriveSharingCapture({
     fetch_item_permissions: vi.fn(async (_d: string, ids: readonly string[]) =>
       permissions === undefined ? new Map() : new Map(ids.map((id) => [id, permissions])),
     ),
   });
+  return new DriveItemMetadataCapture(
+    sharing,
+    new DriveFolderColorCapture(stub_folder_color_reader().connector),
+  );
 }
 
 describe('process_folder_item (#580)', () => {

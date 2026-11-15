@@ -1,5 +1,6 @@
 import type { DriveFileSystemInfo, DriveItemIdentity } from '@/domain/drive/item-metadata';
 import type { DriveSharingConnector } from '@/ports/drive/drive-sharing.port';
+import type { DriveFolderColorConnector } from '@/ports/drive/folder-color.port';
 import type { LargeFileContent } from '@/ports/drive/large-file-content.port';
 export interface OneDriveDrive {
   readonly drive_id: string;
@@ -62,7 +63,7 @@ export interface OneDriveFileVersion {
   readonly last_modified_by?: DriveItemIdentity;
 }
 
-export interface OneDriveConnector extends DriveSharingConnector {
+export interface OneDriveConnector extends DriveSharingConnector, DriveFolderColorConnector {
   /** Lists all OneDrive drives for a user. */
   list_drives(tenant_id: string, owner_id: string): Promise<OneDriveDrive[]>;
 

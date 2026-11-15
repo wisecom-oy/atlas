@@ -19,7 +19,7 @@ import type {
 import type { RunVersionCollector } from '@/services/versioning/version-sync';
 import type { DriveRecrawl } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
-import type { DriveSharingCapture } from '@wisecom/atlas-drive/backup/sharing-capture';
+import type { DriveItemMetadataCapture } from '@wisecom/atlas-drive/backup/item-metadata-capture';
 
 export interface SharePointLibraryScanResult {
   entries: SharePointManifestEntry[];
@@ -54,8 +54,8 @@ interface SharePointLibraryScanParams {
   delta_link_by_drive: Record<string, string>;
   ctx: TenantContext;
   initial_failed_items: FailedItemLedger;
-  /** The run's permission capture; absent reads permissions without carrying blobs forward. */
-  sharing?: DriveSharingCapture;
+  /** The run's metadata capture; absent reads metadata without carrying blobs forward. */
+  capture?: DriveItemMetadataCapture;
 }
 
 /** Scans libraries sequentially and stops at a safe item boundary. */
@@ -72,7 +72,7 @@ export async function scan_all_libraries({
   delta_link_by_drive,
   ctx,
   initial_failed_items,
-  sharing,
+  capture,
 }: SharePointLibraryScanParams): Promise<SharePointLibraryScanResult> {
   // No index read here: version dedup rides on the delta cursor watermarks the
   // caller already loaded (issue #161).
@@ -129,7 +129,7 @@ export async function scan_all_libraries({
             current: item.file_name,
           });
         },
-        sharing,
+        capture,
       );
 
       result.failed_items = library_result.failed_items;

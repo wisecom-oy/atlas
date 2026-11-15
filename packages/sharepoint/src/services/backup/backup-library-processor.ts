@@ -25,10 +25,11 @@ import {
   completed_recrawl,
   type DriveRecrawl,
 } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
+import { permission_digests } from '@wisecom/atlas-drive/backup/sharing-capture';
 import {
-  DriveSharingCapture,
-  permission_digests,
-} from '@wisecom/atlas-drive/backup/sharing-capture';
+  create_item_metadata_capture,
+  type DriveItemMetadataCapture,
+} from '@wisecom/atlas-drive/backup/item-metadata-capture';
 
 export interface LibraryProcessingResult {
   entries: SharePointManifestEntry[];
@@ -99,7 +100,7 @@ export async function process_single_library(
   version_stats: VersionStatsState,
   failed_items: FailedItemLedger,
   on_item_processed?: (item: ProcessedItemRef) => void,
-  sharing: DriveSharingCapture = new DriveSharingCapture(connector),
+  capture: DriveItemMetadataCapture = create_item_metadata_capture(connector),
 ): Promise<LibraryProcessingResult> {
   const prev_delta =
     options.force_full === true
@@ -143,11 +144,11 @@ export async function process_single_library(
     options.should_interrupt,
     on_item_processed,
     options.abort_signal,
-    sharing,
+    capture,
   );
 
-  // One `$batch` per 20 shared items, ahead of the loop that would otherwise read them one by one.
-  await sharing.prefetch(library.drive_id, delta.items, tracking);
+  // `$batch` reads of 20 shared items or folders, ahead of the loop that would read them one by one.
+  await capture.prefetch(library.drive_id, delta.items, tracking);
   let processed_delta_items = 0;
   for (const item of delta.items) {
     if (options.should_interrupt?.() === true) {
@@ -166,7 +167,7 @@ export async function process_single_library(
         versions,
         version_stats,
         options.abort_signal,
-        sharing,
+        capture,
       );
     } catch (err) {
       // The guard records a failed item and carries on, except for a cancelled transfer, which it

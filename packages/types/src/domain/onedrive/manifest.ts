@@ -1,4 +1,8 @@
-import type { DriveFileSystemInfo, DriveItemIdentity } from '@/domain/drive/item-metadata';
+import type {
+  DriveFileSystemInfo,
+  DriveFolderColor,
+  DriveItemIdentity,
+} from '@/domain/drive/item-metadata';
 import type { DriveEntryKind, DrivePermission } from '@/domain/drive/permission';
 import type { FailedItemLedger } from '../shared/failed-item';
 
@@ -54,6 +58,8 @@ export interface OneDriveManifestEntry {
   readonly kind?: Exclude<DriveEntryKind, 'file'> | undefined;
   /** The item's non-inherited permissions at backup time. Absent means none were captured. */
   readonly permissions?: readonly DrivePermission[] | undefined;
+  /** A folder's colour at backup time. Absent means none was set, or the entry predates capture. */
+  readonly folder_color?: DriveFolderColor | undefined;
 }
 
 export interface OneDriveFileVersionRecord {
@@ -101,6 +107,11 @@ export interface OneDriveDeltaCursor {
    * unchanged writes no entry. Absent on cursors written before permissions were captured.
    */
   readonly permission_digest_by_item_id?: Record<string, string> | undefined;
+  /**
+   * The colour recorded on each coloured folder's newest entry. A folder delta re-presents with
+   * the same colour writes no entry. Absent on cursors written before folder colours were captured.
+   */
+  readonly folder_color_by_item_id?: Record<string, DriveFolderColor> | undefined;
   /**
    * Exact historical-version position per file. The timestamp skips older
    * versions; `version_ids` distinguishes versions that share Graph's

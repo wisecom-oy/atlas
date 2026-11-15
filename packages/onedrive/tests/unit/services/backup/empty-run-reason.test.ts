@@ -54,6 +54,7 @@ function make_service(options: {
     fetch_item_by_id: vi.fn(),
     download_file_content: vi.fn(),
     list_file_versions: vi.fn().mockResolvedValue([]),
+    fetch_folder_colors: vi.fn().mockResolvedValue(new Map()),
   };
 
   const context = {

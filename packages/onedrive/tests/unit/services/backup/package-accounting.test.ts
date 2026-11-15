@@ -72,6 +72,7 @@ function run_backup(
       return Buffer.from(item.item_id);
     }),
     list_file_versions: vi.fn().mockResolvedValue([]),
+    fetch_folder_colors: vi.fn().mockResolvedValue(new Map()),
   };
   const manifests = {
     save: vi.fn().mockResolvedValue(undefined),

@@ -11,6 +11,7 @@ interface TrackedEntry {
   readonly change_type: string;
   readonly backup_at: string;
   readonly permissions?: unknown;
+  readonly folder_color?: unknown;
 }
 
 interface ChainManifest<Entry> {
@@ -122,14 +123,15 @@ function fold_newest_entries<Entry extends TrackedEntry>(
 }
 
 /**
- * Keeps the item's identity, kind and path for display, and drops what it no longer has: the blob
- * and the permissions.
+ * Keeps the item's identity, kind and path for display, and drops what it no longer has: the blob,
+ * the permissions and the folder colour.
  */
 function to_tombstone<Entry extends TrackedEntry>(entry: Entry, backup_at: string): Entry {
   const {
     storage_key: _storage_key,
     checksum: _checksum,
     permissions: _permissions,
+    folder_color: _folder_color,
     ...identity
   } = entry;
   // The spread loses the link to `Entry` for the compiler only: `storage_key` and `checksum` are

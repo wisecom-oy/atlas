@@ -11,5 +11,6 @@ export function build_tracking_state(
     previous_etag_by_file_id: { ...(previous_cursor?.previous_etag_by_file_id ?? {}) },
     previous_kind_by_file_id: { ...(previous_cursor?.previous_kind_by_file_id ?? {}) },
     permission_digest_by_item_id: { ...(previous_cursor?.permission_digest_by_item_id ?? {}) },
+    folder_color_by_item_id: { ...(previous_cursor?.folder_color_by_item_id ?? {}) },
   };
 }

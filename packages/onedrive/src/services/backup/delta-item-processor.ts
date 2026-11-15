@@ -1,5 +1,6 @@
 import type {
   DriveEntryKind,
+  DriveFolderColor,
   OneDriveChangeType,
   OneDriveConnector,
   OneDriveDeltaItem,
@@ -21,9 +22,13 @@ import {
   permission_digests,
   record_file_permission_digest,
   with_captured_permissions,
-  DriveSharingCapture,
+  type DriveSharingCapture,
   type PermissionObservation,
 } from '@wisecom/atlas-drive/backup/sharing-capture';
+import {
+  create_item_metadata_capture,
+  type DriveItemMetadataCapture,
+} from '@wisecom/atlas-drive/backup/item-metadata-capture';
 import { plan_sharing_only_change } from '@wisecom/atlas-drive/backup/sharing-only-change';
 import {
   collect_run_versions,
@@ -38,6 +43,8 @@ export interface DriveTrackingState {
   previous_kind_by_file_id: Record<string, DriveEntryKind>;
   /** Digest of each item's captured permissions; see `OneDriveDeltaCursor`. */
   permission_digest_by_item_id?: Record<string, string>;
+  /** Colour of each coloured folder's newest entry; see `OneDriveDeltaCursor`. */
+  folder_color_by_item_id?: Record<string, DriveFolderColor>;
 }
 
 export interface VersionStats {
@@ -111,11 +118,11 @@ export async function process_delta_item(
   on_version_stats_update: (stored: number, unavailable: number, failed: number) => void,
   versions: RunVersionCollector,
   abort_signal?: AbortSignal,
-  sharing: DriveSharingCapture = new DriveSharingCapture(connector),
+  capture: DriveItemMetadataCapture = create_item_metadata_capture(connector),
 ): Promise<DeltaItemOutcome> {
   const effective_kind = resolve_backed_up_kind(item, state.previous_kind_by_file_id);
   if (effective_kind === 'folder') {
-    return entry_only(await process_folder_item(item, state, sharing));
+    return entry_only(await process_folder_item(item, state, capture));
   }
 
   const classified = classify_change_type(
@@ -139,8 +146,9 @@ export async function process_delta_item(
     };
   }
 
-  const observation = await sharing.observe(item, state);
-  const change_type = classified ?? (await sharing_only_change(item, observation, state, sharing));
+  const observation = await capture.sharing.observe(item, state);
+  const change_type =
+    classified ?? (await sharing_only_change(item, observation, state, capture.sharing));
   if (change_type === undefined) return NOTHING;
   if (typeof change_type !== 'string') return entry_only(change_type.entry);
 

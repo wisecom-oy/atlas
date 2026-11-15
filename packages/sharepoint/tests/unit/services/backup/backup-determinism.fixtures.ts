@@ -76,6 +76,7 @@ export function make_connector(
     resolve_download_url: vi.fn(),
     list_file_versions: vi.fn().mockResolvedValue([]),
     download_file_version: vi.fn(),
+    fetch_folder_colors: vi.fn().mockResolvedValue(new Map()),
     ...overrides,
   } as unknown as SharePointSiteConnector;
 }
