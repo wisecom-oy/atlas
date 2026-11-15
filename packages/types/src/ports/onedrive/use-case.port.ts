@@ -9,6 +9,7 @@ import type {
   ObjectLockRequest,
 } from '../backup/use-case.port';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
+import type { DrivePermissionListing } from '@/ports/drive/permission-listing.port';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';
 import type {
   DriveVersionRestoreOptions,
@@ -90,6 +91,18 @@ export interface OneDriveCatalogUseCase {
     owner_id: string,
     file_ref: string,
   ): Promise<OneDriveFileVersionRecord[]>;
+
+  /**
+   * Lists the non-inherited permissions captured for each item at a snapshot, the newest one when
+   * `snapshot_id` is absent.
+   *
+   * @throws NotFoundError when the owner has no snapshot, or not the one named.
+   */
+  list_onedrive_permissions(
+    tenant_id: string,
+    owner_id: string,
+    snapshot_id?: string,
+  ): Promise<DrivePermissionListing>;
 }
 
 export interface OneDriveVersionRestoreUseCase {

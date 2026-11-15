@@ -16,6 +16,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { with_unreadable_keys } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
 import type { DriveFileVersionIndexView, DriveManifestEntry, DriveWorkload } from '@/drive-ports';
+import { is_file_entry, records_file_content } from '@/shared/entry-kind';
 import {
   load_drive_chain_entries,
   type DriveChainManifest,
@@ -107,7 +108,8 @@ export async function verify_drive_snapshot<TManifest extends DriveChainManifest
       // Against the snapshot that recorded the entry, not the one being verified: a carried-over
       // file has its index row under the older snapshot.
       const has_version = idx?.versions.some((v) => v.snapshot_id === source_snapshot);
-      if (!has_version) {
+      // Folder entries and sharing-only changes start no version row, so none is owed.
+      if (!has_version && records_file_content(entry)) {
         index_issues.push(
           `missing index version for file ${entry.file_id} snapshot ${source_snapshot}`,
         );
@@ -155,13 +157,14 @@ export async function verify_drive_snapshot<TManifest extends DriveChainManifest
 /**
  * Whether the entry claims a stored blob at all.
  *
- * A tombstone has nothing to verify. An entry that names a blob but records no checksum is a
+ * A tombstone has nothing to verify, and neither has a folder entry, which stores no content. An entry that names a blob but records no checksum is a
  * different thing: it is unverifiable, which used to exclude it from `total_checked` entirely, so
  * a snapshot full of them verified as clean without a single byte being read (issue #341).
  */
 function entry_claims_blob(entry: DriveManifestEntry): boolean {
   return (
     entry.change_type !== 'deleted' &&
+    is_file_entry(entry) &&
     entry.storage_key !== undefined &&
     entry.storage_key.length > 0
   );

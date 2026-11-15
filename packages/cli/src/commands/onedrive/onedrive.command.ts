@@ -11,8 +11,10 @@ import {
   type OneDriveVerifyOptions,
 } from '@/commands/onedrive/command.handlers';
 import {
+  execute_onedrive_list_permissions,
   execute_onedrive_list_snapshots,
   execute_onedrive_list_versions,
+  type OneDriveListPermissionsOptions,
   type OneDriveListSnapshotsOptions,
   type OneDriveListVersionsOptions,
 } from '@/commands/onedrive/catalog.handlers';
@@ -29,6 +31,7 @@ import {
 import {
   with_conflict,
   with_file_filter,
+  with_restore_permissions,
   with_object_lock,
   with_output,
   with_overwrite_yes,
@@ -56,6 +59,7 @@ export function register_onedrive_command(program: Command, get_container: Conta
   register_onedrive_save(group, get_container);
   register_onedrive_list_snapshots(group, get_container);
   register_onedrive_list_versions(group, get_container);
+  register_onedrive_list_permissions(group, get_container);
   register_onedrive_restore_version(group, get_container);
   register_onedrive_verify(group, get_container);
   register_onedrive_status(group, get_container);
@@ -98,6 +102,7 @@ function register_onedrive_restore(group: Command, get_container: ContainerFacto
   with_required_snapshot(command, 'snapshot identifier');
   with_file_filter(command, 'restore');
   with_conflict(command);
+  with_restore_permissions(command);
   with_target_profile(command);
   with_tenant(command).action((options: OneDriveRestoreCommandOptions) =>
     execute_onedrive_restore(get_container(), options),
@@ -137,6 +142,17 @@ function register_onedrive_list_versions(group: Command, get_container: Containe
     .requiredOption('-f, --file <ref>', 'file ID or path');
   with_tenant(command).action((options: OneDriveListVersionsOptions) =>
     execute_onedrive_list_versions(get_container(), options),
+  );
+}
+
+function register_onedrive_list_permissions(group: Command, get_container: ContainerFactory): void {
+  const command = group
+    .command('list-permissions')
+    .description('List who had access to what at a snapshot, from the backup alone')
+    .requiredOption(OWNER_FLAG, OWNER_DESCRIPTION);
+  with_snapshot(command, 'snapshot identifier (defaults to the newest)');
+  with_tenant(command).action((options: OneDriveListPermissionsOptions) =>
+    execute_onedrive_list_permissions(get_container(), options),
   );
 }
 

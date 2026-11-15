@@ -227,6 +227,7 @@ describe('SharePointVersionRestoreService', () => {
     let uploaded = 0;
     vi.mocked(mocks.connector.upload_small_file).mockImplementation(async () => {
       uploaded++;
+      return undefined;
     });
 
     const result = await restore({ before: CUTOFF, should_interrupt: () => uploaded >= 1 });

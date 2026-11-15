@@ -76,6 +76,17 @@ export function with_conflict(command: Command): Command {
   );
 }
 
+/**
+ * `--restore-permissions`: reapply captured grants and recreate sharing links. Off by default, so a
+ * restore into another drive or folder never re-shares content with the original audience.
+ */
+export function with_restore_permissions(command: Command): Command {
+  return command.option(
+    '--restore-permissions',
+    'reapply captured direct grants (no invitation email) and recreate sharing links',
+  );
+}
+
 /** `--file-filter`: restrict a drive operation to specific files, by ID or path. */
 export function with_file_filter(command: Command, verb: string): Command {
   return command.option('--file-filter <paths...>', `only ${verb} specific files (by ID or path)`);

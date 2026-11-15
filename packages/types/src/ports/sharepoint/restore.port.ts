@@ -1,8 +1,13 @@
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
+import type {
+  DriveSharingRestoreOptions,
+  DriveSharingRestoreSummary,
+} from '@/ports/drive/sharing-restore.port';
 
 export type SharePointRestoreConflictBehavior = 'replace' | 'rename' | 'fail';
 
-export interface SharePointRestoreOptions extends OperationControlOptions {
+export interface SharePointRestoreOptions
+  extends OperationControlOptions, DriveSharingRestoreOptions {
   readonly snapshot_id: string;
   /** Optional target site ID to restore to (defaults to original site). */
   readonly target_site_id?: string;
@@ -20,7 +25,8 @@ export interface SharePointRestoreOptions extends OperationControlOptions {
   readonly rename_to?: string;
 }
 
-export interface SharePointRestoreResult {
+/** Permission outcomes are reported in the {@link DriveSharingRestoreSummary} fields, never in `errors`. */
+export interface SharePointRestoreResult extends DriveSharingRestoreSummary {
   readonly snapshot_id: string;
   readonly files_restored: number;
   readonly folders_created: number;

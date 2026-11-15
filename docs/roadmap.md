@@ -18,15 +18,15 @@ What is planned for Atlas next. Order reflects priority, not dates. Shipped chan
     <h3>Microsoft Teams</h3>
     <p>Channel messages with replies, reactions, and edits, membership, channel settings, and tabs. Backup and verification are available; restore is pending. Team files are covered by SharePoint backup.</p>
   </li>
-  <li data-status="progress">
-    <span class="wc-roadmap-status">In progress</span>
-    <h3>Sharing permissions for OneDrive and SharePoint</h3>
-    <p>Who a file or folder is shared with, captured on backup and re-applied on restore only when you ask for it with <code>--restore-permissions</code> (issue #580). A grantee that no longer exists is reported without failing the run.</p>
-  </li>
   <li data-status="planned">
     <span class="wc-roadmap-status">Planned</span>
     <h3>Certificate authentication</h3>
-    <p>Sign-in with a certificate instead of a client secret (issue #778). It is the prerequisite for restoring site and library permissions and folder colours, which Microsoft 365 accepts only through the SharePoint REST API.</p>
+    <p>Sign-in with a certificate instead of a client secret (issue #778). It is the prerequisite for site and library permissions and folder colours, which Microsoft 365 accepts only through the SharePoint REST API. Sharing on files and folders is already covered, see <a href="/onedrive-backup#sharing">Sharing</a>.</p>
+  </li>
+  <li data-status="planned">
+    <span class="wc-roadmap-status">Planned</span>
+    <h3>Shortcuts to shared folders</h3>
+    <p>Shortcuts in OneDrive do not appear in Microsoft Graph's change listing, so a backup misses them today. Capturing them needs a separate scan (issue #777).</p>
   </li>
   <li data-status="planned">
     <span class="wc-roadmap-status">Planned</span>
@@ -64,13 +64,7 @@ What is planned for Atlas next. Order reflects priority, not dates. Shipped chan
 - Restore is export-only, because Microsoft Graph cannot repost a message with its original author and timestamp.
 - 1:1, group, and meeting chats are out of scope. They hold personal conversations with separate legal and retention obligations, bulk access goes through the metered `getAllMessages` export API, and every user's chats would have to be listed separately.
 
-**Sharing permissions.** Scope is the sharing on files and folders in OneDrive and SharePoint document libraries.
-
-- A change to sharing alone is picked up on the next incremental backup without downloading the file again.
-- Restore is opt-in, so an ordinary restore never widens access. Owner grants are stored but not re-applied.
-- Some grants cannot come back as they were: a grantee that has left the tenant, an anonymous link the tenant now blocks, or a link that has expired. Each is reported.
-- Site and library permissions and folder colours can be read but not written with a client secret. The SharePoint REST API that writes them requires certificate authentication.
-- Shortcuts to shared folders do not appear in Microsoft Graph's change listing, so they need a separate scan (issue #777).
+**Certificate authentication.** Site and library permissions and folder colours can be read but not written with a client secret. The SharePoint REST API that writes them requires certificate authentication, so both wait on it.
 
 **Entra ID.** Restore means reapplying configuration, not recovering bytes: a recreated policy or app gets a new object ID, and client secrets cannot be read back. Atlas will never overwrite a live directory silently. Microsoft keeps deleted directory objects for only 30 days and keeps no history of Conditional Access changes, which is the gap Atlas fills.
 

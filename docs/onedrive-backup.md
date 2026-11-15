@@ -33,8 +33,9 @@ atlas onedrive restore -o user@example.com -s od-snap-1735689600000-a1b2c3
 | Folder structure          | Paths recorded in the snapshot                                            |
 | OneNote notebooks         | Section files and table of contents, as ordinary files ([details](#onenote-notebooks)) |
 | Moves, renames, deletions | Recorded as changes on the next run                                       |
+| Sharing                   | Each file's and folder's own permissions, without link URLs ([details](#sharing)) |
 
-Sharing permissions are not captured, and restores do not recreate file authors. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
+Restores do not recreate file authors, and reapply sharing only when asked. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
 
 To back up one folder tree instead of the whole drive, pass `--folder /Projects` to `backup`. Changing the folder scope forces a full backup.
 
@@ -53,7 +54,7 @@ Add these application permissions to the Atlas app registration in Microsoft Ent
 | `Files.Read.All`      | Backup, verify, and save                    |
 | `Sites.Read.All`      | Backup. Atlas names it with `Files.Read.All` when Microsoft Graph refuses to list a drive |
 | `User.Read.All`       | Looking up user email addresses             |
-| `Files.ReadWrite.All` | Restore only                                |
+| `Files.ReadWrite.All` | Restore, including sharing                  |
 
 If a permission is missing, the run stops before it touches any files with `MissingGraphPermissionsError` (`ATLAS_AUTH_DENIED`, exit `4`). The message names the HTTP status, the Microsoft Graph error code, and the permissions to grant.
 
@@ -94,11 +95,15 @@ Object Lock makes stored objects undeletable until the retention period ends. Us
 | `--name <filename>`        | Rename the restored file; single-file restores only | Original name          |
 | `--file-filter <paths...>` | Restore only the given files, by ID or path         | All files              |
 | `-c, --conflict <mode>`    | `rename`, `replace`, or `fail`                      | `rename`               |
+| `--restore-permissions`    | Reapply captured grants and recreate sharing links, see [Restoring sharing](#restoring-sharing) | `false` |
 | `-t, --tenant <id>`        | Tenant identifier                                   | Config default         |
 
 ```bash
 # Restore everything into a fresh Restore-<timestamp> folder
 atlas onedrive restore -o user@example.com -s od-snap-123
+
+# Restore in place and give everyone their access back
+atlas onedrive restore -o user@example.com -s od-snap-123 --in-place --restore-permissions
 
 # Restore two files, replacing any that exist at the destination
 atlas onedrive restore -o user@example.com -s od-snap-123 \
@@ -181,14 +186,18 @@ For each file, Atlas decrypts the stored copy, recomputes its SHA-256 over the p
 
 Exit code `0` means every checked entry passed. Exit code `1` means a content mismatch or an index inconsistency was found.
 
-### list-snapshots and list-versions
+### list-snapshots, list-versions, and list-permissions
 
 ```bash
 atlas onedrive list-snapshots -o user@example.com
 atlas onedrive list-versions -o user@example.com -f "/Documents/report.docx"
+atlas onedrive list-permissions -o user@example.com
+atlas onedrive list-permissions -o user@example.com -s od-snap-123
 ```
 
 `list-versions` takes `-f, --file <ref>` (a file ID or path, required).
+
+`list-permissions` shows who had access to what at a snapshot, the newest unless `-s` names one. It prints one row per permission: the item's path, its kind (file or folder), the roles, and the grantee or the link's type and scope. It reads the backup alone, so it works when the drive or the user is gone.
 
 ### status
 
@@ -224,6 +233,55 @@ A restore creates `/Restore-<timestamp>` at the drive root and recreates the ori
 A separate folder is the default because the `rename` conflict mode alone would scatter suffixed copies through live content. Use `--in-place` to restore to the original paths, and `--destination` to choose the folder name.
 
 `--name` is rejected when a restore matches more than one file, so pair it with `--file-filter`. Nesting under a restore folder lengthens every path. A file that exceeds OneDrive's path length limit is reported as skipped and does not abort the run.
+
+## Sharing
+
+Atlas records who each file and folder is shared with: direct grants to users and groups, and sharing links. For each it keeps the roles, the grantee, a link's type and scope, its expiry, and whether it had a password. A link's URL is never stored, see [Sharing links are stored without their URLs](/security#sharing-links-are-stored-without-their-urls).
+
+- Only an item's own permissions are recorded. Access inherited from a parent folder is implied by the folder's entry.
+- A change to sharing alone is picked up on the next backup without downloading the file again.
+- A folder appears in a snapshot only while it has permissions of its own.
+
+::: details How sharing is read
+Atlas reads permissions only for items Microsoft Graph reports as shared, 20 items per `$batch` request. A file whose sharing changed and whose content did not is recorded as change type `permissions_changed` and reuses the stored content of its previous entry. See [the cost of capturing sharing](/security#the-cost-of-capturing-sharing).
+:::
+
+### Restoring sharing
+
+```bash
+atlas onedrive restore -o user@example.com -s od-snap-123 --in-place --restore-permissions
+```
+
+Without `--restore-permissions` a restore applies no permission, and the summary reports how many it left out. Sharing is opt-in because a restore into another user's drive or a restore folder would otherwise share the content with the original audience again.
+
+With the flag, Atlas reapplies each permission to the restored item:
+
+| Permission                      | How it is restored                                                                      |
+| ------------------------------- | --------------------------------------------------------------------------------------- |
+| Direct grant to a user or group | Granted again, with no invitation email and sign-in required                            |
+| Organization or anonymous link  | A new link with the same type and scope, and the expiry when it is still in the future. The URL is new |
+| Specific-people link            | A new link with the same type and scope, shared with the recorded people                |
+| Owner grant                     | Not reapplied. The target drive's owner already holds it                                |
+
+A permission that cannot be reapplied is listed with its reason. It does not fail the restore or change the exit code. Typical reasons:
+
+- The grantee no longer exists.
+- The link expired.
+- The link was password-protected. The password cannot be read back.
+- Tenant policy forbids that kind of link.
+- The grant was to a SharePoint site group.
+
+::: details Microsoft Graph calls used
+Direct grants use `invite`, by object ID and then by address, with `sendInvitation: false` and `requireSignIn: true`. Links use `createLink`.
+:::
+
+### First backup after upgrading
+
+Sync checkpoints saved before sharing was captured do not mark which items are shared. The first backup after upgrading detects this and lists each drive in full once.
+
+- Unchanged files are not downloaded again.
+- Files deleted since the last run are still recorded as deleted.
+- The run reads the permissions of every shared item, so expect it to take longer than an incremental backup.
 
 ## Rolling a file back to an earlier version
 
@@ -362,7 +420,7 @@ See [reliability](/operations/reliability) for retries and what is safe to rerun
 | Uploads on restore   | Up to 4 MiB in one request; larger files in a resumable upload session in 10 MiB chunks           |
 | Throttling           | Retried with backoff, see below                                                                    |
 | Path length          | A restore folder adds path depth. Files over OneDrive's path length limit are skipped and reported. |
-| Scope                | Sharing permissions and file authors are not restored                                              |
+| Scope                | File authors are not restored. Sharing is restored only with `--restore-permissions`               |
 
 When Microsoft 365 throttles requests or has a transient fault, Atlas waits and retries. See [Graph rate limits](/operations/graph-rate-limits) for request budgets.
 
@@ -423,7 +481,7 @@ const deletion = await atlas.onedrive.deleteOwnerData('user@example.com');
 console.log(`Deleted: ${deletion.deletedObjects} objects`);
 ```
 
-Other methods: `restoreVersion`, `listSnapshots`, `listFileVersions`, and `deleteSnapshot`. See the [SDK reference](./reference/sdk.md).
+Other methods: `restoreVersion`, `listSnapshots`, `listFileVersions`, `listPermissions`, and `deleteSnapshot`. See the [SDK reference](./reference/sdk.md).
 
 ## See also
 

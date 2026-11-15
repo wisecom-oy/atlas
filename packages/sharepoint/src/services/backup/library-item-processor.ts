@@ -1,16 +1,15 @@
 import type {
+  DriveEntryKind,
+  SharePointChangeType,
   SharePointDeltaItem,
   SharePointManifestEntry,
   SharePointSiteConnector,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { AuthError } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
-import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import {
   clear_item_failure,
   record_item_failure,
-  retryable_items,
 } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import type { FailedItemLedger } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import {
@@ -23,6 +22,15 @@ import { is_download_refused } from '@wisecom/atlas-m365-graph';
 import { resolve_backed_up_kind } from '@wisecom/atlas-drive';
 import { is_download_url_expired } from '@wisecom/atlas-drive/backup/large-file-url-refresh';
 import { classify_change_type } from '@/services/backup/change-classifier';
+import { process_folder_item } from '@wisecom/atlas-drive/backup/folder-item-processor';
+import {
+  DriveSharingCapture,
+  permission_digests,
+  record_file_permission_digest,
+  with_captured_permissions,
+  type PermissionObservation,
+} from '@wisecom/atlas-drive/backup/sharing-capture';
+import { plan_sharing_only_change } from '@wisecom/atlas-drive/backup/sharing-only-change';
 import {
   collect_run_versions,
   sync_file_versions,
@@ -33,7 +41,9 @@ export interface FileTrackingState {
   previous_path_by_file_id: Record<string, string>;
   previous_name_by_file_id: Record<string, string>;
   previous_etag_by_file_id: Record<string, string>;
-  previous_kind_by_file_id: Record<string, 'file' | 'folder'>;
+  previous_kind_by_file_id: Record<string, DriveEntryKind>;
+  /** Digest of each item's captured permissions; see `SharePointDeltaCursor`. */
+  permission_digest_by_item_id?: Record<string, string>;
 }
 
 export interface LibraryProcessingState {
@@ -74,32 +84,41 @@ export async function process_delta_item(
   versions: RunVersionCollector,
   version_stats: VersionStatsState,
   abort_signal?: AbortSignal,
+  sharing: DriveSharingCapture = new DriveSharingCapture(connector),
 ): Promise<void> {
   const effective_kind = resolve_backed_up_kind(item, tracking.previous_kind_by_file_id);
   if (effective_kind !== 'file') {
-    if (!item.deleted) tracking.previous_kind_by_file_id[item.item_id] = item.kind;
+    const entry = await process_folder_item(item, tracking, sharing);
+    if (entry)
+      library_state.library_entries.push({ ...entry, library_name: library_state.library_name });
     return;
   }
 
-  const change_type = classify_change_type(
+  const classified = classify_change_type(
     item,
     tracking.previous_path_by_file_id,
     tracking.previous_name_by_file_id,
     tracking.previous_etag_by_file_id,
   );
-  if (!change_type) return;
 
   if (item.deleted) {
+    if (!classified) return;
+    delete permission_digests(tracking)[item.item_id];
     // Graph omits `name` for a removed item, so the last name we saw is the
     // only one there is (issue #139).
     const file_name = item.file_name || (tracking.previous_name_by_file_id[item.item_id] ?? '');
     library_state.library_deleted_items++;
     library_state.library_entries.push(
-      build_deleted_entry({ ...item, file_name }, change_type, library_state.library_name),
+      build_deleted_entry({ ...item, file_name }, classified, library_state.library_name),
     );
     library_state.failed_items = clear_item_failure(library_state.failed_items, item.item_id);
     return;
   }
+
+  const observation = await sharing.observe(item, tracking);
+  const change_type =
+    classified ?? (await sharing_only_change(item, observation, tracking, library_state, sharing));
+  if (change_type === undefined) return;
 
   // Quarantined content is never served, so attempting the download only burns
   // the Graph retry budget: the refusal arrives as an aborted transfer, which
@@ -148,15 +167,19 @@ export async function process_delta_item(
     });
   }
   library_state.library_entries.push(
-    // The stored length, which is the refreshed size when the file grew on its first download (#759).
-    build_stored_entry(
-      { ...item, size_bytes: result.size_bytes },
-      result.storage_key,
-      result.checksum,
-      change_type,
-      library_state.library_name,
+    with_captured_permissions(
+      // The stored length, which is the refreshed size when the file grew on its first download (#759).
+      build_stored_entry(
+        { ...item, size_bytes: result.size_bytes },
+        result.storage_key,
+        result.checksum,
+        change_type,
+        library_state.library_name,
+      ),
+      observation,
     ),
   );
+  record_file_permission_digest(tracking, item.item_id, observation);
   library_state.failed_items = clear_item_failure(library_state.failed_items, item.item_id);
   tracking.previous_path_by_file_id[item.item_id] = item.parent_path;
   tracking.previous_name_by_file_id[item.item_id] = item.file_name;
@@ -176,6 +199,7 @@ export async function process_item_guarded(
   versions: RunVersionCollector,
   version_stats: VersionStatsState,
   abort_signal?: AbortSignal,
+  sharing?: DriveSharingCapture,
 ): Promise<void> {
   try {
     await process_delta_item(
@@ -189,6 +213,7 @@ export async function process_item_guarded(
       versions,
       version_stats,
       abort_signal,
+      sharing,
     );
   } catch (err) {
     // A cancelled transfer is the run stopping, not the item failing. Recording it would spend one
@@ -207,114 +232,25 @@ export async function process_item_guarded(
 }
 
 /**
- * Re-fetches items this drive failed on previously, before new delta changes.
- * Delta never re-presents an unchanged item, so the ledger is their only
- * second chance; items past the retry budget are reported but not re-fetched.
+ * What to do with a file whose content and location did not change: nothing (undefined), an entry
+ * carrying its new permissions over the earlier blob (pushed here, then undefined), or `updated`
+ * when no earlier blob is known and the file has to be downloaded.
  */
-export async function retry_failed_items(
-  connector: SharePointSiteConnector,
-  tenant_id: string,
-  site_id: string,
-  snapshot_id: string,
-  drive_id: string,
-  ctx: TenantContext,
+async function sharing_only_change(
+  item: SharePointDeltaItem,
+  observation: PermissionObservation,
   tracking: FileTrackingState,
   library_state: LibraryProcessingState,
-  versions: RunVersionCollector,
-  version_stats: VersionStatsState,
-  should_interrupt?: () => boolean,
-  on_item_processed?: (item: ProcessedItemRef) => void,
-  abort_signal?: AbortSignal,
-): Promise<boolean> {
-  for (const record of retryable_items(library_state.failed_items, drive_id)) {
-    if (should_interrupt?.() === true) return true;
-    const item = await refetch_or_record(
-      connector,
-      tenant_id,
-      site_id,
-      drive_id,
-      record,
-      library_state,
-    );
-
-    if (!item) {
-      on_item_processed?.({ file_name: record.name, kind: 'file' });
-      continue;
-    }
-
-    // No successful backup of this item exists, so treat it as new content
-    // regardless of stale tracking state: an unchanged etag would otherwise
-    // classify as "no change" and leave the item stuck in the ledger.
-    forget_item_tracking(tracking, record.item_id);
-    try {
-      await process_item_guarded(
-        connector,
-        item,
-        site_id,
-        snapshot_id,
-        ctx,
-        tracking,
-        library_state,
-        versions,
-        version_stats,
-        abort_signal,
-      );
-    } catch (err) {
-      // Cancelled mid-retry: the item keeps the attempt count it already had, and the caller
-      // treats the library as interrupted (issue #344).
-      if (abort_signal?.aborted !== true) throw err;
-      return true;
-    }
-    on_item_processed?.(item);
+  sharing: DriveSharingCapture,
+): Promise<SharePointChangeType | undefined> {
+  const plan = await plan_sharing_only_change(item, observation, sharing);
+  if (plan.kind === 'download') return 'updated';
+  if (plan.kind === 'entry') {
+    library_state.library_entries.push({ ...plan.entry, library_name: library_state.library_name });
+    library_state.failed_items = clear_item_failure(library_state.failed_items, item.item_id);
+    record_file_permission_digest(tracking, item.item_id, observation);
   }
-  return false;
-}
-
-/**
- * Re-reads one ledger item, turning a fetch failure into another ledger entry.
- *
- * Unguarded, the throw travelled out of the library processor into the library scan, which
- * recorded a library-level error and dropped every entry the same run had already processed. One
- * flaky fetch cost the whole library its run. The OneDrive twin has always caught it per item
- * (issue #371). A revoked permission is not per-item and still propagates.
- *
- * Returns undefined when the item is gone or could not be read, in both cases having updated the
- * ledger itself.
- */
-async function refetch_or_record(
-  connector: SharePointSiteConnector,
-  tenant_id: string,
-  site_id: string,
-  drive_id: string,
-  record: { item_id: string; name: string },
-  library_state: LibraryProcessingState,
-): Promise<SharePointDeltaItem | undefined> {
-  try {
-    const item = await connector.fetch_item_by_id(tenant_id, site_id, drive_id, record.item_id);
-    if (item) return item;
-    logger.info(`Failed item ${record.item_id} (${record.name}) no longer exists -- clearing`);
-    library_state.failed_items = clear_item_failure(library_state.failed_items, record.item_id);
-    return undefined;
-  } catch (err) {
-    // A fetch cut short by cancellation keeps the attempt count the item already had; the library
-    // scan treats the throw as the run stopping (issue #673).
-    if (err instanceof AuthError || is_active_run_cancelled()) throw err;
-    const reason = err instanceof Error ? err.message : String(err);
-    library_state.failed_items = record_item_failure(library_state.failed_items, {
-      item_id: record.item_id,
-      drive_id,
-      name: record.name,
-      reason: `Retry fetch failed: ${reason}`,
-    });
-    return undefined;
-  }
-}
-
-/** Drops tracking state for one item so it is reprocessed as new content. */
-function forget_item_tracking(tracking: FileTrackingState, item_id: string): void {
-  delete tracking.previous_path_by_file_id[item_id];
-  delete tracking.previous_name_by_file_id[item_id];
-  delete tracking.previous_etag_by_file_id[item_id];
+  return undefined;
 }
 
 /**

@@ -6,10 +6,10 @@ import { GraphSharePointConnector } from '@/adapters/graph-sharepoint-connector.
 const SITE = 'contoso.sharepoint.com,site-guid,web-guid';
 const DRIVE = 'drive-1';
 const ROOT_DELTA = `/drives/${DRIVE}/root/delta`;
-/** A cursor issued after the `package` facet joined the selection, so it is reused as-is. */
-const CURRENT_CURSOR = `https://graph.microsoft.com/v1.0/drives/${DRIVE}/root/delta?$select=id,package&token=t1`;
+/** A cursor issued after `package` and `shared` joined the selection, so it is reused as-is. */
+const CURRENT_CURSOR = `https://graph.microsoft.com/v1.0/drives/${DRIVE}/root/delta?$select=id,package,shared&token=t1`;
 const PAGE_2 = `https://graph.microsoft.com/v1.0/drives/${DRIVE}/root/delta?token=p2`;
-const NEXT_CURSOR = `https://graph.microsoft.com/v1.0/drives/${DRIVE}/root/delta?$select=id,package&token=t2`;
+const NEXT_CURSOR = `https://graph.microsoft.com/v1.0/drives/${DRIVE}/root/delta?$select=id,package,shared&token=t2`;
 
 /** What Graph answers a delta token it no longer honours: HTTP 410 with code and prose differing. */
 const RESYNC_REQUIRED = graph_error(

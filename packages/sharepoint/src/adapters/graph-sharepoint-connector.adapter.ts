@@ -7,8 +7,12 @@ import {
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
 import type {
+  DriveAccessGrantRequest,
   DriveFileSystemInfo,
-  DriveItemIdentity,
+  DriveLinkRequest,
+  DrivePermission,
+  DriveSharingConnector,
+  DriveSharingWriteOutcome,
   LargeFileContent,
   SharePointSiteConnector,
   SharePointSite,
@@ -21,16 +25,12 @@ import type {
 import { enumerate_subsite_tree, fetch_direct_subsites } from '@/adapters/graph-subsite-enumerator';
 import { list_tenant_sites, resolve_site_reference } from '@/adapters/graph-sharepoint-site-lookup';
 import {
+  execute_sharepoint_delta,
   fetch_drive_item_by_id,
-  fetch_initial_delta_page,
   type GraphCollectionResponse,
 } from '@/adapters/graph-sharepoint-delta-fetch';
-import {
-  has_item_id,
-  map_delta_item,
-  type GraphDeltaDriveItem,
-} from '@/adapters/graph-sharepoint-delta-mapper';
-import { logger } from '@wisecom/atlas-core/utils/logger';
+import { has_item_id, map_delta_item } from '@/adapters/graph-sharepoint-delta-mapper';
+import { create_graph_drive_sharing } from '@wisecom/atlas-drive/permissions/graph-drive-sharing';
 import { SHAREPOINT_DOWNLOAD_EXECUTOR } from '@/adapters/graph-sharepoint-download-executor';
 import {
   graph_sharepoint_create_folder,
@@ -54,7 +54,11 @@ const STREAM_TIMEOUT_MS = 120_000;
 /** Microsoft Graph adapter for SharePoint site backup via /sites API. */
 @injectable()
 export class GraphSharePointConnector implements SharePointSiteConnector {
-  constructor(@inject(GRAPH_CLIENT_TOKEN) private readonly _client: Client) {}
+  private readonly _sharing: DriveSharingConnector;
+
+  constructor(@inject(GRAPH_CLIENT_TOKEN) private readonly _client: Client) {
+    this._sharing = create_graph_drive_sharing(_client);
+  }
 
   /** Lists all SharePoint sites in the tenant via search, flagging container sites by `kind`. */
   async list_sites(_tenant_id: string): Promise<SharePointSite[]> {
@@ -118,14 +122,14 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
   ): Promise<SharePointDeltaResult> {
     const library = { label: `library ${drive_id} of site ${site_id}`, site_id, drive_id };
     try {
-      return await this.execute_delta(drive_id, prev_delta_link, false);
+      return await execute_sharepoint_delta(this._client, drive_id, prev_delta_link, false);
     } catch (err) {
       await SHAREPOINT_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(this._client, err, library);
       if (!is_invalid_delta_error(err)) throw err;
     }
     // The full read after an expired cursor classifies a 403 the same way.
     try {
-      return await this.execute_delta(drive_id, undefined, true);
+      return await execute_sharepoint_delta(this._client, drive_id, undefined, true);
     } catch (err) {
       await SHAREPOINT_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(this._client, err, library);
       throw err;
@@ -232,8 +236,8 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
     content: Buffer,
     conflict_behavior?: string,
     file_system_info?: DriveFileSystemInfo,
-  ): Promise<void> {
-    await graph_sharepoint_upload_small_file(
+  ): Promise<string | undefined> {
+    return graph_sharepoint_upload_small_file(
       this._client,
       site_id,
       drive_id,
@@ -255,8 +259,8 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
     content: LargeFileContent,
     conflict_behavior?: string,
     file_system_info?: DriveFileSystemInfo,
-  ): Promise<void> {
-    await graph_sharepoint_upload_large_file(
+  ): Promise<string | undefined> {
+    return graph_sharepoint_upload_large_file(
       this._client,
       site_id,
       drive_id,
@@ -268,48 +272,29 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
     );
   }
 
-  private async execute_delta(
+  /** Reads non-inherited permissions for many items, 20 per `$batch` request. */
+  async fetch_item_permissions(
     drive_id: string,
-    prev_delta_link: string | undefined,
-    reset_detected: boolean,
-  ): Promise<SharePointDeltaResult> {
-    const items: SharePointDeltaItem[] = [];
-    let delta_link = '';
+    item_ids: readonly string[],
+  ): Promise<Map<string, DrivePermission[]>> {
+    return this._sharing.fetch_item_permissions(drive_id, item_ids);
+  }
 
-    const { page: initial_page, reset_detected: stale_reset } = await fetch_initial_delta_page(
-      this._client,
-      drive_id,
-      prev_delta_link,
-    );
-    let page = initial_page;
+  /** Grants direct access without an invitation email. */
+  async grant_item_access(
+    drive_id: string,
+    item_id: string,
+    request: DriveAccessGrantRequest,
+  ): Promise<DriveSharingWriteOutcome> {
+    return this._sharing.grant_item_access(drive_id, item_id, request);
+  }
 
-    let items_without_id = 0;
-    while (true) {
-      for (const raw of page.value ?? []) {
-        if (has_item_id(raw)) items.push(map_delta_item(raw, drive_id));
-        else items_without_id++;
-      }
-
-      const next = page['@odata.nextLink'];
-      if (!next) {
-        if (page['@odata.deltaLink']) delta_link = page['@odata.deltaLink'];
-        break;
-      }
-      page = await with_graph_retry(
-        () => this._client.api(next).get() as Promise<GraphCollectionResponse<GraphDeltaDriveItem>>,
-      );
-    }
-    if (items_without_id > 0) {
-      logger.warn(
-        `Skipped ${items_without_id} item(s) in drive ${drive_id} that Graph returned without an id`,
-      );
-    }
-
-    return {
-      drive_id,
-      delta_link,
-      items,
-      reset_detected: reset_detected || stale_reset,
-    };
+  /** Creates a sharing link of the stored type and scope. */
+  async create_item_link(
+    drive_id: string,
+    item_id: string,
+    request: DriveLinkRequest,
+  ): Promise<DriveSharingWriteOutcome> {
+    return this._sharing.create_item_link(drive_id, item_id, request);
   }
 }

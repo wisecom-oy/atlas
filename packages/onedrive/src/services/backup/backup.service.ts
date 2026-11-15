@@ -44,6 +44,10 @@ import {
 } from '@/services/backup/backup-builders';
 import { load_run_version_collector } from '@/services/versioning/run-version-collector';
 import { scan_all_drives } from '@/services/backup/backup-drive-processor';
+import {
+  build_tracking_state,
+  create_run_sharing_capture,
+} from '@/services/backup/run-sharing-capture';
 import { build_package_warnings } from '@/services/backup/package-report';
 import { interrupted_before_scan } from '@/services/backup/interrupted-scan-result';
 import { cleanup_stale_staging } from '@/services/backup/large-file-pipeline';
@@ -144,20 +148,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       const delta_link_by_drive: Record<string, string> = {
         ...(previous_cursor?.delta_link_by_drive ?? {}),
       };
-      const tracking_state = {
-        previous_path_by_file_id: {
-          ...(previous_cursor?.previous_path_by_file_id ?? {}),
-        },
-        previous_name_by_file_id: {
-          ...(previous_cursor?.previous_name_by_file_id ?? {}),
-        },
-        previous_etag_by_file_id: {
-          ...(previous_cursor?.previous_etag_by_file_id ?? {}),
-        },
-        previous_kind_by_file_id: {
-          ...(previous_cursor?.previous_kind_by_file_id ?? {}),
-        },
-      };
+      const tracking_state = build_tracking_state(previous_cursor);
 
       await cleanup_stale_staging(ctx, owner_id);
 
@@ -210,6 +201,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         progress,
         options,
         folder_scope,
+        create_run_sharing_capture(this._connector, this._manifests, ctx, owner_id, head),
       );
       const skipped_manifests = await append_recrawl_tombstones(
         scan_result,

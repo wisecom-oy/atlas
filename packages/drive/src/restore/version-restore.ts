@@ -41,7 +41,7 @@ export interface DriveUploadConnector {
     content: Buffer,
     conflict_behavior?: string,
     file_system_info?: DriveFileSystemInfo,
-  ): Promise<void>;
+  ): Promise<string | undefined>;
   upload_large_file(
     tenant_id: string,
     owner_id: string,
@@ -51,7 +51,7 @@ export interface DriveUploadConnector {
     content: LargeFileContent,
     conflict_behavior?: string,
     file_system_info?: DriveFileSystemInfo,
-  ): Promise<void>;
+  ): Promise<string | undefined>;
 }
 
 /** What a provider supplies to the shared version restore flow. */

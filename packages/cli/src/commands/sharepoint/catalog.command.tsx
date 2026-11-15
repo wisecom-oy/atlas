@@ -6,7 +6,8 @@ import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
 import type { SharePointCatalogUseCase } from '@wisecom/atlas-types';
 import { SHAREPOINT_CATALOG_USE_CASE_TOKEN } from '@wisecom/atlas-types';
-import { with_tenant } from '@/commands/shared/shared-options';
+import { with_snapshot, with_tenant } from '@/commands/shared/shared-options';
+import { report_permission_listing } from '@/commands/drive/permission-list-presenter';
 import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { DataTable, type TableColumn } from '@/ui/components/data-table';
@@ -26,6 +27,11 @@ interface SharePointListSnapshotsOptions extends SharePointTenantOptions {
 interface SharePointListVersionsOptions extends SharePointTenantOptions {
   site: string;
   file: string;
+}
+
+interface SharePointListPermissionsOptions extends SharePointTenantOptions {
+  site: string;
+  snapshot?: string;
 }
 
 /** Registers `atlas sharepoint list-snapshots` subcommand. */
@@ -54,6 +60,21 @@ export function register_sharepoint_list_versions(
     .requiredOption('-f, --file <ref>', 'file ID or path');
   with_tenant(command).action((options: SharePointListVersionsOptions) =>
     execute_sharepoint_list_versions(get_container(), options),
+  );
+}
+
+/** Registers `atlas sharepoint list-permissions` subcommand. */
+export function register_sharepoint_list_permissions(
+  group: Command,
+  get_container: ContainerFactory,
+): void {
+  const command = group
+    .command('list-permissions')
+    .description('List who had access to what at a snapshot, from the backup alone')
+    .requiredOption('--site <url-or-id>', 'SharePoint site URL or site ID');
+  with_snapshot(command, 'snapshot identifier (defaults to the newest)');
+  with_tenant(command).action((options: SharePointListPermissionsOptions) =>
+    execute_sharepoint_list_permissions(get_container(), options),
   );
 }
 
@@ -150,4 +171,15 @@ async function execute_sharepoint_list_versions(
     path: `${ver.parent_path}/${ver.file_name}`,
   }));
   await render_static_view(<DataTable columns={file_version_columns} rows={rows} />);
+}
+
+async function execute_sharepoint_list_permissions(
+  container: Container,
+  options: SharePointListPermissionsOptions,
+): Promise<void> {
+  const tenant_id = resolve_tenant_id(container, options);
+  const site_id = await resolve_site_id(container, tenant_id, options.site);
+  const catalog = container.get<SharePointCatalogUseCase>(SHAREPOINT_CATALOG_USE_CASE_TOKEN);
+  const listing = await catalog.list_sharepoint_permissions(tenant_id, site_id, options.snapshot);
+  await report_permission_listing(banner_title('sharepoint', 'Permissions'), listing);
 }

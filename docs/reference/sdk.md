@@ -569,6 +569,7 @@ Each returns `deletedObjects`, `deletedManifests`, `retainedObjects`, `retainedM
 | `listSnapshots(id)`                            | _(none)_                               | Snapshot manifests, entries included. Decrypts every manifest                       |
 | `listSnapshotSummaries(id)`                    | `list-snapshots`                       | Snapshots without entries. See [Snapshot summaries](#snapshot-summaries)            |
 | `listFileVersions(id, fileRef)`                | `list-versions`                        | Stored versions of one file                                                         |
+| `listPermissions(id, snapshotId?)`             | `list-permissions`                     | Who had access to which file or folder at a snapshot. See [Sharing](#sharing)       |
 | `checkStatus(id)`                              | `status`                               | Pending changes per drive or library. See [Status results](#status-results)         |
 | `getStats(id?)`                                | `atlas stats`                          | Backup statistics. Omit the argument for every drive or site in the tenant          |
 | `deleteSnapshot(id, snapshotId)`               | `delete -s`                            | Delete the newest snapshot                                                          |
@@ -645,6 +646,7 @@ await atlas.onedrive.restore('owner-id', { snapshotId, inPlace: true });
 | `inPlace`                       | `boolean`                           | Write back to the original paths                                                                   |
 | `renameTo`                      | `string`                            | New name for the restored file. Only when the restore resolves to exactly one file                 |
 | `conflictBehavior`              | `'replace' \| 'rename' \| 'fail'`   | What to do when a file exists at the target. Default `'rename'`                                    |
+| `restorePermissions`            | `boolean`                           | Reapply captured grants and recreate sharing links. Default `false`. See [Sharing](#sharing)       |
 | `targetOwnerId` / `targetSiteId`| `string`                            | Restore into another owner or site. Required with `targetTenant`                                   |
 | `targetTenant`                  | `AtlasTenant`                       | See [Cross-tenant restore](#cross-tenant-restore)                                                  |
 | `onProgress`, `signal`          |                                     | See [Progress and cancellation](#progress-and-cancellation)                                        |
@@ -654,6 +656,33 @@ The result has `snapshotId`, `filesRestored`, `foldersCreated`, `filesSkipped`, 
 - By default nothing existing is overwritten: files go under a new root with `'rename'` on conflict.
 - `restore` and `save` require an options object with `snapshotId`. TypeScript enforces it. A JavaScript caller that omits it gets a `TypeError` naming the method. `verify` takes its options optionally.
 - When some `fileFilter` values match, the run goes ahead and lists each unmatched value in `unmatchedFileFilters`. When none match, the call rejects with `NotFoundError`.
+
+### Sharing
+
+```ts
+const result = await atlas.onedrive.restore('owner-id', {
+  snapshotId,
+  inPlace: true,
+  restorePermissions: true,
+});
+for (const item of result.skippedItems ?? []) {
+  console.warn(`${item.path}: ${item.kind} ${item.detail ?? ''}: ${item.reason}`);
+}
+```
+
+`restorePermissions: true` reapplies each item's captured grants and recreates its sharing links. It is off by default, so a restore into another drive or folder never shares content with the original audience again. See [Restoring sharing](/onedrive-backup#restoring-sharing) and [Restoring permissions re-exposes content](/security#restoring-permissions-re-exposes-content).
+
+| Result field              | Meaning                                                            |
+| ------------------------- | ------------------------------------------------------------------ |
+| `permissionsApplied`      | Grants and links reapplied                                         |
+| `permissionsSkipped`      | Grants and links requested but not reapplied                       |
+| `permissionsNotRequested` | Grants and links left out because `restorePermissions` was not set |
+| `skippedItems`            | One `{ path, kind, detail, reason }` per permission left out       |
+
+- Each field is present only when non-zero.
+- None of these outcomes is added to `errors`, so a grant to a user deleted since the backup does not make the restore partial.
+
+`listPermissions(ownerOrSiteId, snapshotId?)` answers "who had access" from the backup alone, for the newest snapshot when `snapshotId` is absent. It resolves to `{ snapshotId, items }`, where each item has `fileId`, `driveId`, `path`, `kind` (`file` or `folder`), and `permissions`.
 
 ### restoreVersion
 
@@ -726,8 +755,20 @@ for (const entry of snapshot?.entries ?? []) {
 ```
 
 - `fileSystemInfo` holds the client-reported timestamps from Microsoft 365. A restore reapplies them. `lastModifiedAt` stays the service-side value, which shows the restore time after a restore.
-- Authors and version authors are captured but not reapplied. Sharing permissions are not captured. See [What a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
+- Authors and version authors are captured but not reapplied. See [What a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
 - These fields are absent on snapshots written before 4.1.0.
+
+Entries can also describe more than files:
+
+| Field         | Meaning                                                                                 |
+| ------------- | --------------------------------------------------------------------------------------- |
+| `kind`        | `folder`. Absent means a file, which is every entry written before sharing was captured |
+| `permissions` | The item's own permissions. Never a link URL                                            |
+
+- Each permission has `roles`, and either `link` (`type`, `scope`) or `grantedTo`, with `expiresAt`, `hasPassword`, and `grantedToIdentities`.
+- A folder has an entry only while it has permissions of its own.
+- `changeType: 'permissions_changed'` marks a file whose sharing changed while its content did not. It reuses the stored content of the file's previous entry.
+- `totalFiles` on a manifest counts files only.
 
 ### Deleting drive data
 

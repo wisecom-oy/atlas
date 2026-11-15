@@ -74,7 +74,7 @@ describe('graph_sharepoint_upload_small_file after an ambiguous failure', () => 
     const outcome = upload(client, 'replace');
     await vi.advanceTimersByTimeAsync(60_000);
 
-    expect(await outcome).toBeUndefined();
+    expect(await outcome).toBe('item-1');
     expect(written).toHaveLength(2);
   });
 });

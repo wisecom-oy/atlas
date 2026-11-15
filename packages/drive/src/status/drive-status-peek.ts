@@ -1,4 +1,4 @@
-import type { FailedItemLedger } from '@wisecom/atlas-types';
+import type { DriveEntryKind, FailedItemLedger } from '@wisecom/atlas-types';
 import {
   describe_peek_error,
   rethrow_if_peek_fatal,
@@ -17,7 +17,7 @@ export interface DriveStatusTarget {
 export interface DriveStatusPeekInput {
   readonly drives: readonly DriveStatusTarget[];
   readonly delta_link_by_drive: Readonly<Record<string, string>>;
-  readonly previous_kind_by_file_id: Readonly<Record<string, 'file' | 'folder'>>;
+  readonly previous_kind_by_file_id: Readonly<Record<string, DriveEntryKind>>;
   readonly failed_items: FailedItemLedger;
   /** Walks a drive's delta from the saved link without persisting the advanced one. */
   readonly fetch_delta: (
@@ -47,7 +47,7 @@ export function count_failed_items_by_drive(ledger: FailedItemLedger): Map<strin
 /** Counts the delta items a backup would act on: files, live or deleted, never folders. */
 export function count_pending_file_changes(
   items: readonly DriveDeltaItem[],
-  previous_kind_by_file_id: Readonly<Record<string, 'file' | 'folder'>>,
+  previous_kind_by_file_id: Readonly<Record<string, DriveEntryKind>>,
 ): number {
   return items.filter((item) => resolve_backed_up_kind(item, previous_kind_by_file_id) === 'file')
     .length;

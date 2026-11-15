@@ -16,6 +16,7 @@ import { classify_empty_run } from '@wisecom/atlas-drive/backup/empty-run-classi
 import { append_recrawl_tombstones } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
 import { merge_damaged_manifest_keys } from '@wisecom/atlas-drive/backup/damaged-manifest-report';
 import { build_tracking_state } from '@/services/backup/file-tracking-state';
+import { create_run_sharing_capture } from '@/services/backup/run-sharing-capture';
 import {
   resolve_saved_cursor_binding,
   select_resumable_cursor,
@@ -169,6 +170,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         tracking,
         delta_link_by_drive,
         ctx,
+        sharing: create_run_sharing_capture(this._connector, this._manifests, ctx, site_id, head),
       });
       const skipped_manifests = await append_recrawl_tombstones(scan, () =>
         this._manifests.list_readable_snapshots_by_site(ctx, site_id),

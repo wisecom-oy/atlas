@@ -37,8 +37,9 @@ atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering 
 | OneNote notebooks               | Section files and table of contents, as ordinary files ([details](#onenote-notebooks)) |
 | Subsites                        | Only with `--include-subsites`, one snapshot per subsite                |
 | Moves, renames, deletions       | Recorded as changes on the next run                                     |
+| Sharing                         | Each file's and folder's own permissions, without link URLs ([details](#sharing)) |
 
-Sharing permissions are not captured, and restores do not recreate file authors. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
+Site and library permissions are not captured. Restores do not recreate file authors, and reapply sharing only when asked. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
 
 Sites that belong to SharePoint Embedded apps are not backed up. See [SharePoint Embedded containers](#sharepoint-embedded-containers).
 
@@ -56,7 +57,7 @@ Add these application permissions to the Atlas app registration in Microsoft Ent
 | --------------------- | ------------------------------------------------- |
 | `Sites.Read.All`      | Listing sites and reading library metadata        |
 | `Files.Read.All`      | Reading file content for backup, verify, and save |
-| `Sites.ReadWrite.All` | Restore only                                      |
+| `Sites.ReadWrite.All` | Restore, including sharing                        |
 
 If a permission is missing, the run stops before it touches any files with `MissingGraphPermissionsError` (`ATLAS_AUTH_DENIED`, exit `4`). The message names the HTTP status, the Microsoft Graph error code, and the permissions to grant:
 
@@ -127,6 +128,7 @@ Object Lock makes stored objects undeletable until the retention period ends. Us
 | `--name <filename>`         | Rename the restored file; single-file restores only | Original name          |
 | `--file-filter <paths...>`  | Restore only the given files, by ID or path         | All files              |
 | `-c, --conflict <mode>`     | `rename`, `replace`, or `fail`                      | `rename`               |
+| `--restore-permissions`     | Reapply captured grants and recreate sharing links, see [Sharing](#sharing) | `false` |
 | `-t, --tenant <id>`         | Tenant identifier                                   | Config default         |
 
 ```bash
@@ -136,6 +138,10 @@ atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering
 # Restore into a different site
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 \
   --target-site https://contoso.sharepoint.com/sites/Staging
+
+# Restore in place with the files' and folders' own sharing
+atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 \
+  --in-place --restore-permissions
 
 # Restore two files, replacing any that exist at the destination
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 \
@@ -219,7 +225,7 @@ For each file, Atlas decrypts the stored copy, recomputes its SHA-256 over the p
 
 Exit code `0` means every checked entry passed. Exit code `1` means a content mismatch or an index inconsistency was found.
 
-### list-snapshots and list-versions
+### list-snapshots, list-versions, and list-permissions
 
 ```bash
 atlas sharepoint list-snapshots --site https://contoso.sharepoint.com/sites/Engineering
@@ -228,6 +234,12 @@ atlas sharepoint list-versions --site https://contoso.sharepoint.com/sites/Engin
 ```
 
 `list-versions` takes `-f, --file <ref>` (a file ID or path, required).
+
+```bash
+atlas sharepoint list-permissions --site https://contoso.sharepoint.com/sites/Engineering
+```
+
+`list-permissions` shows who had access to which file or folder at a snapshot, the newest unless `-s` names one. It reads the backup alone.
 
 ### status
 
@@ -276,6 +288,18 @@ If the target site has no document libraries, the restore fails before uploading
 
 ::: warning Snapshots taken before 2.1.0-beta
 Older snapshots do not record library names, so rule 1 cannot apply. Such a snapshot restores cross-site only when it came from one library and the target has one library. Otherwise it fails under rule 3. Take a fresh backup to restore by name.
+:::
+
+## Sharing
+
+Sharing on files and folders is captured and restored as for OneDrive. See [Sharing](./onedrive-backup.md#sharing) and [Restoring sharing](./onedrive-backup.md#restoring-sharing).
+
+- Site and library permissions are not part of a backup.
+- A restore applies no permission unless you pass `--restore-permissions`.
+- The first backup after upgrading lists each library in full once, as described in [First backup after upgrading](./onedrive-backup.md#first-backup-after-upgrading).
+
+::: warning Restoring sharing into another site
+With `--target-site` and `--restore-permissions`, the original audience gets access to the copy in the target site. Check who should see it first.
 :::
 
 ## Rolling a file back to an earlier version
@@ -418,7 +442,7 @@ See [reliability](/operations/reliability) for retries and what is safe to rerun
 | Uploads on restore   | Up to 4 MiB in one request; larger files in a resumable upload session in 10 MiB chunks           |
 | Throttling           | Retried with backoff, see below                                                                    |
 | Path length          | A restore folder adds path depth. Files over SharePoint's path length limit are skipped and reported. |
-| Scope                | Sharing permissions and file authors are not restored                                              |
+| Scope                | File authors are not restored. Item sharing is restored only with `--restore-permissions`. Site and library permissions are not captured |
 
 When Microsoft 365 throttles requests or has a transient fault, Atlas waits and retries. See [Graph rate limits](/operations/graph-rate-limits) for request budgets.
 
@@ -500,7 +524,7 @@ const deletion = await atlas.sharepoint.deleteSiteData(site);
 console.log(`Deleted: ${deletion.deletedObjects} objects`);
 ```
 
-Other methods: `restoreVersion`, `listSnapshots`, `listFileVersions`, `checkStatus`, and `deleteSnapshot`. See the [SDK reference](./reference/sdk.md).
+Other methods: `restoreVersion`, `listSnapshots`, `listFileVersions`, `listPermissions`, `checkStatus`, and `deleteSnapshot`. See the [SDK reference](./reference/sdk.md).
 
 ### Site discovery
 

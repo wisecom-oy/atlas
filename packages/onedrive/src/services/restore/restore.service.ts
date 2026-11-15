@@ -10,11 +10,9 @@ import {
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
-import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { inject, injectable } from 'inversify';
 import type {
   OneDriveConnector,
-  OneDriveManifestEntry,
   OneDriveManifestRepository,
   OneDriveRestoreOptions,
   OneDriveRestoreResult,
@@ -30,26 +28,22 @@ import {
   OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
-import { logger } from '@wisecom/atlas-core/utils/logger';
-import { read_restore_content } from '@wisecom/atlas-drive/restore/restore-content-read';
-import {
-  select_drive_entries,
-  with_unmatched_file_filters,
-} from '@wisecom/atlas-drive/shared/entry-filter';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
+import { with_unmatched_file_filters } from '@wisecom/atlas-drive/shared/entry-filter';
 import { onedrive_manifest_lookup } from '@/services/shared/manifest-lookup';
 import { build_drive_router } from '@/services/restore/drive-router';
-import {
-  load_drive_chain_entries,
-  restorable_entries,
-} from '@wisecom/atlas-drive/shared/manifest-chain';
+import { load_drive_chain_entries } from '@wisecom/atlas-drive/shared/manifest-chain';
+import { select_restore_entries } from '@wisecom/atlas-drive/restore/restore-selection';
+import type { ItemSharingRestoreDeps } from '@wisecom/atlas-drive/restore/item-sharing-restore';
+import { SharingRestoreTally } from '@wisecom/atlas-drive/restore/sharing-restore-tally';
+import { restore_onedrive_file_entry } from '@/services/restore/restore-file-entry';
+import { restore_onedrive_item_metadata } from '@/services/restore/restore-item-metadata';
 import { empty_restore_result } from '@/services/restore/restore-result';
 import {
   assert_renameable,
   resolve_restore_root,
-  restore_parent_path,
 } from '@wisecom/atlas-core/services/shared/restore-destination';
 import { count_created_folders } from '@wisecom/atlas-drive/restore/folder-path';
-import { ensure_onedrive_folder_path } from '@/services/restore/restore-folder-path';
 
 @injectable()
 export class OneDriveRestoreService implements OneDriveRestoreUseCase {
@@ -114,13 +108,12 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       options.snapshot_id,
     );
     // Before the drive listing, so a file filter that matches nothing fails without a Graph call.
-    const selection = select_drive_entries(restorable_entries(chain.entries), options.file_filter);
-    const restorable = selection.entries;
+    const selection = select_restore_entries(chain.entries, options.file_filter, options.rename_to);
+    const restorable = selection.files;
 
     const target_owner = options.target_owner_id ?? owner_id;
     const drives = await this._connector.list_drives(tenant_id, target_owner);
-    const [primary_drive] = drives;
-    if (!primary_drive) {
+    if (!drives[0]) {
       throw new NotFoundError('No OneDrive drives found for target user');
     }
 
@@ -128,6 +121,11 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
     assert_renameable(options.rename_to, restorable.length);
     const restore_root = resolve_restore_root(options);
     const folder_ids = new Map<string, string>();
+    const sharing: ItemSharingRestoreDeps = {
+      connector: this._connector,
+      restore_permissions: options.restore_permissions === true,
+      tally: new SharingRestoreTally(),
+    };
 
     let files_restored = 0;
     let files_skipped = 0;
@@ -146,7 +144,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
     // the first drive, silently, since every upload succeeded against real folder ids. With
     // `--conflict replace` that overwrote same-path files (issue #361).
     const resolve_target_drive = build_drive_router(
-      restorable,
+      selection.entries,
       drives.map((drive) => drive.drive_id),
       owner_id,
       target_owner,
@@ -160,15 +158,20 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
         errors.push(routed.error);
         continue;
       }
-      const result = await this.restore_single_entry(
-        tenant_id,
-        target_owner,
-        routed.drive_id,
-        entry,
+      const result = await restore_onedrive_file_entry(
+        this._connector,
         ctx,
-        folder_ids,
-        conflict,
-        { root: restore_root, file_name: options.rename_to ?? entry.file_name },
+        entry,
+        {
+          tenant_id,
+          target_owner,
+          drive_id: routed.drive_id,
+          folder_ids,
+          conflict,
+          root: restore_root,
+          file_name: options.rename_to ?? entry.file_name,
+        },
+        sharing,
       );
       // Cut short by Ctrl+C: neither restored nor skipped, so the count reads as interrupted.
       if (result.cancelled === true) break;
@@ -188,6 +191,16 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       });
     }
 
+    const files_done = files_restored + files_skipped === restorable.length;
+    const metadata = await restore_onedrive_item_metadata(
+      this._connector,
+      files_done ? selection.item_metadata : [],
+      { tenant_id, target_owner, restore_root, folder_ids, resolve_target_drive },
+      sharing,
+      options,
+    );
+    append_all(errors, metadata.errors);
+
     const folders_created = count_created_folders(folder_ids);
     const interrupted = finish_operation_progress(
       options,
@@ -195,7 +208,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       'onedrive',
       files_restored + files_skipped,
       restorable.length,
-      files_restored + files_skipped < restorable.length,
+      !files_done || metadata.interrupted,
     );
 
     return with_unreadable_keys(
@@ -207,81 +220,11 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
           files_skipped,
           errors,
           interrupted,
+          ...sharing.tally.summary(),
         },
         selection.unmatched_filters,
       ),
       chain.unreadable_keys,
     );
-  }
-
-  /** Restores one manifest entry to the target drive, returning success or skip reason. */
-  private async restore_single_entry(
-    tenant_id: string,
-    target_owner: string,
-    drive_id: string,
-    entry: OneDriveManifestEntry,
-    ctx: TenantContext,
-    folder_ids: Map<string, string>,
-    conflict: NonNullable<OneDriveRestoreOptions['conflict_behavior']>,
-    placement: { readonly root: string; readonly file_name: string },
-  ): Promise<{ restored: boolean; error?: string; cancelled?: true }> {
-    const target_path = restore_parent_path(placement.root, entry.parent_path);
-    try {
-      const parent_id = await ensure_onedrive_folder_path(
-        this._connector,
-        tenant_id,
-        target_owner,
-        drive_id,
-        target_path,
-        folder_ids,
-      );
-
-      if (parent_id === undefined) {
-        return { restored: false, error: `Could not create folder path: ${target_path}` };
-      }
-
-      // A damaged object fails only its own file, and the run goes on (issue #712). Recording the
-      // reason is what makes the run exit partial instead of counting it as a quiet skip (#358).
-      const read = await read_restore_content(ctx, entry);
-      if (read.kind === 'unrestorable') {
-        return { restored: false, error: `${entry.file_name}: ${read.reason}; skipped` };
-      }
-      const content = read.content;
-
-      // The blob reader streams anything past the small-file limit, so the shape it returned is
-      // the upload to use.
-      if (Buffer.isBuffer(content)) {
-        await this._connector.upload_small_file(
-          tenant_id,
-          target_owner,
-          drive_id,
-          parent_id,
-          placement.file_name,
-          content,
-          conflict,
-          entry.file_system_info,
-        );
-      } else {
-        await this._connector.upload_large_file(
-          tenant_id,
-          target_owner,
-          drive_id,
-          parent_id,
-          placement.file_name,
-          content,
-          conflict,
-          entry.file_system_info,
-        );
-      }
-
-      logger.info(`Restored: ${target_path}/${placement.file_name}`);
-      return { restored: true };
-    } catch (err) {
-      // An upload cut short by Ctrl+C is the run stopping, not a failed file (issue #682).
-      if (is_active_run_cancelled()) return { restored: false, cancelled: true };
-      const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
-      logger.warn(`Skipped ${entry.file_name}: ${msg}`);
-      return { restored: false, error: msg };
-    }
   }
 }

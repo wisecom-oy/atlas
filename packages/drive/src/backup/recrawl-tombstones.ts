@@ -10,6 +10,7 @@ interface TrackedEntry {
   readonly checksum?: string | undefined;
   readonly change_type: string;
   readonly backup_at: string;
+  readonly permissions?: unknown;
 }
 
 interface ChainManifest<Entry> {
@@ -27,17 +28,22 @@ export interface DriveRecrawl {
 /**
  * The drive's finished full enumeration: every item id it returned. Undefined for an incremental
  * delta, which already reports deletions, and for an interrupted one, whose absences prove nothing.
+ * A delta that enumerated afresh because the saved link predates the `shared` facet
+ * (`full_enumeration`) counts as a full one: it lists what exists, not what was removed.
  */
 export function completed_recrawl(
   drive_id: string,
   delta: {
     readonly items: readonly { readonly item_id: string }[];
     readonly reset_detected: boolean;
+    readonly full_enumeration?: boolean | undefined;
   },
   prev_delta_link: string | undefined,
   interrupted: boolean,
 ): DriveRecrawl | undefined {
-  if (interrupted || (prev_delta_link !== undefined && !delta.reset_detected)) return undefined;
+  if (interrupted) return undefined;
+  const enumerated_afresh = delta.reset_detected || delta.full_enumeration === true;
+  if (prev_delta_link !== undefined && !enumerated_afresh) return undefined;
   return { drive_id, returned_item_ids: new Set(delta.items.map((item) => item.item_id)) };
 }
 
@@ -115,9 +121,17 @@ function fold_newest_entries<Entry extends TrackedEntry>(
   return fold_drive_snapshot_chain(newest_first).map(({ entry }) => entry);
 }
 
-/** Keeps the file's identity and path for display, drops the blob it no longer has. */
+/**
+ * Keeps the item's identity, kind and path for display, and drops what it no longer has: the blob
+ * and the permissions.
+ */
 function to_tombstone<Entry extends TrackedEntry>(entry: Entry, backup_at: string): Entry {
-  const { storage_key: _storage_key, checksum: _checksum, ...identity } = entry;
+  const {
+    storage_key: _storage_key,
+    checksum: _checksum,
+    permissions: _permissions,
+    ...identity
+  } = entry;
   // The spread loses the link to `Entry` for the compiler only: `storage_key` and `checksum` are
   // optional on every entry type, and 'deleted' is a member of both providers' change types.
   return { ...identity, change_type: 'deleted', backup_at } as unknown as Entry;
