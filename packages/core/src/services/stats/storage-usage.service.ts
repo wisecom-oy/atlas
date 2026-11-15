@@ -7,8 +7,10 @@ import {
   TEAMS_INDEX_REPOSITORY_TOKEN,
   STORAGE_INVENTORY_FACTORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
+  BUCKET_NAME_RESOLVER_TOKEN,
 } from '@wisecom/atlas-types';
 import type {
+  BucketNameResolver,
   LogicalWorkload,
   ManifestRepository,
   OneDriveManifestRepository,
@@ -64,6 +66,7 @@ export class StorageUsageService implements StorageUsageUseCase {
     @inject(TEAMS_INDEX_REPOSITORY_TOKEN)
     private readonly _teams_indexes: TeamsIndexRepository,
     @inject(ATLAS_CONFIG_TOKEN) private readonly _config: S3Config,
+    @inject(BUCKET_NAME_RESOLVER_TOKEN) private readonly _bucket_names: BucketNameResolver,
   ) {}
 
   /**
@@ -81,7 +84,11 @@ export class StorageUsageService implements StorageUsageUseCase {
     validate_request(request);
     const identity = {
       tenant_id,
-      endpoint_id: storage_endpoint_fingerprint(this._config.s3_endpoint, this._config.s3_region),
+      endpoint_id: storage_endpoint_fingerprint(
+        this._config.s3_endpoint,
+        this._config.s3_region,
+        this._bucket_names.resolve(tenant_id).name,
+      ),
       breakdown: request.breakdown ?? 'workload',
     };
     const state = request.continuation_token
