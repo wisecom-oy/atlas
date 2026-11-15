@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from atlas_e2e import cleanup, config, drive, marker, storage
+from atlas_e2e import cleanup, config, drive, marker, minio_admin, storage
 from atlas_e2e import scrub as scrub_module
 from atlas_e2e.atlas import Cli
 from atlas_e2e.graph import Graph
@@ -93,6 +94,32 @@ def exports(tmp_path_factory: pytest.TempPathFactory) -> Path:
     flag, so a reused path would hang the suite waiting for stdin.
     """
     return tmp_path_factory.mktemp("exports")
+
+
+@pytest.fixture(scope="module")
+def bucket_copy(
+    settings: config.Settings, s3: Any, run_marker: str
+) -> Iterator[minio_admin.ReadOnlyCopy]:
+    """A copy of the tenant bucket under another name, readable by a user scoped to it (#768).
+
+    The copy and the user are removed afterwards, pass or fail. Teardown logs instead of raising,
+    so a cleanup error never replaces the real test failure.
+    """
+    copy = minio_admin.ReadOnlyCopy(
+        bucket=f"{run_marker}-copy", user=f"{run_marker}-reader", secret=secrets.token_urlsafe(24)
+    )
+    storage.copy_bucket(s3, settings.bucket, copy.bucket)
+    try:
+        minio_admin.add_read_only_user(settings, copy.bucket, copy.user, copy.secret)
+    except Exception:
+        storage.delete_bucket(s3, copy.bucket)
+        raise
+    yield copy
+    try:
+        minio_admin.remove_user(settings, copy.user)
+        storage.delete_bucket(s3, copy.bucket)
+    except Exception as err:  # noqa: BLE001 - teardown must not mask a test failure
+        log.warning("Teardown: could not remove the bucket copy: %s", err)
 
 
 @pytest.fixture(scope="session", autouse=True)
