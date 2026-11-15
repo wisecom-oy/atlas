@@ -12,9 +12,20 @@ Each suite is a lifecycle — every step depends on the previous one:
 - **Outlook** (`test_10`): seed a marked folder → back it up → verify → export → delete the message
   from M365 → restore → compare the restored attachment against the seeded bytes **through Graph** →
   incremental backup delta.
+- **Outlook options** (`test_12`): `read`, `restore --destination`, a `--folder` or `--message`
+  that matches nothing (exit 7, no snapshot written), `save` over an existing file with and
+  without `-y`, `outlook mailboxes` and `list-users`. Works on the snapshots `test_10` wrote.
+- **Contacts and calendar** (`test_14`, `test_16`): the Outlook shape, in a contact folder and a
+  calendar named after the run marker. A second restore must create nothing, and deleting one
+  snapshot must leave the other verifiable. Each module skips itself when the app lacks the
+  permission, and preflight names the missing grant.
 - **OneDrive / SharePoint** (`test_20`, `test_30`): same shape per drive/site, including a second
   file version, a conflict-rename restore, and a 5 MB file that forces chunked download and
   streaming restore instead of the small-file path.
+- **OneDrive sharing and rollback** (`test_22`): share a file with an organization link, back it
+  up, restore it with and without `--restore-permissions` and read the links back through Graph,
+  then roll the file back with `restore-version --before` and compare the sibling's bytes.
+  SharePoint runs the same code from `packages/drive`, so it is not repeated there.
 - **Regression guards** (`test_35`): one case per shipped bug that only reproduces against real
   infrastructure.
 - **Bucket override** (`test_40`): copy the tenant bucket to a second bucket in the same MinIO,
@@ -22,6 +33,15 @@ Each suite is a lifecycle — every step depends on the previous one:
   `sharepoint verify` and `outlook list` against it through `ATLAS_S3_BUCKET`. The copy's version
   listing must be unchanged afterwards. The user is created with `mc` inside the MinIO container
   (`docker exec`); set `E2E_MINIO_CONTAINER` when your MinIO container has another name.
+- **Tenant profiles** (`test_45`): a CLI with no Graph identity in its environment and a home of
+  its own runs `tenants add`, `list`, `validate`, `use` and `remove`, and reads the bucket with
+  `--profile`. Cross-tenant restore needs a second tenant and is tracked in #782.
+- **Teams** (`test_60`): back up the team named by `E2E_TEAM_ID`, then `list-snapshots`, `verify`,
+  `status`, `save` and `delete -s`. It seeds nothing: posting a channel message needs a signed-in
+  user, so the team must already hold at least one message. Skipped when the variable is unset.
+- **Passphrase rotation** (`test_80`): `keys rewrap` to a second passphrase, the old one must exit
+  5, `keys purge-old-wrappers` must leave one version of `_meta/dek.enc`, then rotate back so the
+  deletion suites still open the bucket.
 - **Workload deletion** (`test_85`): `onedrive delete` and `sharepoint delete` drop one snapshot
   manifest, keep the shared blobs, and leave the other workloads' objects untouched.
 - **Purge** (`test_90`): `delete --purge` must leave an empty bucket.
@@ -65,6 +85,7 @@ export E2E_ENCRYPTION_PASSPHRASE=...  # not your production passphrase
 export E2E_MAILBOX=you@example.com    # mailbox the suite writes into
 export E2E_ONEDRIVE_OWNER=...         # user principal whose drive the suite uses
 export E2E_SHAREPOINT_SITE=...        # site URL the suite uses
+export E2E_TEAM_ID=...                # optional: team the Teams suite backs up, read-only
 
 uv run pytest                         # everything
 uv run pytest -k outlook              # one suite
@@ -73,6 +94,14 @@ uv run pytest -k outlook              # one suite
 The app registration needs admin-consented application permissions; preflight (`-k preflight`)
 probes each one and names the missing grant. The list lives in
 [`docs/azure-ad-setup.md`](../docs/azure-ad-setup.md).
+
+What the test tenant has to hold beyond the app registration:
+
+| Suite | Needs |
+| --- | --- |
+| Contacts, calendar | `Contacts.ReadWrite` and `Calendars.ReadWrite` on the app. Both use `E2E_MAILBOX`. The mailbox's own calendars should hold no events, because a calendar backup reads all of them |
+| OneDrive sharing | A tenant sharing policy that allows organization links |
+| Teams | `E2E_TEAM_ID`, the eight Teams read permissions, and at least one channel message in that team |
 
 ## Lint, format and types
 

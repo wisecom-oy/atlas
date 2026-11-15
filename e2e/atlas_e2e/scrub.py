@@ -75,6 +75,7 @@ def _literals(settings: Settings) -> list[tuple[str, str]]:
         settings.sharepoint_site: "<sharepoint-site>",
         settings.mailbox: "<mailbox>",
         settings.onedrive_owner: "<onedrive-owner>",
+        settings.team_id: "<team-id>",
         settings.tenant_id: "<tenant-id>",
         settings.client_id: "<client-id>",
     }

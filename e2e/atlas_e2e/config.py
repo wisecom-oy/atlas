@@ -51,6 +51,7 @@ class Settings:
     cli: Path
     onedrive_owner: str = field(repr=False)
     sharepoint_site: str = field(repr=False)
+    team_id: str = field(repr=False, default="")
 
     @property
     def bucket(self) -> str:
@@ -72,15 +73,19 @@ class Settings:
             workloads.append("sharepoint")
         return workloads
 
-    def cli_env(self) -> dict[str, str]:
+    def cli_env(self, *, graph: bool = True) -> dict[str, str]:
         """ATLAS_* variables for a CLI subprocess.
 
-        Env wins over the secure store, so no config file is needed.
+        Env wins over the secure store, so no config file is needed. `graph=False` leaves out the
+        three Graph identity variables, for runs that must take them from a tenant profile.
         """
-        return {
+        identity = {
             "ATLAS_TENANT_ID": self.tenant_id,
             "ATLAS_CLIENT_ID": self.client_id,
             "ATLAS_CLIENT_SECRET": self.client_secret,
+        }
+        return {
+            **(identity if graph else {}),
             "ATLAS_ENCRYPTION_PASSPHRASE": self.passphrase,
             "ATLAS_S3_ENDPOINT": self.s3_endpoint,
             "ATLAS_S3_ACCESS_KEY": self.s3_access_key,
@@ -119,4 +124,7 @@ def load() -> Settings:
         # Phase 2 workloads: absent until their fixtures exist, so the Outlook suite can run alone.
         onedrive_owner=os.environ.get("E2E_ONEDRIVE_OWNER", ""),
         sharepoint_site=os.environ.get("E2E_SHAREPOINT_SITE", ""),
+        # Teams channel messages cannot be seeded with application permissions, so the suite backs
+        # up a team that already holds some. Unset skips the Teams suite.
+        team_id=os.environ.get("E2E_TEAM_ID", ""),
     )

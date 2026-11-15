@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from atlas_e2e import cleanup, config, drive, marker, minio_admin, storage
+from atlas_e2e import cleanup, config, drive, marker, minio_admin, people, storage
 from atlas_e2e import scrub as scrub_module
 from atlas_e2e.atlas import Cli
 from atlas_e2e.graph import Graph
@@ -136,6 +136,12 @@ def _teardown(settings: config.Settings, cli: Cli, graph: Graph, run_marker: str
         log.info("Teardown: removed %d mailbox folder(s)", len(removed))
     except Exception as err:  # noqa: BLE001 - teardown must not mask a test failure
         log.warning("Teardown: mailbox sweep failed: %s", err)
+
+    try:
+        removed = people.sweep(graph, settings.mailbox, run_marker)
+        log.info("Teardown: removed %d contact folder(s) and calendar(s)", len(removed))
+    except Exception as err:  # noqa: BLE001 - teardown must not mask a test failure
+        log.warning("Teardown: contacts and calendar sweep failed: %s", err)
 
     for label, drive_id in _fixture_drives(graph, settings).items():
         try:
