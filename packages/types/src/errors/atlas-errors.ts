@@ -15,7 +15,9 @@ export type AtlasErrorCode =
   | 'ATLAS_SNAPSHOT_NOT_NEWEST'
   | 'ATLAS_WRITE_REFUSED'
   | 'ATLAS_OWNER_BUSY'
-  | 'ATLAS_CONFIG_INVALID';
+  | 'ATLAS_CONFIG_INVALID'
+  | 'ATLAS_ACCESS_REFUSED'
+  | 'ATLAS_GRAPH_UNAVAILABLE';
 
 /**
  * Base class for every failure Atlas raises on purpose.
@@ -305,5 +307,121 @@ export class UnreadableObjectsError<T = unknown> extends UnreadableContentError 
 export class UnsupportedFormatVersionError extends AtlasError {
   constructor(message: string, options?: { cause?: unknown }) {
     super('ATLAS_FORMAT_UNSUPPORTED', message, options);
+  }
+}
+
+/** What Graph answered, as far as the failure that carried it says. */
+export interface GraphErrorFacts {
+  /** HTTP status of the last response, or undefined for a failure that got no response. */
+  readonly status_code?: number | undefined;
+  /** Graph's error code, such as `accessDenied`, when the response carried one. */
+  readonly graph_code?: string | undefined;
+  /** The Graph or network error this one classifies. */
+  readonly cause?: unknown;
+}
+
+/**
+ * The app registration lacks an application permission the operation needs. Graph answered 403
+ * with a code that means a missing grant, and nothing showed the grant to be working.
+ *
+ * An `AuthError`, so it stops the run for the whole tenant and exits 4: every other owner would be
+ * refused the same way. `permissions` names what to grant.
+ */
+export class MissingGraphPermissionsError extends AuthError {
+  /** The application permissions to grant, as named in the message. */
+  readonly permissions: readonly string[];
+  readonly status_code: number | undefined;
+  readonly graph_code: string | undefined;
+
+  constructor(
+    message: string,
+    options: GraphErrorFacts & { readonly permissions?: readonly string[] } = {},
+  ) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
+    this.permissions = options.permissions ?? [];
+    this.status_code = options.status_code;
+    this.graph_code = options.graph_code;
+  }
+}
+
+/**
+ * Why Graph refused one resource. `file_storage_container`: the site's web URL is under
+ * `/contentstorage/`, a SharePoint Embedded container, which needs `FileStorageContainer.Selected`.
+ * `access_refused`: any other refusal, including a container addressed only by its site ID.
+ */
+export type GraphAccessRefusalReason = 'file_storage_container' | 'access_refused';
+
+/** What a refused call addressed. Fields the call did not address are undefined. */
+export interface RefusedGraphResource {
+  readonly site_id?: string | undefined;
+  readonly drive_id?: string | undefined;
+  readonly owner_id?: string | undefined;
+}
+
+/**
+ * Graph refused one resource although the app's permission works elsewhere in the tenant, or with a
+ * 403 code that does not mean a missing grant (issue #772). A SharePoint Embedded container site is
+ * the known case: Graph answers 403 `accessDenied` to an app holding `Sites.Read.All`.
+ *
+ * Permanent: retrying returns the same answer, so a caller marks the resource unsupported. Not an
+ * `AuthError`: the refusal is about one resource, not the tenant, so a caller that stops a tenant
+ * run on `AuthError` keeps backing up the other owners.
+ */
+export class GraphAccessRefusedError extends AtlasError {
+  readonly site_id: string | undefined;
+  readonly drive_id: string | undefined;
+  readonly owner_id: string | undefined;
+  readonly reason: GraphAccessRefusalReason;
+  readonly status_code: number | undefined;
+  readonly graph_code: string | undefined;
+
+  constructor(
+    message: string,
+    resource: RefusedGraphResource,
+    reason: GraphAccessRefusalReason,
+    options: GraphErrorFacts = {},
+  ) {
+    super(
+      'ATLAS_ACCESS_REFUSED',
+      message,
+      options.cause === undefined ? undefined : { cause: options.cause },
+    );
+    this.site_id = resource.site_id;
+    this.drive_id = resource.drive_id;
+    this.owner_id = resource.owner_id;
+    this.reason = reason;
+    this.status_code = options.status_code;
+    this.graph_code = options.graph_code;
+  }
+}
+
+/**
+ * Graph kept failing a request with a transient answer (500, 502, 503, 504, a network error or a
+ * timeout) until the retry budget ran out (issue #773). The service, not the request, is at fault,
+ * so a later attempt can succeed. An exhausted 429 is `ThrottledError` instead.
+ */
+export class GraphUnavailableError extends AtlasError {
+  /** HTTP status of the last attempt, or undefined when it got no response at all. */
+  readonly status_code: number | undefined;
+  readonly graph_code: string | undefined;
+  /** Retries made after the first attempt before giving up. */
+  readonly retries: number;
+  /** Milliseconds from the first attempt until the call gave up, waits included. */
+  readonly elapsed_ms: number;
+
+  constructor(
+    message: string,
+    attempts: { readonly retries: number; readonly elapsed_ms: number },
+    options: GraphErrorFacts = {},
+  ) {
+    super(
+      'ATLAS_GRAPH_UNAVAILABLE',
+      message,
+      options.cause === undefined ? undefined : { cause: options.cause },
+    );
+    this.status_code = options.status_code;
+    this.graph_code = options.graph_code;
+    this.retries = attempts.retries;
+    this.elapsed_ms = attempts.elapsed_ms;
   }
 }

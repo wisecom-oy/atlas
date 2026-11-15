@@ -30,6 +30,12 @@ const ATLAS_EXIT_CODES = {
   // rerun succeeds once that operation ends or its lease expires, so a scheduler can tell "try
   // again later" from a failure (issue #623).
   ATLAS_OWNER_BUSY: 12,
+  // Graph refused one site, drive or owner to a working grant. Rerunning returns the same answer,
+  // so it is an operator decision like a missing grant, not a retry (issue #772).
+  ATLAS_ACCESS_REFUSED: 4,
+  // Graph kept failing with 5xx, network errors or timeouts through the whole retry budget: the
+  // same transient category as an exhausted throttle (issue #773).
+  ATLAS_GRAPH_UNAVAILABLE: 3,
 } satisfies Record<AtlasErrorCode, number>;
 
 const NETWORK_CODES: Readonly<Record<string, true>> = {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ThrottledError } from '@wisecom/atlas-types';
+import { GraphUnavailableError, ThrottledError } from '@wisecom/atlas-types';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import { GraphUserIdentityResolver } from '@/graph-user-identity-resolver.adapter';
 
@@ -82,12 +82,18 @@ describe('GraphUserIdentityResolver.resolve_by_object_id', () => {
     return failure;
   }
 
-  it.each([500, 502, 503, 504])('retries a transient %i, then rethrows it', async (status) => {
-    const get = vi.fn(() => Promise.reject(graph_error(status)));
+  it.each([500, 502, 503, 504])(
+    'retries a transient %i, then rethrows it as GraphUnavailableError',
+    async (status) => {
+      const get = vi.fn(() => Promise.reject(graph_error(status)));
 
-    expect(await exhausted(make_client(get))).toMatchObject({ statusCode: status });
-    expect(get).toHaveBeenCalledTimes(13);
-  });
+      const err = await exhausted(make_client(get));
+
+      expect(err).toBeInstanceOf(GraphUnavailableError);
+      expect(err).toMatchObject({ status_code: status, cause: { statusCode: status } });
+      expect(get).toHaveBeenCalledTimes(13);
+    },
+  );
 
   it('retries a 429, then rethrows it as ThrottledError', async () => {
     const get = vi.fn(() => Promise.reject(graph_error(429)));
@@ -98,10 +104,12 @@ describe('GraphUserIdentityResolver.resolve_by_object_id', () => {
     expect((err as ThrottledError).cause).toMatchObject({ statusCode: 429 });
   });
 
-  it('retries a network failure, then rethrows it', async () => {
+  it('retries a network failure, then rethrows it as GraphUnavailableError', async () => {
     const err = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
 
-    expect(await exhausted(make_client(() => Promise.reject(err)))).toBe(err);
+    const failure = await exhausted(make_client(() => Promise.reject(err)));
+    expect(failure).toBeInstanceOf(GraphUnavailableError);
+    expect((failure as GraphUnavailableError).cause).toBe(err);
   });
 
   it('recovers when a transient failure clears on retry', async () => {

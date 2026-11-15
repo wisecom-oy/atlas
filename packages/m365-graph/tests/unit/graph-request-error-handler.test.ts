@@ -161,18 +161,6 @@ describe('with_graph_retry', () => {
     expect(fn).toHaveBeenCalledTimes(13);
   });
 
-  it('rethrows any other exhausted failure unchanged', async () => {
-    const err = { statusCode: 503, message: 'Service Unavailable' };
-    const fn = vi.fn().mockRejectedValue(err);
-
-    const promise = with_graph_retry(fn).catch((e: unknown) => e);
-    for (let i = 0; i < 13; i++) {
-      await vi.advanceTimersByTimeAsync(300_000);
-    }
-
-    expect(await promise).toBe(err);
-  });
-
   it('retries a body undici terminated, from the socket code on its cause', async () => {
     let calls = 0;
     const socket = Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' });

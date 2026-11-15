@@ -21,6 +21,8 @@
  * wrapped storage and proxy errors that had nothing to do with the download URL.
  */
 
+import { MissingGraphPermissionsError } from '@wisecom/atlas-types';
+
 /** Cause of a failed download, as far as the error itself can be trusted to say. */
 export type DownloadFailureKind =
   /** A pre-authenticated CDN URL that is no longer valid: re-resolve and retry. */
@@ -55,13 +57,11 @@ export class DownloadRefusedError extends Error {
   }
 }
 
-/** Thrown when a download fails because the app registration lacks a grant. */
-export class MissingGraphPermissionsError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'MissingGraphPermissionsError';
-  }
-}
+/**
+ * Thrown when the app registration lacks a grant. Defined with the other Atlas errors, so the SDK
+ * exports it and it carries `ATLAS_AUTH_DENIED` (issue #772); re-exported here for its callers.
+ */
+export { MissingGraphPermissionsError };
 
 /**
  * How many `cause` links are followed looking for a status. A wrapper around a wrapper is the most

@@ -17,7 +17,7 @@ import {
 } from '@/graph-retry-after';
 import { race_abort, run_attempt, sleep, throw_if_cancelled } from '@/graph-attempt-cancellation';
 import { is_network_error } from '@/graph-network-error';
-import { ThrottledError } from '@wisecom/atlas-types';
+import { GraphUnavailableError, ThrottledError } from '@wisecom/atlas-types';
 
 /**
  * Statuses Graph recovers from on its own, per Microsoft's throttling and
@@ -116,10 +116,11 @@ export function is_invalid_delta_error(err: unknown): boolean {
 
 /**
  * Returns true when the error carries a transient HTTP status (429, 500, 502, 503, 504), or is the
- * `ThrottledError` an exhausted 429 becomes, so an outer retry loop still sees a throttle.
+ * `ThrottledError` or `GraphUnavailableError` an exhausted retry becomes, so an outer retry loop
+ * still sees the transient failure it wraps.
  */
 export function is_transient_error(err: unknown): boolean {
-  if (err instanceof ThrottledError) return true;
+  if (err instanceof ThrottledError || err instanceof GraphUnavailableError) return true;
   const status = (err as Record<string, unknown>).statusCode;
   return typeof status === 'number' && RETRYABLE_STATUS_CODES.has(status);
 }
@@ -157,6 +158,7 @@ export async function with_graph_retry<T>(
   // What may cut off a request already sent; waits before a send always honour `abort_signal`.
   const in_flight_signal = options.complete_in_flight === true ? undefined : abort_signal;
   let waited_ms = 0;
+  const started_at = Date.now();
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     throw_if_cancelled(abort_signal);
     // Per attempt, not per call. A retry loop that started before the cooldown
@@ -182,7 +184,7 @@ export async function with_graph_retry<T>(
       if (status_code_of(err) === 429) get_active_request_pacing()?.on_throttled();
       throw_if_retry_after_above_cap(err);
       if (attempt === MAX_RETRIES || waited_ms >= RETRY_BUDGET_MS) {
-        throw as_exhausted_failure(err, attempt);
+        throw as_exhausted_failure(err, attempt, Date.now() - started_at);
       }
 
       const delay = retry_delay_ms(attempt, retry_after);
@@ -197,17 +199,39 @@ export async function with_graph_retry<T>(
 }
 
 /**
- * Turns a 429 that outlasted the retry budget into the documented `ThrottledError`, keeping the
- * Graph error as `cause`. Other exhausted failures are rethrown unchanged (issue #440).
+ * Types a retryable failure that outlasted the retry budget, keeping the Graph error as `cause`:
+ * a 429 becomes `ThrottledError` (issue #440), and a 5xx, network error or timeout becomes
+ * `GraphUnavailableError` (issue #773). A Graph SDK error for a 5xx with an empty or non-JSON body
+ * has an empty `message`, so the message is built from `describe_graph_error`, never copied.
  */
-function as_exhausted_failure(err: unknown, retries: number): unknown {
-  if (status_code_of(err) !== 429) return err;
-  return new ThrottledError(
-    `Microsoft Graph kept throttling the request after ${retries} retries: ` +
-      describe_graph_error(err),
-    extract_retry_after_ms(err),
-    { cause: err },
+function as_exhausted_failure(err: unknown, retries: number, elapsed_ms: number): unknown {
+  // An inner call already typed its exhausted failure; wrapping it again would hide a throttle.
+  if (err instanceof ThrottledError || err instanceof GraphUnavailableError) return err;
+  const status = status_code_of(err);
+  if (status === 429) {
+    return new ThrottledError(
+      `Microsoft Graph kept throttling the request after ${retries} retries: ` +
+        describe_graph_error(err),
+      extract_retry_after_ms(err),
+      { cause: err },
+    );
+  }
+  return new GraphUnavailableError(
+    `Microsoft Graph was unavailable after ${retries} retries over ` +
+      `${Math.round(elapsed_ms / 1000)} s: ${describe_graph_error(err)}`,
+    { retries, elapsed_ms },
+    {
+      status_code: typeof status === 'number' ? status : undefined,
+      graph_code: graph_code_of(err),
+      cause: err,
+    },
   );
+}
+
+/** Graph's error code on a Graph error, or undefined for a failure that carries none. */
+function graph_code_of(err: unknown): string | undefined {
+  if (typeof err !== 'object' || err === null || !('code' in err)) return undefined;
+  return typeof err.code === 'string' && err.code !== '' ? err.code : undefined;
 }
 
 /** The HTTP status a Graph or network error carries, or undefined when it carries none. */
