@@ -1,4 +1,4 @@
-[![Atlas, the open-source Microsoft 365 backup engine by Wisecom](assets/og-card.jpg)](https://wisecom.fi)
+[![Atlas, the open-source Microsoft 365 backup engine by Wisecom](assets/og-card.jpg)](https://docs.atlas.wisecom.fi)
 
 [![CI](https://github.com/wisecom-oy/atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/wisecom-oy/atlas/actions/workflows/ci.yml)
 [![E2E](https://github.com/wisecom-oy/atlas/actions/workflows/e2e.yml/badge.svg?branch=main)](https://github.com/wisecom-oy/atlas/actions/workflows/e2e.yml)
@@ -8,141 +8,91 @@
 
 # Atlas
 
-**An open-source backup and recovery engine for Microsoft 365.**
+**Open-source backup and recovery for Microsoft 365, by [Wisecom](https://wisecom.fi).**
 
-Atlas backs up Outlook mailboxes, personal Outlook contacts, Outlook calendars, OneDrive files, SharePoint document libraries, and Teams channel messages into S3-compatible object storage that you control. Data is encrypted per tenant before it leaves the process, stored content-addressed and deduplicated, and synchronised incrementally through Microsoft Graph delta queries.
+Atlas backs up Microsoft 365 to S3-compatible storage that you control, and restores from it. Data is encrypted before it leaves your machine, each unique item is stored once, and after the first run only changes are fetched.
 
-It is infrastructure rather than a desktop backup app: a CLI and a typed SDK, built to be automated, inspected, and operated by the people responsible for recovery. Atlas is free and open source under Apache-2.0, maintained by [Wisecom Oy](https://wisecom.fi). You can run it yourself, indefinitely, with no licence key and no feature gating.
+**[Read the documentation](https://docs.atlas.wisecom.fi)** · [Quickstart](https://docs.atlas.wisecom.fi/getting-started) · [CLI reference](https://docs.atlas.wisecom.fi/reference/cli) · [SDK reference](https://docs.atlas.wisecom.fi/reference/sdk)
 
-## Why it is built this way
+## What it protects
 
-Recovery is only useful if it still works when the production environment cannot be trusted. That shapes the architecture:
+| Workload            | Covered                                                             |
+| ------------------- | ------------------------------------------------------------------- |
+| **Exchange Online** | Mailboxes, folder hierarchy, attachments                            |
+| **Contacts**        | Personal Outlook contacts, with photos                              |
+| **Calendar**        | Outlook calendar events, with recurring series and file attachments |
+| **OneDrive**        | Files with version history                                          |
+| **SharePoint**      | Document libraries, including subsites                              |
+| **Microsoft Teams** | Channel messages and replies, with channel members and tabs         |
 
-| Property                        | How it works                                                                                                         | Why it matters                                                           |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| **Per-tenant encryption**       | AES-256-GCM envelope encryption; a scrypt-derived key wraps a per-tenant data key that never leaves memory unwrapped | Storage compromise alone does not expose mail or files                   |
-| **Customer-controlled storage** | Any S3-compatible backend: AWS, MinIO, or on-premise                                                                 | You decide where backup data lives and who holds the credentials         |
-| **Content-addressed storage**   | Messages, attachments, and files keyed by SHA-256 of the plaintext                                                   | Identical content is stored once; re-runs do not re-upload               |
-| **Storage-level immutability**  | S3 Object Lock with time-based retention                                                                             | Retention is enforced by the storage layer, not by application logic     |
-| **Delta synchronisation**       | Graph delta cursors per folder, drive, and library                                                                   | Incremental runs; a single failed item does not replay the whole backlog |
-| **Replica restore and verify**  | Point Atlas at your storage provider's replica and restore or verify from it                                         | A second, independent copy for disaster recovery, kept by the provider   |
-| **Open implementation**         | Apache-2.0, no proprietary archive format                                                                            | The recovery path can be audited rather than assumed                     |
+SharePoint lists and site pages, and Teams one-to-one, group, and meeting chats, are not covered yet. See the [roadmap](https://docs.atlas.wisecom.fi/roadmap).
 
-Large files stream without touching disk: transfers at or above 64 MiB are downloaded, encrypted, and assembled into multipart uploads in bounded memory.
+## Why Atlas
 
-## Quick start
+- **Your storage, your keys.** Backups go to any S3-compatible backend: AWS, MinIO, or on-premises. Each tenant is encrypted with its own key, so access to the storage alone does not expose mail or files.
+- **Immutable when you need it.** S3 Object Lock retention is enforced by the storage layer, not by the application.
+- **Fast after the first run.** Only changes are fetched, and identical content is never stored twice.
+- **Verifiable.** Every snapshot can be checked end to end, and restored from a replica kept by your storage provider.
+- **Open.** Apache-2.0, no licence key, no feature gating, no proprietary archive format.
+
+The [security model](https://docs.atlas.wisecom.fi/security) explains the encryption, the threat model, and what Atlas does and does not protect against.
+
+## Get started
 
 ```bash
 npm install -g @wisecom/atlas-cli
 
-# Outlook
-atlas outlook backup --mailbox user@example.com    # one mailbox
-atlas outlook mailboxes                            # list mailboxes to loop over
-atlas outlook status -m user@example.com            # check freshness
-
-# OneDrive
+atlas outlook backup -m user@example.com
 atlas onedrive backup -o user@example.com
-
-# Contacts
-atlas contacts backup -m user@example.com
-
-# Calendar
-atlas calendar backup -m user@example.com
-
-# SharePoint
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
-
-# Teams
-atlas teams backup --team <team-id>
 ```
 
-Backups need a Microsoft Entra ID app registration and an S3 bucket. [Getting Started](https://wisecom-oy.github.io/atlas/getting-started) covers both, and [Microsoft Entra ID setup](https://wisecom-oy.github.io/atlas/azure-ad-setup) lists the exact Graph permissions and why each is required.
+Backups need a Microsoft Entra ID app registration and an S3 bucket. The [quickstart](https://docs.atlas.wisecom.fi/getting-started) walks through both.
 
-Restores, verification, catalogue queries, and retention are documented in the [CLI reference](https://wisecom-oy.github.io/atlas/reference/cli).
+| I want to                              | Go to                                                                           |
+| -------------------------------------- | ------------------------------------------------------------------------------- |
+| Run my first backup                    | [Quickstart](https://docs.atlas.wisecom.fi/getting-started)                     |
+| Grant the right Microsoft permissions  | [Entra ID app registration](https://docs.atlas.wisecom.fi/azure-ad-setup)       |
+| Host storage and schedule runs         | [Self-hosting](https://docs.atlas.wisecom.fi/self-hosting/)                     |
+| Restore, verify, or export             | [CLI reference](https://docs.atlas.wisecom.fi/reference/cli)                    |
+| Embed Atlas in a Node.js application   | [SDK reference](https://docs.atlas.wisecom.fi/reference/sdk)                    |
+| Fix a failed run                       | [Troubleshooting](https://docs.atlas.wisecom.fi/troubleshooting)                |
+| Upgrade from v6                        | [Migrating to v7](https://docs.atlas.wisecom.fi/migration/v7)                   |
 
-## Scope
+**Packages:** [`@wisecom/atlas-cli`](https://www.npmjs.com/package/@wisecom/atlas-cli) for the command line, [`@wisecom/atlas-sdk`](https://www.npmjs.com/package/@wisecom/atlas-sdk) for the Node.js API.
 
-Atlas currently protects:
+## Wisecom Continuity
 
-- **Exchange Online**: mailboxes, folder hierarchy, attachments
-- **Contacts**: personal Outlook contacts, with photos
-- **Calendar**: Outlook calendar events, with recurring series and file attachments
-- **OneDrive**: files with version history
-- **SharePoint**: document libraries, including subsites
-- **Microsoft Teams**: channel messages and replies, with channel members and tabs
-
-SharePoint coverage is document libraries only. Generic lists and site pages are not captured yet, and planned work is tracked in the [roadmap](https://wisecom-oy.github.io/atlas/roadmap).
-
-Teams coverage is channel messages, replies, members, and tabs for each team. One-to-one, group, and meeting chats are not captured.
-
-## Documentation
-
-| Topic             |                                                                      |
-| ----------------- | -------------------------------------------------------------------- |
-| Getting Started   | [docs](https://wisecom-oy.github.io/atlas/getting-started)           |
-| Configuration     | [docs](https://wisecom-oy.github.io/atlas/configuration)             |
-| Entra ID Setup    | [docs](https://wisecom-oy.github.io/atlas/azure-ad-setup)            |
-| Security Model    | [docs](https://wisecom-oy.github.io/atlas/security)                  |
-| Self-Hosting      | [docs](https://wisecom-oy.github.io/atlas/self-hosting)              |
-| OneDrive Backup   | [docs](https://wisecom-oy.github.io/atlas/onedrive-backup)           |
-| Contacts Backup   | [docs](https://wisecom-oy.github.io/atlas/contacts-backup)           |
-| Calendar Backup   | [docs](https://wisecom-oy.github.io/atlas/calendar-backup)           |
-| SharePoint Backup | [docs](https://wisecom-oy.github.io/atlas/sharepoint-backup)         |
-| Teams Backup      | [docs](https://wisecom-oy.github.io/atlas/teams-backup)              |
-| Storage Layout    | [docs](https://wisecom-oy.github.io/atlas/operations/storage-layout) |
-| Troubleshooting   | [docs](https://wisecom-oy.github.io/atlas/troubleshooting)           |
-| CLI Reference     | [docs](https://wisecom-oy.github.io/atlas/reference/cli)             |
-| SDK Reference     | [docs](https://wisecom-oy.github.io/atlas/reference/sdk)             |
-| Migrating to v7   | [docs](https://wisecom-oy.github.io/atlas/migration/v7)              |
-| Migrating to v6   | [docs](https://wisecom-oy.github.io/atlas/migration/v6)              |
-
-**Packages:** [`@wisecom/atlas-cli`](https://www.npmjs.com/package/@wisecom/atlas-cli) for the command line, [`@wisecom/atlas-sdk`](https://www.npmjs.com/package/@wisecom/atlas-sdk) for the programmatic Node.js API.
-
-## Running it as a service
-
-Atlas is the engine. Operating it in production also means scheduling, monitoring, alerting on failed runs, restore testing, and keeping credentials and retention under control.
+Atlas is the engine. Running it in production also means scheduling, monitoring, alerting on failed runs, restore testing, and keeping credentials and retention under control.
 
 If you would rather not run that yourself, Wisecom operates Atlas as a managed service, [Wisecom Continuity](https://wisecom.fi/en/products/continuity), with automated onboarding and monitoring, self-service restore, and options for keeping backup data in storage your own organisation controls.
 
-Either path uses the same open engine and the same storage format, so self-hosting remains a supported choice rather than a trial.
-
-## Development
-
-```bash
-pnpm install
-pnpm run build           # compile all packages
-pnpm run test            # vitest unit tests
-pnpm run test:coverage   # merged v8 coverage, one row per package
-pnpm run lint            # eslint
-pnpm run docs:dev        # local docs site
-```
-
-Developer tooling lives in [`tools/`](./tools): CPU profiling for the backup and restore pipelines, Graph request tracing, Graph fault injection, and a diagnostics dump for bug reports.
+Both paths use the same open engine and the same storage format, so self-hosting is a supported choice, not a trial.
 
 ## Contributing
 
 Issues and pull requests are welcome. [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, code conventions, the architecture, and pull request expectations.
 
+```bash
+pnpm install
+pnpm run build
+pnpm run test
+```
+
 When reporting a bug, include the output of `./tools/diagnostics.sh` and replace real mailbox addresses, file names, and site URLs with generic placeholders.
 
 ## Security
 
-The [security model](https://wisecom-oy.github.io/atlas/security) documents the encryption scheme, key handling, threat model, and what Atlas does and does not protect against.
+If you believe you have found a vulnerability, report it privately through [wisecom.fi/en/contact](https://wisecom.fi/en/contact) rather than opening a public issue.
 
-If you believe you have found a vulnerability, please report it privately through [wisecom.fi/en/contact](https://wisecom.fi/en/contact) rather than opening a public issue.
+## Support Atlas
 
-## ❤️ Support Atlas
-
-Atlas is developed and maintained by [Wisecom Oy](https://wisecom.fi). If you find Atlas useful, consider supporting its continued development.
-
-Your sponsorship helps us maintain the project, improve reliability, develop new features, and keep Atlas free and open source.
+Atlas is developed and maintained by [Wisecom Oy](https://wisecom.fi). Sponsorship helps keep it maintained, reliable, and free.
 
 [❤️ Sponsor Wisecom Oy on GitHub](https://github.com/sponsors/wisecom-oy)
-
-Every contribution is appreciated. Thank you for supporting open source!
 
 ## License
 
 Copyright 2026 Wisecom Oy (Y-tunnus: 3629087-1)
 
-Licensed under the Apache License, Version 2.0. See [LICENSE](./LICENSE) for details.
+Licensed under the Apache License, Version 2.0. See [LICENSE](./LICENSE) for details. The Atlas and Wisecom names and logos are trademarks of Wisecom Oy and are covered by [`assets/LICENSE.md`](./assets/LICENSE.md), not by Apache-2.0.
