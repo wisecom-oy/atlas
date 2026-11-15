@@ -1,7 +1,17 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
 import { with_graph_retry } from '@wisecom/atlas-m365-graph';
+import type { SharePointDeltaItem, SharePointDeltaResult } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
-import type { GraphDeltaDriveItem } from '@/adapters/graph-sharepoint-delta-mapper';
+import {
+  DRIVE_DELTA_PREFER,
+  DRIVE_DELTA_SELECT_FIELDS,
+} from '@wisecom/atlas-drive/graph/graph-drive-item';
+import { plan_delta_start } from '@wisecom/atlas-drive/graph/saved-delta-link';
+import {
+  has_item_id,
+  map_delta_item,
+  type GraphDeltaDriveItem,
+} from '@/adapters/graph-sharepoint-delta-mapper';
 
 interface GraphCollectionResponse<T> {
   value?: T[];
@@ -9,60 +19,95 @@ interface GraphCollectionResponse<T> {
   '@odata.deltaLink'?: string;
 }
 
-const DRIVE_DELTA_SELECT_FIELDS = [
-  'id',
-  'name',
-  'size',
-  'webUrl',
-  'eTag',
-  'lastModifiedDateTime',
-  'fileSystemInfo',
-  'createdBy',
-  'lastModifiedBy',
-  'parentReference',
-  'file',
-  'folder',
-  'package',
-  'deleted',
-  'malware',
-  '@microsoft.graph.downloadUrl',
-].join(',');
-
 export interface InitialDeltaPageResult {
   page: GraphCollectionResponse<GraphDeltaDriveItem>;
+  /** The saved link predates the `package` facet; tracking is reset. */
   reset_detected: boolean;
+  /** The saved link predates the `shared` facet; the library is enumerated afresh. */
+  full_enumeration: boolean;
 }
 
-/** Fetches the first delta page, resetting when the stored cursor predates field selection. */
+/**
+ * Fetches the first delta page: the saved link when it is current, else a fresh enumeration.
+ * Every delta request carries `Prefer: hierarchicalsharing`, which is what makes the `shared`
+ * facet mark only the items whose own sharing changed.
+ */
 export async function fetch_initial_delta_page(
   client: Client,
   drive_id: string,
   prev_delta_link: string | undefined,
 ): Promise<InitialDeltaPageResult> {
-  const stale_cursor = prev_delta_link && !prev_delta_link.includes('package');
-  if (stale_cursor) {
+  const plan = plan_delta_start(prev_delta_link);
+  if (plan.reset_detected) {
+    logger.warn('Saved delta cursor predates package-facet selection: performing fresh delta');
+  } else if (plan.full_enumeration) {
     logger.warn(
-      `Delta cursor for drive ${drive_id} predates package-facet selection — performing fresh delta`,
+      'Saved delta cursor predates sharing capture: enumerating the library once more; ' +
+        'unchanged files are not downloaded again',
     );
   }
 
-  const page =
-    prev_delta_link && !stale_cursor
-      ? await with_graph_retry(
-          () =>
-            client.api(prev_delta_link).get() as Promise<
-              GraphCollectionResponse<GraphDeltaDriveItem>
-            >,
-        )
-      : await with_graph_retry(
-          () =>
-            client
-              .api(`/drives/${drive_id}/root/delta`)
-              .select(DRIVE_DELTA_SELECT_FIELDS)
-              .get() as Promise<GraphCollectionResponse<GraphDeltaDriveItem>>,
-        );
+  const resume_link = plan.resume_link;
+  const page = await with_graph_retry(
+    () =>
+      (resume_link
+        ? client.api(resume_link)
+        : client.api(`/drives/${drive_id}/root/delta`).select(DRIVE_DELTA_SELECT_FIELDS)
+      )
+        .header('Prefer', DRIVE_DELTA_PREFER)
+        .get() as Promise<GraphCollectionResponse<GraphDeltaDriveItem>>,
+  );
 
-  return { page, reset_detected: Boolean(stale_cursor) };
+  return { page, reset_detected: plan.reset_detected, full_enumeration: plan.full_enumeration };
+}
+
+/**
+ * Pages one library's delta to its end and maps every item. `reset_detected` is set by the caller
+ * when Graph rejected the saved link and this is the fresh enumeration that replaces it.
+ */
+export async function execute_sharepoint_delta(
+  client: Client,
+  drive_id: string,
+  prev_delta_link: string | undefined,
+  reset_detected: boolean,
+): Promise<SharePointDeltaResult> {
+  const items: SharePointDeltaItem[] = [];
+  let delta_link = '';
+  const initial = await fetch_initial_delta_page(client, drive_id, prev_delta_link);
+  let page = initial.page;
+
+  let items_without_id = 0;
+  while (true) {
+    for (const raw of page.value ?? []) {
+      if (has_item_id(raw)) items.push(map_delta_item(raw, drive_id));
+      else items_without_id++;
+    }
+
+    const next = page['@odata.nextLink'];
+    if (!next) {
+      if (page['@odata.deltaLink']) delta_link = page['@odata.deltaLink'];
+      break;
+    }
+    page = await with_graph_retry(
+      () =>
+        client.api(next).header('Prefer', DRIVE_DELTA_PREFER).get() as Promise<
+          GraphCollectionResponse<GraphDeltaDriveItem>
+        >,
+    );
+  }
+  if (items_without_id > 0) {
+    logger.warn(
+      `Skipped ${items_without_id} item(s) in drive ${drive_id} that Graph returned without an id`,
+    );
+  }
+
+  return {
+    drive_id,
+    delta_link,
+    items,
+    reset_detected: reset_detected || initial.reset_detected,
+    ...(initial.full_enumeration && !reset_detected ? { full_enumeration: true } : {}),
+  };
 }
 
 /**

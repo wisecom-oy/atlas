@@ -1,3 +1,4 @@
+import type { DrivePermissionListing } from '@/ports/drive/permission-listing.port';
 import type {
   SharePointFileVersionRecord,
   SharePointSnapshotManifest,
@@ -123,6 +124,18 @@ export interface SharePointCatalogUseCase {
     site_id: string,
     file_ref: string,
   ): Promise<SharePointFileVersionRecord[]>;
+
+  /**
+   * Lists the non-inherited permissions captured for each item at a snapshot, the newest one when
+   * `snapshot_id` is absent.
+   *
+   * @throws NotFoundError when the site has no snapshot, or not the one named.
+   */
+  list_sharepoint_permissions(
+    tenant_id: string,
+    site_id: string,
+    snapshot_id?: string,
+  ): Promise<DrivePermissionListing>;
 }
 
 export interface SharePointVersionRestoreUseCase {

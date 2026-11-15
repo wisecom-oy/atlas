@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AuthError } from '@wisecom/atlas-types';
 import type { SharePointSiteConnector, TenantContext } from '@wisecom/atlas-types';
-import { retry_failed_items } from '@/services/backup/library-item-processor';
+import { retry_failed_items } from '@/services/backup/library-item-retry';
 import { record_item_failure } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import type { FailedItemLedger } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 

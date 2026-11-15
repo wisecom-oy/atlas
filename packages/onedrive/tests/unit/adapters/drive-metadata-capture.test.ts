@@ -201,7 +201,7 @@ describe('restoring original timestamps (issue #54)', () => {
         'rename',
         captured,
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe('new-item');
     expect(calls).toContain('put');
   });
 

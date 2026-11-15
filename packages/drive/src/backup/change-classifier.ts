@@ -45,7 +45,7 @@ export function classify_drive_change(
 }
 
 /** Which relocation happened, if any: the label an operator uses to find where a file went. */
-function relocation_label(
+export function relocation_label(
   path_changed: boolean,
   name_changed: boolean,
 ): DriveChangeType | undefined {

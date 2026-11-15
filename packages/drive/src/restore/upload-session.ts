@@ -83,7 +83,7 @@ export async function upload_content_to_session(
   upload_url: string,
   content: LargeFileContent,
   label: string,
-): Promise<void> {
+): Promise<string | undefined> {
   const source: StreamedFileContent = Buffer.isBuffer(content)
     ? { chunks: [content], total_bytes: content.length }
     : content;
@@ -103,7 +103,7 @@ export async function upload_content_to_session(
     throw err;
   }
 
-  if (outcome.kind === 'completed') return;
+  if (outcome.kind === 'completed') return outcome.item_id;
 
   if (outcome.kind === 'early') {
     // Graph removed the session when it returned the item, so there is nothing left to cancel, and
@@ -127,7 +127,7 @@ export async function upload_content_to_session(
 
 /** How a session answered the last chunk it was given. */
 type UploadOutcome =
-  | { readonly kind: 'completed' }
+  | { readonly kind: 'completed'; readonly item_id: string | undefined }
   | { readonly kind: 'early'; readonly range: string; readonly unsent: number }
   | { readonly kind: 'incomplete' };
 
@@ -158,7 +158,7 @@ async function put_source_chunks(
         );
       }
       const range = `bytes ${sent}-${sent + block.length - 1}/${source.total_bytes}`;
-      if (await put_chunk_with_retry(upload_url, range, block, abort_signal)) {
+      if ((await put_chunk_with_retry(upload_url, range, block, abort_signal)).completed) {
         return { kind: 'early', range, unsent: source.total_bytes - sent - block.length };
       }
       sent += block.length;
@@ -180,12 +180,17 @@ async function put_source_chunks(
   if (pending.bytes > 0) {
     const range = `bytes ${sent}-${source.total_bytes - 1}/${source.total_bytes}`;
     const last = pending.take(pending.bytes);
-    if (await put_chunk_with_retry(upload_url, range, last, abort_signal, 'commit')) {
-      return { kind: 'completed' };
-    }
+    const answer = await put_chunk_with_retry(upload_url, range, last, abort_signal, 'commit');
+    if (answer.completed) return { kind: 'completed', item_id: answer.item_id };
   }
 
   return { kind: 'incomplete' };
+}
+
+/** How Graph answered one chunk: whether the item is complete, and its id when Graph said. */
+interface ChunkAnswer {
+  readonly completed: boolean;
+  readonly item_id?: string | undefined;
 }
 
 /** Uploads one chunk, returning whether Graph reported the item as complete. */
@@ -195,7 +200,7 @@ async function put_chunk_with_retry(
   chunk: Buffer,
   abort_signal: AbortSignal | undefined,
   role: 'intermediate' | 'commit' = 'intermediate',
-): Promise<boolean> {
+): Promise<ChunkAnswer> {
   // The waits before a send stay cancellable either way; only the committing request runs to its end.
   const request_signal = role === 'commit' ? undefined : abort_signal;
   for (let attempt = 0; attempt < CHUNK_PUT_ATTEMPTS; attempt++) {
@@ -208,8 +213,10 @@ async function put_chunk_with_retry(
     });
     report_transfer_throttle(response);
     // 200 and 201 carry the finished driveItem; 202 means the session wants more bytes.
-    if (response.status === 200 || response.status === 201) return true;
-    if (response.status === 202) return false;
+    if (response.status === 200 || response.status === 201) {
+      return { completed: true, item_id: await read_created_item_id(response) };
+    }
+    if (response.status === 202) return { completed: false };
 
     const detail = await response.text();
     // A range PUT is addressed by Content-Range, so replaying one after a
@@ -225,6 +232,19 @@ async function put_chunk_with_retry(
     throw new Error(`Resumable upload failed at range ${range}: HTTP ${response.status} ${detail}`);
   }
   throw new Error(`Resumable upload failed at range ${range}: retries exhausted`);
+}
+
+/**
+ * The id of the item a completed session created, or undefined when the body does not say. Only a
+ * permission restore needs it, so an unreadable body never fails an upload that succeeded.
+ */
+async function read_created_item_id(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as { id?: unknown };
+    return typeof body.id === 'string' ? body.id : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Asks the session what it is still waiting for, so the failure names it. */

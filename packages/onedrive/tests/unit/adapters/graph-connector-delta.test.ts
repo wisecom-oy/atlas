@@ -6,10 +6,10 @@ import { GraphOneDriveConnector } from '@/adapters/graph-onedrive-connector.adap
 const OWNER = 'aaaaaaaa-1111-2222-3333-444444444444';
 const DRIVE = 'drive-1';
 const ROOT_DELTA = `/users/${OWNER}/drives/${DRIVE}/root/delta`;
-/** A cursor issued after the `package` facet joined the selection, so it is reused as-is. */
-const CURRENT_CURSOR = `https://graph.microsoft.com/v1.0/drives/${DRIVE}/root/delta?$select=id,package&token=t1`;
+/** A cursor issued after `package` and `shared` joined the selection, so it is reused as-is. */
+const CURRENT_CURSOR = `https://graph.microsoft.com/v1.0/drives/${DRIVE}/root/delta?$select=id,package,shared&token=t1`;
 const PAGE_2 = `https://graph.microsoft.com/v1.0/drives/${DRIVE}/root/delta?token=p2`;
-const NEXT_CURSOR = `https://graph.microsoft.com/v1.0/drives/${DRIVE}/root/delta?$select=id,package&token=t2`;
+const NEXT_CURSOR = `https://graph.microsoft.com/v1.0/drives/${DRIVE}/root/delta?$select=id,package,shared&token=t2`;
 
 /** What Graph answers a delta token it no longer honours: HTTP 410 with code and prose differing. */
 const RESYNC_REQUIRED = graph_error(

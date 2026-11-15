@@ -8,9 +8,9 @@ import type {
   TenantContext,
 } from '@wisecom/atlas-types';
 import type { FailedItemLedger } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
+import { retry_failed_items } from '@/services/backup/library-item-retry';
 import {
   process_item_guarded,
-  retry_failed_items,
   type FileTrackingState,
   type LibraryProcessingState,
   type ProcessedItemRef,
@@ -25,6 +25,10 @@ import {
   completed_recrawl,
   type DriveRecrawl,
 } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
+import {
+  DriveSharingCapture,
+  permission_digests,
+} from '@wisecom/atlas-drive/backup/sharing-capture';
 
 export interface LibraryProcessingResult {
   entries: SharePointManifestEntry[];
@@ -58,7 +62,9 @@ export function clear_file_tracking_on_reset(
   tracking: FileTrackingState,
   reset_item_ids: Iterable<string>,
 ): void {
+  const digests = permission_digests(tracking);
   for (const fid of reset_item_ids) {
+    delete digests[fid];
     if (tracking.previous_kind_by_file_id[fid] === 'file') {
       delete tracking.previous_path_by_file_id[fid];
       delete tracking.previous_name_by_file_id[fid];
@@ -93,6 +99,7 @@ export async function process_single_library(
   version_stats: VersionStatsState,
   failed_items: FailedItemLedger,
   on_item_processed?: (item: ProcessedItemRef) => void,
+  sharing: DriveSharingCapture = new DriveSharingCapture(connector),
 ): Promise<LibraryProcessingResult> {
   const prev_delta =
     options.force_full === true
@@ -136,8 +143,11 @@ export async function process_single_library(
     options.should_interrupt,
     on_item_processed,
     options.abort_signal,
+    sharing,
   );
 
+  // One `$batch` per 20 shared items, ahead of the loop that would otherwise read them one by one.
+  await sharing.prefetch(library.drive_id, delta.items, tracking);
   let processed_delta_items = 0;
   for (const item of delta.items) {
     if (options.should_interrupt?.() === true) {
@@ -156,6 +166,7 @@ export async function process_single_library(
         versions,
         version_stats,
         options.abort_signal,
+        sharing,
       );
     } catch (err) {
       // The guard records a failed item and carries on, except for a cancelled transfer, which it

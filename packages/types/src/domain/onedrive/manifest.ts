@@ -1,8 +1,19 @@
 import type { DriveFileSystemInfo, DriveItemIdentity } from '@/domain/drive/item-metadata';
+import type { DriveEntryKind, DrivePermission } from '@/domain/drive/permission';
 import type { FailedItemLedger } from '../shared/failed-item';
 
+/**
+ * `permissions_changed` records a sharing change on an item whose content did not change: the
+ * entry carries the earlier blob reference and the new permissions.
+ */
 export type OneDriveChangeType =
-  'created' | 'updated' | 'moved' | 'renamed' | 'moved_and_renamed' | 'deleted';
+  | 'created'
+  | 'updated'
+  | 'moved'
+  | 'renamed'
+  | 'moved_and_renamed'
+  | 'deleted'
+  | 'permissions_changed';
 
 export interface OneDriveSnapshotManifest {
   readonly id: string;
@@ -36,6 +47,13 @@ export interface OneDriveManifestEntry {
   readonly last_modified_by?: DriveItemIdentity;
   readonly backup_at: string;
   readonly change_type: OneDriveChangeType;
+  /**
+   * What the entry records. Absent means a file, which is every entry written before folder
+   * metadata was captured, so older snapshots read exactly as before.
+   */
+  readonly kind?: Exclude<DriveEntryKind, 'file'> | undefined;
+  /** The item's non-inherited permissions at backup time. Absent means none were captured. */
+  readonly permissions?: readonly DrivePermission[] | undefined;
 }
 
 export interface OneDriveFileVersionRecord {
@@ -76,7 +94,13 @@ export interface OneDriveDeltaCursor {
   readonly previous_path_by_file_id: Record<string, string>;
   readonly previous_name_by_file_id: Record<string, string>;
   readonly previous_etag_by_file_id: Record<string, string>;
-  readonly previous_kind_by_file_id: Record<string, 'file' | 'folder'>;
+  readonly previous_kind_by_file_id: Record<string, DriveEntryKind>;
+  /**
+   * Digest of each item's captured non-inherited permissions, for items that had any or that
+   * carry a manifest entry because of them (folders). A re-presented item whose digest is
+   * unchanged writes no entry. Absent on cursors written before permissions were captured.
+   */
+  readonly permission_digest_by_item_id?: Record<string, string> | undefined;
   /**
    * Exact historical-version position per file. The timestamp skips older
    * versions; `version_ids` distinguishes versions that share Graph's

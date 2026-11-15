@@ -1,5 +1,6 @@
 import { inject, injectable } from 'inversify';
 import type {
+  DrivePermissionListing,
   OneDriveCatalogUseCase,
   OneDriveFileVersionIndexRepository,
   OneDriveFileVersionRecord,
@@ -19,6 +20,8 @@ import {
   list_drive_snapshots,
   type DriveCatalogDeps,
 } from '@wisecom/atlas-drive/catalog/catalog-queries';
+import { list_drive_permissions } from '@wisecom/atlas-drive/catalog/permission-listing';
+import { onedrive_manifest_lookup } from '@/services/shared/manifest-lookup';
 
 /** Lists OneDrive snapshots and per-file version history from manifest and index repositories. */
 @injectable()
@@ -65,6 +68,23 @@ export class OneDriveCatalogService implements OneDriveCatalogUseCase {
       file_ref,
     );
     return [...versions];
+  }
+
+  /** Returns each item's captured non-inherited permissions at a snapshot, the newest by default. */
+  async list_onedrive_permissions(
+    tenant_id: string,
+    owner_id: string,
+    snapshot_id?: string,
+  ): Promise<DrivePermissionListing> {
+    return list_drive_permissions(
+      {
+        tenant_factory: this._tenant_factory,
+        manifests: onedrive_manifest_lookup(this._manifests),
+      },
+      tenant_id,
+      owner_id,
+      snapshot_id,
+    );
   }
 
   private catalog_deps(): DriveCatalogDeps<OneDriveSnapshotManifest> {

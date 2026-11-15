@@ -18,6 +18,7 @@ import type {
   TenantContext,
 } from '@wisecom/atlas-types';
 import type { VersionSyncResult } from '@/services/versioning/version-sync';
+import { count_file_entries, records_file_content } from '@wisecom/atlas-drive/shared/entry-kind';
 
 export function build_deleted_entry(
   item: OneDriveDeltaItem,
@@ -82,7 +83,7 @@ export function build_snapshot_manifest(
     ...(owner_display_name !== undefined && { owner_display_name }),
     snapshot_id,
     created_at,
-    total_files: entries.length,
+    total_files: count_file_entries(entries),
     total_size_bytes: entries.reduce((sum, entry) => sum + entry.size_bytes, 0),
     entries,
   };
@@ -145,7 +146,11 @@ export function accumulate_version_stats(
   );
 }
 
-/** Folds manifest entries and version downloads into per-file groups for the run's single index object. */
+/**
+ * Folds manifest entries and version downloads into per-file groups for the run's single index
+ * object. Only entries that recorded file content start a row: a folder entry or a sharing-only
+ * change has no version of its own.
+ */
 export function build_run_version_indexes(
   owner_id: string,
   snapshot_id: string,
@@ -158,7 +163,7 @@ export function build_run_version_indexes(
     if (rows) rows.push(record);
     else versions_by_file.set(file_id, [record]);
   };
-  for (const entry of entries) {
+  for (const entry of entries.filter(records_file_content)) {
     add(entry.file_id, {
       snapshot_id,
       backup_at: entry.backup_at,

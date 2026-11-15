@@ -1,8 +1,13 @@
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
+import type {
+  DriveSharingRestoreOptions,
+  DriveSharingRestoreSummary,
+} from '@/ports/drive/sharing-restore.port';
 
 export type OneDriveRestoreConflictBehavior = 'replace' | 'rename' | 'fail';
 
-export interface OneDriveRestoreOptions extends OperationControlOptions {
+export interface OneDriveRestoreOptions
+  extends OperationControlOptions, DriveSharingRestoreOptions {
   readonly snapshot_id: string;
   readonly target_owner_id?: string;
   readonly file_filter?: string[];
@@ -18,7 +23,8 @@ export interface OneDriveRestoreOptions extends OperationControlOptions {
   readonly rename_to?: string;
 }
 
-export interface OneDriveRestoreResult {
+/** Permission outcomes are reported in the {@link DriveSharingRestoreSummary} fields, never in `errors`. */
+export interface OneDriveRestoreResult extends DriveSharingRestoreSummary {
   readonly snapshot_id: string;
   readonly files_restored: number;
   readonly folders_created: number;
