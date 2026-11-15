@@ -70,7 +70,9 @@ export function register_sharepoint_list_permissions(
 ): void {
   const command = group
     .command('list-permissions')
-    .description('List who had access to what at a snapshot, from the backup alone')
+    .description(
+      'List who had access to what, and folder colours, at a snapshot, from the backup alone',
+    )
     .requiredOption('--site <url-or-id>', 'SharePoint site URL or site ID');
   with_snapshot(command, 'snapshot identifier (defaults to the newest)');
   with_tenant(command).action((options: SharePointListPermissionsOptions) =>

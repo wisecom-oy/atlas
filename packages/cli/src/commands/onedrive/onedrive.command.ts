@@ -148,7 +148,9 @@ function register_onedrive_list_versions(group: Command, get_container: Containe
 function register_onedrive_list_permissions(group: Command, get_container: ContainerFactory): void {
   const command = group
     .command('list-permissions')
-    .description('List who had access to what at a snapshot, from the backup alone')
+    .description(
+      'List who had access to what, and folder colours, at a snapshot, from the backup alone',
+    )
     .requiredOption(OWNER_FLAG, OWNER_DESCRIPTION);
   with_snapshot(command, 'snapshot identifier (defaults to the newest)');
   with_tenant(command).action((options: OneDriveListPermissionsOptions) =>

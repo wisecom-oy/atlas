@@ -1,6 +1,9 @@
 import { Box } from 'ink';
 import { logger } from '@wisecom/atlas-core';
-import type { DriveSharingRestoreSummary } from '@wisecom/atlas-types';
+import type {
+  DriveFolderColorRestoreSummary,
+  DriveSharingRestoreSummary,
+} from '@wisecom/atlas-types';
 import {
   EXIT_PARTIAL,
   report_skipped_items,
@@ -20,8 +23,9 @@ import {
 export const DRIVE_RESTORE_INTERRUPT_MESSAGE =
   'Stopping the restore; an upload already sent finishes first, and nothing after it is written';
 
-/** The counts both drive snapshot restores report, permissions included. */
-export interface DriveRestoreSummary extends DriveSharingRestoreSummary {
+/** The counts both drive snapshot restores report, permissions and folder colours included. */
+export interface DriveRestoreSummary
+  extends DriveSharingRestoreSummary, DriveFolderColorRestoreSummary {
   readonly snapshot_id: string;
   readonly files_restored: number;
   readonly folders_created: number;
@@ -38,7 +42,7 @@ export interface DriveRestoreSummary extends DriveSharingRestoreSummary {
  * Prints what a drive snapshot restore wrote and sets its exit code. A file that failed, a skip,
  * and an interrupt all exit 2, as Outlook restore does (issue #712), and an interrupted run says so
  * instead of reporting success (issue #682). A run that cannot start throws a category exit. A
- * permission left out is listed but never changes the exit code.
+ * permission or folder colour left out is listed but never changes the exit code.
  */
 export async function report_drive_restore(
   title: string,
@@ -54,6 +58,7 @@ export async function report_drive_restore(
           { label: 'Files restored', value: String(result.files_restored) },
           { label: 'Folders created', value: String(result.folders_created) },
           ...sharing_restore_items(result),
+          ...folder_color_restore_items(result),
           ...extra_items,
         ]}
       />
@@ -74,4 +79,19 @@ export async function report_drive_restore(
   } else if (!result.unmatched_file_filters?.length) {
     logger.success('Restore completed successfully');
   }
+}
+
+/**
+ * The summary row for folder colours the restore could not apply. Graph refuses every write to the
+ * colour columns, so this is informational and never changes the exit code.
+ */
+function folder_color_restore_items(summary: DriveFolderColorRestoreSummary): KeyValueItem[] {
+  const count = summary.folder_colors_not_restored ?? 0;
+  if (count === 0) return [];
+  return [
+    {
+      label: 'Folder colours not restored',
+      value: `${count} (not supported by Microsoft Graph, see docs)`,
+    },
+  ];
 }
