@@ -102,7 +102,7 @@ function assert_removable(
   return is_active;
 }
 
-/** One row per profile: name, tenant, client, masked secret, and where it is defined. */
+/** One row per profile: name, tenant, client, masked secret, bucket when set, and its source. */
 function print_profile_rows(
   names: readonly string[],
   selected: string,
@@ -119,9 +119,10 @@ function print_profile_rows(
     const in_store = stored.tenants?.[name] !== undefined;
     const source =
       in_store && file_names.includes(name) ? 'both' : in_store ? 'secure store' : 'config file';
+    const bucket = profile.bucket === undefined ? '' : `  bucket ${profile.bucket}`;
     logger.info(
       `${marker} ${name.padEnd(width)}  tenant ${profile.tenant_id ?? '<unset>'}  ` +
-        `client ${profile.client_id ?? '<unset>'}  secret ${secret}  (${source})`,
+        `client ${profile.client_id ?? '<unset>'}  secret ${secret}${bucket}  (${source})`,
     );
   }
 }

@@ -1,5 +1,13 @@
 export { logger } from './logger';
-export type { AtlasConfig, GraphConfig, S3Config, CryptoConfig, LoadConfigOptions } from './config';
+export type {
+  AtlasConfig,
+  GraphConfig,
+  S3Config,
+  CryptoConfig,
+  LoadConfigOptions,
+  StringConfig,
+  StringConfigField,
+} from './config';
 export {
   load_config,
   load_tenant_profile,
@@ -19,6 +27,21 @@ export {
   unknown_profile_message,
 } from './tenant-profiles';
 export type { StoredConfig, TenantProfile } from './tenant-profiles';
+export {
+  BUCKET_ENV_VAR,
+  assert_no_shared_bucket,
+  assert_valid_bucket_name,
+  build_bucket_selection,
+  is_same_tenant,
+  is_valid_bucket_name,
+  read_env_bucket,
+} from './bucket-override';
+export type {
+  BucketBinding,
+  BucketSelection,
+  BucketSelectionInput,
+  RunBucketBinding,
+} from './bucket-override';
 export {
   GRAPH_ENV_VARS,
   assert_override_keeps_one_identity,

@@ -48,13 +48,14 @@ The API is organized by workload (`atlas.outlook`, `atlas.onedrive`, `atlas.shar
 | `s3AccessKey`          | `string`                               | Yes      | S3 access key                                                                                                                                                                                              |
 | `s3SecretKey`          | `string`                               | Yes      | S3 secret key                                                                                                                                                                                              |
 | `s3Region`             | `string`                               | No       | S3 region. Default `us-east-1`                                                                                                                                                                             |
+| `s3Bucket`             | `string`                               | No       | Bucket to use instead of `atlas-{tenantId}`, such as a provider replica under another name. Bound to `tenantId`. Never created. See [Bucket override](#bucket-override)                                  |
 | `encryptionPassphrase` | `string`                               | Yes      | Protects the tenant's data key. At least 14 UTF-8 bytes. Must match the passphrase used for existing backups                                                                                               |
 | `logger`               | `LogSink`                              | No       | Receives SDK log lines. The SDK is silent without it. See [Logging](#logging)                                                                                                                              |
 | `onStorageRequest`     | `(event: StorageRequestEvent) => void` | No       | Receives one event per S3 request. See [Storage request events](#storage-request-events)                                                                                                                   |
 | `throttleCoordinator`  | `ThrottleCoordinator`                  | No       | Shares Graph 429 cooldowns. Default is one in-memory cooldown per pool, one per mailbox for Outlook, and one per team for Teams. See [Concurrent operations](#concurrent-operations)                       |
 | `teamsPacingShare`     | `number`                               | No       | Share of the tenant-wide Teams request budget this instance uses, above 0 and at most 1. Default `1`. Set `1 / n` when `n` processes back up teams of one tenant. See [Teams pacing](/teams-backup#pacing) |
 
-Construction is synchronous and makes no network requests. A missing or blank required field, a passphrase shorter than 14 bytes, an invalid `s3Endpoint`, a `throttleCoordinator` without `wait` and `raise` functions, or a `teamsPacingShare` outside that range throws `ConfigError` (`ATLAS_CONFIG_INVALID`).
+Construction is synchronous and makes no network requests. A missing or blank required field, a passphrase shorter than 14 bytes, an invalid `s3Endpoint`, an `s3Bucket` that is not a valid S3 bucket name, a `throttleCoordinator` without `wait` and `raise` functions, or a `teamsPacingShare` outside that range throws `ConfigError` (`ATLAS_CONFIG_INVALID`).
 
 The public surface is camelCase throughout: methods, configuration, option fields, and result fields. Two exceptions:
 
@@ -88,11 +89,13 @@ try {
 
 | Stage                                   | Failure                                          | Operator action                                                                                                                       |
 | --------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| S3 `HeadBucket` on `atlas-{tenantId}`   | `StorageError`, `ATLAS_STORAGE_FAILURE`          | Check the endpoint, region, credentials, bucket existence, and `s3:ListBucket` access. A missing bucket fails; provision it first     |
+| S3 `HeadBucket` on the tenant bucket    | `StorageError`, `ATLAS_STORAGE_FAILURE`          | Check the endpoint, region, credentials, bucket existence, and `s3:ListBucket` access. A missing bucket fails; provision it first     |
 | Unwrap of `_meta/dek.enc`, if it exists | `WrongPassphraseError`, `ATLAS_WRONG_PASSPHRASE` | Use the passphrase that created this tenant's backups. In a multi-tenant service, confirm each tenant has its own matching passphrase |
 | Microsoft Graph token                   | `AuthError`, `ATLAS_AUTH_DENIED`                 | Check the tenant ID, client ID, client secret, and connectivity to Microsoft Entra ID                                                 |
 
 These codes name the failed stage, not always bad credentials. DNS, TLS, and transport failures also cause rejection. Each error keeps the original failure as `cause`. When S3 refuses `atlas-{tenantId}` because it is not a valid bucket name, the S3 stage throws `ConfigError` (`ATLAS_CONFIG_INVALID`) instead, naming the rule. See [Bucket name is not valid](/troubleshooting#bucket-name-is-not-valid).
+
+The tenant bucket is `s3Bucket` when set, otherwise `atlas-{tenantId}`.
 
 The key stage makes at most one storage `GET` and opens the key locally with AES-256-GCM. It never creates a missing key, writes an object, or logs key material. A fresh tenant with no key passes this stage, and the first backup creates the key.
 
@@ -1024,6 +1027,30 @@ The conditional writes, the lease included, need a backend that honours `If-Matc
 **Throttling.** Before every HTTP attempt made through a Graph connector, Atlas calls `wait(pool, scope?)` on the instance's throttle coordinator. On every 429, it calls `raise(pool, retry_after_ms, scope?)`, with Graph's `Retry-After` or 30 seconds when there is none. The pool is one of the `GraphServicePool` values: `outlook`, `sharepoint_onedrive`, `identity`, or `teams`. The `teams` pool has its own cooldown, so a Teams throttle does not pause mail or drive requests. The optional `scope` is a `ThrottleScope`, `{ ownerId }`. Outlook requests set it to the normalized mailbox owner id, and Teams requests set it to the normalized team id. Listing the tenant's teams carries no scope. Drive and identity requests pass no scope. Mailbox backup and restore, mailbox discovery, user lookups, every Teams call, and every OneDrive and SharePoint connector call are coordinated. User lookups are also retried like every other Graph call; before 6.1.0 a throttled lookup failed the operation outright. Drive file downloads from pre-authenticated URLs, whole or chunked, and resumable upload chunks use a plain `fetch`, so Atlas coordinates them on the `sharepoint_onedrive` pool too: each attempt waits, and a 429 or 503 with `Retry-After` raises that pool's cooldown. Their own retry backoff still applies on top. The default coordinator keeps one in-memory cooldown per pool, plus one per mailbox for the `outlook` pool and one per team for the `teams` pool. A 429 on one mailbox pauses only that mailbox's requests, and a 429 on one team pauses only that team's requests. A 429 on a drive pauses its other drive and site requests, while the other pools keep running. A coordinator written against the two-argument signature (`wait(pool)`, `raise(pool, retry_after_ms)`) keeps working. JavaScript ignores the extra argument, so such a coordinator treats every Outlook or Teams 429 as pool-wide.
 
 Supply a `throttleCoordinator` when several processes back up the same tenant. Without it, each process only learns about the 429s it receives itself. `wait` runs before every attempt, so answer it from local state, for example a cached cooldown deadline, rather than a network round trip. Cooldowns must not be additive: a shorter `raise` never shortens a longer one already in force. A supplied coordinator fails open. If `wait` rejects, Atlas sends the request anyway, and if `raise` throws or returns a rejected promise, Atlas logs a warning and keeps backing off on Graph's own `Retry-After`. An outage in your shared state costs coordination, not the operation. Per-mailbox request windows and in-flight limits stay inside each instance whichever coordinator is used. So does Teams pacing: set `teamsPacingShare` so the processes of one tenant split its Teams budget. See [Teams pacing](/teams-backup#pacing).
+
+## Bucket override
+
+`s3Bucket` points an instance at a copy of its tenant's bucket under another name, such as an AWS S3 or Backblaze B2 replica, whose names are global and cannot match the primary:
+
+```typescript
+const replica = createAtlasInstance({
+  tenantId: '<tenant-id>',
+  clientId: '<client-id>',
+  clientSecret: '<client-secret>',
+  s3Endpoint: 'https://s3.eu-north-1.amazonaws.com',
+  s3Region: 'eu-north-1',
+  s3AccessKey: '<read-only-access-key>',
+  s3SecretKey: '<read-only-secret-key>',
+  s3Bucket: 'contoso-replica',
+  encryptionPassphrase: '<passphrase>',
+});
+await replica.validate(); // HeadBucket on contoso-replica
+const report = await replica.outlook.verify('<snapshot-id>');
+```
+
+Every method reads and writes `s3Bucket` instead of `atlas-{tenantId}`. The tenant ID still derives the key-encryption key, so the copy opens with the same passphrase. The override is bound to `tenantId`: any call that would open another tenant's bucket on this instance throws `ConfigError`, and a cross-tenant restore reads the source backup from `s3Bucket` without applying it to the destination tenant. A missing `s3Bucket` is never created: operations that would create the bucket throw `ConfigError` instead.
+
+Read methods (`verify`, `list*`, `status`, `save`, `getStorageUsage`, and the reads of a restore) work with read-only credentials and write nothing to the bucket. `checkStorage()` writes and removes one probe object, so it needs write access. See [Bucket override](/configuration#bucket-override) for the CLI equivalents.
 
 ## Cross-tenant restore
 

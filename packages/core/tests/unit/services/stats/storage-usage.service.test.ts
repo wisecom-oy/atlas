@@ -75,6 +75,7 @@ function harness(
       list_all: async () => [{ totals: { size_bytes: 700 } }],
     } as unknown as TeamsIndexRepository,
     { s3_endpoint, s3_region: 'us-east-1' } as S3Config,
+    { resolve: () => ({ name: `atlas-${TENANT}`, configured: false }) },
   );
   return { service, inventory, create_readonly };
 }
@@ -315,7 +316,11 @@ describe('StorageUsageService', () => {
         JSON.stringify({
           version: 2,
           tenant_id: TENANT,
-          endpoint_id: storage_endpoint_fingerprint(PRIMARY_ENDPOINT, 'us-east-1'),
+          endpoint_id: storage_endpoint_fingerprint(
+            PRIMARY_ENDPOINT,
+            'us-east-1',
+            `atlas-${TENANT}`,
+          ),
           breakdown: 'workload',
           requests: -1,
         }),

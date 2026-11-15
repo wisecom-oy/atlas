@@ -8,6 +8,7 @@ export const OWNER_LEASE_TOKEN = Symbol.for('OwnerLeasePort');
 export const RESTORE_CONNECTOR_TOKEN = Symbol.for('RestoreConnector');
 export const MAILBOX_DISCOVERY_TOKEN = Symbol.for('MailboxDiscoveryService');
 export const STORAGE_INVENTORY_FACTORY_TOKEN = Symbol.for('StorageInventoryFactory');
+export const BUCKET_NAME_RESOLVER_TOKEN = Symbol.for('BucketNameResolver');
 export const USER_IDENTITY_RESOLVER_TOKEN = Symbol.for('UserIdentityResolver');
 export const IDENTITY_REGISTRY_REPOSITORY_TOKEN = Symbol.for('IdentityRegistryRepository');
 export const ONEDRIVE_CONNECTOR_TOKEN = Symbol.for('OneDriveConnector');

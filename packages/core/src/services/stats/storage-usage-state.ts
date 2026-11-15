@@ -105,6 +105,13 @@ export function encode_state(state: UsageState): string {
  * buckets together and report the sum as either. Version 1 tokens named a replication target
  * instead of an endpoint and are refused as unsupported.
  */
+/** What each identity field names in a refusal: the endpoint id covers the bucket too (#768). */
+const IDENTITY_LABELS = {
+  tenant_id: 'tenant',
+  endpoint_id: 'endpoint or bucket',
+  breakdown: 'breakdown',
+} as const;
+
 export function decode_state(token: string, identity: StateIdentity): UsageState {
   let parsed: unknown;
   try {
@@ -115,7 +122,7 @@ export function decode_state(token: string, identity: StateIdentity): UsageState
   if (!is_record(parsed) || parsed['version'] !== 2) throw invalid('unsupported token version');
   for (const field of ['tenant_id', 'endpoint_id', 'breakdown'] as const) {
     if (parsed[field] !== identity[field]) {
-      throw invalid(`it was issued for a different ${field.replace('_id', '')}`);
+      throw invalid(`it was issued for a different ${IDENTITY_LABELS[field]}`);
     }
   }
   const state = parsed as unknown as UsageState;

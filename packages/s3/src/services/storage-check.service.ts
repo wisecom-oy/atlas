@@ -6,8 +6,9 @@ import { read_bucket_default_retention } from '@/adapters/s3-default-retention';
 import { probe_conditional_writes } from '@/adapters/s3-conditional-write-probe';
 import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
 import { BucketCache } from '@/adapters/bucket-cache';
-import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
+import { BUCKET_NAME_RESOLVER_TOKEN } from '@wisecom/atlas-types';
 import type {
+  BucketNameResolver,
   StorageCheckRequest,
   StorageCheckResult,
   StorageCheckUseCase,
@@ -18,17 +19,19 @@ export class StorageCheckService implements StorageCheckUseCase {
   constructor(
     @inject(S3_CLIENT_TOKEN) private readonly _s3: S3Client,
     @inject(BucketCache) private readonly _buckets: BucketCache,
+    @inject(BUCKET_NAME_RESOLVER_TOKEN) private readonly _bucket_names: BucketNameResolver,
   ) {}
 
   /**
    * Checks bucket readiness for Object Lock policy before backup starts, and probes whether the
-   * backend honours the conditional writes the owner lease relies on (issue #623).
+   * backend honours the conditional writes the owner lease relies on (issue #623). The probe
+   * writes and deletes one object, so it needs write access to the bucket.
    */
   async check_storage(
     tenant_id: string,
     request: StorageCheckRequest = {},
   ): Promise<StorageCheckResult> {
-    const bucket = tenant_bucket_name(tenant_id);
+    const bucket = this._bucket_names.resolve(tenant_id).name;
     const resolved_retain_until = request.retention_days
       ? compute_retain_until_utc(request.retention_days)
       : undefined;

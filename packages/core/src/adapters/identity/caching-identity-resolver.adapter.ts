@@ -79,7 +79,7 @@ export class CachingIdentityResolver implements UserIdentityResolver {
       const graph_result = graph.identity;
       const active = index.active_by_email.get(normalized);
       if (active?.object_id !== graph_result.object_id) {
-        await this.register_identity(tenant_id, graph_result);
+        await this.try_register_identity(tenant_id, graph_result);
       }
       return graph_result;
     }
@@ -149,6 +149,26 @@ export class CachingIdentityResolver implements UserIdentityResolver {
           `${err instanceof Error ? err.message : String(err)}`,
       );
       return { error: err };
+    }
+  }
+
+  /**
+   * Records a Graph answer in the registry, but never fails the lookup over it. Graph already
+   * answered, so the caller has what it asked for; a read command run with read-only credentials,
+   * such as `verify` against a copy of the bucket, cannot write the registry and must not fail
+   * because of it. The next lookup with write access records the identity (issue #768).
+   */
+  private async try_register_identity(
+    tenant_id: string,
+    identity: ResolvedUserIdentity,
+  ): Promise<void> {
+    try {
+      await this.register_identity(tenant_id, identity);
+    } catch (err) {
+      logger.debug(
+        `Could not record ${identity.object_id} in the identity registry of tenant ` +
+          `${tenant_id}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

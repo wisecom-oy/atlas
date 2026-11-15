@@ -35,18 +35,25 @@ export async function probe_graph(
   }
 }
 
-/** Lists buckets on the configured S3 endpoint; logs the outcome. */
-export async function probe_s3(config: Partial<S3Config>): Promise<boolean> {
+/** The S3 settings as a complete config, or undefined (with a warning) when one is missing. */
+export function complete_s3_config(config: Partial<S3Config>): S3Config | undefined {
   if (!S3_FIELDS.every((f) => config[f] !== undefined)) {
     logger.warn('S3 settings incomplete -- set s3.endpoint, s3.access-key, s3.secret-key');
-    return false;
+    return undefined;
   }
-  const client = create_s3_client({
+  return {
     s3_endpoint: config.s3_endpoint as string,
     s3_access_key: config.s3_access_key as string,
     s3_secret_key: config.s3_secret_key as string,
     s3_region: config.s3_region ?? 'us-east-1',
-  });
+  };
+}
+
+/** Lists buckets on the configured S3 endpoint; logs the outcome. */
+export async function probe_s3(config: Partial<S3Config>): Promise<boolean> {
+  const complete = complete_s3_config(config);
+  if (complete === undefined) return false;
+  const client = create_s3_client(complete);
   try {
     await client.send(new ListBucketsCommand({}));
     logger.success('S3: endpoint reachable and credentials accepted');

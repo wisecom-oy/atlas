@@ -18,6 +18,12 @@ import {
   DEFAULT_PROFILE,
   type StoredConfig,
 } from '@/utils/tenant-profiles';
+import {
+  assert_no_shared_bucket,
+  build_bucket_selection,
+  read_env_bucket,
+  type BucketSelection,
+} from '@/utils/bucket-override';
 
 export interface GraphConfig {
   readonly tenant_id: string;
@@ -30,6 +36,11 @@ export interface S3Config {
   readonly s3_access_key: string;
   readonly s3_secret_key: string;
   readonly s3_region: string;
+  /**
+   * Bucket names that replace the derived `atlas-<tenant_id>`, each bound to its tenant.
+   * Undefined when nothing is overridden.
+   */
+  readonly s3_bucket?: BucketSelection | undefined;
 }
 
 export interface CryptoConfig {
@@ -38,11 +49,17 @@ export interface CryptoConfig {
 
 export type AtlasConfig = GraphConfig & S3Config & CryptoConfig;
 
+/** Config fields that hold one string: every field but the structured bucket selection. */
+export type StringConfigField = Exclude<keyof AtlasConfig, 's3_bucket'>;
+
+/** The string-valued part of the config, as files, the store and ATLAS_* variables hold it. */
+export type StringConfig = Pick<AtlasConfig, StringConfigField>;
+
 export const ATLAS_CONFIG_TOKEN = Symbol.for('AtlasConfig');
 
 const CONFIG_FILE_NAMES = ['atlas.config.json', join('.atlas', 'config.json')];
 
-const ENV_MAP: Record<string, keyof AtlasConfig> = {
+const ENV_MAP: Record<string, StringConfigField> = {
   ATLAS_TENANT_ID: 'tenant_id',
   ATLAS_CLIENT_ID: 'client_id',
   ATLAS_CLIENT_SECRET: 'client_secret',
@@ -69,6 +86,8 @@ export interface LoadConfigOptions {
  * Graph credentials come from the selected tenant profile, and ATLAS_* Graph variables override
  * that profile only. Warns on stderr when they replace a profile value, and throws when a partial
  * override changes its tenant or client ID, the profile is unknown, or a required field is missing.
+ * A bucket override comes from `ATLAS_S3_BUCKET` or the profile's `bucket`, bound to the tenant it
+ * belongs to; a top-level `bucket` is refused.
  */
 export function load_config(options: LoadConfigOptions = {}): AtlasConfig {
   // quiet: dotenv's load banner goes to stdout, which corrupts pipeable output
@@ -76,6 +95,8 @@ export function load_config(options: LoadConfigOptions = {}): AtlasConfig {
   load_dotenv({ quiet: true });
   const file_config = try_load_config_file();
   const secure_config = read_secure_config();
+  assert_no_shared_bucket(file_config, 'atlas.config.json');
+  assert_no_shared_bucket(secure_config, 'The encrypted config store');
   const name = select_profile_name(options.profile, file_config, secure_config);
   const profile = find_profile(name, file_config, secure_config);
   if (profile === undefined && name !== DEFAULT_PROFILE) {
@@ -85,12 +106,22 @@ export function load_config(options: LoadConfigOptions = {}): AtlasConfig {
   const overridden = find_graph_env_overrides(profile, env);
   assert_override_keeps_one_identity(name, env, overridden);
   warn_graph_env_overrides(name, overridden);
-  return merge_and_validate({
+  const config = merge_and_validate({
     ...shared_settings(file_config),
     ...shared_settings(secure_config),
     ...profile,
     ...env,
   });
+  const s3_bucket = build_bucket_selection({
+    run_tenant_id: config.tenant_id,
+    profile_name: name,
+    selected: profile,
+    env_bucket: read_env_bucket(),
+    profiles: profile_names(file_config, secure_config).map(
+      (profile_name) => find_profile(profile_name, file_config, secure_config) ?? {},
+    ),
+  });
+  return s3_bucket === undefined ? config : { ...config, s3_bucket };
 }
 
 /**
@@ -175,8 +206,8 @@ function warn_if_world_readable(file_path: string): void {
  * Reads ATLAS_* environment variables and maps them to config fields.
  * Only includes variables that are actually set.
  */
-export function read_env_overrides(): Partial<AtlasConfig> {
-  const overrides: Partial<AtlasConfig> = {};
+export function read_env_overrides(): Partial<StringConfig> {
+  const overrides: Partial<StringConfig> = {};
 
   for (const [env_key, config_key] of Object.entries(ENV_MAP)) {
     const value = process.env[env_key];
@@ -193,8 +224,8 @@ export function read_env_overrides(): Partial<AtlasConfig> {
  * fully typed AtlasConfig. Throws a descriptive error listing
  * every missing field.
  */
-export function merge_and_validate(partial: Partial<AtlasConfig>): AtlasConfig {
-  const required_fields: (keyof AtlasConfig)[] = [
+export function merge_and_validate(partial: Partial<StringConfig>): AtlasConfig {
+  const required_fields: StringConfigField[] = [
     'tenant_id',
     'client_id',
     'client_secret',

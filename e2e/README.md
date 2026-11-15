@@ -17,6 +17,11 @@ Each suite is a lifecycle — every step depends on the previous one:
   streaming restore instead of the small-file path.
 - **Regression guards** (`test_35`): one case per shipped bug that only reproduces against real
   infrastructure.
+- **Bucket override** (`test_40`): copy the tenant bucket to a second bucket in the same MinIO,
+  create a MinIO user that may only read the copy, then run `outlook verify`, `onedrive verify`,
+  `sharepoint verify` and `outlook list` against it through `ATLAS_S3_BUCKET`. The copy's version
+  listing must be unchanged afterwards. The user is created with `mc` inside the MinIO container
+  (`docker exec`); set `E2E_MINIO_CONTAINER` when your MinIO container has another name.
 - **Workload deletion** (`test_85`): `onedrive delete` and `sharepoint delete` drop one snapshot
   manifest, keep the shared blobs, and leave the other workloads' objects untouched.
 - **Purge** (`test_90`): `delete --purge` must leave an empty bucket.

@@ -5,6 +5,8 @@ import 'reflect-metadata';
 import { StorageCheckService } from '@/services/storage-check.service';
 import { S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
 import { probe_conditional_writes } from '@/adapters/s3-conditional-write-probe';
+import { ConfiguredBucketNameResolver } from '@/adapters/configured-bucket-name-resolver';
+import { BUCKET_NAME_RESOLVER_TOKEN } from '@wisecom/atlas-types';
 
 // The probe writes objects and has its own tests; here it would only shift the request counts.
 vi.mock('@/adapters/s3-conditional-write-probe', () => ({
@@ -26,6 +28,9 @@ describe('StorageCheckService', () => {
     const container = new Container();
     container.bind(S3_CLIENT_TOKEN).toConstantValue(mock_s3);
     container.bind(BucketCache).toConstantValue(buckets);
+    container
+      .bind(BUCKET_NAME_RESOLVER_TOKEN)
+      .toConstantValue(new ConfiguredBucketNameResolver(undefined));
     container.bind(StorageCheckService).toSelf();
     service = container.get(StorageCheckService);
   });

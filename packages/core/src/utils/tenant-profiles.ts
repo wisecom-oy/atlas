@@ -1,14 +1,18 @@
-import type { AtlasConfig, GraphConfig } from '@/utils/config';
+import type { GraphConfig, StringConfig } from '@/utils/config';
+import { is_same_tenant } from '@/utils/bucket-override';
 
-/** One named set of Microsoft Graph credentials. */
-export type TenantProfile = GraphConfig;
+/**
+ * One named tenant: its Microsoft Graph credentials and, optionally, the bucket that replaces the
+ * derived `atlas-<tenant_id>` for it.
+ */
+export type TenantProfile = GraphConfig & { readonly bucket?: string };
 
 /**
  * Config as a file or the encrypted store holds it: shared S3 and encryption settings plus
  * named tenant profiles. Top-level `tenant_id`, `client_id` and `client_secret` are the layout
  * before profiles existed and are read as the `default` profile.
  */
-export type StoredConfig = Partial<AtlasConfig> & {
+export type StoredConfig = Partial<StringConfig> & {
   readonly tenants?: Readonly<Record<string, Partial<TenantProfile>>>;
   readonly active_tenant?: string;
 };
@@ -21,6 +25,9 @@ export const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 const GRAPH_FIELDS = ['tenant_id', 'client_id', 'client_secret'] as const;
 
+/** Every field a profile may hold: the Graph credentials plus the tenant's bucket. */
+const PROFILE_FIELDS = [...GRAPH_FIELDS, 'bucket'] as const;
+
 /** Lists a source's profiles, presenting legacy top-level Graph fields as the default profile. */
 export function list_profiles(source: StoredConfig): Record<string, Partial<TenantProfile>> {
   const profiles: Record<string, Partial<TenantProfile>> = { ...read_tenants_map(source) };
@@ -32,7 +39,7 @@ export function list_profiles(source: StoredConfig): Record<string, Partial<Tena
 }
 
 /** Returns a source's settings shared by every profile: everything but Graph credentials. */
-export function shared_settings(source: StoredConfig): Partial<AtlasConfig> {
+export function shared_settings(source: StoredConfig): Partial<StringConfig> {
   const {
     tenants: _tenants,
     active_tenant: _active,
@@ -82,7 +89,31 @@ export function find_profile(
   const from_file = list_profiles(file)[name];
   const from_secure = list_profiles(secure)[name];
   if (from_file === undefined && from_secure === undefined) return undefined;
-  return { ...from_file, ...from_secure };
+  const merged = { ...from_file, ...from_secure };
+  return moves_to_other_tenant(from_file, from_secure) ? without_bucket(merged) : merged;
+}
+
+/**
+ * True when the store copy points the profile at another tenant than the file copy and names no
+ * bucket of its own. The file's bucket then belongs to the file's tenant, so it must not follow.
+ */
+function moves_to_other_tenant(
+  from_file: Partial<TenantProfile> | undefined,
+  from_secure: Partial<TenantProfile> | undefined,
+): boolean {
+  const file_tenant = from_file?.tenant_id;
+  const store_tenant = from_secure?.tenant_id;
+  if (from_file?.bucket === undefined || from_secure?.bucket !== undefined) return false;
+  return (
+    file_tenant !== undefined &&
+    store_tenant !== undefined &&
+    !is_same_tenant(file_tenant, store_tenant)
+  );
+}
+
+function without_bucket(profile: Partial<TenantProfile>): Partial<TenantProfile> {
+  const { bucket: _bucket, ...rest } = profile;
+  return rest;
 }
 
 /** Lists every profile name defined across the file and the store, sorted. */
@@ -114,15 +145,30 @@ function read_tenants_map(source: StoredConfig): Record<string, Partial<TenantPr
     if (typeof value !== 'object' || value === null) {
       throw new Error(`Tenant profile "${name}" must be an object`);
     }
-    profiles[name] = pick_graph_fields(value as Record<string, unknown>);
+    profiles[name] = pick_profile_fields(value as Record<string, unknown>);
   }
   return profiles;
 }
 
-/** Keeps only string Graph fields, so a stray key in a hand-edited file never becomes config. */
+/**
+ * Keeps only string Graph fields. Legacy top-level fields are the default profile's credentials
+ * only: a top-level `bucket` is refused elsewhere, never adopted as the default profile's.
+ */
 function pick_graph_fields(source: Readonly<Record<string, unknown>>): Partial<TenantProfile> {
-  const picked: Partial<Record<(typeof GRAPH_FIELDS)[number], string>> = {};
-  for (const field of GRAPH_FIELDS) {
+  return pick_string_fields(source, GRAPH_FIELDS);
+}
+
+/** Keeps only string profile fields, so a stray key in a hand-edited file never becomes config. */
+function pick_profile_fields(source: Readonly<Record<string, unknown>>): Partial<TenantProfile> {
+  return pick_string_fields(source, PROFILE_FIELDS);
+}
+
+function pick_string_fields(
+  source: Readonly<Record<string, unknown>>,
+  fields: readonly (typeof PROFILE_FIELDS)[number][],
+): Partial<TenantProfile> {
+  const picked: Partial<Record<(typeof PROFILE_FIELDS)[number], string>> = {};
+  for (const field of fields) {
     const value = source[field];
     if (typeof value === 'string' && value !== '') picked[field] = value;
   }

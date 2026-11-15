@@ -72,6 +72,7 @@ describe('StorageUsageService memory', () => {
       {} as SharePointManifestRepository,
       {} as TeamsIndexRepository,
       { s3_endpoint: 'https://s3.example', s3_region: 'us-east-1' } as S3Config,
+      { resolve: () => ({ name: 'atlas-tenant', configured: false }) },
     );
     collect_garbage();
     const before = process.memoryUsage().heapUsed;

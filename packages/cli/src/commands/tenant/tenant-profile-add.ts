@@ -2,6 +2,7 @@ import type { TenantProfile } from '@wisecom/atlas-core';
 import {
   PROFILE_NAME_RE,
   TENANT_KEYS,
+  assert_valid_bucket_name,
   find_profile,
   list_profiles,
   logger,
@@ -16,6 +17,7 @@ export interface AddProfileOptions {
   readonly tenantId: string;
   readonly clientId: string;
   readonly clientSecret: string;
+  readonly bucket?: string;
   readonly replace?: boolean;
 }
 
@@ -45,6 +47,9 @@ export async function execute_add_profile(name: string, options: AddProfileOptio
     return build_store(stored, tenants, activate ? name : stored.active_tenant);
   });
   logger.success(`Saved tenant profile "${name}" to the encrypted store`);
+  if (credentials.bucket !== undefined) {
+    logger.info(`"${name}" reads and writes bucket "${credentials.bucket}" for its tenant`);
+  }
   if (activate) {
     logger.info(`"${name}" is the first profile, so it is now the active profile`);
   }
@@ -61,7 +66,10 @@ export async function execute_add_profile(name: string, options: AddProfileOptio
   }
 }
 
-/** Resolves the secret (`-` reads stdin) and validates all three credentials before any write. */
+/**
+ * Resolves the secret (`-` reads stdin) and validates the credentials and the optional bucket
+ * before any write.
+ */
 function build_credentials(options: AddProfileOptions): TenantProfile {
   const client_secret = resolve_secret_option(options.clientSecret, '--client-secret') ?? '';
   const inputs: Record<string, string> = {
@@ -75,11 +83,13 @@ function build_credentials(options: AddProfileOptions): TenantProfile {
       throw new Error(`Invalid --${spec.key}: ${error}`);
     }
   }
+  if (options.bucket !== undefined) assert_valid_bucket_name(options.bucket, '--bucket');
   // Entra tenant IDs are case-insensitive, but the bucket named after one must be lowercase
   // (issue #598), and a second spelling of the same tenant would address a second bucket.
   return {
     tenant_id: options.tenantId.toLowerCase(),
     client_id: options.clientId,
     client_secret,
+    ...(options.bucket !== undefined ? { bucket: options.bucket } : {}),
   };
 }

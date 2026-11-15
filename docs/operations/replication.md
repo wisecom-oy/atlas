@@ -25,15 +25,24 @@ Atlas reads a replica exactly as it reads the primary. A copy is usable when all
 | Every object, under the same key | Each object is encrypted (AES-256-GCM) with its key's directory as associated data, so a moved object fails to decrypt. |
 | `_meta/dek.enc` is copied | It is the wrapped data key. Without it nothing on the replica can be decrypted. |
 | The same encryption passphrase | The passphrase unwraps `_meta/dek.enc`. A replica is no use without it. |
-| The bucket is named `atlas-<tenant-id>` | Atlas derives the bucket name from the tenant ID and has no override yet. |
+| The bucket is named `atlas-<tenant-id>`, or Atlas is told its name | Atlas derives the bucket name from the tenant ID. A replica under another name is opened with a [bucket override](/configuration#bucket-override). |
 
-::: warning AWS S3 and Backblaze B2 replicas need a bucket-name override
-Bucket names on AWS S3 and Backblaze B2 are unique across the whole provider, so a replica on the same provider must have a different name, and Atlas cannot open it yet. The override is tracked in [#768](https://github.com/wisecom-oy/atlas/issues/768). Until it ships, keep the replica on another endpoint under the same name: a MinIO deployment, another S3-compatible provider, or a copy made with `rclone` or `mc mirror`.
+::: tip AWS S3 and Backblaze B2 replicas have another name
+Bucket names on AWS S3 and Backblaze B2 are unique across the whole provider, so a replica there cannot be called `atlas-<tenant-id>`. Name it with `ATLAS_S3_BUCKET` for one run, or with `--bucket` on a tenant profile kept for the replica. The tenant ID still derives the key, so the replica opens with the same passphrase.
 :::
 
 Replicas that `atlas replicate` wrote under Atlas 6 already meet every requirement. They hold the same bucket name on a different endpoint, so Atlas 7 reads them as they are.
 
 ## Restore and verify from a replica
+
+For a replica you use regularly, keep a tenant profile for it instead of exporting variables. The profile uses the same Entra app registration as the primary and only adds the bucket name:
+
+```bash
+pbpaste | atlas tenants add contoso-replica --tenant-id <tenant-id> --client-id <client-id> --client-secret - --bucket contoso-replica
+atlas --profile contoso-replica tenants validate   # HeadBucket on contoso-replica
+```
+
+The profile's bucket applies to every run with `--profile contoso-replica`. Point the endpoint and keys at the replica's provider for those runs too, as below.
 
 Point the S3 settings at the replica for one run. Environment variables override the configured endpoint and keys, so nothing on the host changes:
 
@@ -41,6 +50,7 @@ Point the S3 settings at the replica for one run. Environment variables override
 export ATLAS_S3_ENDPOINT=https://replica.example.com
 export ATLAS_S3_ACCESS_KEY=<replica-read-only-key>
 export ATLAS_S3_SECRET_KEY=<replica-read-only-secret>
+export ATLAS_S3_BUCKET=<replica-bucket>   # only when the replica's name differs
 
 atlas outlook list
 atlas outlook verify -m user@example.com -s <snapshot-id>
@@ -50,7 +60,7 @@ atlas outlook restore -s <snapshot-id>
 atlas stats storage                     # physical bytes the replica holds
 ```
 
-Give Atlas **read-only** credentials on the replica. `verify`, `list`, `stats`, and `save` never write. A restore takes an [owner lease](/operations/storage-layout#owner-leases) when it can write, and with read-only credentials it runs without one and says so. A backup pointed at a replica by mistake then fails on its first write instead of forking the history.
+Give Atlas **read-only** credentials on the replica. `verify`, `list`, `stats`, and `save` never write, including the identity registry update a lookup by email would otherwise make. Under `ATLAS_S3_BUCKET` a run reaches only the selected profile's tenant; any other tenant is refused. Atlas never creates the named bucket, so a mistyped name fails instead of starting an empty store. A restore takes an [owner lease](/operations/storage-layout#owner-leases) when it can write, and with read-only credentials it runs without one and says so. A backup pointed at a replica by mistake then fails on its first write instead of forking the history.
 
 ::: danger Never back up into a replica
 Backups write manifests, cursors, and the summary index. Written into a replica, they diverge from the primary, and the provider may overwrite them on its next sync. Keep backups on the primary and give the Atlas host no write access to the replica.

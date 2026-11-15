@@ -2,6 +2,8 @@ import { inspect } from 'node:util';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Container } from 'inversify';
 import type * as M365Graph from '@wisecom/atlas-m365-graph';
+import type { AtlasConfig } from '@wisecom/atlas-core';
+import { ConfiguredBucketNameResolver } from '@wisecom/atlas-s3';
 import { AuthError, ConfigError } from '@wisecom/atlas-types';
 import { create_tenant } from '@/target-tenant';
 import { create_outlook_api } from '@/outlook-api.factory';
@@ -202,5 +204,36 @@ describe('restore with targetTenant', () => {
 
     expect(source_restore.restore_onedrive).toHaveBeenCalledOnce();
     expect(create_container_from_config).not.toHaveBeenCalled();
+  });
+
+  it("keeps the source tenant's bucket override bound to the source tenant (#768)", async () => {
+    const { target_restore } = source_and_target();
+    const s3_bucket = {
+      run: {
+        tenant_id: 'tenant-source',
+        bucket: 'source-copy',
+        exclusive: true,
+        set_by: 's3Bucket',
+      },
+      profiles: [],
+    };
+    const source = fake_container({
+      AtlasConfig: { ...SOURCE_CONFIG, s3_bucket },
+      RestoreUseCase: { restore_snapshot: vi.fn() },
+      UserIdentityResolver: { resolve_user: vi.fn() },
+    });
+    const api = create_outlook_api('tenant-source', source);
+
+    await api.restore('snap-1', {
+      targetMailbox: 'john.doe@example.com',
+      targetTenant: create_tenant(DESTINATION),
+    });
+
+    const target_config = create_container_from_config.mock.calls[0]![0] as AtlasConfig;
+    const names = new ConfiguredBucketNameResolver(target_config.s3_bucket);
+    expect(target_restore.restore_snapshot).toHaveBeenCalledOnce();
+    expect(target_config.tenant_id).toBe(DESTINATION.tenantId);
+    expect(names.resolve('tenant-source')).toEqual({ name: 'source-copy', configured: true });
+    expect(() => names.resolve(DESTINATION.tenantId)).toThrow(ConfigError);
   });
 });
