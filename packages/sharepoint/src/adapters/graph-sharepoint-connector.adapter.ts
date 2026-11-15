@@ -19,6 +19,7 @@ import type {
   SharePointSubsiteTree,
 } from '@wisecom/atlas-types';
 import { enumerate_subsite_tree, fetch_direct_subsites } from '@/adapters/graph-subsite-enumerator';
+import { list_tenant_sites, resolve_site_reference } from '@/adapters/graph-sharepoint-site-lookup';
 import {
   fetch_drive_item_by_id,
   fetch_initial_delta_page,
@@ -42,14 +43,6 @@ import {
 } from '@/adapters/graph-sharepoint-stream-utils';
 import { compute_chunk_timeout_ms } from '@wisecom/atlas-drive/backup/cdn-chunk-request';
 import { stream_to_buffer } from '@wisecom/atlas-drive/backup/stream-drain';
-import { parse_site_reference } from '@/adapters/graph-sharepoint-url-parser';
-import { canonical_site_id } from '@/services/shared/site-id';
-
-interface GraphSiteRecord {
-  id?: string;
-  webUrl?: string;
-  displayName?: string;
-}
 
 interface GraphDriveRecord {
   id?: string;
@@ -63,59 +56,14 @@ const STREAM_TIMEOUT_MS = 120_000;
 export class GraphSharePointConnector implements SharePointSiteConnector {
   constructor(@inject(GRAPH_CLIENT_TOKEN) private readonly _client: Client) {}
 
-  /** Lists all SharePoint sites in the tenant via search. */
+  /** Lists all SharePoint sites in the tenant via search, flagging container sites by `kind`. */
   async list_sites(_tenant_id: string): Promise<SharePointSite[]> {
-    const sites: SharePointSite[] = [];
-    let next_url: string | undefined;
-
-    let page = await with_graph_retry(
-      () =>
-        this._client.api('/sites?search=*&$select=id,webUrl,displayName&$top=100').get() as Promise<
-          GraphCollectionResponse<GraphSiteRecord>
-        >,
-    );
-
-    while (true) {
-      for (const raw of page.value ?? []) {
-        if (!raw.id) continue;
-        sites.push({
-          site_id: canonical_site_id(raw.id),
-          site_url: raw.webUrl ?? '',
-          display_name: raw.displayName ?? '',
-        });
-      }
-
-      next_url = page['@odata.nextLink'];
-      if (!next_url) break;
-      page = await with_graph_retry(
-        () =>
-          this._client.api(next_url!).get() as Promise<GraphCollectionResponse<GraphSiteRecord>>,
-      );
-    }
-
-    return sites;
+    return await list_tenant_sites(this._client);
   }
 
   /** Resolves a single site by URL path (hostname:/path), full URL, or site ID. */
   async resolve_site(_tenant_id: string, site_url_or_id: string): Promise<SharePointSite> {
-    const graph_ref = parse_site_reference(site_url_or_id);
-
-    const raw = await with_graph_retry(
-      () =>
-        this._client
-          .api(`/sites/${graph_ref}?$select=id,webUrl,displayName`)
-          .get() as Promise<GraphSiteRecord>,
-    );
-
-    if (!raw.id) {
-      throw new Error(`Failed to resolve SharePoint site: ${site_url_or_id}`);
-    }
-
-    return {
-      site_id: canonical_site_id(raw.id),
-      site_url: raw.webUrl ?? '',
-      display_name: raw.displayName ?? '',
-    };
+    return await resolve_site_reference(this._client, site_url_or_id);
   }
 
   /** Recursively lists every subsite beneath a site. */
@@ -151,7 +99,10 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
         next_url = page['@odata.nextLink'];
       }
     } catch (err) {
-      SHAREPOINT_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(err);
+      await SHAREPOINT_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(this._client, err, {
+        label: `site ${site_id}`,
+        site_id,
+      });
       throw err;
     }
 
@@ -161,14 +112,18 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
   /** Fetches delta changes since the last sync, with automatic reset handling. */
   async fetch_delta(
     _tenant_id: string,
-    _site_id: string,
+    site_id: string,
     drive_id: string,
     prev_delta_link?: string,
   ): Promise<SharePointDeltaResult> {
     try {
       return await this.execute_delta(drive_id, prev_delta_link, false);
     } catch (err) {
-      SHAREPOINT_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(err);
+      await SHAREPOINT_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(this._client, err, {
+        label: `library ${drive_id} of site ${site_id}`,
+        site_id,
+        drive_id,
+      });
       if (is_invalid_delta_error(err)) {
         return await this.execute_delta(drive_id, undefined, true);
       }
@@ -179,7 +134,7 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
   /** Re-fetches one item by id for failed-item retry; undefined once it is gone. */
   async fetch_item_by_id(
     _tenant_id: string,
-    _site_id: string,
+    site_id: string,
     drive_id: string,
     item_id: string,
   ): Promise<SharePointDeltaItem | undefined> {
@@ -188,7 +143,11 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
       if (!raw || !has_item_id(raw)) return undefined;
       return map_delta_item(raw, drive_id);
     } catch (err) {
-      SHAREPOINT_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(err);
+      await SHAREPOINT_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(this._client, err, {
+        label: `item ${item_id} in library ${drive_id}`,
+        site_id,
+        drive_id,
+      });
       throw err;
     }
   }

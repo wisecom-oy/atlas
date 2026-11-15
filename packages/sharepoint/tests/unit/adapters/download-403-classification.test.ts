@@ -101,7 +101,7 @@ describe('SharePoint 403 handling by cause (issue #246)', () => {
     fetch_mock.mockRejectedValue(graph_error(403, 'accessDenied'));
 
     await expect(download_with_fallback(mock.client, make_item())).rejects.toThrow(
-      'Missing Microsoft Graph application permissions for SharePoint: Sites.Read.All.',
+      'Microsoft Graph returned HTTP 403 accessDenied downloading',
     );
 
     expect(mock.get).not.toHaveBeenCalled();

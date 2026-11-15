@@ -13,16 +13,10 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
 import { with_graph_retry } from '@wisecom/atlas-m365-graph';
 import { AuthError, type SharePointSite, type SharePointSubsiteTree } from '@wisecom/atlas-types';
-import { canonical_site_id } from '@/services/shared/site-id';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
 import { is_cancellation_of } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { get_active_abort_signal } from '@wisecom/atlas-core/services/shared/graph-request-context';
-
-interface GraphSiteRecord {
-  id?: string;
-  webUrl?: string;
-  displayName?: string;
-}
+import { has_site_id, map_site_record, type GraphSiteRecord } from '@/adapters/graph-site-record';
 
 interface GraphSiteCollection {
   value?: GraphSiteRecord[];
@@ -44,12 +38,7 @@ export async function fetch_direct_subsites(
     );
 
     for (const raw of page.value ?? []) {
-      if (!raw.id) continue;
-      sites.push({
-        site_id: canonical_site_id(raw.id),
-        site_url: raw.webUrl ?? '',
-        display_name: raw.displayName ?? '',
-      });
+      if (has_site_id(raw)) sites.push(map_site_record(raw));
     }
 
     next_url = page['@odata.nextLink'];

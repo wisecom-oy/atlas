@@ -4,7 +4,12 @@ import { run_with_abort_signal } from '@wisecom/atlas-core/services/shared/graph
 import { enumerate_subsite_tree } from '@/adapters/graph-subsite-enumerator';
 
 function site(id: string): SharePointSite {
-  return { site_id: id, site_url: `https://contoso.sharepoint.com/sites/${id}`, display_name: id };
+  return {
+    site_id: id,
+    site_url: `https://contoso.sharepoint.com/sites/${id}`,
+    display_name: id,
+    kind: 'site',
+  };
 }
 
 /** Fake Graph traversal: maps a site id to its direct subsites. */

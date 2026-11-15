@@ -269,18 +269,20 @@ describe('SharePoint download helpers', () => {
   });
 
   describe('rethrow_if_access_denied', () => {
-    it('throws only on statusCode 403, naming the SharePoint scope', () => {
-      expect(() => rethrow_if_access_denied({ statusCode: 403 })).toThrow(
-        'Missing Microsoft Graph application permissions for SharePoint: Sites.Read.All.',
-      );
+    const SITE = { label: 'site site-1', site_id: 'site-1' };
+
+    it('is a no-op for a status other than 403', async () => {
+      for (const status of [401, 404, 500, undefined]) {
+        await expect(
+          rethrow_if_access_denied(make_client().client, { statusCode: status }, SITE),
+        ).resolves.toBeUndefined();
+      }
     });
 
-    it.each([401, 404, 500, undefined])('is a no-op for statusCode %s', (status) => {
-      expect(() => rethrow_if_access_denied({ statusCode: status })).not.toThrow();
-    });
-
-    it('is a no-op for a CdnHttpError carrying 403, because it reads statusCode only', () => {
-      expect(() => rethrow_if_access_denied(new CdnHttpError('denied', 403))).not.toThrow();
+    it('is a no-op for a CdnHttpError carrying 403, because it reads statusCode only', async () => {
+      await expect(
+        rethrow_if_access_denied(make_client().client, new CdnHttpError('denied', 403), SITE),
+      ).resolves.toBeUndefined();
     });
   });
 });

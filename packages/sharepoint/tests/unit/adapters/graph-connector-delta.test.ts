@@ -103,7 +103,7 @@ describe('GraphSharePointConnector.fetch_delta', () => {
     expect(result.reset_detected).toBe(true);
   });
 
-  it('reports a 403 as the missing permission, without re-enumerating', async () => {
+  it('reports a 403 as the missing permission when the root site is refused too, without re-enumerating', async () => {
     const { connector, calls } = connector_over(() => {
       throw graph_error(403, 'accessDenied', 'Access denied');
     });
@@ -112,8 +112,26 @@ describe('GraphSharePointConnector.fetch_delta', () => {
       connector.fetch_delta('tenant', SITE, DRIVE, CURRENT_CURSOR),
     ).rejects.toMatchObject({
       name: 'MissingGraphPermissionsError',
+      code: 'ATLAS_AUTH_DENIED',
     });
-    expect(calls).toHaveLength(1);
+    expect(calls.map((call) => call.url)).toEqual([CURRENT_CURSOR, '/sites/root?$select=id']);
+  });
+
+  it('reports a 403 as a refused site when the root site is readable (issue #772)', async () => {
+    const { connector } = connector_over(({ url }) => {
+      if (url === '/sites/root?$select=id') return { id: 'root' };
+      throw graph_error(403, 'accessDenied', 'Access denied');
+    });
+
+    await expect(
+      connector.fetch_delta('tenant', SITE, DRIVE, CURRENT_CURSOR),
+    ).rejects.toMatchObject({
+      name: 'GraphAccessRefusedError',
+      code: 'ATLAS_ACCESS_REFUSED',
+      site_id: SITE,
+      drive_id: DRIVE,
+      reason: 'access_refused',
+    });
   });
 
   it('propagates an unrelated failure instead of treating it as a reset', async () => {
@@ -150,6 +168,7 @@ describe('GraphSharePointConnector.resolve_site', () => {
       site_id: 'site-guid,web-guid',
       site_url: 'https://contoso.sharepoint.com/sites/Example',
       display_name: 'Example',
+      kind: 'site',
     });
   });
 

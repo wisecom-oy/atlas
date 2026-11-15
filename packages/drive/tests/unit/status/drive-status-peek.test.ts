@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AuthError, MailboxNotLicensedError } from '@wisecom/atlas-types';
+import {
+  AuthError,
+  GraphAccessRefusedError,
+  MailboxNotLicensedError,
+  MissingGraphPermissionsError,
+} from '@wisecom/atlas-types';
 import type { FailedItemLedger, FailedItemRecord } from '@wisecom/atlas-types';
-import { MissingGraphPermissionsError } from '@wisecom/atlas-m365-graph';
 import type { DriveDeltaItem } from '@/drive-ports';
 import {
   peek_drive_statuses,
@@ -110,13 +114,21 @@ describe('peek_drive_statuses', () => {
     );
   });
 
-  it('turns the drive connectors MissingGraphPermissionsError (their 403) into an AuthError', async () => {
+  it('stops on the drive connectors MissingGraphPermissionsError, which is an AuthError', async () => {
     const missing = new MissingGraphPermissionsError('Missing permissions: Sites.Read.All.');
     const fetch_delta = vi.fn().mockRejectedValue(missing);
 
     const err = await peek_drive_statuses(input({ fetch_delta })).catch((e: unknown) => e);
+    expect(err).toBe(missing);
     expect(err).toBeInstanceOf(AuthError);
-    expect((err as AuthError).cause).toBe(missing);
+  });
+
+  it('records a GraphAccessRefusedError on its drive row instead of stopping (issue #772)', async () => {
+    const refused = new GraphAccessRefusedError('refused', { drive_id: 'd' }, 'access_refused');
+    const fetch_delta = vi.fn().mockRejectedValue(refused);
+
+    const rows = await peek_drive_statuses(input({ fetch_delta }));
+    expect(rows[0]?.peek_error).toBe('GraphAccessRefusedError: refused');
   });
 
   it('turns an unclassified Graph 401 into an AuthError', async () => {

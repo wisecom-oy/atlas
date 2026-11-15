@@ -10,7 +10,12 @@ import {
 import { SharePointSiteTreeBackupService } from '@/services/backup/site-tree-backup.service';
 
 function site(id: string): SharePointSite {
-  return { site_id: id, site_url: `https://contoso.sharepoint.com/sites/${id}`, display_name: id };
+  return {
+    site_id: id,
+    site_url: `https://contoso.sharepoint.com/sites/${id}`,
+    display_name: id,
+    kind: 'site',
+  };
 }
 
 function make_result(site_id: string, interrupted = false): SharePointBackupResult {
