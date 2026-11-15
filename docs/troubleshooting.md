@@ -112,11 +112,11 @@ Graph returned `itemNotFound` for the site URL.
 ### SharePoint: site refused although the permission is granted
 
 ```text
-[x] Microsoft Graph refused SharePoint site <site-id>: HTTP 403 accessDenied. The same app can read the tenant's root site, so a tenant-wide SharePoint permission is not what is missing. ...
+[x] Microsoft Graph refused SharePoint site <site-id>: HTTP 403 accessDenied. The same app can read the tenant's root site, so Graph refused this resource alone. ...
 [x]   Atlas code: ATLAS_ACCESS_REFUSED
 ```
 
-Graph refused this one site, while the same app registration can read the tenant's root site. That rules out a missing tenant-wide grant such as `Sites.Read.All`, but not a missing per-site `Sites.Selected` grant on this site. The usual cause is a [SharePoint Embedded container](/sharepoint-backup#sharepoint-embedded-containers), a site whose URL starts with `/contentstorage/`. Graph refuses those to any app without `FileStorageContainer.Selected`, and Atlas does not back them up.
+Graph refused this one site, while the same app registration can read the tenant's root site. That shows the credentials work, not which grant the app holds: an app with `Sites.Read.All` can read the root site, and so can an app whose `Sites.Selected` grants include the root site but not this one. The usual cause is a [SharePoint Embedded container](/sharepoint-backup#sharepoint-embedded-containers), a site whose URL starts with `/contentstorage/`. Graph refuses those to any app without `FileStorageContainer.Selected`, and Atlas does not back them up.
 
 - Confirm the site's kind with `atlas sharepoint list-sites`. A container shows `container (not backed up)`.
 - Leave the site out of scheduled runs. Retrying returns the same answer.

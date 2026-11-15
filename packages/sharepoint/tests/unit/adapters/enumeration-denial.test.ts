@@ -44,8 +44,10 @@ describe('SharePoint enumeration 403 classification', () => {
     });
     expect((failure as Error).message).toContain('HTTP 403 accessDenied');
     expect((failure as Error).message).not.toContain('needs the');
-    // A readable root site rules out a tenant-wide gap only; a per-site grant may still be missing.
+    // A readable root site says nothing about which grant the app holds, and a per-site grant may
+    // still be missing, so the message neither claims a grant nor rules one out.
     expect((failure as Error).message).not.toContain('is granted');
+    expect((failure as Error).message).not.toContain('tenant-wide');
     expect((failure as Error).message).toContain('it needs a Sites.Selected grant on this site');
     expect(api).toHaveBeenCalledWith('/sites/root?$select=id');
   });

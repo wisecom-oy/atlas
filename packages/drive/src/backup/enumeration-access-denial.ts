@@ -138,9 +138,10 @@ function access_refused_error(
 }
 
 /**
- * Why the refusal is not a missing tenant-wide grant, and what to do about it. A readable root site
- * rules out a missing tenant-wide grant only: an app on narrower per-site grants may still lack one
- * for this site, so that remedy is named too.
+ * Why Atlas reports a refusal rather than a missing grant, and what to do about it. A readable root
+ * site shows only that: an app on `Sites.Read.All` reads it, and so does an app whose `Sites.Selected`
+ * grants include it but not this site. The message states the observation, not which grant the app
+ * holds, and names the per-site remedy alongside the container case.
  */
 function refusal_explanation(
   binding: DenialBinding,
@@ -156,15 +157,14 @@ function refusal_explanation(
   if (known_by === 'code') {
     return 'The code does not name a missing permission. Retrying returns the same answer.';
   }
-  const label = DRIVE_WORKLOAD_LABEL[binding.workload];
-  const narrower =
+  const per_site =
     binding.grant_alternative === undefined
       ? ''
-      : ` If the app registration relies on per-site grants instead, it needs ${binding.grant_alternative}.`;
+      : ` If the app registration uses per-site grants, it needs ${binding.grant_alternative}.`;
   return (
-    `The same app can read the tenant's root site, so a tenant-wide ${label} permission is not ` +
-    'what is missing. A SharePoint Embedded container site (URL under /contentstorage/) is ' +
-    `refused this way: leave it out of the run, since retrying returns the same answer.${narrower}`
+    "The same app can read the tenant's root site, so Graph refused this resource alone. A " +
+    'SharePoint Embedded container site (URL under /contentstorage/) is refused this way: leave ' +
+    `it out of the run, since retrying returns the same answer.${per_site}`
   );
 }
 
