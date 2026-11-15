@@ -14,6 +14,7 @@ export {
   with_graph_retry,
 } from './graph-request-error-handler';
 export { is_network_error } from './graph-network-error';
+export { is_exhausted_retry, rethrow_if_retry_exhausted } from './graph-exhausted-retry';
 export {
   get_graph_binary_response,
   get_graph_bytes,

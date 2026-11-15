@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { AuthError, ThrottledError, type SharePointSite } from '@wisecom/atlas-types';
+import {
+  AuthError,
+  GraphUnavailableError,
+  ThrottledError,
+  type SharePointSite,
+} from '@wisecom/atlas-types';
 import { run_with_abort_signal } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { enumerate_subsite_tree } from '@/adapters/graph-subsite-enumerator';
 
@@ -79,18 +84,25 @@ describe('enumerate_subsite_tree', () => {
     expect(result.errors[0]).toContain('Access denied');
   });
 
-  it('records a 429 that exhausted its retries as an error', async () => {
+  // Issue #773: recording it let the library listing spend a second full budget on the same outage.
+  it.each([
+    ['a 429', new ThrottledError('Graph throttled the request after 12 retries')],
+    [
+      'a 5xx',
+      new GraphUnavailableError('Microsoft Graph was unavailable after 12 retries: HTTP 503', {
+        retries: 12,
+        elapsed_ms: 1_400_000,
+      }),
+    ],
+  ])('ends the walk on %s that exhausted its retries instead of recording it', async (_, err) => {
     const fetch_direct = vi.fn(async (site_id: string) => {
-      if (site_id === 'root') return [site('busy')];
-      throw new ThrottledError('Graph throttled the request after 12 retries');
+      if (site_id === 'root') return [site('busy'), site('other')];
+      throw err;
     });
 
-    const result = await enumerate_subsite_tree('root', fetch_direct);
-
-    expect(result.sites.map((s) => s.site_id)).toEqual(['busy']);
-    expect(result.warnings).toEqual([]);
-    expect(result.errors).toHaveLength(1);
-    expect(result.errors[0]).toContain('throttled');
+    await expect(enumerate_subsite_tree('root', fetch_direct)).rejects.toBe(err);
+    // The walk stopped at the first exhausted listing, so `other` was never asked.
+    expect(fetch_direct).toHaveBeenCalledTimes(2);
   });
 
   it('rejects with an AuthError when Graph refuses the token on the listing', async () => {

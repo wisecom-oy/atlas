@@ -11,7 +11,7 @@
  */
 
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { with_graph_retry } from '@wisecom/atlas-m365-graph';
+import { rethrow_if_retry_exhausted, with_graph_retry } from '@wisecom/atlas-m365-graph';
 import { AuthError, type SharePointSite, type SharePointSubsiteTree } from '@wisecom/atlas-types';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
 import { is_cancellation_of } from '@wisecom/atlas-core/services/shared/cancellable-run';
@@ -95,9 +95,10 @@ export async function enumerate_subsite_tree(
 /**
  * Fetches the direct subsites of every site in one level. A site that cannot be read is recorded
  * in `errors` and skipped, so one inaccessible subtree never aborts the traversal or masquerades
- * as "no subsites". Two failures are not recorded: a cancellation is rethrown so the run ends as
- * an interrupt, and a rejected token is rethrown as an `AuthError` so the run ends with the auth
- * exit code, because no other site can succeed either.
+ * as "no subsites". Three failures are not recorded: a cancellation is rethrown so the run ends as
+ * an interrupt, a rejected token is rethrown as an `AuthError` so the run ends with the auth exit
+ * code, because no other site can succeed either, and an exhausted retry budget is rethrown so a
+ * Graph outage costs one budget, not one here and another on the libraries (issue #773).
  */
 async function collect_direct_subsites(
   parent_site_ids: string[],
@@ -112,6 +113,7 @@ async function collect_direct_subsites(
     } catch (err) {
       if (is_cancellation_of(err, get_active_abort_signal())) throw err;
       if (is_authentication_failure(err)) throw as_auth_error(parent_site_id, err);
+      rethrow_if_retry_exhausted(err);
       errors.push(listing_failure_message(parent_site_id, err));
     }
   }
