@@ -13,6 +13,7 @@ import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { render_static_view } from '@/ui/render';
+import { report_permission_listing } from '@/commands/drive/permission-list-presenter';
 
 export interface OneDriveListSnapshotsOptions extends OneDriveTenantOptions {
   owner: string;
@@ -21,6 +22,11 @@ export interface OneDriveListSnapshotsOptions extends OneDriveTenantOptions {
 export interface OneDriveListVersionsOptions extends OneDriveTenantOptions {
   owner: string;
   file: string;
+}
+
+export interface OneDriveListPermissionsOptions extends OneDriveTenantOptions {
+  owner: string;
+  snapshot?: string;
 }
 
 interface SnapshotRow {
@@ -111,4 +117,20 @@ export async function execute_onedrive_list_versions(
     path: `${ver.parent_path}/${ver.file_name}`,
   }));
   await render_static_view(<DataTable columns={file_version_columns} rows={rows} />);
+}
+
+/** `atlas onedrive list-permissions`: who had access to what at a snapshot. */
+export async function execute_onedrive_list_permissions(
+  container: Container,
+  options: OneDriveListPermissionsOptions,
+): Promise<void> {
+  const tenant_id = resolve_tenant_id(container, options);
+  const owner = await resolve_owner(container, tenant_id, options.owner);
+  const catalog = container.get<OneDriveCatalogUseCase>(ONEDRIVE_CATALOG_USE_CASE_TOKEN);
+  const listing = await catalog.list_onedrive_permissions(
+    tenant_id,
+    owner.object_id,
+    options.snapshot,
+  );
+  await report_permission_listing(banner_title('onedrive', 'Permissions'), listing);
 }

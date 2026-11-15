@@ -1,3 +1,4 @@
+import type { DrivePermissionListing } from '@/ports/drive/permission-listing.port';
 import type {
   DriveVersionRestoreOptions,
   DriveVersionRestoreResult,
@@ -52,6 +53,7 @@ export type OneDriveSdkVersionRestoreResult = Camelize<DriveVersionRestoreResult
 export type OneDriveSdkSaveResult = Camelize<FileSaveResult>;
 export type OneDriveSdkSnapshotManifest = Camelize<OneDriveSnapshotManifest>;
 export type OneDriveSdkSnapshotSummary = Camelize<OneDriveSnapshotSummary>;
+export type OneDriveSdkPermissionListing = Camelize<DrivePermissionListing>;
 export type OneDriveSdkFileVersion = Camelize<OneDriveFileVersionRecord>;
 export type OneDriveSdkDeletionResult = Camelize<DeletionResult>;
 export type OneDriveSdkStatusResult = Camelize<OneDriveStatusResult>;
@@ -75,6 +77,8 @@ export interface OneDriveApi {
   /** Snapshots from the owner's summary index, newest first, without decrypting each manifest. */
   listSnapshotSummaries(ownerId: string): Promise<OneDriveSdkSnapshotSummary[]>;
   listFileVersions(ownerId: string, fileRef: string): Promise<OneDriveSdkFileVersion[]>;
+  /** Captured non-inherited permissions per item at a snapshot, the newest when snapshotId is absent. */
+  listPermissions(ownerId: string, snapshotId?: string): Promise<OneDriveSdkPermissionListing>;
   deleteOwnerData(ownerId: string): Promise<OneDriveSdkDeletionResult>;
   deleteSnapshot(ownerId: string, snapshotId: string): Promise<OneDriveSdkDeletionResult>;
   checkStatus(ownerId: string): Promise<OneDriveSdkStatusResult>;

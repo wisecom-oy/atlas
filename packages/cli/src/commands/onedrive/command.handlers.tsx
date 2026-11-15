@@ -66,6 +66,7 @@ export interface OneDriveRestoreCommandOptions extends OneDriveTenantOptions {
   destination?: string;
   inPlace?: boolean;
   name?: string;
+  restorePermissions?: boolean;
 }
 
 export interface OneDriveVerifyOptions extends OneDriveTenantOptions {
@@ -245,6 +246,7 @@ export async function execute_onedrive_restore(
         ...(options.destination ? { destination: options.destination } : {}),
         ...(options.inPlace === true ? { in_place: true } : {}),
         ...(options.name ? { rename_to: options.name } : {}),
+        ...(options.restorePermissions === true ? { restore_permissions: true } : {}),
         should_interrupt: gate.should_interrupt,
         abort_signal: gate.abort_signal,
       }),

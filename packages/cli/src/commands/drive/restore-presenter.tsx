@@ -1,5 +1,6 @@
 import { Box } from 'ink';
 import { logger } from '@wisecom/atlas-core';
+import type { DriveSharingRestoreSummary } from '@wisecom/atlas-types';
 import {
   EXIT_PARTIAL,
   report_skipped_items,
@@ -10,13 +11,17 @@ import { Banner } from '@/ui/components/banner';
 import { ErrorList } from '@/ui/components/error-list';
 import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
+import {
+  report_sharing_skips,
+  sharing_restore_items,
+} from '@/commands/drive/sharing-restore-presenter';
 
 /** Shown on the first Ctrl+C of a OneDrive or SharePoint restore or version restore. */
 export const DRIVE_RESTORE_INTERRUPT_MESSAGE =
   'Stopping the restore; an upload already sent finishes first, and nothing after it is written';
 
-/** The counts both drive snapshot restores report. */
-export interface DriveRestoreSummary {
+/** The counts both drive snapshot restores report, permissions included. */
+export interface DriveRestoreSummary extends DriveSharingRestoreSummary {
   readonly snapshot_id: string;
   readonly files_restored: number;
   readonly folders_created: number;
@@ -32,7 +37,8 @@ export interface DriveRestoreSummary {
 /**
  * Prints what a drive snapshot restore wrote and sets its exit code. A file that failed, a skip,
  * and an interrupt all exit 2, as Outlook restore does (issue #712), and an interrupted run says so
- * instead of reporting success (issue #682). A run that cannot start throws a category exit.
+ * instead of reporting success (issue #682). A run that cannot start throws a category exit. A
+ * permission left out is listed but never changes the exit code.
  */
 export async function report_drive_restore(
   title: string,
@@ -47,12 +53,14 @@ export async function report_drive_restore(
           { label: 'Snapshot', value: result.snapshot_id },
           { label: 'Files restored', value: String(result.files_restored) },
           { label: 'Folders created', value: String(result.folders_created) },
+          ...sharing_restore_items(result),
           ...extra_items,
         ]}
       />
     </Box>,
   );
   report_skipped_items(result.files_skipped, 'File');
+  report_sharing_skips(result);
   report_unreadable_keys(result.unreadable_keys);
   report_unmatched_file_filters(result.unmatched_file_filters);
   if (result.errors.length > 0) {

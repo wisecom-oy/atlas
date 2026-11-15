@@ -138,6 +138,10 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
         ),
       );
     },
+    async listPermissions(owner_input, snapshot_id) {
+      const owner_id = await resolve_owner_id(owner_input);
+      return camelize(await catalog.list_onedrive_permissions(tenant_id, owner_id, snapshot_id));
+    },
     async deleteOwnerData(owner_input) {
       return camelize(
         await deletion.delete_owner_data(tenant_id, await resolve_owner_id(owner_input)),
