@@ -17,7 +17,7 @@ export ATLAS_S3_ACCESS_KEY=<access-key>
 export ATLAS_S3_SECRET_KEY=<secret-key>
 export ATLAS_ENCRYPTION_PASSPHRASE=<passphrase>
 
-atlas config validate              # S3 connectivity
+atlas config validate              # S3 access to the effective bucket
 atlas tenants validate             # Graph token for the selected profile
 ```
 
@@ -49,10 +49,11 @@ atlas tenants validate contoso
 | `ATLAS_TENANT_ID`     | `tenant_id`     | `--tenant-id`              | Microsoft Entra tenant ID, a GUID or an `*.onmicrosoft.com` domain |
 | `ATLAS_CLIENT_ID`     | `client_id`     | `--client-id`              | Application (client) ID of the app registration                    |
 | `ATLAS_CLIENT_SECRET` | `client_secret` | `--client-secret`          | Client secret value. Pass `-` to read it from stdin                |
+| `ATLAS_S3_BUCKET`     | `bucket`        | `--bucket`                 | Optional. Bucket to use instead of `atlas-<tenant-id>`. See [Bucket override](#bucket-override) |
 
 Profile names are lowercase letters, digits, and dashes, up to 32 characters. The name `default` holds the legacy top-level fields described in [Selecting a profile](#selecting-a-profile).
 
-A profile's tenant ID also names the bucket that commands read and write, `atlas-<tenant-id>`, unless `-t` overrides it. Switching profiles therefore switches both the Graph tenant and the backup bucket.
+A profile's tenant ID also names the bucket that commands read and write, `atlas-<tenant-id>`, unless `-t` overrides the tenant or the profile sets a [bucket override](#bucket-override). Switching profiles therefore switches both the Graph tenant and the backup bucket.
 
 Shared settings, including the passphrase, are the same for every profile. One S3 key and one passphrase therefore reach every profile's bucket. Change the passphrase with `atlas keys rewrap --new-passphrase`, not with `atlas config set`: it re-wraps every profile's key first, then stores the new value in the encrypted store when the passphrase came from there. See [Rotation procedure](/security#rotation-procedure). To isolate tenants from each other at the storage layer, see [Bucket isolation](/operations/storage-layout#bucket-isolation). The secrets are each profile's client secret, `s3.secret-key`, and `encryption.passphrase`. `atlas config list` and `atlas config get` mask the shared secrets.
 
@@ -76,6 +77,35 @@ Atlas checks the three variables against the selected profile before a command d
 ```
 
 The warning names variables, never their values.
+
+### Bucket override
+
+A provider replica on AWS S3 or Backblaze B2 cannot carry the primary's bucket name, because bucket names are global there. Point Atlas at it by name:
+
+```bash
+# One run, against a copy of the selected profile's bucket
+ATLAS_S3_BUCKET=contoso-replica atlas outlook verify -m user@example.com -s <snapshot-id>
+
+# Permanently, on a profile of its own
+atlas tenants add contoso-replica --tenant-id <tenant-id> --client-id <client-id> \
+  --client-secret - --bucket contoso-replica
+atlas --profile contoso-replica tenants validate
+```
+
+The override replaces the bucket name only. The tenant ID still salts the key-encryption key and still binds the wrapped data key, so a copy opens with the same passphrase and tenant ID as the primary, under any name. The override must name a copy of the same tenant's bucket. See [Bucket override](/security#bucket-override) for the threat model.
+
+| Rule               | Behavior                                                                                                                                                                                              |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Precedence         | `ATLAS_S3_BUCKET` wins over the selected profile's `bucket`.                                                                                                                                          |
+| Bound to a tenant  | A profile's `bucket` belongs to that profile's tenant. When `ATLAS_TENANT_ID` points the run at another tenant, the profile's bucket does not apply.                                                  |
+| Other tenants      | Under `ATLAS_S3_BUCKET`, a command that opens any other tenant (`-t`, `delete --purge -t`, `keys rewrap` over several tenants) refuses it with exit code `6`. Without it, every tenant uses its own profile's bucket. |
+| Same tenant twice  | When two profiles name the same tenant with different buckets, the selected profile decides for its own tenant. Opening that tenant from another profile's run is refused as ambiguous.                 |
+| Never created      | Atlas never creates an overridden bucket. A missing one fails with exit code `6`, so a typo cannot start a second store with a fresh data key.                                                       |
+| Shared setting     | Refused. A top-level `bucket` in the config file or the store, or `atlas config set s3.bucket`, would apply to every profile and fails with exit code `6`.                                             |
+
+To remove a profile's bucket, add the profile again with `--replace` and without `--bucket`.
+
+Read-only credentials scoped to the copy are enough for `verify`, `list`, `status`, `save`, `stats`, and the read side of `restore`. Those commands write nothing to the bucket: when a lookup by email resolves a user Atlas has not recorded yet, the identity registry update is skipped and logged at debug level. `atlas storage-check` and `checkStorage()` still write and delete one probe object, so they need write access.
 
 ## Sources and precedence
 
@@ -143,7 +173,7 @@ pbpaste | atlas config set s3.secret-key -   # "-" reads the value from stdin, k
 atlas config list                            # shared keys, secrets masked, source annotated
 atlas config get s3.endpoint
 atlas config unset s3.access-key
-atlas config validate                        # live S3 connectivity check
+atlas config validate                        # live S3 check of the effective bucket
 ```
 
 | Subcommand          | Purpose                                                              |
@@ -152,15 +182,17 @@ atlas config validate                        # live S3 connectivity check
 | `get <key>`         | Show one value                                                       |
 | `set <key> <value>` | Store a value. Pass `-` as the value to read it from stdin           |
 | `unset <key>`       | Remove a stored value                                                |
-| `validate`          | Probe S3 `ListBuckets`                                               |
+| `validate`          | Print the effective bucket and send it `HeadBucket`                  |
 
 ### Tenant keys are refused
 
-`atlas config set tenant.id`, `client.id`, and `client.secret` fail with a message that points to `atlas tenants add`. Graph credentials belong in a tenant profile.
+`atlas config set tenant.id`, `client.id`, and `client.secret` fail with a message that points to `atlas tenants add`. Graph credentials belong in a tenant profile. `bucket` and `s3.bucket` are refused the same way: a bucket belongs to one tenant, so it is set with `atlas tenants add --bucket` or `ATLAS_S3_BUCKET`.
 
 ### Validation on save
 
-`set` checks each value against its key before storing it. A live S3 probe (`ListBuckets`) runs once the endpoint and both S3 keys are present. The passphrase has no live probe. `atlas config validate` runs the S3 probe on demand. The Graph token probe runs with `atlas tenants validate`.
+`set` checks each value against its key before storing it. A live S3 probe (`ListBuckets`) runs once the endpoint and both S3 keys are present. The passphrase has no live probe. The Graph token probe runs with `atlas tenants validate`.
+
+`atlas config validate` prints the selected profile's effective bucket and sends it `HeadBucket`, which bucket-scoped keys are allowed to call where `ListBuckets` often is not. A missing `atlas-<tenant-id>` bucket passes, since the first backup creates it. A missing overridden bucket fails. With no tenant ID configured yet, it falls back to `ListBuckets`.
 
 Format rules:
 

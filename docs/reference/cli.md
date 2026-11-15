@@ -624,7 +624,7 @@ atlas delete --purge -y     # skip the typed confirmation
 | ------------------- | ---------------------------------------------------------------------------- |
 | `--purge`           | Delete all data, manifests, and encryption keys. Irreversible.               |
 | `-y, --yes`         | Skip the typed confirmation, for scheduled and scripted runs                 |
-| `-t, --tenant <id>` | Override the tenant ID from config. The confirmation checks against this ID. |
+| `-t, --tenant <id>` | Override the tenant ID from config. The confirmation checks against this ID. The purge targets that tenant's own bucket, and is refused under `ATLAS_S3_BUCKET` set for another tenant. |
 
 `atlas delete` without `--purge` exits non-zero and deletes nothing. For scoped deletes, use `atlas outlook delete`, `atlas contacts delete`, `atlas calendar delete`, `atlas onedrive delete`, or `atlas sharepoint delete`.
 
@@ -1238,7 +1238,7 @@ Check whether the bucket can hold immutable backups and whether the backend hono
 - `versioned-only (legacy)`: predates v2.1.0 auto-provisioning.
 - `unversioned (legacy)`: predates v2.1.0 auto-provisioning.
 
-Legacy buckets need the [migration runbook](/self-hosting/storage#migrating-a-legacy-bucket) before immutability can be used. The command exits non-zero when the bucket is not ready, so it can gate scheduled jobs.
+Legacy buckets need the [migration runbook](/self-hosting/storage#migrating-a-legacy-bucket) before immutability can be used. The command exits non-zero when the bucket is not ready, so it can gate scheduled jobs. It checks the effective bucket, including a [bucket override](/configuration#bucket-override). The conditional-write probe writes and deletes one object, so the command needs write access to the bucket.
 
 ```bash
 atlas storage-check
@@ -1302,6 +1302,7 @@ Measure the bytes that the tenant bucket physically holds, by listing it. `atlas
 atlas stats storage                                   # the tenant bucket, per workload
 atlas stats storage --by owner --top 10               # the ten largest owners and sites
 ATLAS_S3_ENDPOINT=https://replica.example.com atlas stats storage   # a replica
+ATLAS_S3_BUCKET=contoso-replica atlas stats storage                  # a copy under another name
 atlas stats storage --max-requests 1000 --json        # stop after 1,000 requests, print a token
 atlas stats storage --continue <token> --json         # resume from that token
 ```
@@ -1317,7 +1318,7 @@ atlas stats storage --continue <token> --json         # resume from that token
 
 The JSON output includes `totals`, `by_workload`, `stored_bytes`, `list_requests`, and `complete`. It includes `by_owner` with `--by owner`, and `logical_bytes_referenced` on a complete run with readable manifests. If the credentials cannot list versions, multipart uploads, or their parts, the report says so in `versions_visible` and `incomplete_uploads_visible`. The affected columns show `n/a`, and the stored totals become a lower bound.
 
-A run that fails on an S3 error prints a continuation token to stderr, so the next run resumes where this one stopped. The token is bound to the S3 endpoint and region, so a token from one endpoint is refused on another. The command is read-only. It creates no bucket and no key material. To measure a replica, point `ATLAS_S3_ENDPOINT` and the keys at it. `--top` and `--json` are shared with `atlas stats` and can appear before or after `storage`.
+A run that fails on an S3 error prints a continuation token to stderr, so the next run resumes where this one stopped. The token is bound to the S3 endpoint, region, and bucket name, so a token from one endpoint or bucket is refused on another. The command is read-only. It creates no bucket and no key material. To measure a replica, point `ATLAS_S3_ENDPOINT` and the keys at it, and set `ATLAS_S3_BUCKET` when its name differs. `--top` and `--json` are shared with `atlas stats` and can appear before or after `storage`.
 
 ## atlas list-users
 
@@ -1360,7 +1361,7 @@ atlas keys purge-old-wrappers --old-passphrase                  # delete the old
 | `-t, --tenant <id>` | Re-wrap one tenant only. With `--new-passphrase` it also needs `--allow-partial`                                    |
 | `--allow-partial`   | Allow `--tenant` to change the passphrase of one tenant while other profiles stay under the old one                |
 
-The command covers the tenant of every profile in the encrypted config store and in `atlas.config.json`, plus the tenant this run resolved. A tenant listed twice is re-wrapped once. Tenants run one after another, each under its own tenant lease, so a busy tenant is reported and skipped rather than stopping the rest.
+The command covers the tenant of every profile in the encrypted config store and in `atlas.config.json`, plus the tenant this run resolved. A tenant listed twice is re-wrapped once. Each tenant is opened in its own bucket: a profile's [bucket override](/configuration#bucket-override) applies to that profile's tenant only. Under `ATLAS_S3_BUCKET`, every tenant but the run's is reported as `failed`, so the run is not complete and the passphrase is not retired. Tenants run one after another, each under its own tenant lease, so a busy tenant is reported and skipped rather than stopping the rest.
 
 Each tenant gets one result:
 
@@ -1445,7 +1446,7 @@ pbpaste | atlas config set s3.secret-key -            # "-" reads from stdin, ke
 atlas config get s3.secret-key                        # secrets are masked
 atlas config list                                     # all shared keys, values, and sources
 atlas config unset s3.access-key                      # remove from the store
-atlas config validate                                 # live S3 connectivity check
+atlas config validate                                 # HeadBucket on the effective bucket
 ```
 
 | Subcommand                 | Description                                                                                |
@@ -1454,7 +1455,7 @@ atlas config validate                                 # live S3 connectivity che
 | `config get <key>`         | Print the effective value. Secrets are masked.                                             |
 | `config list`              | Print every shared key with its value and source (`env`, `secure store`, or `config file`) |
 | `config unset <key>`       | Remove a key from the encrypted store                                                      |
-| `config validate`          | Probe S3 (`ListBuckets`) with the effective config. Exits non-zero on failure.             |
+| `config validate`          | Print the effective bucket and send it `HeadBucket`. Exits non-zero on failure.            |
 
 Each verb is a subcommand, so `atlas config set --help` documents itself.
 
@@ -1468,7 +1469,9 @@ Each verb is a subcommand, so `atlas config set --help` documents itself.
 
 Each value is format-checked on save. When the S3 group is complete, its live probe runs automatically. `ATLAS_*` environment variables still override stored values, and the command warns when a saved value is shadowed by one.
 
-`atlas config set tenant.id`, `client.id`, and `client.secret` are refused with a message that points to `atlas tenants add`. `atlas config validate` checks S3 only. Use `atlas tenants validate` for Microsoft Graph.
+`atlas config set tenant.id`, `client.id`, and `client.secret` are refused with a message that points to `atlas tenants add`. `bucket` and `s3.bucket` are refused too: a bucket belongs to one tenant, so it is set with `atlas tenants add --bucket` or `ATLAS_S3_BUCKET`. See [Bucket override](/configuration#bucket-override).
+
+`atlas config validate` checks S3 only. It prints the selected profile's effective bucket, `atlas-<tenant-id>` or the override, and sends it `HeadBucket`, which bucket-scoped keys can call where `ListBuckets` is often denied. A missing derived bucket passes, because the first backup creates it. A missing overridden bucket fails, because Atlas never creates one. With no tenant ID configured, the command falls back to `ListBuckets`. Use `atlas tenants validate` for Microsoft Graph.
 
 ## atlas tenants
 
@@ -1480,6 +1483,7 @@ atlas tenants list
 atlas tenants use contoso                 # active profile for later runs
 atlas tenants validate                    # Graph token for the selected profile
 atlas tenants validate --all              # every profile
+pbpaste | atlas tenants add contoso-replica --tenant-id <tenant-id> --client-id <client-id> --client-secret - --bucket contoso-replica
 atlas --profile fabrikam outlook backup -m john.doe@example.com
 atlas tenants remove fabrikam -y
 ```
@@ -1487,17 +1491,18 @@ atlas tenants remove fabrikam -y
 | Subcommand                | Description                                                                                                                                                                                                                                                                                                                  |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `tenants add <name>`      | Save a profile, then check its Graph credentials. `--replace` overwrites an existing profile's credentials. A failed check keeps the profile and exits with code 1.                                                                                                                                                          |
-| `tenants list`            | List the stored profiles with masked secrets. The selected profile is marked with `*`.                                                                                                                                                                                                                                       |
+| `tenants list`            | List the stored profiles with masked secrets, and each profile's bucket when one is set. The selected profile is marked with `*`.                                                                                                                                                                                           |
 | `tenants use <name>`      | Set the active profile for later runs when neither `--profile` nor `ATLAS_PROFILE` is set.                                                                                                                                                                                                                                   |
 | `tenants remove <name>`   | Delete a profile from the store. Removing the active profile needs `-y`, and no profile is active afterward.                                                                                                                                                                                                                 |
-| `tenants validate [name]` | Check a profile's Graph credentials and the S3 settings. Without a name, checks the selected profile. Exits with code 1 if a check fails, and with code 6 before any check when a partial `ATLAS_*` Graph override changes the selected profile's tenant or client ID (see [Configuration](/configuration#tenant-profiles)). |
+| `tenants validate [name]` | Check a profile's Graph credentials, then print its effective bucket and send it `HeadBucket`. Without a name, checks the selected profile. Exits with code 1 if a check fails, and with code 6 before any check when a partial `ATLAS_*` Graph override changes the selected profile's tenant or client ID (see [Configuration](/configuration#tenant-profiles)). |
 
 | Option                    | Command  | Description                                                                       |
 | ------------------------- | -------- | --------------------------------------------------------------------------------- |
 | `--tenant-id <id>`        | add      | Microsoft Entra tenant: a GUID, or a domain such as `contoso.onmicrosoft.com`     |
 | `--client-id <id>`        | add      | Application (client) ID of the app registration. Must be a GUID.                  |
 | `--client-secret <value>` | add      | Client secret. A single token with no whitespace. Pass `-` to read it from stdin. |
-| `--replace`               | add      | Overwrite an existing profile with the same name                                  |
+| `--bucket <name>`         | add      | Bucket to use instead of `atlas-<tenant-id>`, such as a provider replica. Never created by Atlas. See [Bucket override](/configuration#bucket-override). |
+| `--replace`               | add      | Overwrite an existing profile with the same name. A bucket the new command omits is removed. |
 | `-y, --yes`               | remove   | Required to remove the active profile                                             |
 | `--all`                   | validate | Validate every profile instead of one                                             |
 

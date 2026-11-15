@@ -123,6 +123,8 @@ Do not delete a lease by hand while its operation may still be running. See [Ano
 
 Each tenant has a separate bucket, `atlas-<tenant_id>`, with its own `dek.enc` and its own Object Lock and lifecycle settings. The bucket is named after the tenant ID of the profile or SDK instance that writes it, so switching profiles switches buckets.
 
+A [bucket override](/configuration#bucket-override) (`ATLAS_S3_BUCKET`, a profile's `bucket`, or the SDK's `s3Bucket`) replaces the name, not the layout: the bucket must hold a copy of the same tenant's objects, under the same keys. The override is bound to the tenant it was configured for, and Atlas never creates an overridden bucket, so it adds no Object Lock or lifecycle settings to it. Configure those when you create it.
+
 Bucket separation alone does not separate credentials. The CLI's [tenant profiles](/configuration#tenant-profiles) share one S3 access key and one passphrase, so that key can read every profile's bucket. Managed service providers that must give each customer access to its own bucket only should use one S3 key per tenant: a separate Atlas installation per customer, or one SDK instance per tenant with its own `s3AccessKey`, `s3SecretKey`, and `encryptionPassphrase`.
 
 ## Outlook
