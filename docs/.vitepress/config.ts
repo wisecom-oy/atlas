@@ -156,6 +156,7 @@ export default defineConfig({
           { text: 'Storage usage', link: '/operations/storage-usage' },
           { text: 'Replicas', link: '/operations/replication' },
           { text: 'Graph rate limits', link: '/operations/graph-rate-limits' },
+          { text: 'Retries and fail-safes', link: '/operations/reliability' },
           { text: 'Troubleshooting', link: '/troubleshooting' },
         ],
       },

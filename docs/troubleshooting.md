@@ -40,7 +40,7 @@ Microsoft Graph returns HTTP 429 (throttled) and occasionally 500, 502, 503, or 
 - Atlas decides whether to retry from the HTTP status and from Node and undici error codes such as `ECONNRESET` or `UND_ERR_SOCKET`, never from the error message. Message text carries request IDs and item IDs, whose digits could otherwise pass for a status code.
 - If retries run out on one item, the failure is recorded in the run summary and the backup continues with the remaining items. If they run out on a call the whole run depends on, such as listing a mailbox's folders or a site's libraries, the run fails as described in [Microsoft Graph unavailable after retries](#microsoft-graph-unavailable-after-retries).
 
-Occasional 429 and 5xx responses during a large first backup need no action.
+Occasional 429 and 5xx responses during a large first backup need no action. [Retries and fail-safes](/operations/reliability) lists every retry parameter and what a run does when retries run out.
 
 ### Microsoft Graph unavailable after retries
 
@@ -61,7 +61,7 @@ A request that creates something during a restore is not repeated after a 500, 5
 
 Such a failure is recorded against the item in the run summary and the restore continues. The item may or may not exist in the target. A Calendar restore skips events already in the target calendar, and a Contacts restore skips contacts it restored earlier, so re-running the restore fills the gap without duplicating anything. For Outlook, check the reported message in the restore folder before restoring it again.
 
-A 429, or a 503 with `Retry-After`, is still retried: Graph sends these instead of processing the request. Files restored with `--conflict replace`, folder creation on OneDrive and SharePoint, upload sessions, and upload chunks are safe to repeat and keep the full retry policy.
+A 429, or a 503 with `Retry-After`, is still retried: Graph sends these instead of processing the request. Files restored with `--conflict replace`, folder creation on OneDrive and SharePoint, and upload sessions are safe to repeat and keep the full retry policy. Upload chunks are safe to repeat too, and have their own retry: up to 3 attempts on a 429 or 5xx, see [File transfers](/operations/reliability#file-transfers-onedrive-and-sharepoint).
 
 ### When to act
 
@@ -480,5 +480,6 @@ In the SDK, listings reject with `UnreadableObjectsError`, which names the keys 
 - [Getting started](/getting-started)
 - [Concepts](/concepts)
 - [CLI reference](/reference/cli)
+- [Retries and fail-safes](/operations/reliability)
 - [Security](/security)
 - [Microsoft Entra ID setup](/azure-ad-setup)

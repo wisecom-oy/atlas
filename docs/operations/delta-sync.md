@@ -225,6 +225,7 @@ A partial manifest from the first Ctrl+C is valid. The next run resumes from the
 
 ## See also
 
+- [Retries and fail-safes](/operations/reliability): commit order, leases, and partial runs across every workload
 - [Graph rate limits](/operations/graph-rate-limits): the pools that delta requests draw on
 - [Storage layout](/operations/storage-layout): where manifests, cursors, and version indexes are stored
 - [Immutability](/operations/immutability): retention for stored versions

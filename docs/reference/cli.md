@@ -68,6 +68,8 @@ Every backup, restore, deletion, quarantine, `atlas delete --purge`, `atlas keys
 
 A purge that exits `12` names the busy owner in its message and wrote nothing. The `keys` commands cover several tenants, so they do not exit `12`: a busy tenant is reported as `busy, skipped`, the other tenants are still processed, and the run exits `2`. Treat exit `2` from them as incomplete, not as nothing written: other tenants may already be re-wrapped or purged. Rerun the same command after the busy operation ends; it skips what is already done. Run these commands when no scheduled backup of the tenant is due.
 
+[Retries and fail-safes](/operations/reliability#exit-codes-and-whether-to-retry) explains which of these a rerun can fix and what Atlas retried before giving up.
+
 Fatal exceptions map to these categories. Failures the command reports itself stay `1`: failed verification, `storage-check` reporting an unready bucket, and `config validate` reporting a failed probe. Per-item failures already reported as partial stay `2`, and their messages are not reclassified.
 
 A confirmation prompt that ends without an answer exits `1` and changes nothing. That covers stdin at EOF, as under cron or systemd with stdin on `/dev/null`, and Ctrl+C or Ctrl+D pressed at the prompt. Answering `n` is a decision, not a failure, and exits `0`. Scheduled jobs pass `-y` to skip the prompt.
