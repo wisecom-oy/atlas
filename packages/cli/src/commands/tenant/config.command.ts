@@ -3,16 +3,19 @@ import { readFileSync } from 'node:fs';
 import { config as load_dotenv } from 'dotenv';
 import type {
   ConfigKeySpec,
+  S3Config,
   StoredConfig,
   StringConfig,
   StringConfigField,
 } from '@wisecom/atlas-core';
 import {
+  BUCKET_ENV_VAR,
   CONFIG_KEYS,
   find_config_key,
   find_overridden_fields,
   logger,
   mask_secret,
+  read_env_bucket,
   read_env_overrides,
   read_secure_config,
   secure_config_dir,
@@ -21,7 +24,11 @@ import {
   update_secure_config,
 } from '@wisecom/atlas-core';
 import { complete_s3_config, probe_s3 } from '@/commands/tenant/config-probes';
-import { probe_bucket, resolve_profile_bucket } from '@/commands/tenant/bucket-probe';
+import {
+  probe_bucket,
+  resolve_profile_bucket,
+  type ProfileBucket,
+} from '@/commands/tenant/bucket-probe';
 
 type ConfigSources = {
   readonly file: StoredConfig;
@@ -194,10 +201,28 @@ async function execute_validate(profile_flag: string | undefined): Promise<void>
   const name = select_profile_name(profile_flag, file, secure);
   const run = resolve_profile_bucket(name, { file, secure, apply_env: true });
   const config = complete_s3_config(merged);
-  const ok =
-    config !== undefined &&
-    (run === undefined ? await probe_s3(config) : await probe_bucket(config, run.bucket));
+  const ok = config !== undefined && (await probe_effective_bucket(config, run));
   if (!ok) process.exitCode = 1;
+}
+
+/**
+ * HeadBucket on the run's bucket, or ListBuckets when no tenant ID is known yet. An
+ * `ATLAS_S3_BUCKET` without a tenant ID fails instead: it cannot be bound to a tenant, and a
+ * ListBuckets success would report a bucket that was never checked.
+ */
+async function probe_effective_bucket(
+  config: S3Config,
+  run: ProfileBucket | undefined,
+): Promise<boolean> {
+  if (run !== undefined) return probe_bucket(config, run.bucket);
+  if (read_env_bucket() !== undefined) {
+    logger.error(
+      `${BUCKET_ENV_VAR} is set, but no tenant ID is configured to bind it to. Add a tenant ` +
+        'profile with "atlas tenants add", or set ATLAS_TENANT_ID.',
+    );
+    return false;
+  }
+  return probe_s3(config);
 }
 
 /** Probes S3 once its fields are all set; region and passphrase changes wait for the next validate. */

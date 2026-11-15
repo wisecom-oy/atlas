@@ -150,6 +150,17 @@ describe('atlas config validate (issue #768)', () => {
     expect(output.join('\n')).toMatch(/the first backup creates it/);
   });
 
+  it('fails on ATLAS_S3_BUCKET without a tenant ID instead of falling back to ListBuckets', async () => {
+    mocks.read_secure_config.mockReturnValue({ ...S3 });
+    vi.stubEnv('ATLAS_S3_BUCKET', 'unbound-copy');
+
+    await run(['validate']);
+
+    expect(process.exitCode).toBe(1);
+    expect(s3_mocks.send).not.toHaveBeenCalled();
+    expect(output.join('\n')).toMatch(/no tenant ID is configured to bind it to/);
+  });
+
   it('refuses a top-level bucket in the store', async () => {
     store(PROFILE, { bucket: 'shared-copy' });
 
