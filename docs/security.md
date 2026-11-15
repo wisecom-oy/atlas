@@ -509,17 +509,31 @@ A restored file contains the original bytes, verified against the manifest check
 | Original created and modified times | Yes      | Yes, through the `fileSystemInfo` facet |
 | `createdBy` and `lastModifiedBy`    | Yes      | No. Kept for audit only                 |
 | Version authors                     | Yes      | No. Kept for audit only                 |
-| Sharing permissions and links       | No       | No                                      |
+| Item sharing (grants and links)     | Yes      | Only with `--restore-permissions`       |
+| Sharing link URLs                   | No       | No. A recreated link gets a new URL     |
+| Site and library permissions        | No       | No                                      |
 
 Graph exposes two timestamp pairs. The `driveItem` values are set by the service, so a restored file always shows the restore time there. The `fileSystemInfo` facet holds client-reported values and is writable on upload, so Atlas restores through it. Each manifest entry records both pairs. A resumable upload carries the timestamps with the upload. A small `PUT /content` carries only bytes, so Atlas follows it with a best-effort `PATCH`. If that patch fails, the file keeps restore-time timestamps and the run logs the failure.
 
 Authors are recorded on every manifest entry and version row, so the original author is always available from the backup. Graph attributes an upload to the identity that performed it, and rewriting authorship needs separate migration APIs and permissions. A restored file is authored by the Atlas application identity.
 
-::: warning Sharing permissions are not captured
-A restore does not rebuild per-item sharing or links. A restored library inherits the destination's defaults, which are usually broader than the original curated sharing. **Treat a restored library as unshared and reapply access before returning it to users.**
-:::
+### Sharing links are stored without their URLs
 
-Capturing permissions is expensive. Each permission operation costs 5 resource units from the tenant-wide SharePoint and OneDrive pool (see [Graph rate limits](./operations/graph-rate-limits.md#resource-unit-costs)). A 100,000-file drive would need 500,000 RU. At 1,250 RU per minute, that is about 6.7 hours of the tenant's quota, which would slow every other app. Graph's `shared` facet can flag only the items that are shared, which would reduce the cost, but restore-side reapplication is not implemented.
+A backup records each file's and folder's non-inherited permissions: roles, grantee identities, a link's type and scope, its expiry, and whether it had a password. It never stores a link's `webUrl`, its `shareId`, an invitation URL, or any token. The record is built from an allow-list of fields, so a field Graph adds later cannot reach a manifest either.
+
+An anonymous link's URL is a bearer credential: anyone holding it opens the item without signing in. Graph cannot recreate a link with a given URL, so a stored URL would buy nothing on restore and would turn the backup into a store of working share links. An attacker who obtains the bucket and the passphrase learns who had access to what, which is sensitive in itself, but gains no link that opens anything.
+
+### Restoring permissions re-exposes content
+
+A restore applies no permission unless `--restore-permissions` (SDK `restorePermissions: true`) is set, and the summary says how many it left out. Without the flag a restored item has only the access it inherits at the destination, which can be broader or narrower than the original. **Check the destination's sharing before returning restored content to users.**
+
+With the flag, every grant and link is applied to the restored copy, wherever it lands. Restoring into another user's drive, a restore folder, or another site therefore shares that copy with the original audience. Grants go through `invite` with `sendInvitation: false` and `requireSignIn: true`, so nobody is emailed and a grant never works without sign-in. Links are recreated with the same type and scope, so an anonymous link becomes a new anonymous link with a new URL, unless tenant policy now forbids anonymous links. Atlas does not recreate a password-protected link, because the password cannot be read back and a link without it would be more open than the original. It does not recreate an expired link either. Owner grants and SharePoint site group grants are recorded but never reapplied.
+
+Permission restore needs the same write permission as file restore, `Files.ReadWrite.All` for OneDrive and `Sites.ReadWrite.All` for SharePoint. Reading permissions during backup needs nothing beyond the existing read permissions.
+
+### The cost of capturing sharing
+
+Each permission read costs 5 resource units from the tenant-wide SharePoint and OneDrive pool (see [Graph rate limits](./operations/graph-rate-limits.md#resource-unit-costs)). Reading every item of a 100,000-file drive would cost 500,000 RU, about 6.7 hours of the tenant's quota at 1,250 RU per minute. Atlas avoids that: delta requests carry `Prefer: hierarchicalsharing`, which makes Graph mark only the items whose own sharing was set or removed, and only those are read, 20 per `$batch` request. A drive with 2,000 shared items costs about 10,000 RU on its first backup after upgrading, and later backups read only items whose sharing changed. `$batch` saves round trips, not resource units.
 
 ## Calendar restore does not notify attendees
 

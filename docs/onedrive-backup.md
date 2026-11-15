@@ -33,8 +33,9 @@ atlas onedrive restore -o user@example.com -s od-snap-1735689600000-a1b2c3
 | Folder structure          | Paths recorded in the snapshot manifest                                                       |
 | OneNote notebooks         | Section files and table of contents, stored as ordinary files ([details](#onenote-notebooks)) |
 | Moves, renames, deletions | Recorded as changes on the next run                                                           |
+| Sharing                   | Each file's and folder's non-inherited permissions, without link URLs ([details](#sharing))   |
 
-Sharing permissions are not captured, and restores do not recreate file authors. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
+Restores do not recreate file authors, and reapply sharing only when asked. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
 
 To back up one folder tree instead of the whole drive, pass `--folder /Projects` to `backup`. Changing the folder scope forces a full crawl.
 
@@ -46,7 +47,7 @@ Add these application permissions to the Atlas app registration in Microsoft Ent
 | --------------------- | -------------------------------------------- |
 | `Files.Read.All`      | Backup, verify, and save                     |
 | `User.Read.All`       | Resolving user email addresses to object IDs |
-| `Files.ReadWrite.All` | Restore only                                 |
+| `Files.ReadWrite.All` | Restore, including sharing                   |
 
 If a permission is missing, the run stops before it touches any files and names the missing scope, for example `Missing Microsoft Graph application permissions for OneDrive: Files.Read.All.`
 
@@ -81,11 +82,15 @@ Object Lock makes stored objects undeletable until the retention period ends. Us
 | `--name <filename>`        | Rename the restored file; single-file restores only                                                                                                                 | Original name          |
 | `--file-filter <paths...>` | Restore only the given files, by ID or path                                                                                                                         | All files              |
 | `-c, --conflict <mode>`    | `rename`, `replace`, or `fail`                                                                                                                                      | `rename`               |
+| `--restore-permissions`    | Reapply captured grants and recreate sharing links ([details](#restoring-sharing))                                                                                  | `false`                |
 | `-t, --tenant <id>`        | Tenant identifier                                                                                                                                                   | Config default         |
 
 ```bash
 # Restore everything into a fresh Restore-<timestamp> folder
 atlas onedrive restore -o user@example.com -s od-snap-123
+
+# Restore in place and give everyone their access back
+atlas onedrive restore -o user@example.com -s od-snap-123 --in-place --restore-permissions
 
 # Restore two files, replacing any that exist at the destination
 atlas onedrive restore -o user@example.com -s od-snap-123 \
@@ -162,14 +167,16 @@ Checks a snapshot's integrity without restoring anything. For each entry, Atlas 
 atlas onedrive verify -o user@example.com -s od-snap-1735689600000-a1b2c3
 ```
 
-### list-snapshots and list-versions
+### list-snapshots, list-versions, and list-permissions
 
 ```bash
 atlas onedrive list-snapshots -o user@example.com
 atlas onedrive list-versions -o user@example.com -f "/Documents/report.docx"
+atlas onedrive list-permissions -o user@example.com
+atlas onedrive list-permissions -o user@example.com -s od-snap-123
 ```
 
-`list-versions` takes `-f, --file <ref>` (a file ID or path, required).
+`list-versions` takes `-f, --file <ref>` (a file ID or path, required). `list-permissions` shows who had access to what at a snapshot, the newest by default: one row per permission, with the item's path, its kind (file or folder), the roles, and the grantee or the link's type and scope. It reads the backup alone, so it works when the drive or the user is gone.
 
 ### status
 
@@ -203,6 +210,35 @@ A restore creates `/Restore-<timestamp>` at the drive root and recreates the ori
 The default is a restore root because the `rename` conflict mode alone leaves suffixed copies scattered through live content. Use `--in-place` to restore to the original paths. Use `--destination` to choose the folder name.
 
 `--name` is rejected when a restore resolves to more than one file. Pair it with `--file-filter`. Nesting the original structure under a restore root lengthens every path. A file that exceeds OneDrive's path length limit is reported as a skipped item and does not abort the run.
+
+## Sharing
+
+Atlas records each file's and folder's own permissions: direct grants to users and groups, and sharing links. For each it keeps the roles, the grantee (object ID, display name, address), a link's type and scope, its expiry, and whether it had a password. Permissions inherited from a parent folder are implied by the parent's entry and are not repeated. A link's URL is never stored. See [Sharing links are stored without their URLs](/security#sharing-links-are-stored-without-their-urls).
+
+Atlas reads permissions only for items Graph reports as shared, 20 items per `$batch` request. A sharing change does not change a file's content tag, so a file whose sharing changed and whose content did not is recorded with the stored content of its previous entry, as change type `permissions_changed`. Nothing is downloaded again. A folder gets an entry only while it has permissions of its own.
+
+### Restoring sharing
+
+```bash
+atlas onedrive restore -o user@example.com -s od-snap-123 --in-place --restore-permissions
+```
+
+Without `--restore-permissions` a restore applies no permission, and the summary reports how many it left out. Permission restore is opt-in because a restore into another user's drive or a restore folder would otherwise share the content with the original audience again.
+
+With the flag, Atlas reapplies each permission to the restored item:
+
+| Permission                         | How it is restored                                                                                   |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Direct grant to a user or group    | `invite` by object ID, then by address, with `sendInvitation: false` and `requireSignIn: true`       |
+| Organization or anonymous link     | `createLink` with the same type and scope, and the expiry when it is still in the future. A new URL  |
+| Specific-people link               | `createLink` with the same type and scope, shared with the recorded people                           |
+| Owner grant                        | Not reapplied. The target drive's owner already holds it                                             |
+
+A permission that cannot be reapplied is listed with its reason and does not fail the restore or change the exit code. Typical reasons: the grantee no longer exists, the link expired, the link was password-protected (the password cannot be read back), tenant policy forbids that kind of link, or the grant was to a SharePoint site group.
+
+### First backup after upgrading
+
+Backups made before sharing was captured saved delta links that predate it: they never mark which items are shared. The first backup after upgrading detects this and lists each drive in full once. Tracking is kept, so unchanged files are not downloaded again, and files deleted since the last run still get their tombstones. The run reads the permissions of every shared item. Expect that run to take longer than an incremental one: see [the cost of capturing sharing](/security#the-cost-of-capturing-sharing).
 
 ## Rolling a file back to an earlier version
 
@@ -300,7 +336,7 @@ Restored sections are ordinary files. Dropping them back into a drive does not r
 - **Files that change size.** Every download is checked against the size the listing reported. Each range of a chunked download also carries the file's total length in its `Content-Range`. A file can change size between its listing and its download, and SharePoint can rewrite a file on its first download without creating a version, so a listed size can be stale. When the size differs, Atlas reads the item once more and downloads the file again at its current size. A file that settles is stored at that size, and its manifest entry records it. The refresh costs one item read per mismatching file, and a file gets at most one refresh per run. A file whose size still changes fails with `DownloadIntegrityError`, is recorded as a failed item, and leaves the run UNHEALTHY. A truncated transfer or a wrong byte range is never refreshed and fails at once. After 5 failed attempts the file is reported as `PERMANENTLY SKIPPED`.
 - **Ctrl+C.** A backup stops at once: in the middle of a file it is reading from its download URL, in a Graph call such as delta listing or the `/content` fallback, and during any retry or throttle wait. A file interrupted this way is not recorded as a failed item, so it keeps its 5 retry attempts for the next run.
 - **Path length.** Restores under a root add path depth. Files over OneDrive's path length limit are skipped and reported.
-- **Scope.** Permissions and authors are not restored.
+- **Scope.** Authors are not restored. Sharing is restored only with `--restore-permissions`.
 
 ## SDK usage
 

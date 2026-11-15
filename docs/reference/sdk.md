@@ -264,7 +264,7 @@ Method names mirror the CLI: `atlas outlook backup` maps to `atlas.outlook.backu
 
 ### OneDrive and SharePoint
 
-`atlas.onedrive` and `atlas.sharepoint` expose the same operations per drive owner or site: `backup`, `verify`, `restore`, `restoreVersion`, `save`, `listSnapshots`, `listSnapshotSummaries`, `listFileVersions`, `checkStatus`, `getStats`, `quarantine(storageKey)`, and a delete method. The delete methods are `deleteOwnerData(ownerId)` and `deleteSnapshot(ownerId, snapshotId)` on OneDrive, and `deleteSiteData(siteId)` and `deleteSnapshot(siteId, snapshotId)` on SharePoint. SharePoint also provides `listSites()` and `resolveSite(urlOrId)`. Each site they return has `siteId`, `siteUrl`, `displayName`, and `kind`: `site`, or `file_storage_container` for a [SharePoint Embedded container](/sharepoint-backup#sharepoint-embedded-containers), which Atlas cannot back up. `listSites()` returns containers rather than leaving them out.
+`atlas.onedrive` and `atlas.sharepoint` expose the same operations per drive owner or site: `backup`, `verify`, `restore`, `restoreVersion`, `save`, `listSnapshots`, `listSnapshotSummaries`, `listFileVersions`, `listPermissions`, `checkStatus`, `getStats`, `quarantine(storageKey)`, and a delete method. The delete methods are `deleteOwnerData(ownerId)` and `deleteSnapshot(ownerId, snapshotId)` on OneDrive, and `deleteSiteData(siteId)` and `deleteSnapshot(siteId, snapshotId)` on SharePoint. SharePoint also provides `listSites()` and `resolveSite(urlOrId)`. Each site they return has `siteId`, `siteUrl`, `displayName`, and `kind`: `site`, or `file_storage_container` for a [SharePoint Embedded container](/sharepoint-backup#sharepoint-embedded-containers), which Atlas cannot back up. `listSites()` returns containers rather than leaving them out.
 
 ### Snapshot summaries
 
@@ -839,6 +839,32 @@ await atlas.onedrive.restore('owner-id', { snapshotId, inPlace: true });
 
 `restore` also takes `targetTenant` to write into another tenant. It then requires `targetOwnerId` on OneDrive or `targetSiteId` on SharePoint. See [Cross-tenant restore](#cross-tenant-restore).
 
+### Sharing
+
+```typescript
+const result = await atlas.onedrive.restore('owner-id', {
+  snapshotId,
+  inPlace: true,
+  restorePermissions: true,
+});
+for (const item of result.skippedItems ?? []) {
+  console.warn(`${item.path}: ${item.kind} ${item.detail ?? ''}: ${item.reason}`);
+}
+```
+
+`restorePermissions: true` reapplies each item's captured grants and recreates its sharing links. It is off by default, so a restore into another drive or folder never shares content with the original audience again. See [Restoring sharing](/onedrive-backup#restoring-sharing) and [Restoring permissions re-exposes content](/security#restoring-permissions-re-exposes-content).
+
+| Result field              | Meaning                                                                          |
+| ------------------------- | -------------------------------------------------------------------------------- |
+| `permissionsApplied`      | Grants and links reapplied                                                       |
+| `permissionsSkipped`      | Grants and links requested but not reapplied                                     |
+| `permissionsNotRequested` | Grants and links left out because `restorePermissions` was not set               |
+| `skippedItems`            | One `{ path, kind, detail, reason }` per permission left out                     |
+
+Each field is present only when non-zero. None of these outcomes is added to `errors`, so a grant to a user deleted since the backup does not make the restore partial.
+
+`listPermissions(ownerOrSiteId, snapshotId?)` answers "who had access" from the backup alone, for the newest snapshot when `snapshotId` is absent. It resolves to `{ snapshotId, items }`, where each item has `fileId`, `driveId`, `path`, `kind` (`file` or `folder`), and `permissions`.
+
 ### Version restore
 
 `restoreVersion()` pushes stored file versions back into a live drive or library. It is available on `atlas.onedrive` and `atlas.sharepoint`:
@@ -901,9 +927,18 @@ for (const entry of snapshot?.entries ?? []) {
 }
 ```
 
-`fileSystemInfo` holds the client-reported timestamps from the Graph `fileSystemInfo` facet. A restore reapplies that pair. `lastModifiedAt` stays the service-side value, which reflects the restore after it runs. Authors and version authors are captured but not reapplied. Sharing permissions are not captured. See [What a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
+`fileSystemInfo` holds the client-reported timestamps from the Graph `fileSystemInfo` facet. A restore reapplies that pair. `lastModifiedAt` stays the service-side value, which reflects the restore after it runs. Authors and version authors are captured but not reapplied. See [What a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
 
 These fields are absent on manifests written before 4.1.0.
+
+Entries can also describe more than files:
+
+| Field            | Meaning                                                                                                        |
+| ---------------- | -------------------------------------------------------------------------------------------------------------- |
+| `kind`           | `folder`. Absent means a file, which is every entry written before sharing was captured                        |
+| `permissions`    | The item's non-inherited permissions: `roles`, and `link` (`type`, `scope`) or `grantedTo`, with `expiresAt`, `hasPassword`, and `grantedToIdentities`. Never a link URL |
+
+A folder has an entry only while it has permissions of its own. `changeType: 'permissions_changed'` marks a file whose sharing changed while its content did not; it reuses the stored content of the file's previous entry. `totalFiles` on a manifest counts files only.
 
 ## Object Lock
 
