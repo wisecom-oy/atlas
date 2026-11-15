@@ -149,6 +149,38 @@ describe('atlas tenants add', () => {
     });
   });
 
+  it('stores --bucket on the profile, bound to its tenant (#768)', async () => {
+    await run(add_args('work', ['--bucket', 'work-copy']));
+
+    expect(mocks.write_secure_config).toHaveBeenCalledWith({
+      tenants: { work: { ...WORK, bucket: 'work-copy' } },
+      active_tenant: 'work',
+    });
+    expect(output.join('\n')).toMatch(/reads and writes bucket "work-copy"/);
+  });
+
+  it('drops a stored bucket when --replace omits --bucket (#768)', async () => {
+    mocks.read_secure_config.mockReturnValue({
+      tenants: { work: { ...WORK, bucket: 'work-copy' } },
+      active_tenant: 'work',
+    });
+
+    await run(add_args('work', ['--replace']));
+
+    expect(mocks.write_secure_config).toHaveBeenCalledWith({
+      tenants: { work: WORK },
+      active_tenant: 'work',
+    });
+  });
+
+  it('rejects an invalid --bucket and writes nothing (#768)', async () => {
+    await expect(run(add_args('work', ['--bucket', 'Work_Copy']))).rejects.toThrow(
+      /--bucket names "Work_Copy", which is not a valid S3 bucket name/,
+    );
+
+    expect(mocks.write_secure_config).not.toHaveBeenCalled();
+  });
+
   it('notes when the store copy now overrides a profile in atlas.config.json', async () => {
     mocks.try_load_config_file.mockReturnValue({ tenants: { work: WORK } });
 

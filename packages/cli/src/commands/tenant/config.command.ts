@@ -1,7 +1,12 @@
 import type { Command } from 'commander';
 import { readFileSync } from 'node:fs';
 import { config as load_dotenv } from 'dotenv';
-import type { AtlasConfig, ConfigKeySpec, StoredConfig } from '@wisecom/atlas-core';
+import type {
+  ConfigKeySpec,
+  StoredConfig,
+  StringConfig,
+  StringConfigField,
+} from '@wisecom/atlas-core';
 import {
   CONFIG_KEYS,
   find_config_key,
@@ -11,22 +16,27 @@ import {
   read_env_overrides,
   read_secure_config,
   secure_config_dir,
+  select_profile_name,
   try_load_config_file,
   update_secure_config,
 } from '@wisecom/atlas-core';
-import { probe_s3 } from '@/commands/tenant/config-probes';
+import { complete_s3_config, probe_s3 } from '@/commands/tenant/config-probes';
+import { probe_bucket, resolve_profile_bucket } from '@/commands/tenant/bucket-probe';
 
 type ConfigSources = {
   readonly file: StoredConfig;
   readonly secure: StoredConfig;
-  readonly env: Partial<AtlasConfig>;
-  readonly merged: Partial<AtlasConfig>;
+  readonly env: Partial<StringConfig>;
+  readonly merged: Partial<StringConfig>;
 };
 
-const S3_FIELDS: (keyof AtlasConfig)[] = ['s3_endpoint', 's3_access_key', 's3_secret_key'];
+const S3_FIELDS: StringConfigField[] = ['s3_endpoint', 's3_access_key', 's3_secret_key'];
 
 /** Keys that moved to tenant profiles; kept here so the old spelling gets a pointer, not "unknown". */
 const TENANT_CONFIG_KEYS = ['tenant.id', 'client.id', 'client.secret'];
+
+/** A shared bucket would apply to every profile, so the bucket is a profile field only (#768). */
+const BUCKET_CONFIG_KEYS = ['bucket', 's3.bucket'];
 
 /**
  * Registers the `atlas config` group.
@@ -83,13 +93,22 @@ export function register_config_command(program: Command): void {
 
   group
     .command('validate')
-    .description('Live-validate S3 connectivity with the effective config')
+    .description('Live-validate S3 access to the effective bucket with the effective config')
     .addHelpText('after', '\nTo validate tenant credentials, run "atlas tenants validate".')
-    .action(async () => execute_validate());
+    .action(async (_options: unknown, command: Command) =>
+      execute_validate(command.optsWithGlobals<{ profile?: string }>().profile),
+    );
 }
 
 /** Resolves a key spec, naming the discovery command when the key is unknown. */
 function require_config_key(key: string): ConfigKeySpec {
+  if (BUCKET_CONFIG_KEYS.includes(key)) {
+    throw new Error(
+      'The bucket belongs to one tenant, so it is not a shared setting. Set it on the tenant ' +
+        'profile with "atlas tenants add <name> ... --bucket <bucket> --replace", or for one run ' +
+        'with ATLAS_S3_BUCKET.',
+    );
+  }
   if (TENANT_CONFIG_KEYS.includes(key)) {
     throw new Error(
       'Tenant credentials now live in tenant profiles. Use ' +
@@ -166,18 +185,25 @@ function execute_unset(key: string): void {
   logger.success(`Removed ${spec.key} from the encrypted store`);
 }
 
-/** Live-validates S3 connectivity with the effective config. */
-async function execute_validate(): Promise<void> {
-  const { merged } = read_sources();
-  if (!(await probe_s3(merged))) {
-    process.exitCode = 1;
-  }
+/**
+ * Live-validates S3 with the effective config: HeadBucket on the selected profile's effective
+ * bucket, or ListBuckets when no tenant ID is configured yet to derive one from.
+ */
+async function execute_validate(profile_flag: string | undefined): Promise<void> {
+  const { file, secure, merged } = read_sources();
+  const name = select_profile_name(profile_flag, file, secure);
+  const run = resolve_profile_bucket(name, { file, secure, apply_env: true });
+  const config = complete_s3_config(merged);
+  const ok =
+    config !== undefined &&
+    (run === undefined ? await probe_s3(config) : await probe_bucket(config, run.bucket));
+  if (!ok) process.exitCode = 1;
 }
 
 /** Probes S3 once its fields are all set; region and passphrase changes wait for the next validate. */
 async function probe_group_if_complete(
-  field: keyof AtlasConfig,
-  merged: Partial<AtlasConfig>,
+  field: StringConfigField,
+  merged: Partial<StringConfig>,
 ): Promise<void> {
   if (S3_FIELDS.includes(field) || field === 's3_region') {
     if (S3_FIELDS.every((f) => merged[f] !== undefined)) {
@@ -199,7 +225,7 @@ function read_sources(): ConfigSources {
 }
 
 /** Names the highest-precedence source that provides a field. */
-function resolve_source(sources: ConfigSources, field: keyof AtlasConfig): string {
+function resolve_source(sources: ConfigSources, field: StringConfigField): string {
   if (sources.env[field] !== undefined) return 'env';
   if (sources.secure[field] !== undefined) return 'secure store';
   return 'config file';

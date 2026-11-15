@@ -89,6 +89,18 @@ describe('atlas tenants list', () => {
     expect(output.find((line) => line.includes('  home'))).toContain('(config file)');
   });
 
+  it("shows a profile's bucket only when one is set (#768)", async () => {
+    mocks.read_secure_config.mockReturnValue({
+      tenants: { work: { ...WORK, bucket: 'work-copy' }, home: HOME },
+      active_tenant: 'work',
+    });
+
+    await run(['list']);
+
+    expect(output.find((line) => line.includes('* work'))).toContain('bucket work-copy');
+    expect(output.find((line) => line.includes('  home'))).not.toContain('bucket');
+  });
+
   it('reports a profile defined in both places as both', async () => {
     mocks.read_secure_config.mockReturnValue({ tenants: { work: WORK }, active_tenant: 'work' });
     mocks.try_load_config_file.mockReturnValue({ tenants: { work: { client_id: CLIENT } } });

@@ -29,10 +29,10 @@ vi.mock('@azure/identity', () => ({
 }));
 
 const s3_mocks = vi.hoisted(() => ({ send: vi.fn(), destroy: vi.fn() }));
-vi.mock('@wisecom/atlas-s3', () => ({
+vi.mock('@wisecom/atlas-s3', async (import_original) => ({
+  ...(await import_original<Record<string, unknown>>()),
   create_s3_client: vi.fn(() => ({ send: s3_mocks.send, destroy: s3_mocks.destroy })),
 }));
-vi.mock('@aws-sdk/client-s3', () => ({ ListBucketsCommand: vi.fn() }));
 
 const mocks = vi.hoisted(() => {
   const read_secure_config = vi.fn();
@@ -72,6 +72,13 @@ const S3 = {
 
 let output: string[];
 
+/** The bucket each S3 request named, in order. */
+function probed_buckets(): string[] {
+  return s3_mocks.send.mock.calls.map(
+    ([command]) => (command as { input: { Bucket: string } }).input.Bucket,
+  );
+}
+
 function run(args: string[]): Promise<unknown> {
   const program = new Command();
   program.exitOverride();
@@ -109,7 +116,7 @@ afterEach(() => {
 });
 
 describe('atlas tenants validate', () => {
-  it('--all exits non-zero when one profile fails, and probes S3 once', async () => {
+  it("--all exits non-zero when one profile fails, and probes each profile's bucket", async () => {
     mocks.read_secure_config.mockReturnValue({
       ...S3,
       tenants: { home: HOME, work: WORK },
@@ -123,7 +130,7 @@ describe('atlas tenants validate', () => {
     expect(process.exitCode).toBe(1);
     expect(output.join('\n')).toMatch(/Microsoft Graph \[home\] validation failed/);
     expect(output.join('\n')).toMatch(/Microsoft Graph \[work\]: token acquired/);
-    expect(s3_mocks.send).toHaveBeenCalledTimes(1);
+    expect(probed_buckets()).toEqual([`atlas-${CONTOSO}`, `atlas-${TENANT}`]);
   });
 
   it('validates only the selected profile when no name is given', async () => {

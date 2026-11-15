@@ -1,5 +1,6 @@
-import type { GraphConfig } from '@wisecom/atlas-core';
+import type { GraphConfig, StoredConfig } from '@wisecom/atlas-core';
 import {
+  logger,
   assert_override_keeps_one_identity,
   find_graph_env_overrides,
   find_profile,
@@ -11,7 +12,8 @@ import {
   warn_graph_env_overrides,
 } from '@wisecom/atlas-core';
 import { ConfigError } from '@wisecom/atlas-types';
-import { probe_graph, probe_s3 } from '@/commands/tenant/config-probes';
+import { complete_s3_config, probe_graph } from '@/commands/tenant/config-probes';
+import { probe_bucket, resolve_profile_bucket } from '@/commands/tenant/bucket-probe';
 import { read_graph_env_overrides, read_store } from '@/commands/tenant/tenant-profile-store';
 
 export interface ValidateProfilesOptions {
@@ -28,7 +30,8 @@ interface ValidateScope {
 
 /**
  * Live-checks the Graph credentials of one profile (the selected one by default) or of every
- * profile, then S3 once, since all profiles share the same storage. Sets exit code 1 on any failure.
+ * profile, then HeadBucket on each one's effective bucket: S3 settings are shared, but a profile
+ * may name its own bucket. Sets exit code 1 on any failure.
  */
 export async function execute_validate_profiles(
   global_profile: string | undefined,
@@ -63,8 +66,31 @@ export async function execute_validate_profiles(
     if (!(await probe_graph(credentials, target))) ok = false;
   }
 
-  if (!(await probe_s3({ ...file, ...stored, ...read_env_overrides() }))) ok = false;
+  if (!(await probe_profile_buckets(targets, selected, file, stored))) ok = false;
   if (!ok) process.exitCode = 1;
+}
+
+/** HeadBucket on each target's effective bucket; `ATLAS_S3_BUCKET` applies to the selected one only. */
+async function probe_profile_buckets(
+  targets: readonly string[],
+  selected: string,
+  file: StoredConfig,
+  stored: StoredConfig,
+): Promise<boolean> {
+  const config = complete_s3_config({ ...file, ...stored, ...read_env_overrides() });
+  if (config === undefined) return false;
+  let ok = true;
+  for (const target of targets) {
+    const sources = { file, secure: stored, apply_env: target === selected };
+    const run = resolve_profile_bucket(target, sources);
+    if (run === undefined) {
+      logger.warn(`S3 [${target}]: no tenant ID, so no bucket to check`);
+      ok = false;
+      continue;
+    }
+    if (!(await probe_bucket(config, run.bucket, `S3 [${target}]`))) ok = false;
+  }
+  return ok;
 }
 
 /**

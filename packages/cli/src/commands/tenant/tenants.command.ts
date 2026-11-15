@@ -18,8 +18,9 @@ export function register_tenants_command(program: Command): void {
     .description('Manage named Microsoft Graph tenant profiles')
     .addHelpText(
       'after',
-      '\nS3 settings and the encryption passphrase are shared across profiles; ' +
-        'select one per run with --profile <name> or ATLAS_PROFILE.',
+      '\nS3 settings and the encryption passphrase are shared across profiles; a profile may ' +
+        'name its own bucket with --bucket. Select one per run with --profile <name> or ' +
+        'ATLAS_PROFILE.',
     );
   // Inherited by every subcommand so ATLAS_* variables from a .env file are visible.
   group.hook('preAction', () => {
@@ -33,6 +34,10 @@ export function register_tenants_command(program: Command): void {
     .requiredOption('--tenant-id <id>', 'Entra tenant ID (GUID or *.onmicrosoft.com domain)')
     .requiredOption('--client-id <id>', 'app registration client ID (GUID)')
     .requiredOption('--client-secret <value>', 'client secret; "-" reads it from stdin')
+    .option(
+      '--bucket <name>',
+      "bucket to use instead of atlas-<tenant-id>, e.g. a provider replica (this tenant's only)",
+    )
     .option('--replace', 'overwrite the credentials of an existing profile')
     .action(
       async (
@@ -41,6 +46,7 @@ export function register_tenants_command(program: Command): void {
           tenantId: string;
           clientId: string;
           clientSecret: string;
+          bucket?: string;
           replace?: boolean;
         },
       ) => {
@@ -48,6 +54,7 @@ export function register_tenants_command(program: Command): void {
           tenantId: options.tenantId,
           clientId: options.clientId,
           clientSecret: options.clientSecret,
+          ...(options.bucket !== undefined ? { bucket: options.bucket } : {}),
           ...(options.replace !== undefined ? { replace: options.replace } : {}),
         });
       },
