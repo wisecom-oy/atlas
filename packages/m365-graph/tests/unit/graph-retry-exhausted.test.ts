@@ -83,8 +83,31 @@ describe('with_graph_retry, exhausted failures', () => {
     const failure = await exhaust(vi.fn().mockRejectedValue(reset));
 
     expect(failure).toBeInstanceOf(GraphUnavailableError);
-    expect(failure).toMatchObject({ status_code: undefined, retries: 12, cause: reset });
-    expect((failure as Error).message).toContain('ECONNRESET');
+    expect(failure).toMatchObject({
+      status_code: undefined,
+      graph_code: undefined,
+      retries: 12,
+      cause: reset,
+    });
+    expect((failure as Error).message).toContain('no HTTP response (ECONNRESET: read ECONNRESET)');
+  });
+
+  it('reports no status for the network failure the Graph SDK wraps as statusCode -1', async () => {
+    // What the Graph SDK rejects with when fetch itself fails: the native error's name as `code`,
+    // a status of -1, and no `cause`. Seen live under a connection-reset outage.
+    const wrapped = Object.assign(new Error('fetch failed'), { statusCode: -1, code: 'TypeError' });
+
+    const failure = await exhaust(vi.fn().mockRejectedValue(wrapped));
+
+    expect(failure).toBeInstanceOf(GraphUnavailableError);
+    expect(failure).toMatchObject({
+      status_code: undefined,
+      graph_code: undefined,
+      cause: wrapped,
+    });
+    const { message } = failure as Error;
+    expect(message).toContain('no HTTP response (TypeError: fetch failed)');
+    expect(message).not.toContain('HTTP -1');
   });
 
   it('still raises ThrottledError for an exhausted 429', async () => {

@@ -17,6 +17,7 @@ import {
 } from '@/graph-retry-after';
 import { race_abort, run_attempt, sleep, throw_if_cancelled } from '@/graph-attempt-cancellation';
 import { is_network_error } from '@/graph-network-error';
+import { to_graph_unavailable_error } from '@/graph-unavailable-failure';
 import { GraphUnavailableError, ThrottledError } from '@wisecom/atlas-types';
 
 /**
@@ -216,22 +217,7 @@ function as_exhausted_failure(err: unknown, retries: number, elapsed_ms: number)
       { cause: err },
     );
   }
-  return new GraphUnavailableError(
-    `Microsoft Graph was unavailable after ${retries} retries over ` +
-      `${Math.round(elapsed_ms / 1000)} s: ${describe_graph_error(err)}`,
-    { retries, elapsed_ms },
-    {
-      status_code: typeof status === 'number' ? status : undefined,
-      graph_code: graph_code_of(err),
-      cause: err,
-    },
-  );
-}
-
-/** Graph's error code on a Graph error, or undefined for a failure that carries none. */
-function graph_code_of(err: unknown): string | undefined {
-  if (typeof err !== 'object' || err === null || !('code' in err)) return undefined;
-  return typeof err.code === 'string' && err.code !== '' ? err.code : undefined;
+  return to_graph_unavailable_error(err, { retries, elapsed_ms }, describe_graph_error);
 }
 
 /** The HTTP status a Graph or network error carries, or undefined when it carries none. */
