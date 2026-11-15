@@ -102,24 +102,24 @@ def bucket_copy(
 ) -> Iterator[minio_admin.ReadOnlyCopy]:
     """A copy of the tenant bucket under another name, readable by a user scoped to it (#768).
 
-    The copy and the user are removed afterwards, pass or fail. Teardown logs instead of raising,
-    so a cleanup error never replaces the real test failure.
+    The copy and the user are removed afterwards, pass or fail, including when setup itself fails
+    halfway. Each removal runs on its own and logs instead of raising, so a cleanup error never
+    replaces the setup error or the real test failure.
     """
     copy = minio_admin.ReadOnlyCopy(
         bucket=f"{run_marker}-copy", user=f"{run_marker}-reader", secret=secrets.token_urlsafe(24)
     )
-    storage.copy_bucket(s3, settings.bucket, copy.bucket)
     try:
+        storage.copy_bucket(s3, settings.bucket, copy.bucket)
         minio_admin.add_read_only_user(settings, copy.bucket, copy.user, copy.secret)
-    except Exception:
-        storage.delete_bucket(s3, copy.bucket)
-        raise
-    yield copy
-    try:
+        yield copy
+    finally:
+        # remove_user tolerates a user or policy that was never created.
         minio_admin.remove_user(settings, copy.user)
-        storage.delete_bucket(s3, copy.bucket)
-    except Exception as err:  # noqa: BLE001 - teardown must not mask a test failure
-        log.warning("Teardown: could not remove the bucket copy: %s", err)
+        try:
+            storage.delete_bucket(s3, copy.bucket)
+        except Exception as err:  # noqa: BLE001 - teardown must not mask a test failure
+            log.warning("Teardown: could not remove the bucket copy: %s", err)
 
 
 @pytest.fixture(scope="session", autouse=True)

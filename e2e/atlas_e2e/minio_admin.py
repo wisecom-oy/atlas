@@ -27,17 +27,27 @@ def _mc(settings: Settings, *args: str, stdin: str | None = None) -> None:
     """Runs one `mc` command against the container's own MinIO, raising on failure.
 
     The alias comes from `MC_HOST_e2e`, so no alias state is left in the container.
+
+    A failure is re-raised as a `CalledProcessError` naming only the `mc` verb. The original
+    exception's argv holds the root credentials and, for `user add`, the new user's secret, and a
+    traceback that reaches `report.xml` is published as an artifact.
     """
     host = f"http://{settings.s3_access_key}:{settings.s3_secret_key}@{_INTERNAL_URL}"
-    # S603/S607: fixed argv, no shell; `docker` is resolved from PATH like `node` in atlas.py.
-    subprocess.run(  # noqa: S603
-        ["docker", "exec", "-i", "-e", f"MC_HOST_e2e={host}", container(), "mc", *args],  # noqa: S607
-        check=True,
-        capture_output=True,
-        text=True,
-        input=stdin,
-        timeout=60,
-    )
+    verb = ["mc", *args[:3]]
+    try:
+        # S603/S607: fixed argv, no shell; `docker` resolves from PATH like `node` in atlas.py.
+        subprocess.run(  # noqa: S603
+            ["docker", "exec", "-i", "-e", f"MC_HOST_e2e={host}", container(), "mc", *args],  # noqa: S607
+            check=True,
+            capture_output=True,
+            text=True,
+            input=stdin,
+            timeout=60,
+        )
+    except subprocess.CalledProcessError as err:
+        raise subprocess.CalledProcessError(err.returncode, verb) from None
+    except subprocess.TimeoutExpired:
+        raise subprocess.CalledProcessError(-1, verb) from None
 
 
 def read_only_policy(bucket: str) -> str:
@@ -91,7 +101,7 @@ def remove_user(settings: Settings, user: str) -> None:
     ):
         try:
             _mc(settings, *args)
-        except subprocess.CalledProcessError:
+        except (subprocess.CalledProcessError, OSError):
             continue
 
 
