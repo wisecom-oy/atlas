@@ -25,7 +25,16 @@ Each suite is a lifecycle — every step depends on the previous one:
 - **OneDrive sharing and rollback** (`test_22`): share a file with an organization link, back it
   up, restore it with and without `--restore-permissions` and read the links back through Graph,
   then roll the file back with `restore-version --before` and compare the sibling's bytes.
-  SharePoint runs the same code from `packages/drive`, so it is not repeated there.
+  `test_32` runs the same against the SharePoint library, plus `--target-site`.
+- **Outlook tree** (`test_13`): a three-level folder tree with a 4 MiB attachment. A full-path
+  `--folder` on backup, restore and save, `--message`, `--full`, paging with `-P 2`, a mailbox-mode
+  restore that merges snapshots, and a restore into `E2E_SECOND_MAILBOX` when that is set.
+- **Drive selection** (`test_33`): `--file-filter` that matches nothing (exit 7) or partly (exit 2),
+  the three `--conflict` modes, `--name`, and a deleted file that stays deleted until an
+  `--in-place` restore from an earlier snapshot.
+- **SDK** (`test_36`): the scripts in `e2e/sdk/` drive the built SDK bundle: configuration and
+  option guards, typed errors, listings against S3, progress events, cancellation, verify,
+  `readMessage`, a one-message restore, storage request events and `listPermissions`.
 - **Regression guards** (`test_35`): one case per shipped bug that only reproduces against real
   infrastructure.
 - **Bucket override** (`test_40`): copy the tenant bucket to a second bucket in the same MinIO,
@@ -39,15 +48,29 @@ Each suite is a lifecycle — every step depends on the previous one:
 - **Teams** (`test_60`): back up the team named by `E2E_TEAM_ID`, then `list-snapshots`, `verify`,
   `status`, `save` and `delete -s`. It seeds nothing: posting a channel message needs a signed-in
   user, so the team must already hold at least one message. Skipped when the variable is unset.
+- **Run leases** (`test_70`): the suite writes a foreign lease object and runs one command, so
+  nothing races. A live lease exits 12 and writes nothing, an expired, released or damaged one is
+  taken over, and a tenant command and an owner command refuse each other.
+- **Quarantine** (`test_72`): damage one manifest per workload, expect exit 9 naming the key, run
+  `quarantine --key`, expect the listing to work again, then put every object version back.
+- **Exit codes** (`test_74`): one proof each for 1, 4, 5, 6, 7 and 11, with the bucket's snapshots
+  compared before and after. A wrong Graph client secret is an expected failure there until the
+  product returns the documented 4.
+- **Config store** (`test_76`): `config set`, `get`, `list`, `unset` and `validate` in a home of
+  its own: secrets masked and absent from the store file, bad values and tenant keys refused.
 - **Passphrase rotation** (`test_80`): `keys rewrap` to a second passphrase, the old one must exit
   5, `keys purge-old-wrappers` must leave one version of `_meta/dek.enc`, then rotate back so the
   deletion suites still open the bucket.
 - **Workload deletion** (`test_85`): `onedrive delete` and `sharepoint delete` drop one snapshot
   manifest, keep the shared blobs, and leave the other workloads' objects untouched.
+- **Scoped deletes** (`test_87`): `contacts delete -m` and `calendar delete -m` erase every
+  version under that mailbox's prefixes and nothing else, `outlook delete -s` drops the newest
+  manifest, and a prompt with no answer deletes nothing.
 - **Purge** (`test_90`): `delete --purge` must leave an empty bucket.
 - **Immutability** (`test_95`): backup with Object Lock → S3 reports the retention → deleting the
   locked object fails. Runs last on purpose: a locked object would make the purge assertion
-  unsatisfiable, and the workflow destroys the MinIO volumes afterwards.
+  unsatisfiable, and the workflow destroys the MinIO volumes afterwards. `test_96` then deletes
+  the locked snapshot through Atlas: the objects are reported as retained and the command exits 1.
 
 Two rules keep results trustworthy:
 
@@ -86,6 +109,7 @@ export E2E_MAILBOX=you@example.com    # mailbox the suite writes into
 export E2E_ONEDRIVE_OWNER=...         # user principal whose drive the suite uses
 export E2E_SHAREPOINT_SITE=...        # site URL the suite uses
 export E2E_TEAM_ID=...                # optional: team the Teams suite backs up, read-only
+export E2E_SECOND_MAILBOX=...         # optional: second mailbox for the cross-mailbox restore
 
 uv run pytest                         # everything
 uv run pytest -k outlook              # one suite
@@ -100,7 +124,8 @@ What the test tenant has to hold beyond the app registration:
 | Suite | Needs |
 | --- | --- |
 | Contacts, calendar | `Contacts.ReadWrite` and `Calendars.ReadWrite` on the app. Both use `E2E_MAILBOX`. The mailbox's own calendars should hold no events, because a calendar backup reads all of them |
-| OneDrive sharing | A tenant sharing policy that allows organization links |
+| OneDrive and SharePoint sharing | A sharing policy that allows organization links, for the tenant and for the test site |
+| Cross-mailbox restore | `E2E_SECOND_MAILBOX`, a second licensed mailbox the app may write to |
 | Teams | `E2E_TEAM_ID`, the eight Teams read permissions, and at least one channel message in that team |
 
 ## Lint, format and types

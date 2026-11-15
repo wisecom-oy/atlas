@@ -5,7 +5,7 @@ resumes that suite's sync checkpoint instead of listing the drive again. The fix
 subfolder of the run's fixture folder, which keeps the rollback in `test_06` away from the files
 the lifecycle suite deleted and restored.
 
-SharePoint shares this code path through `packages/drive`, so it is not repeated there.
+`test_32_sharepoint_sharing` runs the same cases against a document library.
 """
 
 from __future__ import annotations

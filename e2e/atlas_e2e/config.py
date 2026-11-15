@@ -52,6 +52,7 @@ class Settings:
     onedrive_owner: str = field(repr=False)
     sharepoint_site: str = field(repr=False)
     team_id: str = field(repr=False, default="")
+    second_mailbox: str = field(repr=False, default="")
 
     @property
     def bucket(self) -> str:
@@ -127,4 +128,6 @@ def load() -> Settings:
         # Teams channel messages cannot be seeded with application permissions, so the suite backs
         # up a team that already holds some. Unset skips the Teams suite.
         team_id=os.environ.get("E2E_TEAM_ID", ""),
+        # A second licensed mailbox, for the cross-mailbox restore. Unset skips that test.
+        second_mailbox=os.environ.get("E2E_SECOND_MAILBOX", ""),
     )
