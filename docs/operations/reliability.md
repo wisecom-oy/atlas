@@ -15,6 +15,7 @@ case "$status" in
   3|12) echo "Transient: schedule another attempt later" >&2 ;;
   *) echo "Needs an operator: read stderr before rerunning" >&2 ;;
 esac
+exit "$status"
 ```
 
 A scheduler needs nothing more than this. Atlas retries transient failures inside the run, commits nothing until the data it points at is stored, and reports anything it could not finish through the exit code. The [exit code table](#exit-codes-and-whether-to-retry) at the end says which codes a rerun can fix.
@@ -104,7 +105,7 @@ A file that still fails is recorded in the drive's failed-item list and the driv
 
 A file version Graph reports as gone (`404` or `410`, purged by retention) is counted as unavailable, not as an error. Only the numeric status decides this.
 
-During a restore, a file over 4 MiB is uploaded through a Graph upload session in 10 MiB chunks. Each chunk is retried up to 3 times on a `429`, `500`, `502`, `503`, or `504`, waiting for `Retry-After` or 1 s. A failed session is not resumed: Atlas deletes it, giving the delete 10 s, and the next restore starts a new one. The final chunk is the request that creates the file, so a checksum mismatch found while streaming abandons the session before anything is created.
+During a restore, a file over 4 MiB is uploaded through a Graph upload session in 10 MiB chunks. Each chunk is sent up to 3 times in all: a `429`, `500`, `502`, `503`, or `504` on either of the first two attempts sends it again after `Retry-After` or 1 s. A failed session is not resumed: Atlas deletes it, giving the delete 10 s, and the next restore starts a new one. The final chunk is the request that creates the file, so a checksum mismatch found while streaming abandons the session before anything is created.
 
 ## Storage
 
@@ -118,7 +119,11 @@ Atlas uses the AWS SDK for JavaScript v3 with its default retry strategy: standa
 | Read-back                    | Manifests, indexes, and delta cursors are read back after upload and compared byte for byte                                                                                                                                                                                    |
 | Identity registry contention | Up to 8 attempts, waiting `50 ms × attempt + random(0 to 200 ms)` between them                                                                                                                                                                                                 |
 
-The leases, the data key bootstrap, and the identity registry are only safe on a backend that enforces these conditions. `atlas storage-check` writes a probe object and reports a backend that ignores them in its `Conditional writes` row. See [Create-only snapshot objects and the read-back](/self-hosting/storage#create-only-snapshot-objects-and-the-read-back) and [Metadata is checked before and after it is stored](/security#metadata-is-checked-before-and-after-it-is-stored).
+::: warning Conditional writes must be enforced
+The leases, the data key bootstrap, and the identity registry are only safe on a backend that enforces these conditions. `atlas storage-check` writes a probe object and reports a backend that ignores them in its `Conditional writes` row.
+:::
+
+See [Create-only snapshot objects and the read-back](/self-hosting/storage#create-only-snapshot-objects-and-the-read-back) and [Metadata is checked before and after it is stored](/security#metadata-is-checked-before-and-after-it-is-stored).
 
 ### Abandoned multipart uploads
 
@@ -237,8 +242,11 @@ A restore skips an item whose object is missing or fails its tag, names it, rest
 
 - `atlas keys rewrap` changes `_meta/dek.enc` by compare-and-swap, reads the new wrapper back, and proves it opens the same data key. It writes the new passphrase to the configuration only when every tenant succeeded; otherwise it exits `2` and leaves the configuration unchanged. The previous wrapper stays as a noncurrent version on a versioned bucket until `atlas keys purge-old-wrappers` removes it. See [Rewrapping the passphrase](/security#rewrapping-the-passphrase).
 - The data key is created with a create-only write. Two runs bootstrapping one tenant agree on one key, and Atlas never generates a key over an existing one.
-- The encrypted config store (`~/.atlas/config.enc`) is written to a temporary file with mode `0600`, flushed to disk, and renamed into place, so a crash leaves the previous file intact. Updates hold `~/.atlas/config.lock` for at most 10 s. A stale lock is removed only when its process no longer exists on the same host.
-- Atlas keeps no copy of the config store or its key. Keep the passphrase and the S3 credentials somewhere other than the backup host; without the passphrase the backups cannot be read.
+- The encrypted config store (`~/.atlas/config.enc`) is written to a temporary file with mode `0600`, flushed to disk, and renamed into place, so a crash leaves the previous file intact. Updates take `~/.atlas/config.lock`, and a second update waits up to 10 s for it. A stale lock is removed only when its process no longer exists on the same host.
+
+::: danger Keep a copy of the passphrase elsewhere
+Atlas keeps no copy of the config store or its key. Keep a copy of the passphrase and the S3 credentials somewhere other than the backup host. Without the passphrase the backups cannot be read.
+:::
 
 ## Restore safety
 
@@ -253,21 +261,21 @@ Atlas has no dry-run mode. To check a restore first, restore into the default `R
 
 ## Exit codes and whether to retry
 
-| Exit  | Meaning                                                         | Retry unchanged?                                            |
-| ----- | --------------------------------------------------------------- | ----------------------------------------------------------- |
-| `0`   | Complete                                                        |                                                             |
-| `1`   | Unclassified failure, storage failure, or `ATLAS_WRITE_REFUSED` | Once, after reading stderr. A persistent `1` needs a person |
-| `2`   | Partial run, soft interrupt, or items skipped                   | Yes. The next backup retries failed items                   |
-| `3`   | Throttled, network failure, or Graph `5xx` after retries        | Yes, later                                                  |
-| `4`   | Authentication, permission, or licence                          | No. Fix consent or licensing                                |
-| `5`   | Wrong passphrase                                                | No. Supply the original passphrase                          |
-| `6`   | Invalid configuration                                           | No                                                          |
-| `7`   | Not found                                                       | No                                                          |
-| `8`   | Object Lock retention or legal hold                             | No, not before the retention ends                           |
-| `9`   | Unreadable or newer-format stored content                       | No. Quarantine, `save`, or upgrade Atlas                    |
-| `11`  | Snapshot is not the newest                                      | No. Delete newer snapshots first                            |
-| `12`  | Owner or tenant busy, or lease lost                             | Yes, after the other operation ends or within 5 minutes     |
-| `130` | Second Ctrl+C                                                   | Yes                                                         |
+| Exit  | Meaning                                                         | Retry unchanged?                                                                                                                                                                                                |
+| ----- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`   | Complete                                                        |                                                                                                                                                                                                                 |
+| `1`   | Unclassified failure, storage failure, or `ATLAS_WRITE_REFUSED` | Once, after reading stderr. A persistent `1` needs a person                                                                                                                                                     |
+| `2`   | Partial run, soft interrupt, or items skipped                   | Backup: yes, the next backup retries failed items. Restore: first check the target for items whose create may have committed, see [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) |
+| `3`   | Throttled, network failure, or Graph `5xx` after retries        | Yes, later                                                                                                                                                                                                      |
+| `4`   | Authentication, permission, or licence                          | No. Fix consent or licensing                                                                                                                                                                                    |
+| `5`   | Wrong passphrase                                                | No. Supply the original passphrase                                                                                                                                                                              |
+| `6`   | Invalid configuration                                           | No                                                                                                                                                                                                              |
+| `7`   | Not found                                                       | No                                                                                                                                                                                                              |
+| `8`   | Object Lock retention or legal hold                             | No, not before the retention ends                                                                                                                                                                               |
+| `9`   | Unreadable or newer-format stored content                       | No. Quarantine, `save`, or upgrade Atlas                                                                                                                                                                        |
+| `11`  | Snapshot is not the newest                                      | No. Delete newer snapshots first                                                                                                                                                                                |
+| `12`  | Owner or tenant busy, or lease lost                             | Yes, after the other operation ends or within 5 minutes                                                                                                                                                         |
+| `130` | Second Ctrl+C                                                   | Yes                                                                                                                                                                                                             |
 
 `StorageError` (`ATLAS_STORAGE_FAILURE`) is broad on purpose, so its cause decides the exit: `4` for a `401` or `403`, `7` for a `404`, `3` for a network error or a transient status, and `1` otherwise. The full contract, including how scripts should branch, is in [CLI exit codes](/reference/cli#exit-codes).
 
