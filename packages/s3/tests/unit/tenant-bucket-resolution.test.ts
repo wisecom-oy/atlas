@@ -48,11 +48,29 @@ describe('resolve_tenant_bucket', () => {
     expect(resolve_tenant_bucket(upper, DR).name).toBe(`atlas-${DR}`);
   });
 
-  it('treats an override equal to the derived name as derived, so it may still be created', () => {
+  it('keeps an explicit name configured even when it equals the derived one, so it is never created', () => {
     expect(resolve_tenant_bucket(selection({ bucket: `atlas-${PROD}` }), PROD)).toEqual({
       name: `atlas-${PROD}`,
-      configured: false,
+      configured: true,
     });
+  });
+
+  it('refuses a bucket that a binding of another tenant also names', () => {
+    const shared = selection({ bucket: 'shared-copy' }, [{ tenant_id: DR, bucket: 'shared-copy' }]);
+
+    expect(() => resolve_tenant_bucket(shared, PROD)).toThrow(
+      `Bucket "shared-copy" is configured for tenant ${PROD} and for tenant ${DR}.`,
+    );
+    expect(() => resolve_tenant_bucket(shared, DR)).toThrow(ConfigError);
+  });
+
+  it("allows one tenant's profiles to name the same bucket", () => {
+    const same = selection({ bucket: 'prod-copy' }, [
+      { tenant_id: PROD, bucket: 'prod-copy' },
+      { tenant_id: PROD.toUpperCase(), bucket: 'prod-copy' },
+    ]);
+
+    expect(resolve_tenant_bucket(same, PROD)).toEqual({ name: 'prod-copy', configured: true });
   });
 
   it('refuses any other tenant while an exclusive override is set, naming its source', () => {

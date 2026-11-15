@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import { ConfigError } from '@wisecom/atlas-types';
 import { load_config } from '@/utils/config';
 import { build_bucket_selection } from '@/utils/bucket-override';
+import { find_profile } from '@/utils/tenant-profiles';
 
 vi.mock('node:fs');
 vi.mock('node:os');
@@ -147,5 +148,27 @@ describe('build_bucket_selection', () => {
     });
 
     expect(selection?.profiles).toEqual([{ tenant_id: 'tid-dr', bucket: 'dr-copy' }]);
+  });
+});
+
+describe('find_profile and the bucket (issue #768)', () => {
+  const file = { tenants: { prod: { ...PROD, bucket: 'prod-copy' } } };
+
+  it("drops the file's bucket when the store moves the profile to another tenant", () => {
+    const secure = { tenants: { prod: { ...DR } } };
+
+    expect(find_profile('prod', file, secure)).toEqual(DR);
+  });
+
+  it("keeps the file's bucket when the store copy names the same tenant", () => {
+    const secure = { tenants: { prod: { client_secret: 'rotated', tenant_id: 'TID-PROD' } } };
+
+    expect(find_profile('prod', file, secure)?.bucket).toBe('prod-copy');
+  });
+
+  it("keeps the store's own bucket when it names one", () => {
+    const secure = { tenants: { prod: { ...DR, bucket: 'dr-copy' } } };
+
+    expect(find_profile('prod', file, secure)?.bucket).toBe('dr-copy');
   });
 });

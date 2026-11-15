@@ -1,4 +1,5 @@
 import type { GraphConfig, StringConfig } from '@/utils/config';
+import { is_same_tenant } from '@/utils/bucket-override';
 
 /**
  * One named tenant: its Microsoft Graph credentials and, optionally, the bucket that replaces the
@@ -88,7 +89,31 @@ export function find_profile(
   const from_file = list_profiles(file)[name];
   const from_secure = list_profiles(secure)[name];
   if (from_file === undefined && from_secure === undefined) return undefined;
-  return { ...from_file, ...from_secure };
+  const merged = { ...from_file, ...from_secure };
+  return moves_to_other_tenant(from_file, from_secure) ? without_bucket(merged) : merged;
+}
+
+/**
+ * True when the store copy points the profile at another tenant than the file copy and names no
+ * bucket of its own. The file's bucket then belongs to the file's tenant, so it must not follow.
+ */
+function moves_to_other_tenant(
+  from_file: Partial<TenantProfile> | undefined,
+  from_secure: Partial<TenantProfile> | undefined,
+): boolean {
+  const file_tenant = from_file?.tenant_id;
+  const store_tenant = from_secure?.tenant_id;
+  if (from_file?.bucket === undefined || from_secure?.bucket !== undefined) return false;
+  return (
+    file_tenant !== undefined &&
+    store_tenant !== undefined &&
+    !is_same_tenant(file_tenant, store_tenant)
+  );
+}
+
+function without_bucket(profile: Partial<TenantProfile>): Partial<TenantProfile> {
+  const { bucket: _bucket, ...rest } = profile;
+  return rest;
 }
 
 /** Lists every profile name defined across the file and the store, sorted. */
