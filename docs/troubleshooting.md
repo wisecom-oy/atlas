@@ -38,9 +38,22 @@ Microsoft Graph returns HTTP 429 (throttled) and occasionally 500, 502, 503, or 
 - It retries up to 12 times with exponential backoff and jitter, capping each backoff delay at 5 minutes. Once a call has spent 24 minutes waiting, counting backoff, `Retry-After` waits, and cooldowns, it starts no new wait. A wait it has started runs in full, so one call waits at most about 24 minutes plus one cooldown. Time spent inside each request does not count.
 - Each attempt times out after 60 seconds, and Atlas aborts the timed-out request before it sends the next one.
 - Atlas decides whether to retry from the HTTP status and from Node and undici error codes such as `ECONNRESET` or `UND_ERR_SOCKET`, never from the error message. Message text carries request IDs and item IDs, whose digits could otherwise pass for a status code.
-- If retries run out, the failure is recorded in the run summary and the backup continues with the remaining items.
+- If retries run out on one item, the failure is recorded in the run summary and the backup continues with the remaining items. If they run out on a call the whole run depends on, such as listing a mailbox's folders or a site's libraries, the run fails as described in [Microsoft Graph unavailable after retries](#microsoft-graph-unavailable-after-retries).
 
 Occasional 429 and 5xx responses during a large first backup need no action.
+
+### Microsoft Graph unavailable after retries
+
+```text
+[x] Microsoft Graph was unavailable after 12 retries over 1416 s: HTTP 504 -- UnknownError -- {"code":"UnknownError","message":"",...}
+[x]   Atlas code: ATLAS_GRAPH_UNAVAILABLE
+```
+
+Graph answered 500, 502, 503 or 504, or the connection failed or timed out, on every attempt until the retry budget ran out. This is a service incident on Microsoft's side, or a network problem between the host and Microsoft 365, not a fault in the backup. The run exits `3`, the transient category, and the SDK rejects with `GraphUnavailableError`. Its `status_code` is the last HTTP status, or `undefined` when no response arrived at all, `retries` is 12, and `elapsed_ms` is how long the call spent before giving up. The Graph error is kept in `cause`.
+
+One outage costs one retry budget per run. Lookups that may fail without failing a backup, such as a mailbox's purpose, the well-known folder roles, a tenant mailbox listing's purpose lookups, or a SharePoint subsite walk, still skip a `403` or `404`, but stop the run on an exhausted budget instead of letting the next call spend another one.
+
+The message always names the HTTP status and the Graph error code, even when Graph sent an empty body. Check the [Microsoft 365 service health](https://admin.microsoft.com/#/servicehealth) page, then schedule the run again once the incident clears. A scheduler should back off at the run level rather than retry immediately: each attempt can spend about 24 minutes per call before it gives up. A 429 that outlasts the budget is `ThrottledError` (`ATLAS_THROTTLED`) instead, also exit `3`.
 
 ### Restore writes are sent once
 
@@ -59,6 +72,7 @@ A 429, or a 503 with `Retry-After`, is still retried: Graph sends these instead 
 | 429s on every request from the start          | Another application in the tenant may be using most of the Graph quota.          | Review tenant-wide Graph usage. Contact Microsoft support if the limits look lower than expected.                                  |
 | Occasional 500 or 502 responses               | Normal under load. Retried automatically.                                        | Nothing, if the run completes.                                                                                                     |
 | Persistent 500 or 502 on the same item        | Retries are exhausted against a server-side fault, not throttling.               | Re-run the backup later. If the failure repeats, open a Microsoft support case with the time of the failure and the affected item. |
+| `ATLAS_GRAPH_UNAVAILABLE`, exit `3`           | Graph kept failing a call the run depends on through all 12 retries.             | Check Microsoft 365 service health and schedule the run again later. See [above](#microsoft-graph-unavailable-after-retries).      |
 
 ### Throughput ceiling
 
@@ -94,6 +108,23 @@ Graph returned `itemNotFound` for the site URL.
 - Confirm the URL is correct and the site has not been deleted or renamed.
 - Confirm the application permissions for SharePoint backup are granted with admin consent.
 - Use the full URL including `/sites/<SiteName>`. Root site URLs use a different path format.
+
+### SharePoint: site refused although the permission is granted
+
+```text
+[x] Microsoft Graph refused SharePoint site <site-id>: HTTP 403 accessDenied. The same app can read the tenant's root site, so its SharePoint permission is granted and Graph refuses this resource alone. ...
+[x]   Atlas code: ATLAS_ACCESS_REFUSED
+```
+
+Graph refused this one site, while the same app registration can read the tenant's root site. The grant is in place, so adding permissions in Entra ID does not help. The usual cause is a [SharePoint Embedded container](/sharepoint-backup#sharepoint-embedded-containers), a site whose URL starts with `/contentstorage/`. Graph refuses those to any app without `FileStorageContainer.Selected`, and Atlas does not back them up.
+
+- Confirm the site's kind with `atlas sharepoint list-sites`. A container shows `container (not backed up)`.
+- Leave the site out of scheduled runs. Retrying returns the same answer.
+- If the site is an ordinary one, check whether the app registration uses `Sites.Selected` and whether that site was granted to it.
+
+The run exits `4` and the SDK rejects with `GraphAccessRefusedError`, which carries `site_id`, `status_code`, `graph_code`, and `reason`. It is not an `AuthError`, so a host that stops the whole tenant on `AuthError` keeps backing up the other sites.
+
+If the root site is refused as well, the error is `MissingGraphPermissionsError` (`ATLAS_AUTH_DENIED`), and the message names the permission to grant: `Sites.Read.All`, or a `Sites.Selected` grant on the site.
 
 ### SharePoint restore: access denied
 

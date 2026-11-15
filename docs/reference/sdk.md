@@ -62,7 +62,7 @@ The public surface is camelCase throughout: methods, configuration, option field
 - Keys of maps that Atlas does not define stay verbatim: `deltaLinks` (keyed by Graph folder ID), `requestsByType` (keyed by request label), and `byService` (keyed by pool name).
 - The raw Graph payload in `readMessage().message` keeps the shape Graph returned and the stored blob contains.
 
-`ThrottledError.retry_after_ms` is the one error property in snake_case. See [Errors](#errors).
+Error properties are snake_case, such as `ThrottledError.retry_after_ms` and `GraphUnavailableError.status_code`. See [Errors](#errors).
 
 ## Validation
 
@@ -264,7 +264,7 @@ Method names mirror the CLI: `atlas outlook backup` maps to `atlas.outlook.backu
 
 ### OneDrive and SharePoint
 
-`atlas.onedrive` and `atlas.sharepoint` expose the same operations per drive owner or site: `backup`, `verify`, `restore`, `restoreVersion`, `save`, `listSnapshots`, `listSnapshotSummaries`, `listFileVersions`, `checkStatus`, `getStats`, `quarantine(storageKey)`, and a delete method. The delete methods are `deleteOwnerData(ownerId)` and `deleteSnapshot(ownerId, snapshotId)` on OneDrive, and `deleteSiteData(siteId)` and `deleteSnapshot(siteId, snapshotId)` on SharePoint. SharePoint also provides `listSites()` and `resolveSite(urlOrId)`.
+`atlas.onedrive` and `atlas.sharepoint` expose the same operations per drive owner or site: `backup`, `verify`, `restore`, `restoreVersion`, `save`, `listSnapshots`, `listSnapshotSummaries`, `listFileVersions`, `checkStatus`, `getStats`, `quarantine(storageKey)`, and a delete method. The delete methods are `deleteOwnerData(ownerId)` and `deleteSnapshot(ownerId, snapshotId)` on OneDrive, and `deleteSiteData(siteId)` and `deleteSnapshot(siteId, snapshotId)` on SharePoint. SharePoint also provides `listSites()` and `resolveSite(urlOrId)`. Each site they return has `siteId`, `siteUrl`, `displayName`, and `kind`: `site`, or `file_storage_container` for a [SharePoint Embedded container](/sharepoint-backup#sharepoint-embedded-containers), which Atlas cannot back up. `listSites()` returns containers rather than leaving them out.
 
 ### Snapshot summaries
 
@@ -296,7 +296,7 @@ A `backup` whose stored cursor names a snapshot that no longer exists, after a q
 
 ### Status results
 
-`checkMailboxStatus`, `onedrive.checkStatus`, and `sharepoint.checkStatus` reject with `AuthError` (`ATLAS_AUTH_DENIED`) when Graph answers the delta peek with `401` or `403`. `checkMailboxStatus` rejects with `MailboxNotLicensedError` for an unlicensed mailbox. A permission problem is never reported as pending changes.
+`checkMailboxStatus`, `onedrive.checkStatus`, and `sharepoint.checkStatus` reject with `AuthError` (`ATLAS_AUTH_DENIED`) when Graph answers the delta peek with `401` or a missing-grant `403`. A drive or library Graph refuses to a working grant is reported on its row as `GraphAccessRefusedError` in `peekError` instead, and a SharePoint site refused that way rejects with `GraphAccessRefusedError` (`ATLAS_ACCESS_REFUSED`). `checkMailboxStatus` rejects with `MailboxNotLicensedError` for an unlicensed mailbox. A permission problem is never reported as pending changes.
 
 | Field              | On                                  | Meaning                                                                                                      |
 | ------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -1387,6 +1387,9 @@ try {
 | `MailboxNotLicensedError`           | `ATLAS_MAILBOX_NOT_LICENSED` | No Exchange Online license, so Graph does not serve the mailbox                                                                                                                                                                                                                                                     |
 | `NotFoundError`                     | `ATLAS_NOT_FOUND`            | Snapshot, mailbox, drive, site, or object does not exist, or a folder, file, or message selector matched nothing                                                                                                                                                                                                    |
 | `ThrottledError`                    | `ATLAS_THROTTLED`            | Graph returned 429 through all 12 retries. See `retry_after_ms`                                                                                                                                                                                                                                                     |
+| `GraphUnavailableError`             | `ATLAS_GRAPH_UNAVAILABLE`    | Graph answered 500, 502, 503 or 504, or the connection failed or timed out, through all 12 retries. Transient. See `status_code`, `graph_code`, `retries`, `elapsed_ms`, and [Graph failures](#graph-failures)                                                                                                       |
+| `MissingGraphPermissionsError`      | `ATLAS_AUTH_DENIED`          | A subclass of `AuthError`: Graph answered 403 with a missing-grant code and nothing showed the grant to be working. `permissions` names what to grant. See `status_code`, `graph_code`                                                                                                                            |
+| `GraphAccessRefusedError`           | `ATLAS_ACCESS_REFUSED`       | Graph refused one site, drive, or owner although the app's grant works, such as a SharePoint Embedded container. Permanent for that resource, not an `AuthError`. See `site_id`, `drive_id`, `owner_id`, `reason`, `status_code`, `graph_code`, and [Graph failures](#graph-failures)                         |
 | `WrongPassphraseError`              | `ATLAS_WRONG_PASSPHRASE`     | The passphrase could not unwrap the data key. A damaged content object is a per-file entry in a restore result's `errors`, not this error                                                                                                                                                                           |
 | `ObjectLockRetainedError`           | `ATLAS_OBJECT_LOCK_RETAINED` | Object is under retention or a legal hold. Its `key` is set                                                                                                                                                                                                                                                         |
 | `StorageError`                      | `ATLAS_STORAGE_FAILURE`      | Storage failed for a reason other than permission, retention, or absence                                                                                                                                                                                                                                            |
@@ -1408,13 +1411,43 @@ Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK err
 
 `ThrottledError` is the exception to the camelCase rule. It exposes the last `Retry-After` value Graph sent as `retry_after_ms`, in milliseconds, or `undefined` when Graph sent none. It is thrown after 12 retries, when a call that has already waited 24 minutes would have to wait again, or at once when `Retry-After` is longer than one hour; the message then names the value Graph sent. A `Retry-After` up to one hour is waited out, plus a random delay of 1 to 5 seconds so requests throttled together do not retry together. Retries without `Retry-After` back off exponentially, capped at 5 minutes per wait. Backoff waits, `Retry-After` waits, and cooldown waits share the 24-minute budget, and a wait already started runs in full. Time spent inside a request does not count toward the budget. The CLI exits with code `3` for this error.
 
+### Graph failures
+
+```typescript
+import { GraphAccessRefusedError, GraphUnavailableError, ThrottledError } from '@wisecom/atlas-sdk';
+
+try {
+  await atlas.sharepoint.backup(siteId);
+} catch (err) {
+  if (err instanceof GraphAccessRefusedError) {
+    markUnsupported(err.site_id, err.reason); // permanent: do not retry
+  } else if (err instanceof GraphUnavailableError || err instanceof ThrottledError) {
+    scheduleLater(err.code); // transient: back off at the run level
+  } else {
+    throw err;
+  }
+}
+```
+
+| Code                      | Retry?                                    | Fields                                                                                                                                       |
+| ------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ATLAS_GRAPH_UNAVAILABLE` | Yes, later. The call already retried 12 times | `status_code` (last HTTP status, `undefined` when no response arrived), `graph_code`, `retries`, `elapsed_ms`                            |
+| `ATLAS_ACCESS_REFUSED`    | No. Mark the resource unsupported         | `site_id`, `drive_id`, `owner_id` (what the call addressed, the others `undefined`), `reason`, `status_code`, `graph_code`                 |
+| `ATLAS_AUTH_DENIED`       | No. Grant the permission first            | `MissingGraphPermissionsError` adds `permissions`, `status_code`, `graph_code`                                                              |
+
+`GraphUnavailableError` replaces the raw Graph error an exhausted 5xx or network failure used to reject with, which often had an empty `message`. Its message is never empty: it names the retry count, the elapsed time, the HTTP status when there was one, the Graph error code, and an excerpt of the response body when Graph sent no message, for example `Microsoft Graph was unavailable after 12 retries over 1416 s: HTTP 504 -- UnknownError -- {"code":"UnknownError","message":"",...}`. An exhausted 429 stays `ThrottledError`. A failure Atlas does not retry, such as a 400, is rethrown unchanged.
+
+`GraphAccessRefusedError.reason` is `file_storage_container` when the refused site's URL is under `/contentstorage/`, the shape of a [SharePoint Embedded container](/sharepoint-backup#sharepoint-embedded-containers), and `access_refused` otherwise. A site given by ID is refused before Atlas learns its URL, so a container backed up by ID reports `access_refused`. Use `listSites()`, whose results carry `kind`, or `isFileStorageContainerSite(webUrl)` on a URL from your own discovery, to skip containers before backing them up.
+
+On a SharePoint 403 whose code means a missing grant, Atlas sends one `GET /sites/root?$select=id` to tell the two causes apart, and reuses the answer for 10 minutes per instance. A refusal costs at most that one extra request.
+
 `WrongPassphraseError` needs a note. AES-GCM reports a wrong key and damaged ciphertext as the same authentication failure. Atlas names the passphrase because it is the likelier cause and the only one an operator can act on. The raw crypto error stays in `cause`. If the passphrase is known to be correct for that tenant, treat the error as a possible integrity problem and run `atlas verify` on the snapshot.
 
 ## Exports
 
 `@wisecom/atlas-sdk` exports an explicit list. Internal domain types and ports are not exported. Infer other result types from `AtlasInstance` rather than importing internal models.
 
-- **Factories and values:** `createAtlasInstance`, `createTenant`, `getGraphCost`, `getStorageUsageToken`, `GRAPH_SERVICE_LIMITS`
+- **Factories and values:** `createAtlasInstance`, `createTenant`, `getGraphCost`, `getStorageUsageToken`, `GRAPH_SERVICE_LIMITS`, `isFileStorageContainerSite`
 - **Tenant handles:** `AtlasTenant`, `AtlasTenantConfig`
 - **Instance types:** `AtlasInstance`, `AtlasInstanceConfig`, `LogSink`, `LogFields`, `ThrottleCoordinator`
 - **Sub-API types:** `OutlookApi`, `OneDriveApi`, `SharePointApi`, `TeamsApi`
@@ -1425,7 +1458,8 @@ Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK err
 - **Shared enums and requests:** `ObjectLockMode`, `ObjectLockRequest`, `BackupSyncMode`, `GraphServicePool`
 - **Graph cost types:** `OperationCost`, `ServicePoolCost`, `GraphServiceLimits`
 - **Quarantine:** `QuarantineResult`
-- **Errors:** `AtlasError`, `AtlasErrorCode`, `AuthError`, `MailboxNotLicensedError`, `NotFoundError`, `ThrottledError`, `WrongPassphraseError`, `ObjectLockRetainedError`, `StorageError`, `ConfigError`, `UnreadableObjectsError`, `SnapshotNotNewestError`, `StoredObjectConflictError`, `RefusedWriteError`, `OwnerBusyError`, `OwnerLeaseLostError`, `ObjectLockVersioningDisabledError`, `ObjectLockUnsupportedError`, `ObjectLockModeRejectedError`, `PreconditionFailedError`
+- **Errors:** `AtlasError`, `AtlasErrorCode`, `AuthError`, `MailboxNotLicensedError`, `NotFoundError`, `ThrottledError`, `WrongPassphraseError`, `ObjectLockRetainedError`, `StorageError`, `ConfigError`, `UnreadableObjectsError`, `SnapshotNotNewestError`, `StoredObjectConflictError`, `RefusedWriteError`, `OwnerBusyError`, `OwnerLeaseLostError`, `MissingGraphPermissionsError`, `GraphAccessRefusedError`, `GraphAccessRefusalReason`, `GraphUnavailableError`, `ObjectLockVersioningDisabledError`, `ObjectLockUnsupportedError`, `ObjectLockModeRejectedError`, `PreconditionFailedError`
+- **SharePoint sites:** `SharePointSiteKind`
 
 ## See also
 

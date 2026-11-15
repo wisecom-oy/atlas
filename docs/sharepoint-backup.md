@@ -45,7 +45,25 @@ Add these application permissions to the Atlas app registration in Microsoft Ent
 | `Files.Read.All`      | Reading file content for backup, verify, and save |
 | `Sites.ReadWrite.All` | Restore only                                      |
 
-If a permission is missing, the run stops before touching files and names the missing scope, for example `Missing Microsoft Graph application permissions for SharePoint: Sites.Read.All.`
+If a permission is missing, the run stops before touching files with `MissingGraphPermissionsError` (`ATLAS_AUTH_DENIED`, exit `4`). The message names the HTTP status, the Graph error code, and the permission to grant:
+
+```text
+Microsoft Graph returned HTTP 403 accessDenied for site <site-id> and for the tenant's root site. The app registration needs the SharePoint application permissions Sites.Read.All with admin consent, or a Sites.Selected grant on this site.
+```
+
+Graph answers a missing grant and a site it refuses to a working grant with the same `403 accessDenied`. Atlas tells them apart with one request, `GET /sites/root?$select=id`, made only after an enumeration call was refused. If the app can read the tenant's root site, the grant works and only this site is refused: the run fails with `GraphAccessRefusedError` (`ATLAS_ACCESS_REFUSED`, exit `4`) instead, and the other sites are unaffected. The answer is reused for 10 minutes per Graph client, so a run that meets several refused sites checks once. See [SharePoint: site refused although the permission is granted](/troubleshooting#sharepoint-site-refused-although-the-permission-is-granted).
+
+## SharePoint Embedded containers
+
+Apps built on SharePoint Embedded, among them several Microsoft apps, store their files in container sites under `https://contoso.sharepoint.com/contentstorage/`. They appear in the tenant's site search, but Graph refuses them to an app that holds only `Sites` permissions: they need `FileStorageContainer.Selected` and a grant from the app that owns the container type. Atlas does not request that permission and does not back these sites up.
+
+Atlas lists them rather than hiding them, so a coverage report still shows they exist:
+
+- `atlas sharepoint list-sites` shows them with the kind `container (not backed up)`.
+- `atlas.sharepoint.listSites()` returns them with `kind: 'file_storage_container'`. Every other site has `kind: 'site'`.
+- `isFileStorageContainerSite(webUrl)` applies the same rule to a URL from your own site discovery.
+
+Leave them out of scheduled runs. A backup of one fails at once with `GraphAccessRefusedError`. When the site was given by URL, its `reason` is `file_storage_container`. When it was given by site ID, Atlas never learns the URL, because Graph refuses that lookup too, so `reason` is `access_refused`. Neither is transient: retrying returns the same answer.
 
 ## Commands
 
@@ -57,7 +75,7 @@ Most commands take `--site <url-or-id>`. Snapshot is `-s`, because `-s` is not u
 atlas sharepoint list-sites
 ```
 
-Lists the sites in the tenant that Atlas can back up. Takes only `-t, --tenant <id>`.
+Lists every site Graph's site search returns, with its ID, name, kind, and URL. The kind is `site`, or `container (not backed up)` for a [SharePoint Embedded container](#sharepoint-embedded-containers), and the command adds a line counting the containers. Takes only `-t, --tenant <id>`.
 
 ### backup
 
@@ -375,13 +393,25 @@ console.log(`Deleted: ${deletion.deletedObjects} objects`);
 ### Site discovery
 
 ```ts
+import { GraphAccessRefusedError, isFileStorageContainerSite } from '@wisecom/atlas-sdk';
+
 const sites = await atlas.sharepoint.listSites();
 for (const s of sites) {
-  console.log(`${s.displayName}: ${s.siteUrl} (${s.siteId})`);
+  if (s.kind === 'file_storage_container') continue; // SharePoint Embedded, not backed up
+  try {
+    await atlas.sharepoint.backup(s.siteId);
+  } catch (err) {
+    if (!(err instanceof GraphAccessRefusedError)) throw err;
+    // Permanent for this site: mark it unsupported, do not retry.
+    console.log(`Refused: ${err.site_id} (${err.reason}, HTTP ${err.status_code} ${err.graph_code})`);
+  }
 }
 
+// The same rule for sites found by your own discovery
+isFileStorageContainerSite('https://contoso.sharepoint.com/contentstorage/CSP_example'); // true
+
 const resolved = await atlas.sharepoint.resolveSite(site);
-console.log(resolved.siteId);
+console.log(resolved.siteId, resolved.kind);
 ```
 
 Other methods: `restoreVersion`, `listSnapshots`, `listFileVersions`, `checkStatus`, and `deleteSnapshot`.
