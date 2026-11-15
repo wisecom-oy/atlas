@@ -863,7 +863,9 @@ for (const item of result.skippedItems ?? []) {
 
 Each field is present only when non-zero. None of these outcomes is added to `errors`, so a grant to a user deleted since the backup does not make the restore partial.
 
-`listPermissions(ownerOrSiteId, snapshotId?)` answers "who had access" from the backup alone, for the newest snapshot when `snapshotId` is absent. It resolves to `{ snapshotId, items }`, where each item has `fileId`, `driveId`, `path`, `kind` (`file` or `folder`), and `permissions`.
+`folderColorsNotRestored` counts the restored folders whose captured colour was not applied. Graph refuses every write to folder colours, so a restore never attempts one. Like the permission fields it is present only when non-zero and never added to `errors`. See [Folder colours](/onedrive-backup#folder-colours).
+
+`listPermissions(ownerOrSiteId, snapshotId?)` answers "who had access" from the backup alone, for the newest snapshot when `snapshotId` is absent. It resolves to `{ snapshotId, items, folderColors }`, where each item has `fileId`, `driveId`, `path`, `kind` (`file` or `folder`), and `permissions`, and each entry of `folderColors` has `fileId`, `driveId`, `path`, and `folderColor`.
 
 ### Version restore
 
@@ -937,8 +939,9 @@ Entries can also describe more than files:
 | ---------------- | -------------------------------------------------------------------------------------------------------------- |
 | `kind`           | `folder`. Absent means a file, which is every entry written before sharing was captured                        |
 | `permissions`    | The item's non-inherited permissions: `roles`, and `link` (`type`, `scope`) or `grantedTo`, with `expiresAt`, `hasPassword`, and `grantedToIdentities`. Never a link URL |
+| `folderColor`    | A folder's colour: `colorHex`, `colorTag`, and `emoji`, each present only when set. `colorHex` is the palette position the web UI chose, such as `'6'` |
 
-A folder has an entry only while it has permissions of its own. `changeType: 'permissions_changed'` marks a file whose sharing changed while its content did not; it reuses the stored content of the file's previous entry. `totalFiles` on a manifest counts files only.
+A folder has an entry only while it has permissions or a colour of its own. `changeType: 'permissions_changed'` marks a file whose sharing changed while its content did not; it reuses the stored content of the file's previous entry. On a folder entry it marks a sharing change, and `changeType: 'updated'` marks a change of colour alone. `totalFiles` on a manifest counts files only.
 
 ## Object Lock
 

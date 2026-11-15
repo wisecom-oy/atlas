@@ -34,8 +34,9 @@ atlas onedrive restore -o user@example.com -s od-snap-1735689600000-a1b2c3
 | OneNote notebooks         | Section files and table of contents, stored as ordinary files ([details](#onenote-notebooks)) |
 | Moves, renames, deletions | Recorded as changes on the next run                                                           |
 | Sharing                   | Each file's and folder's non-inherited permissions, without link URLs ([details](#sharing))   |
+| Folder colours            | Each folder's colour, captured but not restored ([details](#folder-colours))                  |
 
-Restores do not recreate file authors, and reapply sharing only when asked. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
+Restores do not recreate file authors or folder colours, and reapply sharing only when asked. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
 
 To back up one folder tree instead of the whole drive, pass `--folder /Projects` to `backup`. Changing the folder scope forces a full crawl.
 
@@ -176,7 +177,7 @@ atlas onedrive list-permissions -o user@example.com
 atlas onedrive list-permissions -o user@example.com -s od-snap-123
 ```
 
-`list-versions` takes `-f, --file <ref>` (a file ID or path, required). `list-permissions` shows who had access to what at a snapshot, the newest by default: one row per permission, with the item's path, its kind (file or folder), the roles, and the grantee or the link's type and scope. It reads the backup alone, so it works when the drive or the user is gone.
+`list-versions` takes `-f, --file <ref>` (a file ID or path, required). `list-permissions` shows who had access to what at a snapshot, the newest by default: one row per permission, with the item's path, its kind (file or folder), the roles, and the grantee or the link's type and scope. A second table lists each coloured folder. It reads the backup alone, so it works when the drive or the user is gone.
 
 ### status
 
@@ -239,6 +240,20 @@ A permission that cannot be reapplied is listed with its reason and does not fai
 ### First backup after upgrading
 
 Backups made before sharing was captured saved delta links that predate it: they never mark which items are shared. The first backup after upgrading detects this and lists each drive in full once. Tracking is kept, so unchanged files are not downloaded again, and files deleted since the last run still get their tombstones. The run reads the permissions of every shared item. Expect that run to take longer than an incremental one: see [the cost of capturing sharing](/security#the-cost-of-capturing-sharing).
+
+## Folder colours
+
+```bash
+atlas onedrive list-permissions -o user@example.com
+```
+
+A folder's colour is not on the drive item. It is stored in the `_ColorHex`, `_ColorTag`, and `_Emoji` columns of the folder's list item, and delta does not return those columns. Atlas therefore reads them separately for every folder a backup run receives from delta, 20 folders per `$batch` request, and records the non-empty values on the folder's manifest entry. `_ColorHex` holds the palette position the web UI chose, such as `6`, not a hex value. A folder with neither a colour nor permissions of its own gets no entry, and a folder with both gets one entry that carries both.
+
+Changing a folder's colour brings the folder back in delta, so the next backup sees it. An entry is written only when the colour differs from the one the last entry recorded, and removing a colour writes an entry without one. A colour read that fails is logged and leaves the folder's last recorded colour in place. It never fails the backup of the files around it. The read cost is described in [The cost of capturing folder colours](/security#the-cost-of-capturing-folder-colours).
+
+Restore does not set folder colours. Microsoft Graph refuses every write to these columns with `403 accessDenied` (`Field '_ColorHex' is read-only`), even with `Files.ReadWrite.All` and `Sites.ReadWrite.All`, so Atlas does not attempt it. Restored folders take the destination's default colour. The summary shows `Folder colours not restored` with a count, and that line does not change the exit code. Writing colours needs the SharePoint REST API with certificate authentication, tracked in [#778](https://github.com/wisecom-oy/atlas/issues/778).
+
+The one-time full listing described in [First backup after upgrading](#first-backup-after-upgrading) reads every folder's colour. A drive whose saved cursor was already past that listing records a folder's colour the next time delta returns the folder, which happens when the folder or anything inside it changes. Atlas does not list such drives in full again to pick up colours sooner.
 
 ## Rolling a file back to an earlier version
 
@@ -336,7 +351,7 @@ Restored sections are ordinary files. Dropping them back into a drive does not r
 - **Files that change size.** Every download is checked against the size the listing reported. Each range of a chunked download also carries the file's total length in its `Content-Range`. A file can change size between its listing and its download, and SharePoint can rewrite a file on its first download without creating a version, so a listed size can be stale. When the size differs, Atlas reads the item once more and downloads the file again at its current size. A file that settles is stored at that size, and its manifest entry records it. The refresh costs one item read per mismatching file, and a file gets at most one refresh per run. A file whose size still changes fails with `DownloadIntegrityError`, is recorded as a failed item, and leaves the run UNHEALTHY. A truncated transfer or a wrong byte range is never refreshed and fails at once. After 5 failed attempts the file is reported as `PERMANENTLY SKIPPED`.
 - **Ctrl+C.** A backup stops at once: in the middle of a file it is reading from its download URL, in a Graph call such as delta listing or the `/content` fallback, and during any retry or throttle wait. A file interrupted this way is not recorded as a failed item, so it keeps its 5 retry attempts for the next run.
 - **Path length.** Restores under a root add path depth. Files over OneDrive's path length limit are skipped and reported.
-- **Scope.** Authors are not restored. Sharing is restored only with `--restore-permissions`.
+- **Scope.** Authors and folder colours are not restored. Sharing is restored only with `--restore-permissions`.
 
 ## SDK usage
 

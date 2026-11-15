@@ -795,7 +795,7 @@ atlas onedrive quarantine --key onedrive/manifests/<owner-id>/od-snap-1735689600
 | `restore`         | Restore files from a snapshot to the owner's or another user's OneDrive                                                                  |
 | `list-snapshots`  | List snapshot IDs and timestamps for the owner                                                                                           |
 | `list-versions`   | List indexed versions of one file (`-f`, a file ID or path)                                                                              |
-| `list-permissions`| List who had access to which file or folder at a snapshot                                                                                |
+| `list-permissions`| List who had access to which file or folder, and folder colours, at a snapshot                                                           |
 | `restore-version` | Push stored file versions back into the drive, one file or a whole rollback                                                              |
 | `verify`          | Decrypt manifests and blobs for a snapshot, and check SHA-256 and index rows                                                             |
 | `status`          | Report pending Graph changes per drive, without backing up                                                                               |
@@ -843,7 +843,7 @@ Ctrl+C stops a drive restore at once when it lands in a Graph retry or throttle 
 
 An owner can have several drives. Each manifest entry records the drive its file came from. A restore to the original owner returns each file to its drive. A file whose drive no longer exists is reported and skipped, never written to a different drive. `--target-owner` has no drive mapping, because Atlas records drive IDs and not drive names. It is refused when the snapshot spans more than one drive. Restore those to the original owner, or one drive at a time with `--file-filter`.
 
-Without `--restore-permissions` no permission is applied, and the summary shows how many were left out. With it, direct grants are reapplied through `invite` with no invitation email and links are recreated with the same type and scope. A permission that cannot be restored, such as a grant to a user deleted since the backup, is listed with its reason and does not change the exit code. See [Restoring sharing](/onedrive-backup#restoring-sharing).
+Without `--restore-permissions` no permission is applied, and the summary shows how many were left out. With it, direct grants are reapplied through `invite` with no invitation email and links are recreated with the same type and scope. A permission that cannot be restored, such as a grant to a user deleted since the backup, is listed with its reason and does not change the exit code. See [Restoring sharing](/onedrive-backup#restoring-sharing). Folder colours are never written, because Graph refuses the write. The summary shows `Folder colours not restored` with a count, which does not change the exit code. See [Folder colours](/onedrive-backup#folder-colours).
 
 A `--file-filter` path is the rooted path shown in a listing. A file at the root is written as `/Report.docx`, not `//Report.docx`. Version commands accept the same path forms.
 
@@ -873,6 +873,8 @@ A `--file-filter` value that matches no file in the snapshot is an error on `res
 | `-t, --tenant <id>`   | Override the tenant ID from config            |
 
 Prints one row per captured permission: the item's path, its kind, the roles, and the grantee or the link's type and scope with any expiry. Only non-inherited permissions are captured, so an item that only inherits access from its folder is not listed. It reads the backup alone and makes no Graph call. A snapshot taken before permission capture records no permissions, so it lists nothing.
+
+A second table lists each coloured folder with its colour as stored: `palette 6`, plus `tag` and `emoji` when those columns are set. It is left out when no folder is coloured, which includes every snapshot taken before folder colours were captured.
 
 **`atlas onedrive restore-version`**
 
@@ -1007,7 +1009,7 @@ atlas sharepoint quarantine --key sharepoint/manifests/<site-id>/sp-snap-1735689
 | `list-sites`      | List every site the tenant search returns, with its kind: `site`, or `container (not backed up)` for a SharePoint Embedded container     |
 | `list-snapshots`  | List all SharePoint snapshots for a site                                                                                                 |
 | `list-versions`   | List all backed-up versions of one file                                                                                                  |
-| `list-permissions`| List who had access to which file or folder at a snapshot                                                                                |
+| `list-permissions`| List who had access to which file or folder, and folder colours, at a snapshot                                                           |
 | `restore-version` | Push stored file versions back into the library, one file or a whole rollback                                                            |
 | `restore`         | Restore files from a snapshot to the site's document libraries                                                                           |
 | `save`            | Decrypt files from a snapshot into a local zip archive                                                                                   |

@@ -512,6 +512,7 @@ A restored file contains the original bytes, verified against the manifest check
 | Item sharing (grants and links)     | Yes      | Only with `--restore-permissions`       |
 | Sharing link URLs                   | No       | No. A recreated link gets a new URL     |
 | Site and library permissions        | No       | No                                      |
+| Folder colours                      | Yes      | No. Graph refuses the write             |
 
 Graph exposes two timestamp pairs. The `driveItem` values are set by the service, so a restored file always shows the restore time there. The `fileSystemInfo` facet holds client-reported values and is writable on upload, so Atlas restores through it. Each manifest entry records both pairs. A resumable upload carries the timestamps with the upload. A small `PUT /content` carries only bytes, so Atlas follows it with a best-effort `PATCH`. If that patch fails, the file keeps restore-time timestamps and the run logs the failure.
 
@@ -531,9 +532,17 @@ With the flag, every grant and link is applied to the restored copy, wherever it
 
 Permission restore needs the same write permission as file restore, `Files.ReadWrite.All` for OneDrive and `Sites.ReadWrite.All` for SharePoint. Reading permissions during backup needs nothing beyond the existing read permissions.
 
+### Folder colours cannot be restored
+
+A backup records each folder's colour from the `_ColorHex`, `_ColorTag`, and `_Emoji` columns of its list item. Microsoft Graph refuses every write to these columns with `403 accessDenied` (`Field '_ColorHex' is read-only`), on OneDrive and on SharePoint, with `Files.ReadWrite.All` and `Sites.ReadWrite.All` alike. A restore therefore sends no colour write. It counts the coloured folders it left at the default colour and reports that count, which does not change the exit code. The remaining route is the SharePoint REST API, which accepts app-only tokens only from a certificate credential. That work is tracked in [#778](https://github.com/wisecom-oy/atlas/issues/778). Reading colours needs no permission beyond the existing read permissions.
+
 ### The cost of capturing sharing
 
 Each permission read costs 5 resource units from the tenant-wide SharePoint and OneDrive pool (see [Graph rate limits](./operations/graph-rate-limits.md#resource-unit-costs)). Reading every item of a 100,000-file drive would cost 500,000 RU, about 6.7 hours of the tenant's quota at 1,250 RU per minute. Atlas avoids that: delta requests carry `Prefer: hierarchicalsharing`, which makes Graph mark only the items whose own sharing was set or removed, and only those are read, 20 per `$batch` request. A drive with 2,000 shared items costs about 10,000 RU on its first backup after upgrading, and later backups read only items whose sharing changed. `$batch` saves round trips, not resource units.
+
+### The cost of capturing folder colours
+
+Delta never carries a folder's colour, so every backup reads the colour of each folder delta returns, other than the drive root, 20 folders per `$batch` request. Each read is a single-item GET at 1 resource unit. Delta returns a folder when it changes and when anything inside it changes, so an incremental run reads roughly one colour per folder above each changed file. The first full listing of a library with 20,000 folders reads 20,000 colours: 1,000 `$batch` requests and about 20,000 RU, some 16 minutes of the tenant's quota at 1,250 RU per minute. An incremental run that changes files in 50 folders costs about 50 RU for colours.
 
 ## Calendar restore does not notify attendees
 

@@ -35,6 +35,7 @@ atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering 
 | Subsites                        | Only with `--include-subsites`, one snapshot per subsite                                      |
 | Moves, renames, deletions       | Recorded as changes on the next run                                                           |
 | Sharing                         | Each file's and folder's non-inherited permissions, without link URLs                        |
+| Folder colours                  | Each folder's colour, captured but not restored                                               |
 
 ## Permissions
 
@@ -127,7 +128,7 @@ atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering
   --in-place --restore-permissions
 ```
 
-Item sharing is captured and restored as for OneDrive. See [Sharing](./onedrive-backup.md#sharing) and [Restoring sharing](./onedrive-backup.md#restoring-sharing). Site and library permissions are not part of a backup. A restore into another site with `--target-site` and `--restore-permissions` grants the original audience access to the copy in that site, so check who should see it first.
+Item sharing is captured and restored as for OneDrive. See [Sharing](./onedrive-backup.md#sharing) and [Restoring sharing](./onedrive-backup.md#restoring-sharing). Folder colours are captured and reported as not restored, as for OneDrive: see [Folder colours](./onedrive-backup.md#folder-colours). Graph cannot write them, so a coloured folder restored into this or another site takes the library's default colour. Site and library permissions are not part of a backup. A restore into another site with `--target-site` and `--restore-permissions` grants the original audience access to the copy in that site, so check who should see it first.
 
 Restored files keep their original created and modified timestamps. Each file is decrypted and checked against its SHA-256 checksum before upload. A file whose stored object is missing, fails AES-GCM authentication, or does not match the manifest is reported as a restore error with the reason and is not created. The rest of the snapshot is restored, and the run exits `2`. A wrong passphrase stops the run with exit `5` before anything is written.
 
@@ -216,7 +217,7 @@ atlas sharepoint list-versions --site https://contoso.sharepoint.com/sites/Engin
 atlas sharepoint list-permissions --site https://contoso.sharepoint.com/sites/Engineering
 ```
 
-`list-permissions` shows who had access to which file or folder at a snapshot, the newest unless `-s` names one, from the backup alone.
+`list-permissions` shows who had access to which file or folder at a snapshot, the newest unless `-s` names one, and the colour of each coloured folder, from the backup alone.
 
 ### status
 
@@ -347,7 +348,7 @@ Restored sections arrive as ordinary files. Treat notebook restore as recovering
 - **Throttling and CDN faults.** Graph `429`, transient `500`, `502`, `503` and `504` responses, and dropped connections are retried with backoff, up to 5 times per range for chunked downloads. A file up to 4 MiB is read in one request, and a `429` there is retried up to 3 times before Atlas falls back to the Graph `/content` endpoint. A `Retry-After` on a download is honoured in either form, seconds or an HTTP date, and capped at one hour. A `401` or `403` from the download URL means it expired: Atlas resolves a fresh URL once and downloads the file again.
 - **Files that change size.** Every download is checked against the size the listing reported. Each range of a chunked download also carries the file's total length in its `Content-Range`. SharePoint can rewrite a file on its first download without creating a version, so a listed size can be stale. When the size differs, Atlas reads the item once more and downloads the file again at its current size. A file that settles is stored at that size, and its manifest entry records it. The refresh costs one item read per mismatching file, and a file gets at most one refresh per run. A file whose size still changes fails with `DownloadIntegrityError`, is recorded as a failed item, and leaves the run UNHEALTHY. A truncated transfer or a wrong byte range is never refreshed and fails at once. After 5 failed attempts the file is reported as `PERMANENTLY SKIPPED`.
 - **Ctrl+C.** A backup stops at once: in the middle of a file it is reading from its download URL, in a Graph call such as delta listing or the `/content` fallback, and during any retry or throttle wait. A file interrupted this way is not recorded as a failed item, so it keeps its 5 retry attempts for the next run.
-- **Scope.** Item sharing is captured and restored only with `--restore-permissions`. Site and library permissions are not captured, and restores do not recreate file authors. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
+- **Scope.** Item sharing is captured and restored only with `--restore-permissions`. Folder colours are captured but not restored. Site and library permissions are not captured, and restores do not recreate file authors. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
 - **First backup after upgrading.** Libraries are listed in full once, as described in [First backup after upgrading](./onedrive-backup.md#first-backup-after-upgrading).
 
 ## SDK usage
