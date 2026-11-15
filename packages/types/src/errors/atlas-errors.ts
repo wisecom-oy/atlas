@@ -361,12 +361,14 @@ export interface RefusedGraphResource {
 /**
  * Graph refused one resource with a 403 Atlas does not attribute to a missing grant: its code does
  * not name a missing permission, or, for SharePoint, the same app can read the tenant's root site
- * (issue #772). A SharePoint Embedded container site is
- * the known case: Graph answers 403 `accessDenied` to an app holding `Sites.Read.All`.
+ * (issue #772). A SharePoint Embedded container site is the known case: Graph answers 403
+ * `accessDenied` to an app holding `Sites.Read.All`.
  *
- * Permanent: retrying returns the same answer, so a caller marks the resource unsupported. Not an
- * `AuthError`: the refusal is about one resource, not the tenant, so a caller that stops a tenant
- * run on `AuthError` keeps backing up the other owners.
+ * Retrying returns the same answer until something changes. A container (`reason`
+ * `file_storage_container`) is unsupported; any other resource may need a per-site grant, such as
+ * `Sites.Selected` on the site, before it can be read. Not an `AuthError`: the refusal is about one
+ * resource, not the tenant, so a caller that stops a tenant run on `AuthError` keeps backing up the
+ * other owners.
  */
 export class GraphAccessRefusedError extends AtlasError {
   readonly site_id: string | undefined;

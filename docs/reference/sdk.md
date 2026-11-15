@@ -1418,7 +1418,10 @@ try {
   await atlas.sharepoint.backup(siteId);
 } catch (err) {
   if (err instanceof GraphAccessRefusedError) {
-    markUnsupported(err.site_id, err.reason); // permanent: do not retry
+    // Retrying returns the same answer. A container is unsupported; another site may need a
+    // per-site grant first.
+    if (err.reason === 'file_storage_container') markUnsupported(err.site_id);
+    else flagForGrantReview(err.site_id, err.graph_code);
   } else if (err instanceof GraphUnavailableError || err instanceof ThrottledError) {
     scheduleLater(err.code); // transient: back off at the run level
   } else {
@@ -1427,11 +1430,11 @@ try {
 }
 ```
 
-| Code                      | Retry?                                              | Fields                                                                                                                                                                                                                            |
-| ------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ATLAS_GRAPH_UNAVAILABLE` | Yes, later. The call already spent its retry budget | `status_code` (last HTTP status, `undefined` when no response arrived), `graph_code` (`undefined` without a response), `retries` (how many were made: up to 12, fewer when the 24-minute wait budget ran out first), `elapsed_ms` |
-| `ATLAS_ACCESS_REFUSED`    | No. Mark the resource unsupported                   | `site_id`, `drive_id`, `owner_id` (what the call addressed, the others `undefined`), `reason`, `status_code`, `graph_code`                                                                                                        |
-| `ATLAS_AUTH_DENIED`       | No. Grant the permission first                      | `MissingGraphPermissionsError` adds `permissions`, `status_code`, `graph_code`                                                                                                                                                    |
+| Code                      | Retry?                                                                               | Fields                                                                                                                                                                                                                            |
+| ------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ATLAS_GRAPH_UNAVAILABLE` | Yes, later. The call already spent its retry budget                                  | `status_code` (last HTTP status, `undefined` when no response arrived), `graph_code` (`undefined` without a response), `retries` (how many were made: up to 12, fewer when the 24-minute wait budget ran out first), `elapsed_ms` |
+| `ATLAS_ACCESS_REFUSED`    | Not as is. A container is unsupported; check another resource's per-site grant first | `site_id`, `drive_id`, `owner_id` (what the call addressed, the others `undefined`), `reason`, `status_code`, `graph_code`                                                                                                        |
+| `ATLAS_AUTH_DENIED`       | No. Grant the permission first                                                       | `MissingGraphPermissionsError` adds `permissions`, `status_code`, `graph_code`                                                                                                                                                    |
 
 `GraphUnavailableError` replaces the raw Graph error an exhausted 5xx or network failure used to reject with, which often had an empty `message`. Its message is never empty: it names the retry count, the elapsed time, the HTTP status when there was one, the Graph error code when Graph sent one, and an excerpt of the response body when Graph sent no message, or `no HTTP response` with the transport error when the connection failed, for example `Microsoft Graph was unavailable after 12 retries over 1416 s: HTTP 504 -- UnknownError -- {"code":"UnknownError","message":"",...}`. An exhausted 429 stays `ThrottledError`. A failure Atlas does not retry, such as a 400, is rethrown unchanged.
 

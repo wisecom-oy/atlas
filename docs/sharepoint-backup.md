@@ -402,7 +402,8 @@ for (const s of sites) {
     await atlas.sharepoint.backup(s.siteId);
   } catch (err) {
     if (!(err instanceof GraphAccessRefusedError)) throw err;
-    // Permanent for this site: mark it unsupported, do not retry.
+    // Retrying returns the same answer. Containers were skipped above, so check this site's
+    // per-site grant before treating it as unsupported.
     console.log(
       `Refused: ${err.site_id} (${err.reason}, HTTP ${err.status_code} ${err.graph_code})`,
     );
