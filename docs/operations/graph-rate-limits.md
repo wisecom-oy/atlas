@@ -1,10 +1,25 @@
 ---
-description: Microsoft Graph throttling pools that limit Atlas backups, the values built into GRAPH_SERVICE_LIMITS, and how they cap parallel backup queues.
+description: How Microsoft Graph throttling limits Atlas backups, what Atlas does when it is throttled, and how to schedule jobs around the request budgets.
 ---
 
 # Microsoft Graph rate limits
 
-Atlas reads and writes Microsoft 365 only through Microsoft Graph. Graph throttles each app along several independent pools, and the throttling rules decide how far a backup queue can run in parallel. The limits below are the values Atlas builds into `GRAPH_SERVICE_LIMITS`, with the official Microsoft sources linked for each pool.
+Atlas reads and writes Microsoft 365 only through Microsoft Graph, and Microsoft Graph limits how many requests an app may send. When a backup goes over a limit, Microsoft Graph answers `429 Too Many Requests` with a `Retry-After` header that says how long to wait. Atlas pauses, waits, and retries on its own.
+
+Occasional throttling during a large first backup is normal and needs no action. What you control is how many jobs run at once, and the limits decide how far that helps:
+
+| Workload | Budget | Running more jobs in parallel |
+| --- | --- | --- |
+| Outlook | One per mailbox | Adds capacity. 50 mailbox backups draw from 50 budgets |
+| OneDrive, SharePoint | One per tenant, shared by every drive and site | Helps only while the tenant budget has headroom |
+| Teams | One per tenant, plus limits per team and channel | Atlas paces requests itself. `--concurrency` sets channels in parallel |
+| Mailbox discovery | One per tenant | Matters only when many tenants list mailboxes at once |
+
+The limits below are the values Atlas builds into `GRAPH_SERVICE_LIMITS`, with Microsoft's source linked for each.
+
+## Spacing runs with the SDK
+
+Every SDK result reports the requests it used in `graphCost`, and a failed run still reports what it consumed. A scheduler can use it to keep the next run of a mailbox out of the current throttling window:
 
 ```ts
 import { createAtlasInstance, getGraphCost, GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-sdk';
@@ -29,32 +44,69 @@ await saveCooldown('<mailbox-id>', Date.now() + cooldownMs); // your scheduler's
 if (failure !== undefined) throw failure;
 ```
 
-The [SDK reference](/reference/sdk) documents `AtlasInstanceConfig` and the full `OperationCost` type.
+`graphCost` is measured at the HTTP transport. Each `@odata.nextLink` page and each retry attempt counts as its own request, so a cooldown computed from it reflects quota actually used. A run that threw usually used more quota than one that finished, so apply the cooldown in both cases. The [SDK reference](/reference/sdk) documents `AtlasInstanceConfig` and the full `OperationCost` type.
 
-## How Graph throttles
+## How Microsoft Graph throttles
 
-Each request is checked against two kinds of limit. The first one reached returns `429 Too Many Requests`:
+Each request is checked against two layers. The first limit reached returns `429 Too Many Requests`:
 
-| Layer            | Scope                       | Limit                           |
-| ---------------- | --------------------------- | ------------------------------- |
-| Global           | Per app, across all tenants | 130,000 requests per 10 seconds |
-| Service-specific | Per pool, see below         | Separate budget per pool        |
+| Layer | Scope | Limit |
+| --- | --- | --- |
+| Global | Per app, across all tenants | 130,000 requests per 10 seconds |
+| Service-specific | Per pool, see below | Separate budget per pool |
 
-The global limit matters only for an app running hundreds of tenants at once. For most deployments, the service pools are the constraint.
+The global limit matters only for an app running hundreds of tenants at once. For most deployments the service pools are the constraint. Each pool has its own budget, and using one does not reduce another. Atlas uses four:
 
-Each pool has its own budget. Using one does not reduce another:
+| Pool | Scope | Cost model | Used by |
+| --- | --- | --- | --- |
+| Outlook | Per app, per mailbox | Flat (1 request = 1) | Mail backup and restore |
+| SharePoint / OneDrive | Per app, per tenant | Resource units (1 to 5 RU) | OneDrive and SharePoint backup |
+| Identity (Microsoft Entra ID) | Per app, per tenant | Resource units (1 to 5 RU) | Mailbox discovery |
+| Teams | Per app, per tenant, plus per team or channel | Flat (1 request = 1) | Teams channel backup |
 
-- Each mailbox has its own Outlook budget, so 50 parallel mailbox backups draw from 50 budgets.
-- All SharePoint and OneDrive calls from one app share one budget per tenant, however many drives or sites they touch.
+A throttled request still counts toward the budget.
 
-Atlas uses four pools:
+## Throttle handling
 
-| Pool                          | Scope                                         | Cost model                 | Used by                        |
-| ----------------------------- | --------------------------------------------- | -------------------------- | ------------------------------ |
-| Outlook                       | Per app, per mailbox                          | Flat (1 request = 1)       | Mail backup and restore        |
-| SharePoint / OneDrive         | Per app, per tenant                           | Resource units (1 to 5 RU) | OneDrive and SharePoint backup |
-| Identity (Microsoft Entra ID) | Per app, per tenant                           | Resource units (1 to 5 RU) | Mailbox discovery              |
-| Teams                         | Per app, per tenant, plus per team or channel | Flat (1 request = 1)       | Teams channel backup           |
+When Microsoft Graph throttles a request, Atlas pauses every request that draws on the same budget, not only the one that was refused. This is what slows the instance down: concurrency is fixed and a `429` does not lower it.
+
+1. **The pool cools down.** Atlas's throttle coordinator starts a cooldown for the `Retry-After` window, or 30 seconds when Microsoft Graph sends none. Every request to that budget waits for it before it is sent, including retry attempts already in progress.
+2. **The throttled call retries.** It waits out the cooldown and tries again, up to 12 retries. Without a `Retry-After`, it backs off exponentially, up to 5 minutes per wait.
+3. **Requests resume gradually.** When the cooldown ends, each waiting request resumes after its own random delay, so the pool does not return to Microsoft Graph in one burst and draw the next `429`.
+
+| Budget throttled | What pauses |
+| --- | --- |
+| One Outlook mailbox | Only that mailbox's requests. Other mailboxes keep sending |
+| SharePoint / OneDrive | Every drive and site request of the instance, because they share one tenant budget |
+| Identity | Every identity request of the instance |
+| One team | Only that team's requests. Listing the tenant's teams has no team, so a `429` there pauses the whole Teams pool |
+
+A cooldown never crosses pools. Overlapping cooldowns do not add up: the longest one wins.
+
+::: details Throttle timing in detail
+| Parameter | Value |
+| --- | --- |
+| Cooldown without `Retry-After` | 30 s |
+| Maximum retries | 12, so at most 13 HTTP attempts per call |
+| Backoff cap per wait | 5 minutes |
+| Waiting budget per call | 24 minutes. After that the call starts no new wait, but a wait already started runs in full. Time spent inside each request does not count |
+| Longest `Retry-After` honoured | 1 hour. A longer value fails the call with a `ThrottledError` naming the value, and the pool still cools down for the hour |
+| Release delay after a cooldown | Random, up to a tenth of the cooldown, kept between 1 and 5 s. A 6-minute cooldown releases its requests over 5 s |
+
+The release delay is only ever added, so nothing is sent before the `Retry-After` Microsoft Graph asked for. The cooldown starts on the first throttled response, so calls already in a retry loop see it between attempts.
+
+Retries happen in one layer only. The Graph SDK's own retry handler is disabled, because running both layers would multiply the retries.
+:::
+
+### What the coordinator covers
+
+Every request made through a Graph connector is coordinated, including mailbox discovery and user resolution on the identity pool, and Outlook restore.
+
+OneDrive and SharePoint file downloads (whole or in ranges) and resumable upload chunks use pre-authenticated URLs instead of the Graph client. Atlas still makes each attempt wait for the `sharepoint_onedrive` cooldown before it is sent, and raises the cooldown on a `429`, or a `503` with `Retry-After`. Their own retry backoff still applies, see [File transfers](/operations/reliability#file-transfers-onedrive-and-sharepoint).
+
+### Several processes for one tenant
+
+The default coordinator lives in memory and covers one Atlas instance. A host that runs several processes for the same tenant can pass its own `throttleCoordinator`, so a `429` in one process pauses the others. A host coordinator fails open: if its shared store is unreachable, requests proceed on their own backoff and a warning is logged. See [Concurrent operations](/reference/sdk#concurrent-operations).
 
 ## Outlook pool
 
@@ -62,54 +114,35 @@ Atlas uses four pools:
 
 Outlook limits apply per app ID per mailbox. Each request costs 1, whatever the endpoint or method.
 
-| Limit                                                   | Value  |
-| ------------------------------------------------------- | ------ |
-| API requests per 10-minute window                       | 10,000 |
-| Maximum concurrent requests per mailbox                 | 4      |
-| Upload body size per 5-minute window (POST, PATCH, PUT) | 150 MB |
+| Limit | Microsoft | Atlas |
+| --- | --- | --- |
+| API requests per 10-minute window | 10,000 | Paces each mailbox at 9,600 (96%), leaving headroom for requests in flight |
+| Concurrent requests per mailbox | 4 | 4 |
+| Upload body size per 5-minute window (POST, PATCH, PUT) | 150 MB | |
 
-Atlas's per-mailbox limiter caps each window at 9,600 requests, 96% of Microsoft's limit, which leaves headroom for requests in flight. It also allows four concurrent requests per mailbox.
+Microsoft Graph processes at most four requests from a `$batch` at a time, and a `dependsOn` chain runs them one at a time. Each request inside a batch counts against the window on its own, so Atlas charges its pacing one unit per request in the batch, not one per round trip. `graphCost` counts the same way, so reaction capture costs one request per stored message in both. A retried batch resends only the messages still pending, and `graphCost` counts those again.
 
-Graph processes at most four requests from a batch at a time. A `dependsOn` chain in a batch runs them one at a time. Each request inside a batch counts against the window on its own, so Atlas charges its limiter one unit per request in the batch, not one per round trip. `graphCost` counts the same way, so reaction capture costs one request per stored message in both. A retried batch resends only the messages still pending, and `graphCost` counts those again.
+### Requests in the Outlook pool
 
-### Throttle handling
+`graphCost.requestsByType` labels each request with the operation that issued it:
 
-A `429` response includes `Retry-After`, the number of seconds to wait. Throttled requests still count toward the budget.
+| `requestsByType` label | Microsoft Graph endpoint | Cost |
+| --- | --- | --- |
+| `list_folders` | `GET /users/{id}/mailFolders`, `/mailFolders/{wellKnownName}` | 1 per folder page, plus well-known folder reads |
+| `delta_sync` | `GET /users/{id}/mailFolders/{id}/messages/delta` | 1 per page |
+| `fetch_message` | `GET /users/{id}/messages/{id}` | 1 |
+| `fetch_mime` | `GET /users/{id}/messages/{id}/$value` | 1 |
+| `fetch_extended_properties` | `POST /$batch` of up to 20 chained `GET /users/{id}/messages/{id}?$expand=singleValueExtendedProperties(...)` | 1 per message, 1 round trip per 20 messages |
+| `fetch_attachments` | `GET /users/{id}/messages/{id}/attachments` | 1 |
+| `create_folder` | `POST /users/{id}/mailFolders` | 1 |
+| `create_message` | `POST /users/{id}/mailFolders/{id}/messages` | 1 |
+| `add_attachment` | `POST /users/{id}/messages/{id}/attachments` | 1, plus upload bytes |
+| `create_upload_session` | `POST /users/{id}/messages/{id}/attachments/createUploadSession` | 1 |
+| `upload_chunk` | `PUT {upload_url}` | 1, plus upload bytes |
+| `count_folder_messages` | `GET /users/{id}/mailFolders/{id}?$select=totalItemCount` | 1 |
+| `list_folder_messages` | `GET /users/{id}/mailFolders/{id}/messages` | 1 |
 
-Atlas handles a throttled response in two steps:
-
-1. The instance's throttle coordinator starts a cooldown for the pool the request was charged to, for the `Retry-After` window, or 30 seconds when Graph sends none. Every request to that pool waits for the cooldown before it sends, including each retry attempt.
-2. The call that was throttled waits out the cooldown and retries, for up to 12 retries. Without a `Retry-After`, it backs off exponentially, up to 5 minutes per wait. Once a call has spent 24 minutes waiting it starts no new wait, but a wait already started runs in full. Time spent inside each request does not count.
-
-Atlas waits out a `Retry-After` of up to one hour. A longer value fails the call with a `ThrottledError` naming the value, and the pool still cools down for the hour.
-
-When a cooldown ends, each request parked on it resumes after its own random delay rather than all at once. The delay is up to a tenth of the cooldown, between 1 and 5 seconds, so a 6-minute cooldown releases its requests over 5 seconds. Releasing them together would send the whole pool back to Graph in one burst and draw the next 429. The delay is only ever added, so nothing is sent before the `Retry-After` Graph asked for. Microsoft's Graph JavaScript SDK adds up to one second of jitter to its own retries; Atlas allows more because one cooldown can hold every worker of the instance, or of every process sharing a coordinator.
-
-The coordinator keeps one cooldown per Outlook mailbox, and one per pool for `sharepoint_onedrive` and `identity`. A 429 on one mailbox pauses only that mailbox's requests, because Outlook limits are counted per mailbox. Other mailboxes keep sending. A 429 on a drive or site pauses the instance's other drive and site requests, which share one per-tenant budget. The cooldown does not cross pools. The cooldown starts on the first throttled response, so calls already in a retry loop see it between attempts.
-
-The default coordinator lives in memory and covers one Atlas instance. A host that runs several processes for the same tenant can pass its own `throttleCoordinator` so a 429 in one process pauses the others. See [Concurrent operations](/reference/sdk#concurrent-operations).
-
-Retries happen in one layer only. The Graph SDK's own retry handler is disabled, so one logical call makes at most 13 HTTP attempts. Running both layers would multiply the retries.
-
-Drive file downloads from pre-authenticated URLs, whole or chunked, and resumable upload chunks also consult the coordinator, on the `sharepoint_onedrive` pool. They fetch pre-authenticated URLs directly, so Atlas wraps each attempt: it waits before the request and raises the cooldown on a 429 or 503 with `Retry-After`. Their own retry backoff still applies. Every request made through a Graph connector, including mailbox discovery and user resolution on the identity pool and Outlook restore, is coordinated.
-
-### Endpoints in the Outlook pool
-
-| Operation                   | Graph endpoint                                                                                                | Cost                                                                         |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `list_mail_folders`         | `GET /users/{id}/mailFolders`, `/mailFolders/{wellKnownName}`                                                 | 1 per folder page, plus well-known folder reads                              |
-| `fetch_delta`               | `GET /users/{id}/mailFolders/{id}/messages/delta`                                                             | 1 per page                                                                   |
-| `fetch_message`             | `GET /users/{id}/messages/{id}`                                                                               | 1                                                                            |
-| `fetch_mime`                | `GET /users/{id}/messages/{id}/$value`                                                                        | 1                                                                            |
-| `fetch_extended_properties` | `POST /$batch` of up to 20 chained `GET /users/{id}/messages/{id}?$expand=singleValueExtendedProperties(...)` | 1 per message, 1 round trip per 20 messages. `graphCost` counts each message |
-| `fetch_attachments`         | `GET /users/{id}/messages/{id}/attachments`                                                                   | 1                                                                            |
-| `create_mail_folder`        | `POST /users/{id}/mailFolders`                                                                                | 1                                                                            |
-| `create_message`            | `POST /users/{id}/mailFolders/{id}/messages`                                                                  | 1                                                                            |
-| `add_attachment`            | `POST /users/{id}/messages/{id}/attachments`                                                                  | 1, plus upload bytes                                                         |
-| `create_upload_session`     | `POST /users/{id}/messages/{id}/attachments/createUploadSession`                                              | 1                                                                            |
-| `upload_chunk`              | `PUT {upload_url}`                                                                                            | 1, plus upload bytes                                                         |
-| `count_folder_messages`     | `GET /users/{id}/mailFolders/{id}?$select=totalItemCount`                                                     | 1                                                                            |
-| `list_folder_messages`      | `GET /users/{id}/mailFolders/{id}/messages`                                                                   | 1                                                                            |
+Restore also records `find_child_folder` and `read_well_known_folder` for its folder lookups.
 
 ## SharePoint and OneDrive pool
 
@@ -117,17 +150,19 @@ Drive file downloads from pre-authenticated URLs, whole or chunked, and resumabl
 
 This pool is per app, per tenant. Every call is charged in resource units (RU).
 
+The budget is per tenant, not per user. Running N drive backups in parallel for one tenant does not add capacity the way N mailbox backups do, because they draw on the same budget. Parallel drive jobs shorten a run only while the budget has headroom. Once Microsoft Graph throttles, the shared cooldown pauses all of them together.
+
 ::: warning Drive cost is recorded at 1 RU per request
-Atlas records every SharePoint and OneDrive request under `byService.sharepoint_onedrive` in `graphCost`. The drive code does not assign Microsoft's per-operation RU costs, so each request is recorded as 1 RU. The totals therefore undercount the RU that Microsoft charges for list, delta-without-token, and permission calls. Use the Microsoft limits below for scheduling, not the recorded RU.
+Atlas records every SharePoint and OneDrive request under `byService.sharepoint_onedrive` in `graphCost` at 1 RU, without Microsoft's per-operation costs. The totals therefore undercount what Microsoft charges for list, delta-without-token, and permission calls. Use the Microsoft limits below for scheduling, not the recorded RU.
 :::
 
 ### Resource unit costs
 
-| Operation                                        | Cost |
-| ------------------------------------------------ | ---- |
-| Single-item GET, delta with a token              | 1 RU |
+| Operation | Cost |
+| --- | --- |
+| Single-item GET, delta with a token | 1 RU |
 | Multi-item list or search, delta without a token | 2 RU |
-| Permission operations, `$expand=permissions`     | 5 RU |
+| Permission operations, `$expand=permissions` | 5 RU |
 
 Microsoft can change these costs. `GRAPH_SERVICE_LIMITS.sharepoint_onedrive` holds the values Atlas uses.
 
@@ -135,97 +170,95 @@ Microsoft can change these costs. `GRAPH_SERVICE_LIMITS.sharepoint_onedrive` hol
 
 The limits scale with the tenant's license count.
 
-| Licenses         | RU per minute | RU per 24 hours |
-| ---------------- | ------------- | --------------- |
-| 0 to 1,000       | 1,250         | 1,200,000       |
-| 1,001 to 5,000   | 2,500         | 2,400,000       |
-| 5,001 to 15,000  | 3,750         | 3,600,000       |
-| 15,001 to 50,000 | 5,000         | 4,800,000       |
-| 50,000 and over  | 6,250         | 6,000,000       |
+| Licenses | RU per minute | RU per 24 hours |
+| --- | --- | --- |
+| 0 to 1,000 | 1,250 | 1,200,000 |
+| 1,001 to 5,000 | 2,500 | 2,400,000 |
+| 5,001 to 15,000 | 3,750 | 3,600,000 |
+| 15,001 to 50,000 | 5,000 | 4,800,000 |
+| 50,000 and over | 6,250 | 6,000,000 |
 
 ### Tenant-level limits (all apps combined)
 
-| Licenses         | RU per 5 minutes |
-| ---------------- | ---------------- |
-| 0 to 1,000       | 18,750           |
-| 1,001 to 5,000   | 37,500           |
-| 5,001 to 15,000  | 56,250           |
-| 15,001 to 50,000 | 75,000           |
-| 50,000 and over  | 93,750           |
+| Licenses | RU per 5 minutes |
+| --- | --- |
+| 0 to 1,000 | 18,750 |
+| 1,001 to 5,000 | 37,500 |
+| 5,001 to 15,000 | 56,250 |
+| 15,001 to 50,000 | 75,000 |
+| 50,000 and over | 93,750 |
 
 ### User-level and bandwidth limits
 
-| Scope               | Limit                                     |
-| ------------------- | ----------------------------------------- |
-| Per user            | 3,000 requests per 5 minutes              |
-| Per user            | 50 GB ingress and 100 GB egress per hour  |
+| Scope | Limit |
+| --- | --- |
+| Per user | 3,000 requests per 5 minutes |
+| Per user | 50 GB ingress and 100 GB egress per hour |
 | Per app, per tenant | 400 GB ingress and 400 GB egress per hour |
 
 ### Throttle responses
 
-| Response                  | Meaning                                                  |
-| ------------------------- | -------------------------------------------------------- |
-| `429 Too Many Requests`   | The app exceeded its rate limit. Includes `Retry-After`. |
-| `503 Service Unavailable` | Service-level load spike. Includes `Retry-After`.        |
+| Response | Meaning |
+| --- | --- |
+| `429 Too Many Requests` | The app exceeded its rate limit. Includes `Retry-After` |
+| `503 Service Unavailable` | Service-level load spike. Includes `Retry-After` |
 
-A throttled request still counts toward the limit. Persistent offenders can be blocked, returning 503 until the block lifts. Microsoft announces blocks through the Microsoft 365 Message Center.
+An app that keeps exceeding its limits can be blocked, and receives `503` until the block lifts. Microsoft announces blocks through the Microsoft 365 Message Center.
 
-SharePoint also sends `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` headers (IETF draft-03, preview) once an app uses 80% of its one-minute RU budget. Atlas does not read these headers yet. See [RateLimit headers](https://learn.microsoft.com/en-us/sharepoint/dev/general-development/how-to-avoid-getting-throttled-or-blocked-in-sharepoint-online#ratelimit-headers---preview).
-
-### Scheduling implication
-
-The budget is per tenant, not per user. Running N drive backups in parallel for one tenant does not add capacity the way N mailbox backups do, because they draw on the same budget. Parallel drive jobs shorten a run only while the budget has headroom. Once Graph throttles, the shared cooldown pauses all of them together.
+SharePoint also sends `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` headers (IETF draft-03, preview) once an app uses 80% of its one-minute RU budget. Atlas does not read these headers. See [RateLimit headers](https://learn.microsoft.com/en-us/sharepoint/dev/general-development/how-to-avoid-getting-throttled-or-blocked-in-sharepoint-online#ratelimit-headers---preview).
 
 ## Identity pool (Microsoft Entra ID)
 
 **Official source:** [Identity and access service limits](https://learn.microsoft.com/en-us/graph/throttling-limits#identity-and-access-service-limits)
 
-This pool is per app, per tenant, with a global per-app limit across all tenants. Each call has a base RU cost, adjusted by query parameters.
+Atlas reads from this pool only for mailbox discovery and existence checks. These run at job start, so they seldom matter at small scale. They matter when many tenants list mailboxes at once.
 
-| Tenant tier | Users     | RU per 10 seconds |
-| ----------- | --------- | ----------------- |
-| S           | Under 50  | 3,500             |
-| M           | 50 to 500 | 5,000             |
-| L           | Over 500  | 8,000             |
+The pool is per app, per tenant, with a global per-app limit across all tenants. Each call has a base RU cost, adjusted by query parameters.
 
-| Global per-app limit | Value                         |
-| -------------------- | ----------------------------- |
-| Read                 | 150,000 RU per 20 seconds     |
-| Write                | 35,000 requests per 5 minutes |
+| Tenant tier | Users | RU per 10 seconds |
+| --- | --- | --- |
+| S | Under 50 | 3,500 |
+| M | 50 to 500 | 5,000 |
+| L | Over 500 | 8,000 |
 
-Write quota per app and tenant is 3,000 requests per 2 minutes 30 seconds. Per-tenant write requests across all apps are capped at 18,000 per 5 minutes.
+| Global per-app limit | Value |
+| --- | --- |
+| Read | 150,000 RU per 20 seconds |
+| Write | 35,000 requests per 5 minutes |
 
-| Endpoint                             | Base cost |
-| ------------------------------------ | --------- |
-| `GET /users`                         | 2 RU      |
-| `GET /users/{id}`                    | 1 RU      |
-| `GET /reports/getMailboxUsageDetail` | 1 RU      |
-| Other read paths                     | 1 RU      |
+Write quota per app and tenant is 3,000 requests per 2 minutes 30 seconds. Write requests per tenant across all apps are capped at 18,000 per 5 minutes.
 
-Modifiers: `$select` reduces the cost by 1 RU, `$expand` adds 1 RU, and `$top` below 20 reduces it by 1 RU. Atlas uses `$select` on user listing calls, so each `/users` page costs about 1 RU.
+| Endpoint | Base cost |
+| --- | --- |
+| `GET /users` | 2 RU |
+| `GET /users/{id}` | 1 RU |
+| `GET /reports/getMailboxUsageDetail` | 1 RU |
+| Other read paths | 1 RU |
 
-Atlas reads from this pool only during mailbox discovery and existence checks. These run at job start, so they seldom matter at small scale. They matter when many tenants list mailboxes at once.
+`$select` reduces the cost by 1 RU, `$expand` adds 1 RU, and `$top` below 20 reduces it by 1 RU. Atlas uses `$select` on user listing calls, so each `/users` page costs about 1 RU.
 
 ## Teams pool
 
-This pool is per app, per tenant, with extra limits per team and per channel. Each call costs one request. Microsoft publishes these limits in its [throttling limits reference](https://learn.microsoft.com/en-us/graph/throttling-limits#microsoft-teams-service-limits):
+**Official source:** [Microsoft Teams service limits](https://learn.microsoft.com/en-us/graph/throttling-limits#microsoft-teams-service-limits)
 
-| Endpoint              | Per app, per tenant | Per team or channel      |
-| --------------------- | ------------------- | ------------------------ |
-| Channel message reads | 20 per second       | 1 per second per channel |
-| Team reads            | 30 per second       | 4 per second per team    |
+This pool is per app, per tenant, with extra limits per team and per channel. Each call costs one request.
 
-Atlas paces Teams requests at 80 % of these limits before Graph has to throttle them. See [Teams pacing](/teams-backup#pacing). A 429 from the Teams pool pauses only the team it came from, and the other teams of the tenant keep running. Listing the tenant's teams has no team, so a 429 there pauses the whole Teams pool. Other pools are never paused by a Teams 429. See [Throttle handling](#throttle-handling).
+| Endpoint | Per app, per tenant | Per team or channel |
+| --- | --- | --- |
+| Channel message reads | 20 per second | 1 per second per channel |
+| Team reads | 30 per second | 4 per second per team |
+
+Atlas paces Teams requests at 80% of these limits, so Microsoft Graph seldom has to throttle them. See [Teams pacing](/teams-backup#pacing). A `429` from the Teams pool pauses only the team it came from, and the tenant's other teams keep running. Listing the tenant's teams has no team, so a `429` there pauses the whole Teams pool. A Teams `429` never pauses another pool. See [Throttle handling](#throttle-handling).
 
 ## Summary
 
-| Pool                  | Scope                                | Cost model     | Constraint                                   |
-| --------------------- | ------------------------------------ | -------------- | -------------------------------------------- |
-| Outlook               | Per mailbox                          | Flat           | Primary limit for mail backup and restore    |
-| SharePoint / OneDrive | Per tenant                           | Resource units | Coordinate drive jobs per tenant             |
-| Identity              | Per tenant                           | Resource units | Matters only for discovery at scale          |
-| Teams                 | Per tenant, plus per team or channel | Flat           | Limits for busy channels and teams           |
-| Global                | Per app                              | Flat           | Matters only with hundreds of active tenants |
+| Pool | Scope | Cost model | Constraint |
+| --- | --- | --- | --- |
+| Outlook | Per mailbox | Flat | Primary limit for mail backup and restore |
+| SharePoint / OneDrive | Per tenant | Resource units | Coordinate drive jobs per tenant |
+| Identity | Per tenant | Resource units | Matters only for discovery at scale |
+| Teams | Per tenant, plus per team or channel | Flat | Limits for busy channels and teams |
+| Global | Per app | Flat | Matters only with hundreds of active tenants |
 
 For scheduling:
 
@@ -233,23 +266,20 @@ For scheduling:
 - Treat all drive jobs for one tenant as sharing one budget.
 - Identity cost is small for individual jobs. Watch it only for tenant-wide discovery.
 
-## Read the cost in code
-
-`graphCost` is measured at the HTTP transport. Each `@odata.nextLink` page and each retry attempt counts as its own request, so a cooldown computed from `graphCost` reflects quota actually used. A run that threw usually used more quota than one that finished, so apply the cooldown in both cases. The [SDK reference](/reference/sdk) documents the full `OperationCost` type.
-
 ## Official Microsoft documentation
 
-| Resource                           | URL                                                                                                                                                             |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Global and service-specific limits | https://learn.microsoft.com/en-us/graph/throttling-limits                                                                                                       |
-| General throttling guidance        | https://learn.microsoft.com/en-us/graph/throttling                                                                                                              |
-| Outlook service limits             | https://learn.microsoft.com/en-us/graph/throttling-limits#outlook-service-limits                                                                                |
-| SharePoint and OneDrive throttling | https://learn.microsoft.com/en-us/sharepoint/dev/general-development/how-to-avoid-getting-throttled-or-blocked-in-sharepoint-online                             |
-| SharePoint RateLimit headers       | https://learn.microsoft.com/en-us/sharepoint/dev/general-development/how-to-avoid-getting-throttled-or-blocked-in-sharepoint-online#ratelimit-headers---preview |
-| Identity and access service limits | https://learn.microsoft.com/en-us/graph/throttling-limits#identity-and-access-service-limits                                                                    |
+| Resource | URL |
+| --- | --- |
+| Global and service-specific limits | https://learn.microsoft.com/en-us/graph/throttling-limits |
+| General throttling guidance | https://learn.microsoft.com/en-us/graph/throttling |
+| Outlook service limits | https://learn.microsoft.com/en-us/graph/throttling-limits#outlook-service-limits |
+| SharePoint and OneDrive throttling | https://learn.microsoft.com/en-us/sharepoint/dev/general-development/how-to-avoid-getting-throttled-or-blocked-in-sharepoint-online |
+| SharePoint RateLimit headers | https://learn.microsoft.com/en-us/sharepoint/dev/general-development/how-to-avoid-getting-throttled-or-blocked-in-sharepoint-online#ratelimit-headers---preview |
+| Identity and access service limits | https://learn.microsoft.com/en-us/graph/throttling-limits#identity-and-access-service-limits |
 
 ## See also
 
 - [Retries and fail-safes](/operations/reliability): what a run does when retries run out
-- [Delta sync](/operations/delta-sync): how delta queries use the drive costs above
+- [Delta sync](/operations/delta-sync): how incremental backup uses the drive costs above
+- [Troubleshooting](/troubleshooting#when-to-act): what to do when throttling causes failures
 - [Storage usage](/operations/storage-usage): listing cost on the S3 side

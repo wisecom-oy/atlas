@@ -1,12 +1,12 @@
 ---
-description: 'Back up Microsoft Teams channel messages, replies, members, and tabs incrementally through Microsoft Graph, with every blob encrypted before it reaches storage.'
+description: 'Back up Microsoft Teams channel messages, replies, members, and tabs incrementally, encrypted before they reach storage, and export snapshots as browsable archives.'
 ---
 
 # Teams backup
 
-Atlas backs up the channels of Microsoft Teams teams. It stores channel messages with their replies, edits, deletions, and inline images, plus team settings, members, channels, and tabs. Each channel keeps its own delta cursor, so a later run reads only the threads that changed.
+Atlas backs up the channels of Microsoft Teams teams: channel messages with their replies, edits, deletions, and inline images, plus team settings, members, channels, and tabs. After the first run, each channel is read incrementally, so a run fetches only the threads that changed.
 
-Backup, verification, and save are available. `save` exports a snapshot as JSON and browsable HTML. Atlas does not write messages back into Teams; see [Restore](#restore).
+You can back up, verify, and export a snapshot as JSON and browsable HTML. Atlas does not write messages back into Teams; see [Restore](#restore).
 
 ## Quick start
 
@@ -14,21 +14,17 @@ Backup, verification, and save are available. `save` exports a snapshot as JSON 
 # List the teams the application can read
 atlas teams list-teams
 
-# Back up one team
+# Back up one team, every team, or one channel of a team
 atlas teams backup --team <team-id>
-
-# Back up every team in the tenant
 atlas teams backup --all
-
-# Back up a single channel of one team
 atlas teams backup --team <team-id> --channel <channel-id>
 
-# Check a snapshot
+# Check a snapshot, then save it as a browsable zip
 atlas teams verify --team <team-id> -s <snapshot-id>
-
-# Save one snapshot as a browsable zip
 atlas teams save --team <team-id> -s <snapshot-id> --output teams.zip
 ```
+
+Team IDs are Microsoft Graph team GUIDs. Atlas trims and lowercases the value, so upper-case and lower-case spellings address the same team.
 
 ::: warning Protected API
 Channel messages are read with `ChannelMessage.Read.All`, a protected Microsoft Graph permission. Microsoft may need to approve it for your tenant before backups succeed. See [Azure AD setup](/azure-ad-setup#teams-application-permissions).
@@ -36,27 +32,35 @@ Channel messages are read with `ChannelMessage.Read.All`, a protected Microsoft 
 
 ## What is backed up
 
-| Item                                   | Coverage                                                                                                                                                    |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Channel messages                       | Every root message in each channel the team hosts, including private channels                                                                               |
-| Replies                                | Each reply is its own blob, linked from its thread. A deleted reply keeps its last live version in `kept`                                                   |
-| Reactions, mentions, edits             | Kept in the raw Graph objects, as Graph returned them. `lastEditedDateTime` shows the last edit                                                             |
-| Hosted content                         | Inline images, code snippets, and other hosted objects, from the body, attachments, and cards. Stored as encrypted bytes. The URLs in each message are kept |
-| System messages                        | Stored with their thread, as Graph returns them                                                                                                             |
-| File attachments                       | Recorded as links. Atlas does not download them. Files live in SharePoint; see [Team files](#team-files)                                                    |
-| Team settings, members, channels, tabs | Raw Graph objects                                                                                                                                           |
+| Item                                   | Coverage                                                                                                                       |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Channel messages                       | Every root message in each channel the team hosts, including private channels                                                  |
+| Replies                                | Stored per reply and linked from their thread. A deleted reply keeps its last live version                                     |
+| Reactions, mentions, edits             | Kept in the message as Microsoft Graph returned it. `lastEditedDateTime` shows the last edit                                   |
+| Hosted content                         | Inline images, code snippets, and other hosted objects from the body, attachments, and cards, as encrypted bytes. URLs are kept |
+| System messages                        | Stored with their thread                                                                                                       |
+| File attachments                       | Recorded as links only. The files live in SharePoint; see [Team files](#team-files)                                            |
+| Team settings, members, channels, tabs | Stored as Microsoft Graph returned them                                                                                        |
 
-Channels owned by another tenant are skipped with the warning `Channel <id> is owned by another tenant; skipped`. Atlas compares each channel's `tenantId` with the tenant GUID, so `-t` must be that GUID. A domain such as `contoso.onmicrosoft.com` fails with a `ConfigError` before any Graph call, because no channel's `tenantId` is a domain and every channel would read as foreign. The tenant also names the bucket, so a GUID run writes to `atlas-<guid>`, separate from an `atlas-<domain>` bucket. A team whose channels are all owned by another tenant backs up nothing and prints `Status: UNHEALTHY` with exit `2`.
+Each edit stores a new version, and earlier versions stay for every snapshot that references them. A deleted message or channel is carried forward in later snapshots with its last live version (its `kept` entry) and a `deleted_at` time. Nothing is removed from storage when a message is deleted in Teams.
 
-Each edit writes a new blob, and earlier versions stay in storage for every snapshot that references them. A deleted message keeps its last live version in its `kept` entry.
+### What is not backed up
 
-## Team files
+- **Chats.** 1:1 chats, group chats, and meeting chats belong to individual users and carry separate legal and retention duties. Atlas does not use the metered bulk-export API for them.
+- **File content.** Channel files are recorded by location only. Back them up with SharePoint backup, see [Team files](#team-files).
+- **Channels owned by another tenant.** These are skipped with the warning `Channel <id> is owned by another tenant; skipped`. A team whose channels are all foreign backs up nothing, prints `Status: UNHEALTHY`, and exits `2`.
 
-Atlas records where each channel's files live: the files folder's drive ID, item ID, and web URL. It does not download file content. Private and shared channel files can live in SharePoint sites that Teams backup does not back up for you. Back up each of those sites with [SharePoint backup](/sharepoint-backup), and confirm the site appears in `atlas sharepoint list-sites` first. [INFERENCE] `list-sites` searches Graph for sites, so a private or shared channel site may not appear in it. Check the list rather than assume.
+::: warning Pass the tenant GUID
+Atlas tells foreign channels apart by comparing each channel's `tenantId` with your tenant, so `-t` must be the tenant GUID. A domain such as `contoso.onmicrosoft.com` fails with a `ConfigError` (exit `6`, `ATLAS_CONFIG_INVALID`) before any Microsoft Graph call. The tenant also names the bucket, so a GUID run writes to `atlas-<guid>`, separate from an `atlas-<domain>` bucket.
+:::
+
+### Team files
+
+Atlas records where each channel's files live: the files folder's drive ID, item ID, and web URL. It does not download file content. Private and shared channel files can live in their own SharePoint sites, which Teams backup does not cover. Back up each of those sites with [SharePoint backup](/sharepoint-backup). `atlas sharepoint list-sites` lists the sites Microsoft 365 search returns, so a private or shared channel site may be missing from it. Check the list rather than assume.
 
 ## Permissions
 
-Teams backup uses application permissions only. Atlas makes no delegated sign-in and never acts as a user.
+Teams backup uses application permissions only. No user signs in, and Atlas never acts as a user.
 
 | Permission                | Used for                          |
 | ------------------------- | --------------------------------- |
@@ -69,13 +73,11 @@ Teams backup uses application permissions only. Atlas makes no delegated sign-in
 | `TeamsTab.Read.All`       | Read channel tabs                 |
 | `Files.Read.All`          | Find each channel's files folder  |
 
-Consent steps are in [Azure AD setup](/azure-ad-setup#teams-application-permissions).
-
-The files folder call needs `Files.Read.All`, the permission in the table above. Without it, Graph returns `403` for that call. Atlas then marks the channel's files folder unavailable and continues.
+Consent steps are in [Azure AD setup](/azure-ad-setup#teams-application-permissions). Without `Files.Read.All`, Microsoft Graph returns `403` for the files folder lookup. Atlas marks that channel's files folder unavailable and continues; see [Files folder](#files-folder) to fill it in later.
 
 ## Commands
 
-Team IDs must be Graph team GUIDs. Atlas trims and lowercases the value, so upper-case and lower-case spellings address the same team.
+Every command accepts `-t, --tenant <id>` to override the tenant from config. The full option list is in the [CLI reference](/reference/cli#atlas-teams).
 
 ### list-teams
 
@@ -87,187 +89,194 @@ atlas teams list-teams
 
 ### backup
 
-Backs up one or more teams. Pass `--team` once per team, or `--all` for every team in the tenant. `--channel <id>` backs up only that channel, needs exactly one `--team`, and cannot be combined with `--all`. Other channels carry forward from the previous snapshot.
+| Flag                   | Description                                                                                       | Default        |
+| ---------------------- | ------------------------------------------------------------------------------------------------- | -------------- |
+| `--team <id>`          | Team to back up. Repeat for several teams                                                         | None           |
+| `--all`                | Back up every team in the tenant                                                                  | `false`        |
+| `--channel <id>`       | Back up only this channel. Needs exactly one `--team`, not allowed with `--all`                   | All channels   |
+| `--full`               | Ignore saved sync checkpoints and cached files folders, and read every channel in full            | `false`        |
+| `--concurrency <n>`    | Channels backed up at once within a team, 1 to 16                                                 | `4`            |
+| `--retention-days <n>` | Lock every object this run writes for `n` days with Object Lock                                   | Off            |
+| `--lock-mode <mode>`   | `governance` or `compliance`; requires `--retention-days`                                         | `governance`   |
+| `-t, --tenant <id>`    | Tenant GUID                                                                                       | Config default |
 
 ```bash
 atlas teams backup --team <team-id>
 atlas teams backup --team <team-id> --team <other-team-id>
-atlas teams backup --all
-atlas teams backup --team <team-id> --channel <channel-id>
 atlas teams backup --all --concurrency 8
+atlas teams backup --team <team-id> --channel <channel-id>
 ```
 
-Within one team, Atlas backs up up to four channels at once. `--concurrency <n>` sets the number, from 1 to 16. More channels in flight raise throughput only until the team's Graph budget is reached; see [Pacing](#pacing).
+With `--channel`, the other channels carry forward from the previous snapshot. More channels in flight raise throughput only until the team's request budget is reached; see [Pacing](#pacing).
 
-Each team runs independently and is reported when it finishes. A channel error is recorded, and the next channel still runs. With several teams, a team that fails with an error other than an authentication error is recorded, and the other teams still run. The run exits `2` when any team is unhealthy: a channel error, a ledger root still listed, or an interrupted run. A run whose only finding is a damaged snapshot index exits `9`, see [Unreadable snapshots](#unreadable-snapshots). A single `--team` run stops on its first error and exits with that error's category code. An authentication error on a team's first channel also stops the run, with exit `4`. See [Failed channels](#failed-channels). The full option list is in the [CLI reference](/reference/cli#atlas-teams).
+Each team runs independently and is reported when it finishes. A run that creates a snapshot prints these counters:
 
-Each run that creates a snapshot prints these counters:
+| Counter   | Meaning                                                                                                                |
+| --------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `changed` | Threads that differ from the previous run. New threads count, and so does a recheck that downloaded an inline image    |
+| `stored`  | Messages written in this run                                                                                           |
+| `dedup`   | Messages already in storage, so nothing was written. A `--full` run reports unchanged messages here                    |
+| `hosted`  | Inline images written in this run                                                                                      |
+| `deleted` | Threads recorded as deleted in this run. Printed only when above zero                                                  |
 
-| Counter   | Meaning                                                                                                                                  |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `changed` | Threads whose stored record differs from the previous run. New threads count too, and so does a recheck that downloaded an inline image. |
-| `stored`  | Messages whose blob was written in this run.                                                                                             |
-| `dedup`   | Messages whose blob already existed, so nothing was written. A forced full read reports unchanged messages here.                         |
-| `hosted`  | Inline images written in this run.                                                                                                       |
-| `deleted` | Threads recorded as deleted in this run. Printed only when above zero.                                                                   |
+After the counters, the run lists each channel with its outcome (`completed`, `incomplete`, `interrupted`, `failed`, or `not_started`), its read mode, and the roots it applied. It then prints the Microsoft Graph requests per limit class, with the achieved rate and the number of `429` (throttled) answers. When nothing changed, no snapshot is written and a healthy run prints:
 
-After the counters, the run lists each channel with its outcome (`completed`, `incomplete`, `interrupted`, `failed`, or `not_started`), its read mode, and the roots it applied, then the Graph requests per limit class with the achieved rate and the number of `429` answers.
+```text
+No Teams changes detected. Snapshot skipped.
+```
+
+Exit codes are covered in [Reading the result](#reading-the-result).
 
 ### list-snapshots
 
-Lists the snapshots stored for one team, newest first. An index Atlas cannot read is named with its storage key and the `atlas teams quarantine` command, the rest of the list still prints, and the command exits `9`. One written by a newer Atlas format is named in a warning to upgrade Atlas, and the command also exits `9`. See [Unreadable snapshots](#unreadable-snapshots).
+Lists the snapshots stored for one team, newest first.
 
 ```bash
 atlas teams list-snapshots --team <team-id>
 ```
 
+An index Atlas cannot read is named with its storage key and the `atlas teams quarantine` command, the rest of the list still prints, and the command exits `9`. One written by a newer Atlas format is named in a warning to upgrade Atlas, and the command also exits `9`. See [Unreadable snapshots](#unreadable-snapshots).
+
 ### verify
 
-Checks the snapshot index, its channel shards, and every message, reply, image, and kept blob the index references. A missing object is reported as missing. An object that cannot be decrypted or parsed, or a blob whose content does not match its SHA-256 checksum, is reported as failed. A shard written by a newer Atlas format is reported as unsupported, and the blobs it lists are not checked. Any missing, failed, or unsupported object makes the command exit `1`.
+Checks the snapshot index, its channel shards, and every message, reply, image, and kept version the index references.
 
 ```bash
 atlas teams verify --team <team-id> -s <snapshot-id>
 ```
 
+| Finding     | Meaning                                                                                   |
+| ----------- | ----------------------------------------------------------------------------------------- |
+| missing     | The object is not in storage                                                              |
+| failed      | The object cannot be decrypted or parsed, or its content does not match its SHA-256       |
+| unsupported | A shard written by a newer Atlas format. The objects it lists are not checked             |
+
+Any finding makes the command exit `1`.
+
 ### save
 
-Writes one snapshot as a zip archive that opens in a browser without Atlas. `save` reads storage only and makes no Graph calls.
+Writes one snapshot, or one channel of it, as a zip archive that opens in a browser without Atlas. `save` reads storage only and makes no Microsoft Graph calls.
+
+| Option                | Description                                 | Default                                |
+| --------------------- | ------------------------------------------- | -------------------------------------- |
+| `--team <id>`         | Team ID                                     | Required                               |
+| `-s, --snapshot <id>` | Snapshot to save                            | Required                               |
+| `--channel <id>`      | Save only this channel                      | All channels                           |
+| `--output <path>`     | Zip file to write                           | `teams-<snapshot-id>-<timestamp>.zip`  |
+| `-y, --yes`           | Overwrite an existing output without asking | `false`                                |
+| `-t, --tenant <id>`   | Override the tenant ID from config          | Config default                         |
 
 ```bash
 atlas teams save --team <team-id> -s <snapshot-id> --output teams.zip
 atlas teams save --team <team-id> -s <snapshot-id> --channel <channel-id> --output channel.zip
 ```
 
-| Option                | Description                                                       |
-| --------------------- | ----------------------------------------------------------------- |
-| `--team <id>`         | Team ID (required)                                                |
-| `-s, --snapshot <id>` | Snapshot to save (required)                                       |
-| `--channel <id>`      | Save only this channel                                            |
-| `--output <path>`     | Zip file to write (default `teams-<snapshot-id>-<timestamp>.zip`) |
-| `-y, --yes`           | Overwrite an existing output without asking                       |
-| `-t, --tenant <id>`   | Override the tenant ID from config                                |
+If `--output` names an existing file, Atlas asks `Overwrite? [Y/n]` before it reads storage. Answering `n` exits `0` and leaves the file as it was. With stdin at EOF, as under cron or systemd with `/dev/null`, no answer is read, so the command exits `1` and the file is untouched. Pass `-y` in scheduled jobs. The question is asked by default because a previous export can be the only copy of a snapshot that retention has since removed.
 
-If `--output` names an existing file, Atlas asks `Overwrite? [Y/n]` before it reads storage. Answering `n` exits `0` and leaves the file as it was. With stdin at EOF, as under cron or systemd with `/dev/null`, no answer is read, so the command exits `1` and the file is untouched. Pass `-y` to overwrite without the question. The question is asked by default because a previous export can be the only copy of a snapshot that retention has since removed.
-
-The archive holds `team.json`, which lists the saved channels and the team's members, and one folder per channel. The folder holds `messages.json`, `index.html`, and a `hosted/` folder of files.
+The archive layout:
 
 ```text
-team.json
-channels/<channel>/messages.json   channel, members, tabs, files folder, shared-with teams, threads
-channels/<channel>/index.html      the messages as a page
-channels/<channel>/hosted/<message-id>/<content-id>.<ext>
+team.json                                                 saved channels and the team's members
+channels/<channel>/messages.json                          channel, members, tabs, files folder, shared-with teams, threads
+channels/<channel>/index.html                             the messages as a page
+channels/<channel>/hosted/<message-id>/<content-id>.<ext> hosted content files
 ```
 
-`messages.json` holds the channel as the backup stored it, from the channel's shard. `members` is the channel's own member list, or empty when `members_from_team` is `true`, in which case the members are the team's and sit in `team.json`. `tabs` lists the channel's tabs. `files_folder` gives the drive ID, item ID, and web URL of the Files folder, or `null` when none was stored. `files_folder_unavailable` is `true` when Graph refused the folder with `403`. `shared_with_teams` lists the teams a shared channel is shared with, or `null` for a standard channel. Each message lists its `hosted` files as `{ id, content_type, path }`, and its `hosted_missing` IDs, the hosted contents the backup never captured. Hosted-content IDs can run to hundreds of characters, so an ID longer than 64 characters, or one with characters other than letters, digits, `_` and `-`, is shortened in the file name to a 32-character prefix and 16 hex characters of its SHA-256. Use `path` in `messages.json` to find a file, not the ID.
+`messages.json` holds the channel as the backup stored it:
 
-Every hosted content of a message is written as its own file, whatever its type. That covers inline images, code snippets, and the images or other objects that attachments and cards reference. The extension follows the stored content type for PNG, JPEG, GIF, BMP, WebP, and plain text. HTML is saved as `.txt`, and every other type as `.bin`, so no file in the archive runs when it is opened. The page embeds inline images as `data:` URIs, so it loads nothing over the network. Other hosted files are linked only by `messages.json`.
+| Field                      | Content                                                                                                   |
+| -------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `members`                  | The channel's own members. Empty when `members_from_team` is `true`; the team's members are in `team.json` |
+| `tabs`                     | The channel's tabs                                                                                        |
+| `files_folder`             | Drive ID, item ID, and web URL of the Files folder, or `null` when none was stored                        |
+| `files_folder_unavailable` | `true` when Microsoft Graph refused the folder lookup with `403`                                          |
+| `shared_with_teams`        | Teams a shared channel is shared with, or `null` for a standard channel                                   |
+| `hosted` (per message)     | Saved hosted files as `{ id, content_type, path }`                                                        |
+| `hosted_missing` (per message) | IDs of hosted contents the backup never captured                                                      |
 
-Each page sets a Content-Security-Policy that allows only inline styles and embedded images. Scripts, frames, forms, `on*` event attributes, and `<meta>` or `<base>` elements are removed from message bodies before the page is written. Cards and attachments are not rendered in the page. Their hosted files are in the archive, and `messages.json` keeps their JSON.
+Use `path` in `messages.json` to find a hosted file, not its ID. An ID longer than 64 characters, or one with characters other than letters, digits, `_` and `-`, is shortened in the file name to a 32-character prefix and 16 hex characters of its SHA-256.
 
-A deleted message shows its last kept version, marked as deleted. A deleted message with no kept version appears as a tombstone. The kept version does not record hosted content the backup missed, so `hosted_missing` is empty for it. File attachments are not downloaded. Their links stay in `messages.json`, and the files stay in SharePoint (see [Team files](#team-files)).
+Every hosted content of a message is saved as its own file: inline images, code snippets, and the objects that attachments and cards reference. PNG, JPEG, GIF, BMP, WebP, and plain text keep their extension. HTML is saved as `.txt` and every other type as `.bin`, so no file in the archive runs when opened.
 
-Two kinds of problem are reported in the command output, and the archive still holds everything else:
+The HTML page is built to be safe to open:
 
-| Problem                                                                                                               | Exit |
-| --------------------------------------------------------------------------------------------------------------------- | ---- |
-| A message, reply, or hosted file could not be read or failed its checksum. It is left out of the archive              | `1`  |
+- It embeds inline images as `data:` URIs and loads nothing over the network.
+- It sets a Content-Security-Policy that allows only inline styles and embedded images.
+- Scripts, frames, forms, `on*` event attributes, and `<meta>` or `<base>` elements are removed from message bodies.
+- Cards and attachments are not rendered. Their hosted files are in the archive, and `messages.json` keeps their JSON. Other hosted files are linked only from `messages.json`.
+
+A deleted message shows its last kept version, marked as deleted, or a tombstone when no version was kept. A kept version does not record missed hosted content, so its `hosted_missing` is empty. File attachments stay as links in `messages.json`; the files stay in SharePoint.
+
+| Problem                                                                                                         | Exit |
+| --------------------------------------------------------------------------------------------------------------- | ---- |
+| A message, reply, or hosted file could not be read or failed its checksum. It is left out of the archive        | `1`  |
 | Hosted content the backup never captured (`hosted_missing`). The `<img>` keeps its Graph URL and the summary lists it | `2`  |
+| Ctrl+C. The archive is still written with the channels finished so far                                          | `2`  |
 
-Ctrl+C stops the export after the current channel: the archive is still written with the channels finished so far, and the command exits `2`. An error takes precedence over the `2` for uncaptured content. The full option list is in the [CLI reference](/reference/cli#atlas-teams).
+The archive holds everything else in each case. An error takes precedence over the `2` for uncaptured content.
 
 ### status
 
-Shows, for each team with a snapshot, the newest snapshot's creation time (`Last snapshot`) and ID. A run that wrote no index does not change it. Below the table, warnings name each team's damaged channel cursors and its channel roots that failed in a previous run. Damaged snapshot indexes and newer-format objects are named after them, and either makes the command exit `9`. `Failed roots` counts the team's failed-root ledger entries across its channel cursors, including `PERMANENTLY SKIPPED` roots. `Pending rechecks` counts hosted content roots still waiting for a recheck. A root that reached the five-attempt cap is not counted.
+Shows each team with a snapshot: the newest snapshot's creation time (`Last snapshot`) and ID, plus two health counts.
 
 ```bash
 atlas teams status
 ```
 
+| Column             | Meaning                                                                                                           |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `Failed roots`     | Threads in the team's list of failed threads, including `PERMANENTLY SKIPPED` ones. See [Failed channels](#failed-channels) |
+| `Pending rechecks` | Threads whose inline images are still waiting for a recheck. A thread that reached the five-attempt cap is not counted |
+
+A run that wrote no index does not change `Last snapshot`. Below the table, warnings name damaged channel cursors and threads that failed in a previous run. A damaged snapshot index, or an object written by a newer Atlas format, is named after them and makes the command exit `9`.
+
 ### delete
 
-Deletes every Teams backup for one team, in this order: channel cursors, snapshot indexes, channel shards, then message and image blobs. With `-s`, it deletes only that snapshot's index. Its shards and blobs stay, because later snapshots can reference them. A full team delete also removes the quarantined copies of the team's indexes. Atlas asks for confirmation unless you pass `-y`.
+Deletes every Teams backup for one team, or one snapshot.
+
+| Option                | Description                                        |
+| --------------------- | -------------------------------------------------- |
+| `--team <id>`         | Team ID (required)                                 |
+| `-s, --snapshot <id>` | Delete only this snapshot's index                  |
+| `-y, --yes`           | Skip the confirmation prompt                       |
+| `-t, --tenant <id>`   | Override the tenant ID from config                 |
 
 ```bash
 atlas teams delete --team <team-id>
 atlas teams delete --team <team-id> -s <snapshot-id>
 ```
 
+A full delete removes, in order, the channel cursors, snapshot indexes, channel shards, then message and image objects, and finally the quarantined copies of the team's indexes. With `-s`, only that snapshot's index is deleted. Its shards and messages stay, because later snapshots can reference them.
+
 ::: danger Irreversible
-Deletion cannot be undone. Objects under Object Lock retention stay until the retention period ends.
+Deletion cannot be undone. Objects under Object Lock retention stay until the retention period ends. Atlas cannot erase one person's messages from a team backup; see [Erasure](/security#erasure).
 :::
 
-## How a run finds changes
+### quarantine
 
-Each channel is read with its own message delta link.
+Moves an unreadable snapshot index to `_quarantine/` so later runs stop reporting it. See [Unreadable snapshots](#unreadable-snapshots).
 
-1. **Delta.** Atlas asks Graph for the messages that changed since the last run. Delta returns only messages from the last eight months. A first run or a forced full read reads older messages too. A new reply, reaction, edit, or deletion returns the root message of its thread. The root's `lastModifiedDateTime` and `etag` do not change for reply activity, so Atlas cannot use them to detect changes.
-2. **Root and replies.** For each returned root, Atlas reads the root and its replies. The channel listing asks for 50 roots per page with replies expanded inline. When Graph returns an incomplete reply list, Atlas pages the rest through `/replies`. A root re-fetched from the ledger is read alone, and its replies come from `/replies`.
-3. **Per-message blobs and shards.** Each root and reply version is stored as its own blob, holding the Graph object as returned. An unchanged message reuses its blob. A channel's threads are stored as one shard, named by the keyed hash of its contents, so an unchanged channel reuses its shard. A forced full read (`--full`) fetches every root again but never rewrites a blob that already exists, because each blob's name is derived from its content.
-4. **Cursor commit.** Atlas writes the snapshot index first, then saves each channel's new delta link. A channel that fails keeps its previous link, so its changes are read again next run.
-
-When nothing changed, Atlas writes no index. A healthy run prints `No Teams changes detected. Snapshot skipped.` The delta cursor is still saved.
-
-A channel is read in full, with no delta link, when it has no channel email address, when no link is stored (a first run, or `--full`), or when Graph rejects the saved link with `400`. A `400` logs a warning and falls back to a full read. The channel is recorded with `read_mode: full` in the manifest. A saved link is used only when its cursor's `baseline_shard_key` equals the shard the latest readable index lists for that channel. Otherwise only that channel is read in full, with a warning. An unreadable cursor is read in full with a warning too.
-
-Deleted messages and channels are carried forward, not dropped. A root or reply that Graph reports as deleted, or a root confirmed gone as described below, is recorded with `deleted_at` set, and its last live version is kept in `kept`. No blob is removed. A channel the team no longer lists keeps `deleted_at` in later indexes.
-
-A root that a full read does not list is not marked removed on that evidence alone. The `/messages` listing is paged newest first, so a root posted or deleted while Atlas pages it shifts the later pages, and a live root can land on no page. After the listing, Atlas reads each live stored root it did not list by ID. Only a `404` marks the root removed. A root Graph still returns is stored as it comes back: live, or deleted with Graph's `deletedDateTime`. Any other error keeps the root live and adds a ledger entry (see [Failed channels](#failed-channels)). This costs one request per unlisted root, plus a reply listing for a root that turns out to be live. A full read that lists every stored root makes no extra requests.
-
-Ctrl+C stops the run. Atlas stops waiting on the request in flight, but Graph has no cancel, so that request still completes on Graph's side and its result is dropped. The root it belonged to is not recorded as a failure, so no ledger entry is added for it. Threads already stored are kept. The interrupted channel keeps its previous delta link and its checkpoint, so the next run resumes its read (see [Resuming an interrupted backup](#resuming-an-interrupted-backup)), and channels not reached carry forward unchanged. Ctrl+C during the team and channel lookups stops the wait. The run then ends at the start of the channel loop, prints `Status: UNHEALTHY`, and exits `2`. A second Ctrl+C exits at once with status `130`. Nothing from that run is referenced: the index is not written, so no cursor moves, and blobs already uploaded stay in storage unreferenced.
-
-## Resuming an interrupted backup
-
-Each channel's read saves its progress after every page of 50 roots. The page's threads go to an encrypted segment, and a head object records where the read stands. Both live under `_meta/{team_id}/checkpoints/{channel_id}/`.
-
-If a run stops partway through a channel, by Ctrl+C or a crash, the next run continues from the last saved page. Pages already applied are not read again.
-
-Each inline image is journaled as its own small encrypted object under `hosted/` in the checkpoint, written just before the image's blob. A resumed run reuses every journaled image whose blob exists instead of downloading it again, and downloads an image whose blob never reached storage. Journaling an image does not rewrite the head or add a segment, so a channel with thousands of images writes one journal object per image and one head per page.
-
-::: tip
-A crash can repeat the page that was in flight when it stopped. Graph reads for that page run again, but its content is not stored twice and its images are not downloaded twice.
-:::
-
-A checkpoint resumes only when it matches the run: the same baseline shard and the same stored delta link. A `--full` run resumes only a full-read checkpoint. A run without `--full` also resumes a full-read checkpoint, which is what a rejected delta link leaves behind. A checkpoint that does not match, or whose parts cannot be read, is deleted with a warning, and the channel is read from its start. A checkpoint written by a newer Atlas format is intact, so it is kept: the team's backup stops with exit `9` (`ATLAS_FORMAT_UNSUPPORTED`) until Atlas is upgraded.
-
-Checkpoints are written without the run's Object Lock retention (`--retention-days`), because they are rewritten after every page and deleted when the read finishes.
-
-When a channel's read finishes, Atlas saves its cursor first and then deletes the checkpoint. Roots that failed stay in the cursor's failed-root ledger and are retried on the next run.
-
-## Storage layout
-
-Teams objects live under the `teams/` prefix of the tenant bucket.
-
-```
-teams/
-  data/{team_id}/{content_name}                                   encrypted message and reply blobs
-  data/{team_id}/hosted/{content_name}                            encrypted inline images
-  manifests/{team_id}/{snapshot_id}.json                          encrypted snapshot indexes
-  shards/{team_id}/{channel_id}/{content_name}.json                encrypted channel shards
-  _meta/{team_id}/channels/{channel_id}.json                      encrypted channel cursors
-  _meta/{team_id}/checkpoints/{channel_id}/                       encrypted read checkpoints (head, segments, hosted/ journal)
+```bash
+atlas teams quarantine --key teams/manifests/<team-id>/<snapshot-id>.json
 ```
 
-`content_name` is the keyed name Atlas uses for every content object. It is an HMAC, so it does not match a plain SHA-256 of the content. See [What object names reveal](/security#what-object-names-reveal).
+| Option                | Description                                                 |
+| --------------------- | ----------------------------------------------------------- |
+| `--key <storage-key>` | Storage key a command reported as unreadable (required)     |
+| `-t, --tenant <id>`   | Override the tenant ID from config                          |
 
-Snapshot indexes, channel shards, and channel cursors carry `format_version: 1`. Blobs do not. An object whose `format_version` is missing or not `1` is unreadable. An object with a higher version is refused with an error that names its key and says to upgrade Atlas.
+## Reading the result
 
-Known limits of Format 1:
+Each backup ends with `Status: HEALTHY` or `Status: UNHEALTHY`.
 
-- A reply that Graph stops listing without a deletion notice is carried over as live.
-- A reply that Graph deletes before Atlas has listed it is not stored.
-- `verify` checks a channel shard by decrypting it, not against its checksum in the index.
+| Exit | Meaning                                                                                                     | What to do                                                       |
+| ---- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `0`  | Every channel completed                                                                                     | Nothing                                                          |
+| `2`  | A team is unhealthy: a channel error, a failed thread still listed, an interrupted run, or only foreign channels | Read the report. See [Failed channels](#failed-channels)         |
+| `4`  | Authentication error on a team's first channel. The run stops                                               | Fix consent or credentials                                       |
+| `9`  | The only finding is a damaged snapshot index, or a newer-format object                                      | Run the printed `atlas teams quarantine` command, or upgrade Atlas |
 
-## Failed channels
-
-If a channel cannot be read, the run records the error and continues with the next channel. Teams under `--all` or repeated `--team` are isolated the same way.
-
-A thread root that fails is recorded in its channel's cursor, as a ledger entry keyed by root ID. Each run re-fetches ledger roots that the delta read did not return, until the root has failed five times. The report shows `will retry (attempt N of 5)`. After the fifth failure it shows `PERMANENTLY SKIPPED after 5 attempts`, and Atlas stops re-fetching that root, so the channel's delta link can advance. The entry stays in the ledger until a read processes the root cleanly.
-
-A `400` from Graph on a root's replies or re-read is permanent. The root is reported as `PERMANENTLY SKIPPED by service policy, not retried` on the first failure and is not re-fetched.
-
-A root that fails is reported as a channel error. A root that Graph returns `404` for on re-read is kept as previously stored, reported as a warning, and still counts as an attempt. While any ledger entry remains, including a `PERMANENTLY SKIPPED` one, the run reports `Status: UNHEALTHY` and exits `2`, even when that run raised no channel error.
-
-A thread whose inline image Graph did not return is re-checked on later runs. Each run warns `hosted content still missing (attempt N of 5); re-checking next run`. The fifth attempt warns once that Atlas gave up re-checking. The count then stays at 5, so delta runs stop re-checking that root. A full read still lists it and re-applies it. A `404` or `403` from Graph for an inline image is handled the same way and counts as an attempt. These are warnings only, so they do not make the run unhealthy: a run with only these warnings still prints `Status: HEALTHY`.
+A channel error is recorded and the next channel still runs. With several teams, a team that fails with an error other than an authentication error is recorded and the other teams still run. A single `--team` run stops on its first error and exits with that error's category code. See [Exit codes](/reference/cli#exit-codes) for the full list.
 
 ```bash
 status=0
@@ -280,19 +289,90 @@ fi
 exit "$status"
 ```
 
-See [Exit codes](/reference/cli#exit-codes) for the full list.
+## How incremental backup works
+
+Each channel keeps its own sync checkpoint (a Microsoft Graph delta link). A run asks Microsoft 365 for the threads that changed since the last run, and a new reply, reaction, edit, or deletion returns the whole thread. Atlas stores each message version once, so an unchanged message or channel reuses what is already in storage. Atlas writes the snapshot index first, then saves each channel's new checkpoint. A channel that fails keeps its previous checkpoint, so its changes are read again next run.
+
+::: warning Incremental reads cover eight months
+Microsoft Graph returns incremental changes only for messages from the last eight months. A first run or a `--full` run reads older messages too.
+:::
+
+A channel is read in full instead of incrementally when:
+
+- it is a first run, or `--full` is passed;
+- the channel has no channel email address;
+- Microsoft Graph rejects the saved checkpoint with `400` (logged as a warning);
+- the checkpoint does not match the latest readable snapshot, or cannot be read (logged as a warning).
+
+The channel is then recorded with `read_mode: full`. A `--full` run fetches every thread again but never rewrites a message already in storage.
+
+::: details How Atlas reads a channel
+A thread that a full read does not list is not marked removed on that evidence alone. The listing is paged newest first, so a thread posted or deleted while Atlas pages it shifts later pages, and a live thread can land on no page. After the listing, Atlas reads each live stored thread it did not list by ID. Only a `404` marks it removed. A thread Microsoft Graph still returns is stored as it comes back, live or deleted with Graph's `deletedDateTime`. Any other error keeps the thread live and adds it to the list of failed threads. This costs one request per unlisted thread, plus a reply listing for one that turns out to be live. A full read that lists every stored thread makes no extra requests.
+
+A thread's `lastModifiedDateTime` and `etag` do not change for reply activity, so Atlas reads the thread and its replies whenever the incremental read returns it.
+
+A saved checkpoint is used only when its cursor's `baseline_shard_key` equals the shard the latest readable index lists for that channel. Otherwise only that channel is read in full.
+
+The channel listing asks for 50 threads per page with replies included. When the reply list is incomplete, Atlas pages the rest through `/replies`. A thread retried from the failed list is read alone, with its replies from `/replies`.
+:::
+
+## Stopping and resuming a run
+
+Ctrl+C stops the run and exits `2`. Threads already stored are kept. The thread in flight is not recorded as a failure, and the request in flight still completes on Microsoft's side, with its result dropped. The interrupted channel keeps its previous sync checkpoint and its read progress, so the next run resumes it. Channels not reached carry forward unchanged.
+
+Ctrl+C during the team and channel lookups ends the run before any channel is read, with `Status: UNHEALTHY` and exit `2`. A second Ctrl+C exits at once with status `130`. Nothing from that run is referenced: the index is not written, no checkpoint moves, and objects already uploaded stay in storage unreferenced.
+
+### Resuming an interrupted backup
+
+A channel's read saves its progress after every page of 50 threads, encrypted, under `_meta/{team_id}/checkpoints/{channel_id}/`. If a run stops partway through a channel, by Ctrl+C or a crash, the next run continues from the last saved page. Inline images already stored are not downloaded again.
+
+::: tip
+A crash can repeat the page that was in flight. Its Microsoft Graph reads run again, but its content is not stored twice and its images are not downloaded twice.
+:::
+
+| Situation                                                          | What Atlas does                                                                   |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| Saved progress matches the run's baseline and sync checkpoint       | Resumes                                                                           |
+| A `--full` run finds progress from an incremental read              | Starts the channel from the beginning                                             |
+| An incremental run finds progress from a full read                  | Resumes it. A rejected checkpoint leaves this behind                              |
+| Saved progress does not match, or cannot be read                    | Deletes it with a warning and starts the channel from the beginning               |
+| Saved progress written by a newer Atlas format                      | Keeps it. The team's backup stops with exit `9` (`ATLAS_FORMAT_UNSUPPORTED`) until you upgrade |
+
+Read progress is written without the run's Object Lock retention (`--retention-days`), because it is rewritten after every page and deleted when the read finishes. When a channel's read finishes, Atlas saves its sync checkpoint, then deletes the progress. Failed threads stay listed and are retried on the next run.
+
+::: details Image journal
+Each inline image is journaled as its own small encrypted object under `hosted/` in the checkpoint folder, written just before the image itself. A resumed run reuses every journaled image already in storage and downloads only images that never reached storage. A channel with thousands of images writes one journal object per image and one progress record per page.
+:::
+
+## When a channel cannot be backed up {#failed-channels}
+
+A channel that cannot be read is recorded as an error, and the run continues with the next channel. Teams under `--all` or repeated `--team` are isolated the same way.
+
+A thread that fails is added to its channel's list of failed threads and retried on later runs:
+
+| Situation                                                | What Atlas does                                                                                                     |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| A thread fails                                           | Reported as a channel error with `will retry (attempt N of 5)`. Retried each run, even if no change is reported      |
+| A thread fails five times                                | Reported as `PERMANENTLY SKIPPED after 5 attempts`. No longer retried, so the channel's checkpoint can advance       |
+| Microsoft Graph answers `400` for its replies or re-read | Reported as `PERMANENTLY SKIPPED by service policy, not retried` on the first failure                                |
+| Microsoft Graph answers `404` on a re-read               | Kept as previously stored, reported as a warning, and counted as an attempt                                         |
+| A thread is processed cleanly                            | Removed from the list                                                                                               |
+
+While any thread remains on the list, including a `PERMANENTLY SKIPPED` one, the run reports `Status: UNHEALTHY` and exits `2`, even when that run had no channel error. To clear it, see [Permanently skipped threads](#permanently-skipped-roots).
+
+Missing inline images are handled more gently. A thread whose inline image Microsoft Graph did not return, or returned with `404` or `403`, is rechecked on later runs with the warning `hosted content still missing (attempt N of 5); re-checking next run`. After the fifth attempt Atlas warns once that it gave up, and incremental runs stop rechecking that thread. A full read still lists it and applies it again. These are warnings only: a run with nothing else wrong still prints `Status: HEALTHY`.
 
 ## Recovery
 
-### Permanently skipped roots
+### Permanently skipped threads {#permanently-skipped-roots}
 
-Retries stop after the fifth failure, but the entry stays in the ledger and keeps the team unhealthy. Check the error in the report first. Then read the root again with a forced full read:
+A permanently skipped thread keeps the team unhealthy. Check the error in the report first, then read the channel again in full:
 
 ```bash
 atlas teams backup --team <team-id> --channel <channel-id> --full
 ```
 
-A full read processes every root Graph returns for the channel, so a root that now succeeds clears its entry. A root that Graph no longer lists has its entry cleared and is read by ID: a `404` marks it removed.
+A full read processes every thread Microsoft Graph returns for the channel, so a thread that now succeeds is cleared from the list. A thread Graph no longer lists is cleared and read by ID: a `404` marks it removed.
 
 ### Unreadable snapshots
 
@@ -301,11 +381,20 @@ atlas teams status                       # names the damaged key, exits 9
 atlas teams quarantine --key teams/manifests/<team-id>/<snapshot-id>.json
 ```
 
-An index is unreadable when it cannot be decrypted or parsed, when its team or snapshot ID does not match its key, or when its `created_at` is not a valid timestamp. `status` and `list-snapshots` skip it, name its key with the `atlas teams quarantine` command, and exit `9` (`ATLAS_CONTENT_UNREADABLE`). A backup that skips one newer than the latest readable index does the same, and warns that its baseline is an older snapshot. A channel failure in the same run keeps exit `2`, and the key is still named. A team that fails outright after reading its indexes also names the key, and the failure's own exit code applies. When no readable index exists at all, the backup warns `No readable snapshot exists; every channel is read in full`. This can follow a bucket wipe that Object Lock partly blocked, which leaves legacy manifests behind.
+A snapshot index is unreadable when it cannot be decrypted or parsed, when its team or snapshot ID does not match its key, or when its `created_at` is not a valid timestamp.
 
-An index with a higher `format_version` is reported as newer-format instead. It is intact, so `quarantine` refuses it. `status` and `list-snapshots` name it, say to upgrade Atlas, and exit `9` (`ATLAS_FORMAT_UNSUPPORTED`). If it is newer than the latest readable index, the backup refuses to write for that team until Atlas is upgraded, also with exit `9`, so it never overwrites the index or treats it as absent.
+| Command                                   | What it does with an unreadable index                                                                                      |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `status`, `list-snapshots`                | Skips it, names its key with the `atlas teams quarantine` command, exits `9` (`ATLAS_CONTENT_UNREADABLE`)                  |
+| `backup`, index newer than the latest readable one | Same, and warns that its baseline is an older snapshot. A channel failure in the same run keeps exit `2`; the key is still named |
+| `backup`, team fails after reading indexes | Names the key. The failure's own exit code applies                                                                         |
+| `backup`, no readable index at all         | Warns `No readable snapshot exists; every channel is read in full`                                                        |
 
-`quarantine` moves the damaged index to `_quarantine/` with its bytes unchanged, so later `status`, `list-snapshots`, and backup runs stop reporting it. It refuses an index that reads cleanly. The snapshot's shards and blobs stay in storage. The next backup compares against the newest readable index, which is older. Each channel whose cursor no longer matches that index is read in full, as described in [How a run finds changes](#how-a-run-finds-changes), so no `--full` run is needed. See [Damaged manifests](/reference/cli#damaged-manifests-and-version-indexes) for the refusals and Object Lock behaviour.
+The last case can follow a bucket wipe that Object Lock partly blocked, which leaves legacy manifests behind.
+
+`quarantine` moves the damaged index to `_quarantine/` with its bytes unchanged, so later commands stop reporting it. It refuses an index that reads cleanly. The snapshot's shards and messages stay in storage. The next backup compares against the newest readable index, which is older. Each channel whose checkpoint no longer matches that index is read in full, so no `--full` run is needed. See [Damaged manifests](/reference/cli#damaged-manifests-and-version-indexes) for the refusals and Object Lock behaviour.
+
+An index with a higher `format_version` is intact, so `quarantine` refuses it. `status` and `list-snapshots` name it, say to upgrade Atlas, and exit `9` (`ATLAS_FORMAT_UNSUPPORTED`). If it is newer than the latest readable index, the backup refuses to write for that team until Atlas is upgraded, also with exit `9`, so it never overwrites the index or treats it as absent.
 
 A damaged channel cursor is not quarantined. `status` names it in a warning, and the next backup reads that channel in full and rewrites the cursor.
 
@@ -315,27 +404,28 @@ A damaged channel cursor is not quarantined. `status` names it in a warning, and
 atlas teams backup --team <team-id> --channel <channel-id> --full
 ```
 
-A shard is unreadable when it is missing, cannot be decrypted or parsed, or does not match the team, channel, and content name in its key. A backup without `--full` needs the shard the latest index names as its baseline, so it fails that channel, keeps the channel's previous index entry, and exits `2`. The channel error names the shard's key and the command above. Shards are not quarantined.
+A channel shard holds one channel's threads for a snapshot. It is unreadable when it is missing, cannot be decrypted or parsed, or does not match the team, channel, and content name in its key. Shards are not quarantined.
 
-With `--full`, Atlas warns with the shard's key, reads the channel from Graph as a channel with no previous shard, and writes a new shard and index entry. A shard is stored under the HMAC of its content, so a rebuilt shard with the same content has the same key. Atlas loads an existing shard before it skips the write, and overwrites one that is unreadable. When the index already names that key and nothing else changed, the run writes no new snapshot and prints `Repaired N unreadable channel shard(s) in place; no new snapshot needed.` with exit `0`.
+- **Without `--full`.** The backup needs the shard as its baseline, so it fails that channel, keeps the channel's previous index entry, and exits `2`. The channel error names the shard's key and the command above.
+- **With `--full`.** Atlas warns with the shard's key, reads the channel from Microsoft 365 as if it had no previous shard, and writes a new shard and index entry. If the rebuilt shard has the same content and nothing else changed, the run writes no new snapshot, prints `Repaired N unreadable channel shard(s) in place; no new snapshot needed.`, and exits `0`.
 
-The new shard holds what Graph returns in that run. Threads that only the unreadable shard recorded, such as roots already removed from Teams, are not carried forward. They remain in older snapshots whose shards are intact. A snapshot that names the unreadable shard stays unreadable for that channel unless the rebuilt shard has the same content.
+::: warning What a rebuild cannot recover
+The new shard holds what Microsoft 365 returns in that run. Threads that only the unreadable shard recorded, such as threads already removed from Teams, are not carried forward. They remain in older snapshots whose shards are intact. A snapshot that names the unreadable shard stays unreadable for that channel unless the rebuilt shard has the same content.
+:::
 
 A storage error while loading the shard is not treated as damage: the channel fails with the storage error, and `--full` does not rebuild it. A shard written by a newer Atlas format is never rebuilt or overwritten. It stops the team's backup with exit `9` (`ATLAS_FORMAT_UNSUPPORTED`), also under `--full`.
 
 ### Files folder
 
-Atlas keeps each channel's files folder result from the previous run, including an unavailable one. A forced full read is what looks it up again. After granting `Files.Read.All`, run:
+Atlas reuses each channel's files folder result from the previous run, including an unavailable one. After granting `Files.Read.All`, look it up again with a full read:
 
 ```bash
 atlas teams backup --team <team-id> --full
 ```
 
-Without `--full`, the cached result stays in place.
-
 ## Pacing
 
-Atlas paces Teams requests before Graph has to throttle them. Microsoft meters Teams reads per application per tenant, and again per team and per channel. Atlas spaces its requests at 80 % of each published limit:
+Microsoft meters Teams reads per application per tenant, and again per team and per channel. Atlas spaces its requests at 80 % of each published limit, so Microsoft Graph rarely has to throttle them:
 
 | Scope   | Requests                                        | Paced at       |
 | ------- | ----------------------------------------------- | -------------- |
@@ -344,43 +434,56 @@ Atlas paces Teams requests before Graph has to throttle them. Microsoft meters T
 | Team    | Team, members, channels, tabs, and files folder | 3.2 per second |
 | Channel | Channel messages, replies, and inline images    | 0.8 per second |
 
-Every request in one Atlas process shares these budgets, including requests from several teams backed up at once. The remaining 20 % leaves room for other applications and for Graph's sustained window, which Microsoft evaluates below the listed rate.
+Every request in one Atlas process shares these budgets, including requests from several teams backed up at once. The remaining 20 % leaves room for other applications and for Microsoft's sustained window, which is evaluated below the listed rate. Teams requests use their own throttling pool, separate from OneDrive and SharePoint; see [Graph rate limits](/operations/graph-rate-limits#teams-pool).
 
-A `429` from one team pauses only that team. Other teams of the tenant keep running. The run then waits out Graph's `Retry-After` for that team, as described in [Throttle handling](/operations/graph-rate-limits#throttle-handling).
+When Microsoft 365 throttles one team (`429`), only that team pauses, for the `Retry-After` Graph sends. Other teams of the tenant keep running. See [Throttle handling](/operations/graph-rate-limits#throttle-handling).
 
-A first backup reads every message once, so its duration follows from the channel budget. A channel is read at 0.8 requests per second, and each request returns up to 50 roots with their replies. Back up several teams at once to use the tenant budget: with the default four channels per team, five teams in parallel reach the 16 requests per second the tenant allows.
+A first backup reads every message once, so its duration follows from the channel budget: 0.8 requests per second per channel, each returning up to 50 threads with their replies. To use the tenant budget, back up several teams at once. With the default four channels per team, five teams in parallel reach the 16 requests per second the tenant allows.
 
 ## Restore
 
 Atlas does not restore messages into Teams. To recover channel content, export a snapshot with [`save`](#save) and open `index.html`, or read `messages.json`.
 
-Microsoft offers one way to write past messages into a channel: the [Teams message import API](https://learn.microsoft.com/en-us/microsoftteams/platform/graph-api/import-messages/import-external-messages-to-teams). Atlas does not use it:
+Microsoft's only way to write past messages into a channel is the [Teams message import API](https://learn.microsoft.com/en-us/microsoftteams/platform/graph-api/import-messages/import-external-messages-to-teams). Atlas does not use it:
 
-- **Permission.** The import API needs `Teamwork.Migrate.All`, an application permission that lets the application post messages as any user, with any past timestamp, into any channel of the tenant. A backup application with that permission turns a stolen client secret into a way to forge conversation history. Atlas keeps its Teams permissions read-only.
+- **Permission.** The import API needs `Teamwork.Migrate.All`, which lets the application post messages as any user, with any past timestamp, into any channel of the tenant. A backup application holding it turns a stolen client secret into a way to forge conversation history. Atlas keeps its Teams permissions read-only.
 - **No undo.** Imported messages are new messages. Microsoft's only correction for a wrong import is to delete the team and import again.
-- **No merge.** Graph cannot overwrite a message by ID, so an import into a channel that still holds messages duplicates them. Edit history, deletions, and messages from other tenants cannot be imported.
+- **No merge.** Microsoft Graph cannot overwrite a message by ID, so importing into a channel that still holds messages duplicates them. Edit history, deletions, and messages from other tenants cannot be imported.
 
-The stored snapshot keeps the raw Graph objects, inline images with their content type, members, and tabs, so a later release can add an import path without a new backup.
+The snapshot keeps the original message objects, inline images with their content type, members, and tabs, so a later release can add an import path without a new backup.
+
+## Storage layout
+
+Teams objects live under the `teams/` prefix of the tenant bucket, every one of them encrypted. See [Storage layout](/operations/storage-layout).
+
+```text
+teams/
+  data/{team_id}/{content_name}                        message and reply versions
+  data/{team_id}/hosted/{content_name}                 inline images
+  manifests/{team_id}/{snapshot_id}.json               snapshot indexes
+  shards/{team_id}/{channel_id}/{content_name}.json    channel shards
+  _meta/{team_id}/channels/{channel_id}.json           channel cursors
+  _meta/{team_id}/checkpoints/{channel_id}/            read progress (head, segments, hosted/ journal)
+```
+
+`content_name` is a keyed HMAC of the content, so it does not match a plain SHA-256. See [What object names reveal](/security#what-object-names-reveal).
+
+Snapshot indexes, channel shards, and channel cursors carry `format_version: 1`. An object whose `format_version` is missing or not `1` is unreadable, and one with a higher version is refused with an error that names its key and says to upgrade Atlas.
 
 ## Limits
 
-- **Not covered:** 1:1 chats, group chats, and meeting chats. These belong to individual users and carry separate legal and retention duties. Atlas does not use the metered bulk-export API for them.
+- **Not covered:** 1:1, group, and meeting chats, and channel file content. See [What is not backed up](#what-is-not-backed-up).
 - **Restore:** messages are not written back into Teams. See [Restore](#restore).
-- **Throttling:** Teams calls use their own throttle pool, separate from OneDrive and SharePoint, and are paced per tenant, team, and channel. See [Pacing](#pacing) and [Graph rate limits](/operations/graph-rate-limits#teams-pool).
+- **Erasure:** one person's messages cannot be erased without removing the whole team's backup. See [Erasure](/security#erasure).
+- **Throttling:** Teams calls are paced per tenant, team, and channel. See [Pacing](#pacing).
+- **Known gaps in the current format:**
+  - A reply that Microsoft Graph stops listing without a deletion notice is carried over as live.
+  - A reply that Microsoft Graph deletes before Atlas has listed it is not stored.
+  - `verify` checks a channel shard by decrypting it, not against its checksum in the index.
 
 ## SDK usage
 
-The SDK exposes the same operations on `atlas.teams`. Options and results use camelCase. `backup` takes one team per call and returns one result. The CLI loops over `--team` and `--all`. A backup, deletion, or quarantine of a team holds that team's lease, so a second one rejects with `OwnerBusyError` (`ATLAS_OWNER_BUSY`) and writes nothing. See [Concurrent operations](/reference/sdk#concurrent-operations).
-
-`backup` accepts `concurrency`, the number of channels backed up at once (1 to 16, default 4). The result's `summary` reports `elapsedMs`, one entry per channel in `channels` (`channelId`, `outcome`, `readMode`, `rootsApplied`, `resumedFromCheckpoint`, `elapsedMs`), and `requests.messages` and `requests.default` with `requests`, `throttled`, and `achievedRps`. Each `processing` progress event names the channel that finished in `current` and carries `etaMs`, an estimate of the time left based on the channels finished so far.
-
-To back up many teams, run several `backup` calls at once, one per team. All calls on one Atlas instance share the pacing budgets above. When several processes back up one tenant:
-
-- Give them a shared `throttleCoordinator`. For `teams` requests its `wait` and `raise` receive the team ID as `scope.ownerId`, so a cooldown applies to one team.
-- Set `teamsPacingShare` on each instance to its share of the tenant budget, for example `0.25` for four processes. Pacing state lives in each process, so without it four processes would together send up to four times the tenant rate. Team and channel budgets stay whole.
-- Schedule one operation per team at a time. Atlas refuses the second with `OwnerBusyError`, so an overlap costs a failed run rather than a lost cursor or checkpoint, and the refused run can be retried after `lease_expires_at`.
-
-See [Concurrent operations](/reference/sdk#concurrent-operations).
+The SDK exposes the same operations on `atlas.teams`. Options and results use camelCase. `backup` takes one team per call and returns one result; the CLI loops over `--team` and `--all`.
 
 ```ts
 import { createAtlasInstance } from '@wisecom/atlas-sdk';
@@ -405,6 +508,28 @@ if (run.snapshot) {
   }
 }
 ```
+
+`backup` accepts `concurrency`, the number of channels backed up at once (1 to 16, default 4). The result's `summary` reports:
+
+| Field                                  | Content                                                                                       |
+| -------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `elapsedMs`                            | Run duration                                                                                  |
+| `channels`                             | One entry per channel: `channelId`, `outcome`, `readMode`, `rootsApplied`, `resumedFromCheckpoint`, `elapsedMs` |
+| `requests.messages`, `requests.default` | `requests`, `throttled`, and `achievedRps` per limit class                                   |
+
+Each `processing` progress event names the channel that finished in `current` and carries `etaMs`, an estimate of the time left based on the channels finished so far. See the [SDK reference](/reference/sdk) for every method and field.
+
+A backup, deletion, or quarantine holds the team, so Atlas runs one such operation at a time per team. A second one rejects with `OwnerBusyError` (`ATLAS_OWNER_BUSY`) and writes nothing.
+
+### Many teams and several processes
+
+To back up many teams, run several `backup` calls at once, one per team. All calls on one Atlas instance share the pacing budgets above. When several processes back up one tenant:
+
+- Give them a shared `throttleCoordinator`. For `teams` requests its `wait` and `raise` receive the team ID as `scope.ownerId`, so a cooldown applies to one team.
+- Set `teamsPacingShare` on each instance to its share of the tenant budget, for example `0.25` for four processes. Pacing state lives in each process, so without it four processes would together send up to four times the tenant rate. Team and channel budgets stay whole.
+- Schedule one operation per team at a time. Atlas refuses the second with `OwnerBusyError`, so an overlap costs a failed run rather than a lost checkpoint, and the refused run can be retried after `lease_expires_at`.
+
+See [Concurrent operations](/reference/sdk#concurrent-operations).
 
 ## See also
 

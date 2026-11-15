@@ -1,55 +1,78 @@
 ---
-description: How Atlas uses Microsoft Graph delta queries for incremental backups, when to pass --full, and how saved delta links cut bandwidth and run time.
+description: How Atlas backs up only what changed since the last run, when it reads everything again, and what each case costs.
 ---
 
-# Delta sync
+# Incremental backup (delta sync)
 
-Atlas uses Microsoft Graph [delta queries](https://learn.microsoft.com/en-us/graph/delta-query-messages) for incremental backups. The first backup reads everything. Later backups fetch only the messages and files that were created, changed, or deleted since the previous run. This reduces bandwidth, Graph requests, and run time.
+The first backup of a mailbox, drive, or site reads everything. Every later backup reads only the messages and files that were created, changed, or deleted since the previous run. A nightly run therefore costs a small share of the Microsoft 365 requests, bandwidth, and time of the first one.
 
 ```bash
-atlas outlook backup -m user@example.com -s "$TENANT"          # incremental, uses the saved delta links
-atlas outlook backup -m user@example.com -s "$TENANT" --full   # ignore saved delta links
+atlas outlook backup -m user@example.com -s "$TENANT"          # incremental, from the saved sync checkpoints
+atlas outlook backup -m user@example.com -s "$TENANT" --full   # ignore the checkpoints and read everything
 ```
 
-## Lifecycle of a delta link
+## How incremental backup works
 
-1. **First run.** Atlas requests `/users/{id}/mailFolders/{id}/messages/delta` for each folder, including the message body. Graph pages through every message. The final `@odata.deltaLink` is saved in the mailbox's delta cursor, `_meta/outlook-cursors/{owner_id}.json`, and in the snapshot manifest when the run writes one.
-2. **Later runs.** Atlas sends the saved link. Graph returns only the changes since the last sync.
+At the end of each run, Atlas saves a sync checkpoint (a Microsoft Graph [delta link](https://learn.microsoft.com/en-us/graph/delta-query-messages)) for every mail folder, drive, library, or calendar it finished. The next run sends the checkpoint back, and Microsoft 365 returns only the changes after it.
 
-A delta link is a Graph URL with an opaque sync token:
+A checkpoint is a Microsoft Graph URL that carries an opaque sync token:
 
 ```
 https://graph.microsoft.com/v1.0/users/.../messages/delta?$deltatoken=aGR2b...
 ```
 
-The token records the point where the last sync ended. Sending the link back returns only the changes after that point.
+Checkpoints are kept in the owner's delta cursor object, for example `_meta/outlook-cursors/{owner_id}.json` for a mailbox. Outlook also stores them in each snapshot manifest. See [Storage layout](/operations/storage-layout) for every workload's path.
 
-::: warning Delta links are sensitive
-Delta links are stored inside encrypted cursor objects, and for Outlook also inside the encrypted manifest, never in plaintext. They hold tenant-scoped sync state. Anyone who obtains one could learn which mailbox items changed. Atlas encrypts manifests and cursors with the tenant data key, so the links are protected at rest. Do not copy them into logs or tickets.
+::: warning Checkpoints are sensitive
+A checkpoint holds tenant-scoped sync state. Anyone who obtains one could learn which items in the mailbox changed. Atlas stores checkpoints only inside cursors and manifests encrypted with the tenant data key, never in plaintext. Do not copy them into logs or tickets.
 :::
 
-## When Atlas performs a full enumeration
+::: details First run and later runs (Outlook)
+1. **First run.** For each folder, Atlas requests `/users/{id}/mailFolders/{id}/messages/delta`, including the message body. Microsoft Graph pages through every message. The final `@odata.deltaLink` is saved in the mailbox's cursor, `_meta/outlook-cursors/{owner_id}.json`, and in the snapshot manifest when the run writes one.
+2. **Later runs.** Atlas sends the saved link, and Microsoft Graph returns only the changes since the last sync.
+:::
 
-| Trigger                  | Behaviour                                                                                                                                                                                                                                                                                                                                                     |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Stale-delta safeguard    | The saved link returns no items, but the previous manifest stored no entries. The earlier backup was interrupted before storing anything, so Atlas discards the link and enumerates the folder in full.                                                                                                                                                       |
-| Expired or invalid token | Graph returns `syncStateNotFound`, `resyncRequired`, or `syncStateInvalid`. Atlas resyncs the folder in full and logs a warning. Tokens lapse after a period of inactivity, and the incremental chain is broken. Outlook can reject a token after some of its pages were already stored; the resync skips those messages and keeps the removals they carried. |
-| `--full`                 | `atlas outlook backup --full` ignores every saved link. Use it for periodic audits, or when you suspect a link is corrupt. See [what a full run costs](/troubleshooting#outlook-cursor-carries-folder-links-of-another-mailbox).                                                                                                                              |
-| Cursor outlived its snapshot | Outlook, Contacts, and Calendar cursors record the snapshot that was newest when they were saved. When that snapshot is no longer the newest readable manifest, because it was deleted, quarantined, or the whole mailbox backup was removed, the links would skip every change it held. Atlas ignores them and reads every folder in full. Cursors written before 7.0 record no snapshot and are trusted while any manifest exists, until the next backup rewrites them. |
-| Drive cursor outlived its snapshot | OneDrive and SharePoint cursors record the snapshot they were saved with: the one the run wrote, or the newest one when the run changed nothing. A backup resumes the cursor only while that snapshot's manifest still exists. Once it was deleted or quarantined, the run reads every drive or library in full, records a deletion for each file the remaining snapshots list that is gone, rebuilds the version watermarks from the version index, and warns. The check is one listing of the manifest prefix. It does not read the manifests, because a drive has no pointer to its newest one. A cursor of an owner or site with no snapshot at all, such as an empty drive, records that and is resumed until a manifest appears. Cursors written before 7.0 record no snapshot and are trusted while any manifest exists, until the next backup rewrites them. |
-| Legacy message IDs       | Snapshots created before Atlas used immutable Outlook IDs hold mutable IDs. Mixing the two formats breaks correlation, so the first backup after upgrading runs in full and records `id_format: immutable` in the new manifest. This happens once per mailbox.                                                                                                |
+## When Atlas reads everything again {#when-atlas-performs-a-full-enumeration}
 
-A full enumeration is scoped to the drive or library that triggered it. Delta links are kept per drive, so a site with several libraries, or a user with several drives, keeps working links for the rest. Files in the rebased drive are recorded again as `created`. Files elsewhere keep their history, and an edit there is still reported as `updated`.
+Atlas falls back to a full backup of a folder, drive, or library whenever its checkpoint can no longer be trusted. You never need to detect these cases yourself.
+
+| Situation | What Atlas does |
+| --- | --- |
+| You pass `--full` | Ignores every saved checkpoint. Use it for a periodic audit, or when you suspect a checkpoint is damaged |
+| The checkpoint expired or was rejected | Microsoft Graph returns `syncStateNotFound`, `resyncRequired`, or `syncStateInvalid`. Atlas reads the folder in full and logs a warning |
+| The previous run stored nothing (stale-delta safeguard) | A saved Outlook checkpoint returns no items, but the previous manifest has no entries, so the earlier run was interrupted before it stored anything. Atlas discards the checkpoint and reads the folder in full |
+| The snapshot the checkpoint belongs to is gone | The snapshot was deleted or quarantined, or the whole backup of the owner was removed. Resuming would skip every change it held, so Atlas reads every folder, drive, or library in full |
+| First backup of a mailbox whose snapshots use mutable message IDs | Mixing ID formats breaks correlation, so this one run is full and records `id_format: immutable` in its manifest. It happens once per mailbox. See [Immutable message IDs](#immutable-message-ids) |
+
+Checkpoints expire after a period of inactivity, which breaks the incremental chain. When Outlook rejects a checkpoint after some of its pages were already stored, the full read skips those messages and keeps the removals they carried.
+
+A full read is scoped to the folder, drive, or library that triggered it. Checkpoints are kept per drive, so a site with several libraries, or a user with several drives, keeps working checkpoints for the rest. Files in the drive read in full are recorded again as `created`. Files elsewhere keep their history, and an edit there is still reported as `updated`.
+
+::: details How a checkpoint is matched to its snapshot
+**Outlook, Contacts, and Calendar** cursors record the snapshot that was newest when they were saved. When that snapshot is no longer the newest readable manifest, Atlas ignores the checkpoints and reads every folder in full.
+
+**OneDrive and SharePoint** cursors record the snapshot they were saved with: the one the run wrote, or the newest one when the run changed nothing. A backup resumes the cursor only while that snapshot's manifest still exists. The check is one listing of the manifest prefix and does not read the manifests, because a drive has no pointer to its newest one. Once the manifest is gone, the run reads every drive or library in full, records a deletion for each file the remaining snapshots list that no longer exists, rebuilds the [version watermarks](#file-version-capture-onedrive-and-sharepoint) from the version index, and warns. An owner or site with no snapshot at all, such as an empty drive, records that, and its cursor is resumed until a manifest appears.
+
+Cursors written before 7.0 record no snapshot. They are trusted while any manifest exists, until the next backup rewrites them.
+:::
+
+### What a full backup costs {#what-a-full-run-costs}
+
+A full run, whether you asked for it with `--full` or Atlas fell back to one, costs what a first backup costs in Microsoft 365 requests and time. For Outlook, Microsoft Graph lists every message again at one delta page per 10 messages by default (`--page-size`), and Atlas fetches each message's MIME with one `/$value` request plus one reaction `$batch` per page. The content must be read before it can be hashed.
+
+Storage barely grows. Each unique message or file is stored once, so content already in the bucket costs one `HEAD` request and no upload. The run always writes a snapshot, and for Outlook that manifest lists every message of the selected folders, so it is as large as the first backup's.
+
+A full read records no deletions for Outlook, because Microsoft 365 reports what exists, not what was deleted. See [Deleted and moved messages](#deleted-and-moved-messages-outlook).
 
 ### After a snapshot delete
 
-`delete -s` also deletes the owner's delta cursor, and what the next backup reads depends on the workload:
+`delete -s` also deletes the owner's delta cursor. What the next backup reads depends on the workload:
 
-| Workload           | Next backup after `delete -s`                                                                                                                                                                                                                       |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Calendar, Contacts | Reads every calendar or folder in full, whichever snapshot was deleted. Each manifest is complete, so deleting an older snapshot loses nothing, but the cursor is dropped anyway rather than checking which snapshot it followed.                  |
-| Outlook            | Resumes from the delta links stored in the remaining newest snapshot, so it re-reads only the changes since that snapshot, including those the deleted one held. Only the newest snapshot can be deleted, so those links are always the right base. |
-| OneDrive, SharePoint | Reads every drive or library in full. Only the newest snapshot can be deleted, because newer ones are built on it. Every file that exists gets an entry in the new snapshot, content already stored is not uploaded again, and files the remaining snapshots list that are gone are recorded as deleted. See [`delete -s`](/reference/cli#drive-snapshot-delete). |
+| Workload | Next backup after `delete -s` |
+| --- | --- |
+| Calendar, Contacts | Reads every calendar or folder in full, whichever snapshot was deleted. Each manifest is complete, so deleting an older snapshot loses nothing |
+| Outlook | Resumes from the checkpoints in the remaining newest snapshot, so it reads only the changes since that snapshot, including those the deleted one held. Only the newest snapshot can be deleted, so those checkpoints are always the right base |
+| OneDrive, SharePoint | Reads every drive or library in full. Only the newest snapshot can be deleted, because newer ones are built on it. Every existing file gets an entry in the new snapshot, stored content is not uploaded again, and files the remaining snapshots list that are gone are recorded as deleted. See [`delete -s`](/reference/cli#drive-snapshot-delete) |
 
 `delete -m`, and `delete` without `-s` on OneDrive and SharePoint, remove the cursor with the rest of the owner's data, so the next backup is a full backup on every workload.
 
@@ -60,50 +83,72 @@ atlas outlook backup -m user@example.com          # records messages deleted sin
 atlas outlook restore -s <snapshot-id> -T user@example.com
 ```
 
-An Outlook manifest holds only the messages its run stored, so `restore -s`, `save -s`, and `verify -s` read the snapshot together with every older snapshot of the mailbox. Graph's delta also reports messages deleted from, or moved out of, each folder. Atlas records those IDs in the manifest as `removed_object_ids`, and a removal hides the same message in every older snapshot of the chain. A message deleted before the snapshot is therefore not restored, saved, or verified from it.
+An Outlook snapshot holds only the messages its run stored. `restore -s`, `save -s`, and `verify -s` therefore read the snapshot together with every older snapshot of the mailbox.
 
-A run whose only change is a deletion still writes a snapshot, because the removal exists nowhere else once the delta link moves past it.
+Microsoft 365 also reports messages deleted from, or moved out of, each folder. Atlas records them in the manifest as `removed_object_ids`, and a removal hides that message in every older snapshot of the chain. A message deleted before a snapshot is therefore not restored, saved, or verified from it. A run whose only change is a deletion still writes a snapshot, because the removal exists nowhere else once the checkpoint moves past it.
 
-Atlas uses immutable message IDs, so a moved message keeps its ID. Graph reports the move as a removal from the old folder and a new message in the new one. A manifest's own entries win over its own removals, which keeps the message at its new location. This only holds when the run captured both folders, so removals are recorded only when every selected folder finished, no `--folder` filter was given, and no folder that can receive mail was excluded. An interrupted run, a folder error, a filtered run, or a run with `--exclude-junk` records none. A message moved into Junk Email by such a run therefore stays restorable from its last captured copy instead of disappearing from the chain.
+A moved message keeps its ID, because Atlas uses [immutable message IDs](#immutable-message-ids). Microsoft 365 reports the move as a removal from the old folder and a new message in the new one. A manifest's own entries win over its own removals, so the message stays restorable at its new location.
 
-Excluded hidden system folders such as `Conversation Action Settings`, and the non-mail Recoverable Items subfolders, do not block removals, because mail cannot be moved into them. An unrecognised Recoverable Items subfolder does block them, since Atlas cannot tell what it holds.
+### When removals are recorded
 
-A folder deleted while the run lists folders is skipped with a warning and recorded as `deleted-during-listing`. This covers Recoverable Items subfolders too. Mail may have moved into it, so the run counts it as an unfinished folder: it records no removals, and the vanished folder keeps its previous delta link and its stored messages. A `--folder` run records no removals anyway, so it advances its links as usual. The next run no longer lists the folder and records removals as usual.
+Removals are only safe when the run saw both ends of a move. Atlas records them only when every selected folder finished:
 
-Withheld removals are not always lost. When a folder fails, vanishes during the listing, or the run is interrupted, every folder that reported a removal keeps its previous delta link, so the next run fetches those changes again and records the removals once every folder finishes. The folder's new messages are fetched again too, and deduplicate against the objects already stored. A folder that fails on every run holds those links back until it succeeds, so fix a persistent folder error rather than leaving it. A filtered or excluded run advances its links anyway, because a mailbox backed up that way on every run would otherwise never move its cursors forward. Removals seen by such a run are dropped.
+| Run | Removals | Checkpoints |
+| --- | --- | --- |
+| Every selected folder finished, no `--folder`, no folder that can receive mail excluded | Recorded | Advance |
+| Interrupted, or a folder failed | None | Every folder that reported a removal keeps its previous checkpoint, so the next complete run fetches and records the removals |
+| A folder was deleted while the run listed folders | None. The folder is skipped with a warning and recorded as `deleted-during-listing`, including Recoverable Items subfolders, because mail may have moved into it | The vanished folder keeps its previous checkpoint and stored messages. The next run no longer lists it and records removals as usual |
+| `--folder` or `--exclude-junk` | None, and the removals it saw are dropped | Advance anyway, because a mailbox always backed up this way would otherwise never move forward |
 
-Some deletions are never reported, and those messages still come back from the chain:
+Excluding hidden system folders such as `Conversation Action Settings`, or the non-mail Recoverable Items subfolders, does not block removals, because mail cannot be moved into them. An unrecognised Recoverable Items subfolder does block them, because Atlas cannot tell what it holds.
 
-| Case                                             | Why                                                                                                                                                                                                     |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A filtered or excluded run                       | `--folder` or `--exclude-junk`. Links advance, so the removals it saw are not reported again.                                                                                                           |
-| A full enumeration                               | `--full`, an expired token, or the stale-delta safeguard re-lists the folder. Graph reports what exists, not what was deleted. Removals read before Graph rejected an expired token are still recorded. |
-| Snapshots written before Atlas recorded removals | The field is absent, so nothing is hidden.                                                                                                                                                              |
+A message moved into Junk Email during a run that records no removals therefore stays restorable from its last captured copy instead of disappearing from the chain. Messages fetched again after a withheld checkpoint deduplicate against the objects already stored.
+
+::: warning Fix a folder that fails on every run
+A folder that fails on every run holds back the checkpoints of every folder with pending removals until it succeeds. Removals stay unrecorded until then, so fix a persistent folder error rather than leaving it.
+:::
+
+### Deletions that are never recorded
+
+These deleted messages still come back from the chain:
+
+| Case | Why |
+| --- | --- |
+| A filtered or excluded run | `--folder` or `--exclude-junk`. Checkpoints advance, so the removals it saw are not reported again |
+| A full read | `--full`, an expired checkpoint, or the stale-delta safeguard reads the folder again. Microsoft 365 reports what exists, not what was deleted. Removals read before Microsoft Graph rejected an expired checkpoint are still recorded |
+| Snapshots written before Atlas recorded removals | The field is absent, so nothing is hidden |
 
 ## Commit order for OneDrive and SharePoint
 
-OneDrive and SharePoint keep delta links in a separate cursor object, so one run performs several writes. Atlas writes them in this order:
+A OneDrive or SharePoint run writes three objects, always in this order:
 
 1. The snapshot manifest, if the run produced entries.
 2. The run's version index.
-3. The cursor.
+3. The cursor with the new checkpoints.
 
-A run with no entries skips step 1 and writes the version index, then the cursor.
+A run with no entries skips step 1. Outlook follows the same rule: the manifest first, then the cursor. An Outlook run that captured nothing and found no deletions writes only the cursor.
 
-The order makes a failed run safe to retry. A cursor written first would advance past content that no snapshot references. The next run would then see no changes and report success while the content stayed unreachable.
+This order makes a failed run safe to rerun. The checkpoint never moves past content that no snapshot references, which would let the next run report success while that content stayed unreachable. The worst case is repeated work: a crash after the manifest but before the cursor makes the next run read the same interval again and write a second snapshot. Content already stored deduplicates, so it costs only Microsoft 365 reads.
 
-With the manifest written first, the worst case is repeated work. If the run crashes after the manifest but before the cursor, the next run re-enumerates the same interval and writes a second snapshot. Content is addressed by hash, so the re-upload deduplicates and costs only Graph reads.
-
-This ordering applies per run. A run covering several drives or libraries collects the advanced links in memory and commits them together, after the manifest. A finished drive never has its progress saved ahead of the snapshot that references it.
-
-Outlook follows the same rule: the manifest first, then the cursor. A run that captured nothing and found no deletions writes only the cursor.
+A run covering several drives or libraries commits all their checkpoints together, after the manifest. A finished drive never has its progress saved ahead of the snapshot that references it.
 
 ## File version capture (OneDrive and SharePoint)
 
-OneDrive and SharePoint backups keep historical file versions as well as the current copy. For every file the delta stream reports as changed, Atlas lists its versions with `GET /drives/{drive-id}/items/{item-id}/versions` and stores each version it has not captured yet. The current version is skipped, because the manifest entry already holds it.
+OneDrive and SharePoint backups keep earlier versions of each file as well as the current copy. For every file reported as changed, Atlas lists its versions with `GET /drives/{drive-id}/items/{item-id}/versions` and stores each version it has not captured yet. The current version is skipped, because the snapshot entry already holds it.
 
-Before it downloads anything, Atlas checks which versions it already holds. It keeps a watermark per file in the cursor:
+Atlas keeps a watermark per file in the cursor, so it knows which versions it already holds without downloading them. Versions are processed oldest first, and the watermark stops at the first version the run could not capture:
 
+| Outcome for a version | Watermark | Next run |
+| --- | --- | --- |
+| Stored, or already stored as a deduplicated object | Advances past it | Skips it |
+| `404` or `410` from Microsoft Graph | Advances past it | Skips it. The library's version policy removed it and it can never be retrieved |
+| Any other error, such as `403` or `500` | Stops before it | Retries it and every newer version |
+
+Nothing is dropped silently. A version with a missing or unparseable `lastModifiedDateTime` is never treated as captured: Atlas fetches it again when the file changes, and deduplication prevents a second stored copy.
+
+Steady-state backups read only the cursor, which they read anyway, and do not read the version index.
+
+::: details Watermark format
 ```json
 {
   "owner_id": "2f1c9a04-7b3d-4e11-9c2a-6d5e8f0a1b2c",
@@ -120,112 +165,108 @@ Before it downloads anything, Atlas checks which versions it already holds. It k
 - `last_modified_at` skips every version older than the timestamp.
 - `version_ids` skips only the versions already captured at exactly that timestamp.
 
-### Why a timestamp and boundary IDs
+Microsoft Graph reports `lastModifiedDateTime` to the second, so two versions can share a timestamp. A timestamp alone could skip a version created later in the same second, so Atlas also keeps the IDs captured at the newest timestamp and drops older IDs. Version IDs are compared for equality only. Atlas never parses or sorts them, because Microsoft Graph does not guarantee their format or order.
 
-Graph reports `lastModifiedDateTime` to the second, so two versions can share a timestamp. A timestamp alone could skip a version created later in the same second. Atlas therefore keeps the IDs of every captured version at the newest timestamp, and drops older IDs, because the timestamp already excludes them.
+A watermark stores one timestamp and the IDs at that timestamp, not the full history.
+:::
 
-Version IDs are compared for equality only. Graph does not guarantee their format or order, and Atlas never parses or sorts them.
+### `--full`, and cursors without watermarks {#upgrades-and-full}
 
-### How the watermark advances
+`--full` does not reset watermarks. It reads every file again, but the version history Atlas already holds stays valid. To fetch the version history again on purpose, delete the version index and the cursor for that owner or site.
 
-Atlas processes versions oldest first. The watermark stops at the first version the run could not capture:
-
-| Outcome for a version                               | Watermark        | Reason                                                              |
-| --------------------------------------------------- | ---------------- | ------------------------------------------------------------------- |
-| Stored, or already present as a deduplicated object | Advances past it | Atlas holds the content.                                            |
-| `404` or `410` from Graph                           | Advances past it | The library's version policy removed it. It can never be retrieved. |
-| Any other error, such as `403` or `500`             | Stops before it  | The version may still be retrievable, so the next run retries it.   |
-
-Nothing is dropped silently. A run that fails on an old version retries that version and every newer one on the next run.
-
-A version with a missing or unparseable `lastModifiedDateTime` is never treated as captured. Atlas fetches it again when the file changes, and content addressing prevents duplicate storage.
-
-### Cost
-
-Each run reads the cursor, which it reads anyway. Steady-state backups do not read the version index. A watermark stores one timestamp and the IDs at that timestamp, not the full history. Before watermarks existed, every run scanned the whole version index of the owner or site, which grew too large for the nightly window on large tenants.
-
-### Upgrades and `--full`
-
-A cursor written before watermarks has no watermark map. The first run after upgrading rebuilds it from the version index. The run logs `Seeding version dedup watermarks` and writes exact state to the cursor. A cursor with timestamp-only values upgrades each file when that file next changes. Versions that share the timestamp are captured once more during the conversion.
-
-`--full` does not reset watermarks. It re-reads every file from Graph, but the version history Atlas already holds stays valid, and downloading it again would waste bandwidth. To re-fetch the version history on purpose, delete the version index and the cursor for that owner or site.
+A cursor written before watermarks existed has no watermark map. The first run that reads it rebuilds the map from the version index, logs `Seeding version dedup watermarks`, and writes exact state to the cursor. A cursor with timestamp-only values upgrades each file when that file next changes, and versions that share the timestamp are captured once more during the conversion.
 
 ## Immutable message IDs
 
-Graph returns two kinds of Outlook identifier. The default ID is mutable: it changes when a message moves between folders, so a message moved into an archive folder looks like a deletion and a new message. Atlas would then download content it already holds, and older manifest entries would point at IDs that Graph no longer resolves.
+Atlas sends `Prefer: IdType="ImmutableId"` on every Outlook request: delta pages, message reads, and attachment fetches. With immutable IDs a message moved between folders keeps its identity, so only its changed folder metadata is stored again.
 
-Atlas therefore sends `Prefer: IdType="ImmutableId"` on every Outlook request: delta pages, message reads, and attachment fetches. Microsoft requires the header on every request that handles an ID, because mixing the two formats breaks correlation. With immutable IDs, a folder move keeps the message's identity. Only the changed folder metadata is stored again.
+The default Outlook ID changes when a message moves. A move into an archive folder would then look like a deletion and a new message: Atlas would download content it already holds, and older snapshot entries would point at IDs Microsoft 365 no longer resolves. Microsoft requires the header on every request that handles an ID, because mixing the two formats breaks correlation.
 
-Immutable IDs are stable within one mailbox, but not across mailboxes. They also change when an item moves into an In-Place Archive or is exported and imported again. See [Obtain immutable identifiers for Outlook resources](https://learn.microsoft.com/en-us/graph/outlook-immutable-id).
+Immutable IDs are stable within one mailbox, not across mailboxes. They also change when an item moves into an In-Place Archive or is exported and imported again. See [Obtain immutable identifiers for Outlook resources](https://learn.microsoft.com/en-us/graph/outlook-immutable-id).
 
 ## Original MIME retrieval
 
-A delta page lists the changed messages. For each new or changed message, Atlas fetches the original **RFC 5322 MIME** bytes and stores them as the canonical encrypted object:
+For each new or changed message, Atlas stores the original **RFC 5322 MIME** bytes as the message's encrypted object:
 
 ```
 GET /users/{id}/messages/{id}/$value
 ```
 
-The original bytes keep what Graph's JSON does not expose: the `Received:` chain, `Authentication-Results` (DKIM, SPF, and ARC), `In-Reply-To` and `References` threading, and S/MIME payloads. See [Backup fidelity](/security#backup-fidelity).
-
-### Request cost
-
-| Message shape    | Before MIME                                                  | With MIME                                                      |
-| ---------------- | ------------------------------------------------------------ | -------------------------------------------------------------- |
-| No attachments   | None beyond the delta page                                   | One `/$value` request                                          |
-| With attachments | One attachment-list request, plus one request per attachment | One `/$value` request, because attachments are inside the MIME |
-
-Each new or changed message costs one request, and a message with attachments costs fewer requests than before. Incremental runs fetch MIME only for changed messages. The first backup of a large mailbox is the expensive case, and the retry policy below absorbs the throttling it causes.
+The original bytes keep what the JSON form of a message does not expose: the `Received:` chain, `Authentication-Results` (DKIM, SPF, and ARC), `In-Reply-To` and `References` threading, and S/MIME payloads. See [Backup fidelity](/security#backup-fidelity).
 
 MIME is the only format for new snapshots. There is no `--fidelity` option.
 
-If Graph cannot produce MIME for one item, Atlas stores that item in the legacy JSON form and records the format in its manifest entry. Entries with `payload_format: "mime"` hold original bytes. Entries without the field hold legacy Graph JSON. Snapshots can mix both formats. `save`, `read`, `restore`, and `verify` handle both.
+### Request cost
 
-A MIME request that fails is a different case from Graph having no MIME, for example a `503` still failing after the [retries](#retry-and-error-handling). Atlas stores the JSON form so the run keeps the message, reports the message as an error of its folder, and keeps the folder's previous delta link. The run exits 2. The next run fetches the folder's changes again, captures the MIME, and its entry replaces the JSON one in the snapshot chain. A JSON entry whose attachments could not be fetched or stored is handled the same way: the next run fetches the message and its attachments again. A message that fails on every run holds its folder's link back until it succeeds, and the changes refetched each time deduplicate against the stored objects.
+| Message | Requests beyond the delta page |
+| --- | --- |
+| No attachments | One `/$value` request |
+| With attachments | One `/$value` request. Attachments are inside the MIME and cost nothing extra |
+
+Incremental runs fetch MIME only for new and changed messages. The first backup of a large mailbox is the expensive case, and the [retry policy](/operations/reliability#microsoft-graph-requests) absorbs the throttling it causes.
+
+### When a message cannot be stored as MIME
+
+| Situation | What Atlas does |
+| --- | --- |
+| Microsoft 365 cannot produce MIME for the message | Stores the legacy JSON form and records the format in the snapshot entry. The run succeeds |
+| The MIME request still fails after [retries](/operations/reliability#microsoft-graph-requests), for example a `503` | Stores the JSON form so the message is kept, reports it as an error of its folder, keeps the folder's previous checkpoint, and exits `2`. The next run fetches the folder's changes again, captures the MIME, and its entry replaces the JSON one |
+| A JSON entry's attachments could not be fetched or stored | Handled the same way: the next run fetches the message and its attachments again |
+
+Entries with `payload_format: "mime"` hold original bytes. Entries without the field hold legacy JSON. A snapshot can mix both, and `save`, `read`, `restore`, and `verify` handle both. A message that fails on every run holds its folder's checkpoint back until it succeeds, and the changes fetched again each time deduplicate against the stored objects.
 
 ### Reactions, flag, and pin
 
-The delta query selects `flag`, so each message's follow-up flag status and its start, due and completed dates arrive with the delta item. A MIME entry records them in its manifest entry as `flag`, because the MIME carries at most an `X-Message-Flag` header. An unflagged message records nothing.
+Atlas captures each message's follow-up flag, Outlook reactions (like, heart, celebrate, and so on), and pin, and stores them in the message's snapshot entry:
 
-Outlook reactions (like, heart, celebrate and so on) and the pin live in MAPI properties, not in the MIME and not in the delta payload. Outlook pins a message by setting its renew times, `SystemTime 0x0F02` and `SystemTime 0x0F01`, to a far-future date. Graph rejects the `$expand` that would read these properties on the delta query with `400 BadRequest`, so Atlas reads them for each delta page in one `$batch` of up to 20 of these requests:
+| Property | Snapshot entry field | Stored when |
+| --- | --- | --- |
+| Follow-up flag status, with start, due, and completed dates | `flag` | The message is flagged. A MIME entry needs it because MIME carries at most an `X-Message-Flag` header |
+| Reactions | `reaction_properties` | The message has reactions |
+| Pin | `pin_properties` | The pin property `0x0F01` is present, which it is not on a message that was never pinned |
+
+Adding a reaction or a flag updates the message's `lastModifiedDateTime`, so the next incremental run picks it up as a changed message.
+
+The flag arrives with the delta page. Reactions and the pin need one extra read per message:
+
+- A throttled or failed read is retried for that message alone.
+- A read that still fails backs the message up without its reactions and pin. The run summary prints a warning per folder with the count. The checkpoint moves on, so those properties are read again only when the message next changes. The flag is not affected.
+- A permission or licensing failure stops the mailbox, as it does for MIME.
+- If the configured mailbox connector cannot read these properties at all, Atlas logs that once and captures none.
+
+::: details How reactions and the pin are read
+Reactions and the pin live in MAPI properties, not in the MIME and not in the delta payload. Outlook pins a message by setting its renew times, `SystemTime 0x0F02` and `SystemTime 0x0F01`, to a far-future date. Microsoft Graph rejects the `$expand` that would read them on the delta query with `400 BadRequest`, so Atlas reads them for each delta page in one `$batch` of up to 20 requests:
 
 ```
 GET /users/{id}/messages/{id}?$select=id&$expand=singleValueExtendedProperties($filter=...)
 ```
 
-The requests in a batch are chained with `dependsOn`, so Exchange runs them one at a time and the batch never exceeds the four concurrent requests a mailbox allows. Every message still counts once against the per-mailbox budget, because Graph evaluates each request in a batch on its own. What the batch saves is round trips: at the default page size of 10, a first backup of N messages makes N `/$value` requests plus N/10 batch round trips, where it used to make 2N requests. At `--page-size 100` it is N/20. Messages are read in every batch, including messages without reactions and messages whose content deduplicates, because the reactions and pin belong to the manifest entry rather than to the stored object.
+The requests in a batch are chained with `dependsOn`, so Exchange runs them one at a time and the batch never exceeds the four concurrent requests a mailbox allows. Every message still counts once against the per-mailbox budget, because Microsoft Graph evaluates each request in a batch on its own. The batch saves round trips: at the default page size of 10, a first backup of N messages makes N `/$value` requests plus N/10 batch round trips. At `--page-size 100` it is N/20.
 
-Adding a reaction or a flag updates the message's `lastModifiedDateTime`, so the next incremental run picks it up as a changed message.
-
-Only messages with reactions or a pin store anything: their manifest entry gains `reaction_properties` or `pin_properties`. The pin is recorded only when `0x0F01` is present, which it is not on a message that was never pinned. A throttled or failed read inside a batch is retried for that message alone. A read that still fails backs the message up without its reactions and pin, and the run summary prints a warning per folder with the count, because the delta link moves on and those properties are read again only when the message changes. The flag does not depend on this read. A permission or licensing failure stops the mailbox, as it does for MIME. If the configured mailbox connector cannot read these properties at all, Atlas logs that once and captures none.
+Every message in a page is read, including messages without reactions and messages whose content deduplicates, because reactions and the pin belong to the snapshot entry rather than to the stored object.
+:::
 
 ## Retry and error handling
 
-Atlas retries transient Graph errors with exponential backoff:
+Atlas retries `429 Too Many Requests` (honouring `Retry-After`) and `500`, `502`, `503`, `504` on its own, up to 12 times. `501` and every other `4xx` are not retried, because the same request returns the same error. [Retries and fail-safes](/operations/reliability#microsoft-graph-requests) lists every parameter. For incremental backup, two outcomes matter:
 
-| Response                                                  | Behaviour                                                              |
-| --------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `429 Too Many Requests`                                   | Honours `Retry-After`, then backs off exponentially. Up to 12 retries. |
-| `500`, `502`, `503`, `504`                                | Same retry policy as `429`.                                            |
-| `501` and all other `4xx`                                 | Not retried, because the same request returns the same error.          |
-| `syncStateNotFound`, `resyncRequired`, `syncStateInvalid` | The delta token is no longer valid. Atlas resyncs the folder in full.  |
+| Response | Effect on the checkpoint |
+| --- | --- |
+| `syncStateNotFound`, `resyncRequired`, `syncStateInvalid` | The checkpoint is no longer valid. Atlas reads the folder in full |
+| Retries exhausted on a folder | Atlas marks the folder as failed and continues with the remaining folders. The failed folder keeps its previous checkpoint |
 
-`500` and `502` are retried because Graph returns them for load and gateway faults that clear on their own. Without a retry, one such error would fail the whole folder (Outlook) or drive batch (OneDrive and SharePoint).
+## Stopping a run {#interruption}
 
-`Retry-After` accepts both forms in RFC 9110: a number of seconds, or an HTTP date. A header that is missing, unreadable, or already in the past falls back to exponential backoff. After 12 retries, or once 24 minutes of waiting have passed, Atlas marks the folder as failed and continues with the remaining folders.
+| Action | Effect on checkpoints |
+| --- | --- |
+| First Ctrl+C | Completed folders and their checkpoints are saved to a partial manifest, and the command exits `2`. The dashboard marks interrupted folders. The next run resumes from those checkpoints, and an interrupted folder is read again from its previous one |
+| Second Ctrl+C | Exits at once with `130`. No manifest is written, so no checkpoint moves. Objects already uploaded stay in storage and deduplicate on the next run. The [lease](/reference/sdk#concurrent-operations) is not released, so a backup of the same mailbox started within 5 minutes exits `12` |
 
-## Interruption
-
-| Action        | Result                                                                                                                                                                                                                              |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| First Ctrl+C  | Stops the run. The Graph request in flight and any retry or throttle wait end at once. Completed folders and their delta links are saved to a partial manifest, and the command exits `2`. The dashboard marks interrupted folders. |
-| Second Ctrl+C | Exits at once with status `130`. The run writes no manifest, so no delta link moves. Objects already uploaded stay in storage and are deduplicated by the next run. The mailbox's [lease](/reference/sdk#concurrent-operations) is not released, so a backup of it started within the next 5 minutes exits `12`. |
-
-A partial manifest from the first Ctrl+C is valid. The next run resumes from the saved delta links of the completed folders. The interrupted folder keeps its previous link and is read again from there. Graph has no cancel, so a request it already accepted still completes on its side; Atlas drops the result.
+A partial manifest from the first Ctrl+C is a valid snapshot. Microsoft Graph has no cancel, so a request it already accepted still completes on its side, and Atlas drops the result. [Ctrl+C and signals](/operations/reliability#ctrl-c-and-signals) covers the other commands.
 
 ## See also
 
 - [Retries and fail-safes](/operations/reliability): commit order, leases, and partial runs across every workload
-- [Graph rate limits](/operations/graph-rate-limits): the pools that delta requests draw on
+- [Graph rate limits](/operations/graph-rate-limits): the request budgets incremental backup draws on
 - [Storage layout](/operations/storage-layout): where manifests, cursors, and version indexes are stored
 - [Immutability](/operations/immutability): retention for stored versions
