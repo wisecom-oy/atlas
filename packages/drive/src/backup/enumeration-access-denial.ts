@@ -15,11 +15,12 @@ import type { DriveGraphClient } from '@/backup/graph-item-content';
  * Graph answers both with the same `accessDenied` code: a SharePoint Embedded container site is
  * refused to an app holding `Sites.ReadWrite.All` with exactly the body a missing grant gets. So
  * the error alone cannot say which it is. A provider that can tell supplies `verify_read_grant`, one
- * request every holder of the grant may make; when it succeeds, the grant works and this resource
- * alone is refused.
+ * request every holder of the grant may make. When it succeeds, Atlas reports a refusal of this
+ * resource rather than a missing grant. It shows only that the app can read that resource: an app
+ * on per-site grants that cover it passes too, so the refusal message names the per-site remedy.
  */
 
-/** Whether the app's read grant works, judged on a resource every holder of it can read. */
+/** Whether the app can read a resource every holder of the read grant can read. */
 export type ReadGrantCheck = (client: DriveGraphClient) => Promise<boolean>;
 
 /** The provider values the denial classification reads. */
@@ -29,7 +30,7 @@ export interface DenialBinding {
   readonly read_permissions: readonly string[];
   /** A narrower grant that also works, named after the permissions, e.g. a `Sites.Selected` grant. */
   readonly grant_alternative?: string | undefined;
-  /** Confirms the grant works elsewhere in the tenant; absent when the provider has no such probe. */
+  /** Reads a resource every holder of the grant can read; absent when the provider has none. */
   readonly verify_read_grant?: ReadGrantCheck | undefined;
 }
 
@@ -118,7 +119,7 @@ async function check_read_grant_once(
   }
 }
 
-/** The refusal of one resource, worded for why Atlas knows it is not a missing grant. */
+/** The refusal of one resource, worded for why Atlas did not report it as a missing grant. */
 function access_refused_error(
   binding: DenialBinding,
   err: unknown,

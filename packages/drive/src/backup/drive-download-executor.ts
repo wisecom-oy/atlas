@@ -50,7 +50,7 @@ export interface DriveDownloadExecutor {
    * Rethrows a Graph 403 from an enumeration call (a site lookup, listing drives or libraries,
    * delta) as `MissingGraphPermissionsError` or `GraphAccessRefusedError`, and returns for anything
    * else. A 403 there has two causes Graph does not tell apart by code: a missing grant, and one
-   * resource refused to a working grant, such as a SharePoint Embedded container (issue #772).
+   * resource refused on its own, such as a SharePoint Embedded container (issue #772).
    * `resource` names what was addressed.
    */
   rethrow_if_access_denied(

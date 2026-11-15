@@ -359,8 +359,9 @@ export interface RefusedGraphResource {
 }
 
 /**
- * Graph refused one resource although the app's permission works elsewhere in the tenant, or with a
- * 403 code that does not mean a missing grant (issue #772). A SharePoint Embedded container site is
+ * Graph refused one resource with a 403 Atlas does not attribute to a missing grant: its code does
+ * not name a missing permission, or, for SharePoint, the same app can read the tenant's root site
+ * (issue #772). A SharePoint Embedded container site is
  * the known case: Graph answers 403 `accessDenied` to an app holding `Sites.Read.All`.
  *
  * Permanent: retrying returns the same answer, so a caller marks the resource unsupported. Not an

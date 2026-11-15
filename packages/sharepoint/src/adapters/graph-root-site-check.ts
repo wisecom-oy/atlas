@@ -3,8 +3,8 @@ import type { DriveGraphClient } from '@wisecom/atlas-drive/backup/graph-item-co
 
 /**
  * Whether the app can read the tenant's root site (`GET /sites/root?$select=id`). Every app holding
- * `Sites.Read.All` can, so a site refused with 403 while this succeeds is refused on its own, not
- * for a missing grant (issue #772). Resolves false on 401 or 403, and rejects on any other failure,
+ * `Sites.Read.All` can, so a site refused with 403 while this succeeds is reported as refused rather
+ * than as a missing grant (issue #772). It does not say which grant the app holds. Resolves false on 401 or 403, and rejects on any other failure,
  * which says nothing about the grant.
  */
 export async function can_read_root_site(client: DriveGraphClient): Promise<boolean> {

@@ -109,7 +109,7 @@ Graph returned `itemNotFound` for the site URL.
 - Confirm the application permissions for SharePoint backup are granted with admin consent.
 - Use the full URL including `/sites/<SiteName>`. Root site URLs use a different path format.
 
-### SharePoint: site refused although the permission is granted
+### SharePoint: site refused while the root site is readable
 
 ```text
 [x] Microsoft Graph refused SharePoint site <site-id>: HTTP 403 accessDenied. The same app can read the tenant's root site, so Graph refused this resource alone. ...
@@ -119,8 +119,8 @@ Graph returned `itemNotFound` for the site URL.
 Graph refused this one site, while the same app registration can read the tenant's root site. That shows the credentials work, not which grant the app holds: an app with `Sites.Read.All` can read the root site, and so can an app whose `Sites.Selected` grants include the root site but not this one. The usual cause is a [SharePoint Embedded container](/sharepoint-backup#sharepoint-embedded-containers), a site whose URL starts with `/contentstorage/`. Graph refuses those to any app without `FileStorageContainer.Selected`, and Atlas does not back them up.
 
 - Confirm the site's kind with `atlas sharepoint list-sites`. A container shows `container (not backed up)`.
-- Leave the site out of scheduled runs. Retrying returns the same answer.
-- If the site is an ordinary one, check whether the app registration uses `Sites.Selected` and whether that site was granted to it.
+- For a container, leave the site out of scheduled runs. Retrying returns the same answer.
+- For an ordinary site, check whether the app registration uses `Sites.Selected` and whether that site was granted to it. Rerun once it is.
 
 The run exits `4` and the SDK rejects with `GraphAccessRefusedError`, which carries `site_id`, `status_code`, `graph_code`, and `reason`. It is not an `AuthError`, so a host that stops the whole tenant on `AuthError` keeps backing up the other sites.
 
