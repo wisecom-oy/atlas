@@ -100,12 +100,13 @@ The override replaces the bucket name only. The tenant ID still salts the key-en
 | Bound to a tenant  | A profile's `bucket` belongs to that profile's tenant. When `ATLAS_TENANT_ID` points the run at another tenant, the profile's bucket does not apply.                                                  |
 | Other tenants      | Under `ATLAS_S3_BUCKET`, a command that opens any other tenant (`-t`, `delete --purge -t`, `keys rewrap` over several tenants) refuses it with exit code `6`. Without it, every tenant uses its own profile's bucket. |
 | Same tenant twice  | When two profiles name the same tenant with different buckets, the selected profile decides for its own tenant. Opening that tenant from another profile's run is refused as ambiguous.                 |
-| Never created      | Atlas never creates an overridden bucket. A missing one fails with exit code `6`, so a typo cannot start a second store with a fresh data key.                                                       |
+| One bucket, two tenants | Refused. When bindings of two different tenants name the same bucket, opening either fails with exit code `6`: a bucket holds one tenant's data key. |
+| Never created      | Atlas never creates an overridden bucket, even one named `atlas-<tenant-id>` explicitly. A missing one fails with exit code `6`, so a typo cannot start a second store with a fresh data key.                                                       |
 | Shared setting     | Refused. A top-level `bucket` in the config file or the store, or `atlas config set s3.bucket`, would apply to every profile and fails with exit code `6`.                                             |
 
 To remove a profile's bucket, add the profile again with `--replace` and without `--bucket`.
 
-Read-only credentials scoped to the copy are enough for `verify`, `list`, `status`, `save`, `stats`, and the read side of `restore`. Those commands write nothing to the bucket: when a lookup by email resolves a user Atlas has not recorded yet, the identity registry update is skipped and logged at debug level. `atlas storage-check` and `checkStorage()` still write and delete one probe object, so they need write access.
+Read-only credentials scoped to the copy are enough for `verify`, `list`, `status`, `save`, `stats`, and the read side of `restore`. With read-only credentials those commands write nothing to the bucket. A lookup by email that resolves a user Atlas has not recorded yet normally records it in the identity registry; when the bucket refuses that write, the update is skipped and logged at debug level, and the command continues. With write access the user is recorded as usual. `atlas storage-check` and `checkStorage()` still write and delete one probe object, so they need write access.
 
 ## Sources and precedence
 
