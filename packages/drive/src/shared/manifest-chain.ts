@@ -6,6 +6,7 @@ import {
 } from '@wisecom/atlas-core/services/shared/drive-manifest-chain-loader';
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { DriveManifestEntry } from '@/drive-ports';
+import { is_file_entry } from '@/shared/entry-kind';
 
 export type { DriveManifestLookup };
 
@@ -47,9 +48,26 @@ export async function load_drive_chain_entries<TManifest extends DriveChainManif
   };
 }
 
-/** Drops tombstones and entries with no stored blob: what a restore or export can actually write. */
+/**
+ * The files a restore or export can write: drops tombstones, folder entries and files with no
+ * stored blob.
+ */
 export function restorable_entries(entries: readonly DriveChainEntryRow[]): DriveManifestEntry[] {
   return entries
-    .filter(({ entry }) => entry.change_type !== 'deleted' && entry.storage_key)
+    .filter(
+      ({ entry }) => entry.change_type !== 'deleted' && is_file_entry(entry) && entry.storage_key,
+    )
+    .map(({ entry }) => entry);
+}
+
+/**
+ * The live folder entries: what a restore applies besides file content. A folder entry exists
+ * only while the folder carried metadata of its own, such as non-inherited permissions.
+ */
+export function restorable_item_metadata_entries(
+  entries: readonly DriveChainEntryRow[],
+): DriveManifestEntry[] {
+  return entries
+    .filter(({ entry }) => entry.change_type !== 'deleted' && !is_file_entry(entry))
     .map(({ entry }) => entry);
 }

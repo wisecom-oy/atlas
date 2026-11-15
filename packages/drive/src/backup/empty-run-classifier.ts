@@ -1,9 +1,10 @@
+import type { DriveEntryKind } from '@wisecom/atlas-types';
 import type { LatestReadableManifest, NoSnapshotReason } from '@wisecom/atlas-types';
 
 /** What the run already knows, plus the lookup it should only need in the empty case. */
 export interface EmptyRunEvidence {
   /** Kinds the delta cursor records per file id, carried from earlier runs and this one. */
-  readonly previous_kind_by_file_id: Record<string, 'file' | 'folder'>;
+  readonly previous_kind_by_file_id: Record<string, DriveEntryKind>;
   /** Files this run walked, stored or failed. Folders and the library root are not content, so they never count. */
   readonly files_processed: number;
   /** Reads the newest snapshot for the resource. Called only when nothing else proves content. */

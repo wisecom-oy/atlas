@@ -1,4 +1,6 @@
 import type {
+  DriveEntryKind,
+  OneDriveChangeType,
   OneDriveConnector,
   OneDriveDeltaItem,
   OneDriveManifestEntry,
@@ -14,6 +16,15 @@ import { is_download_refused } from '@wisecom/atlas-m365-graph';
 import { resolve_backed_up_kind } from '@wisecom/atlas-drive';
 import { is_download_url_expired } from '@wisecom/atlas-drive/backup/large-file-url-refresh';
 import { classify_change_type } from '@/services/backup/change-classifier';
+import { process_folder_item } from '@wisecom/atlas-drive/backup/folder-item-processor';
+import {
+  permission_digests,
+  record_file_permission_digest,
+  with_captured_permissions,
+  DriveSharingCapture,
+  type PermissionObservation,
+} from '@wisecom/atlas-drive/backup/sharing-capture';
+import { plan_sharing_only_change } from '@wisecom/atlas-drive/backup/sharing-only-change';
 import {
   collect_run_versions,
   sync_file_versions,
@@ -24,7 +35,9 @@ export interface DriveTrackingState {
   previous_path_by_file_id: Record<string, string>;
   previous_name_by_file_id: Record<string, string>;
   previous_etag_by_file_id: Record<string, string>;
-  previous_kind_by_file_id: Record<string, 'file' | 'folder'>;
+  previous_kind_by_file_id: Record<string, DriveEntryKind>;
+  /** Digest of each item's captured permissions; see `OneDriveDeltaCursor`. */
+  permission_digest_by_item_id?: Record<string, string>;
 }
 
 export interface VersionStats {
@@ -64,7 +77,9 @@ export function clear_file_tracking_on_reset(
   state: DriveTrackingState,
   reset_item_ids: Iterable<string>,
 ): void {
+  const digests = permission_digests(state);
   for (const fid of reset_item_ids) {
+    delete digests[fid];
     if (state.previous_kind_by_file_id[fid] === 'file') {
       delete state.previous_path_by_file_id[fid];
       delete state.previous_name_by_file_id[fid];
@@ -73,7 +88,18 @@ export function clear_file_tracking_on_reset(
   }
 }
 
-/** Processes one delta item and returns manifest entries or errors. */
+const NOTHING: DeltaItemOutcome = { files_stored: 0, files_deduplicated: 0, deleted_items: 0 };
+
+/** The outcome of an item that wrote at most an entry and stored no content. */
+function entry_only(entry: OneDriveManifestEntry | undefined): DeltaItemOutcome {
+  return entry ? { ...NOTHING, entry } : NOTHING;
+}
+
+/**
+ * Processes one delta item and returns manifest entries or errors. Folders go to the shared folder
+ * processor; files are downloaded when their content changed, or recorded with the earlier blob
+ * when only their sharing did.
+ */
 export async function process_delta_item(
   connector: OneDriveConnector,
   item: OneDriveDeltaItem,
@@ -85,35 +111,38 @@ export async function process_delta_item(
   on_version_stats_update: (stored: number, unavailable: number, failed: number) => void,
   versions: RunVersionCollector,
   abort_signal?: AbortSignal,
+  sharing: DriveSharingCapture = new DriveSharingCapture(connector),
 ): Promise<DeltaItemOutcome> {
   const effective_kind = resolve_backed_up_kind(item, state.previous_kind_by_file_id);
-
-  if (effective_kind !== 'file') {
-    if (!item.deleted) state.previous_kind_by_file_id[item.item_id] = item.kind;
-    return { files_stored: 0, files_deduplicated: 0, deleted_items: 0 };
+  if (effective_kind === 'folder') {
+    return entry_only(await process_folder_item(item, state, sharing));
   }
 
-  const change_type = classify_change_type(
+  const classified = classify_change_type(
     item,
     state.previous_path_by_file_id,
     state.previous_name_by_file_id,
     state.previous_etag_by_file_id,
   );
-  if (!change_type) {
-    return { files_stored: 0, files_deduplicated: 0, deleted_items: 0 };
-  }
 
   if (item.deleted) {
+    if (!classified) return NOTHING;
+    delete permission_digests(state)[item.item_id];
     // Graph omits `name` for a removed item, so the last name we saw is the
     // only one there is (issue #139).
     const file_name = item.file_name || (state.previous_name_by_file_id[item.item_id] ?? '');
     return {
-      entry: build_deleted_entry({ ...item, file_name }, change_type),
+      entry: build_deleted_entry({ ...item, file_name }, classified),
       files_stored: 0,
       files_deduplicated: 0,
       deleted_items: 1,
     };
   }
+
+  const observation = await sharing.observe(item, state);
+  const change_type = classified ?? (await sharing_only_change(item, observation, state, sharing));
+  if (change_type === undefined) return NOTHING;
+  if (typeof change_type !== 'string') return entry_only(change_type.entry);
 
   // Quarantined content is never served, so attempting the download only burns
   // the Graph retry budget: the refusal arrives as an aborted transfer, which
@@ -151,18 +180,40 @@ export async function process_delta_item(
   state.previous_kind_by_file_id[item.item_id] = 'file';
   if (item.etag) state.previous_etag_by_file_id[item.item_id] = item.etag;
 
+  record_file_permission_digest(state, item.item_id, observation);
+
   return {
     // The stored length, which is the refreshed size when the file grew on its first download (#759).
-    entry: build_stored_entry(
-      { ...item, size_bytes: result.size_bytes },
-      result.storage_key,
-      result.checksum,
-      change_type,
+    entry: with_captured_permissions(
+      build_stored_entry(
+        { ...item, size_bytes: result.size_bytes },
+        result.storage_key,
+        result.checksum,
+        change_type,
+      ),
+      observation,
     ),
     files_stored: result.stored ? 1 : 0,
     files_deduplicated: result.deduplicated ? 1 : 0,
     deleted_items: 0,
   };
+}
+
+/**
+ * What to do with a file whose content and location did not change: nothing, an entry carrying its
+ * new permissions over the earlier blob, or (`updated`) a download when no earlier blob is known.
+ */
+async function sharing_only_change(
+  item: OneDriveDeltaItem,
+  observation: PermissionObservation,
+  state: DriveTrackingState,
+  sharing: DriveSharingCapture,
+): Promise<OneDriveChangeType | { entry: OneDriveManifestEntry } | undefined> {
+  const plan = await plan_sharing_only_change(item, observation, sharing);
+  if (plan.kind === 'none') return undefined;
+  if (plan.kind === 'download') return 'updated';
+  record_file_permission_digest(state, item.item_id, observation);
+  return { entry: plan.entry };
 }
 
 /**

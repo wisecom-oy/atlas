@@ -189,7 +189,7 @@ describe('graph_sharepoint_upload_small_file', () => {
         'rename',
         CAPTURED,
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe('item-9');
     expect(calls.map((call) => call.method)).toEqual(['put', 'patch']);
   });
 });

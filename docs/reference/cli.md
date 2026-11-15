@@ -761,7 +761,7 @@ A snapshot is a delta, so its manifest lists only what changed in that run. `res
 
 A file whose newest entry is a deletion stays deleted. The tombstone overrides the older stored version, so a restore never brings back a file the user removed.
 
-`--full`, a changed `--folder`, and an expired delta link all replace the incremental delta with an enumeration of the drive. An enumeration lists only what currently exists. When an enumeration finishes, Atlas writes a tombstone for each stored file it did not return. The comparison covers the re-crawled drive, and the `--folder` scope when one is set. An interrupted run writes no tombstones, because a partial listing proves nothing about absence. SharePoint applies the same rule per document library.
+`--full`, a changed `--folder`, an expired delta link, and a delta link saved before sharing was captured all replace the incremental delta with an enumeration of the drive. The last one keeps file tracking, so unchanged files are not downloaded again (see [First backup after upgrading](/onedrive-backup#first-backup-after-upgrading)). An enumeration lists only what currently exists. When an enumeration finishes, Atlas writes a tombstone for each stored file it did not return. The comparison covers the re-crawled drive, and the `--folder` scope when one is set. An interrupted run writes no tombstones, because a partial listing proves nothing about absence. SharePoint applies the same rule per document library.
 
 Ctrl+C stops a OneDrive or SharePoint backup at once, wherever it is: inside a file transfer from the pre-authenticated download URL, a Graph call such as delta listing, download URL resolution, the `/content` fallback, or version listing, and any retry or throttle wait of those. The run exits `2` without advancing the delta cursor. The interrupted file is not recorded as a failed item, so it keeps its retry budget. A second Ctrl+C exits at once with status `130`.
 
@@ -774,7 +774,10 @@ atlas onedrive restore -o user@company.com -s od-snap-123 --destination /DR-dril
 atlas onedrive restore -o user@company.com -s od-snap-123 --in-place
 atlas onedrive restore -o user@company.com -s od-snap-123 --target-owner other@company.com
 atlas onedrive restore -o user@company.com -s od-snap-123 --conflict replace
+atlas onedrive restore -o user@company.com -s od-snap-123 --in-place --restore-permissions
 atlas onedrive list-snapshots -o user@company.com
+atlas onedrive list-permissions -o user@company.com
+atlas onedrive list-permissions -o user@company.com -s od-snap-123
 atlas onedrive list-versions -o user@company.com -f "Documents/report.docx"
 atlas onedrive restore-version -o user@company.com -f "Documents/report.docx" --version 3.0
 atlas onedrive restore-version -o user@company.com --before 2026-03-10T00:00:00Z
@@ -792,6 +795,7 @@ atlas onedrive quarantine --key onedrive/manifests/<owner-id>/od-snap-1735689600
 | `restore`         | Restore files from a snapshot to the owner's or another user's OneDrive                                                                  |
 | `list-snapshots`  | List snapshot IDs and timestamps for the owner                                                                                           |
 | `list-versions`   | List indexed versions of one file (`-f`, a file ID or path)                                                                              |
+| `list-permissions`| List who had access to which file or folder at a snapshot                                                                                |
 | `restore-version` | Push stored file versions back into the drive, one file or a whole rollback                                                              |
 | `verify`          | Decrypt manifests and blobs for a snapshot, and check SHA-256 and index rows                                                             |
 | `status`          | Report pending Graph changes per drive, without backing up                                                                               |
@@ -829,6 +833,7 @@ Every workload stamps retention on each object it writes, using `PutObject`, `Co
 | `--name <filename>`        | Rename the restored file. Rejected unless exactly one file matches.           |
 | `--file-filter <paths...>` | Restore only specific files, by ID or path                                    |
 | `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`)      |
+| `--restore-permissions`    | Reapply captured grants and recreate sharing links (default: off)             |
 | `-t, --tenant <id>`        | Override the tenant ID from config                                            |
 | `--target-profile <name>`  | Tenant profile for the writes. Requires `--target-owner`.                     |
 
@@ -837,6 +842,8 @@ A drive restore nests under `/Restore-<timestamp>` at the target drive root and 
 Ctrl+C stops a drive restore at once when it lands in a Graph retry or throttle wait. An upload request already sent is never cut off, because Graph may already have committed it. A file up to 4 MiB is one request, and a larger file's final chunk is the request that creates it, so that request finishes and the file counts as restored if Graph accepted it. A larger file stopped before its final chunk is not created, and Atlas deletes its upload session, giving the DELETE 10 s. A session Atlas cannot delete expires on Graph's side without creating a file. The run prints the files restored so far and exits `2`, and a file stopped before it was written is not reported as failed. A second Ctrl+C exits at once with status `130` and skips all of this, so the file whose upload was in flight may or may not exist: check the destination before retrying, especially with `--in-place`. The same holds for `atlas sharepoint restore` and for `restore-version` on both drives.
 
 An owner can have several drives. Each manifest entry records the drive its file came from. A restore to the original owner returns each file to its drive. A file whose drive no longer exists is reported and skipped, never written to a different drive. `--target-owner` has no drive mapping, because Atlas records drive IDs and not drive names. It is refused when the snapshot spans more than one drive. Restore those to the original owner, or one drive at a time with `--file-filter`.
+
+Without `--restore-permissions` no permission is applied, and the summary shows how many were left out. With it, direct grants are reapplied through `invite` with no invitation email and links are recreated with the same type and scope. A permission that cannot be restored, such as a grant to a user deleted since the backup, is listed with its reason and does not change the exit code. See [Restoring sharing](/onedrive-backup#restoring-sharing).
 
 A `--file-filter` path is the rooted path shown in a listing. A file at the root is written as `/Report.docx`, not `//Report.docx`. Version commands accept the same path forms.
 
@@ -856,6 +863,16 @@ A `--file-filter` value that matches no file in the snapshot is an error on `res
 | `-o, --owner <id>`  | User email or Entra object ID (required) |
 | `-f, --file <ref>`  | Graph file ID or drive path (required)   |
 | `-t, --tenant <id>` | Override the tenant ID from config       |
+
+**`atlas onedrive list-permissions`**
+
+| Option                | Description                                   |
+| --------------------- | --------------------------------------------- |
+| `-o, --owner <id>`    | User email or Entra object ID (required)      |
+| `-s, --snapshot <id>` | Snapshot to list (default: the newest)        |
+| `-t, --tenant <id>`   | Override the tenant ID from config            |
+
+Prints one row per captured permission: the item's path, its kind, the roles, and the grantee or the link's type and scope with any expiry. Only non-inherited permissions are captured, so an item that only inherits access from its folder is not listed. It reads the backup alone and makes no Graph call. A snapshot taken before permission capture records no permissions, so it lists nothing.
 
 **`atlas onedrive restore-version`**
 
@@ -971,6 +988,7 @@ atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering --full
 atlas sharepoint list-snapshots --site https://contoso.sharepoint.com/sites/Engineering
 atlas sharepoint list-versions --site https://contoso.sharepoint.com/sites/Engineering -f /Documents/report.docx
+atlas sharepoint list-permissions --site https://contoso.sharepoint.com/sites/Engineering
 atlas sharepoint restore-version --site https://contoso.sharepoint.com/sites/Engineering -f /Documents/report.docx --version 3.0
 atlas sharepoint restore-version --site https://contoso.sharepoint.com/sites/Engineering --before 2026-03-10T00:00:00Z
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
@@ -989,6 +1007,7 @@ atlas sharepoint quarantine --key sharepoint/manifests/<site-id>/sp-snap-1735689
 | `list-sites`      | List every site the tenant search returns, with its kind: `site`, or `container (not backed up)` for a SharePoint Embedded container     |
 | `list-snapshots`  | List all SharePoint snapshots for a site                                                                                                 |
 | `list-versions`   | List all backed-up versions of one file                                                                                                  |
+| `list-permissions`| List who had access to which file or folder at a snapshot                                                                                |
 | `restore-version` | Push stored file versions back into the library, one file or a whole rollback                                                            |
 | `restore`         | Restore files from a snapshot to the site's document libraries                                                                           |
 | `save`            | Decrypt files from a snapshot into a local zip archive                                                                                   |
@@ -1029,6 +1048,16 @@ Graph's `GET /sites/{site-id}/sites` returns only a site's direct subsites, so A
 | `-f, --file <ref>`   | File ID or path (required)                      |
 | `-t, --tenant <id>`  | Override the tenant ID from config              |
 
+**`atlas sharepoint list-permissions`**
+
+| Option                | Description                                     |
+| --------------------- | ----------------------------------------------- |
+| `--site <url-or-id>`  | SharePoint site URL or Graph site ID (required) |
+| `-s, --snapshot <id>` | Snapshot to list (default: the newest)          |
+| `-t, --tenant <id>`   | Override the tenant ID from config              |
+
+Same output as [`atlas onedrive list-permissions`](#atlas-onedrive). Site and library permissions are not captured.
+
 **`atlas sharepoint restore-version`**
 
 | Option               | Description                                                       |
@@ -1055,10 +1084,13 @@ Semantics match [`atlas onedrive restore-version`](#atlas-onedrive), including c
 | `--name <filename>`         | Rename the restored file. Rejected unless exactly one file matches.           |
 | `--file-filter <paths...>`  | Restore only specific files, by ID or path                                    |
 | `-c, --conflict <mode>`     | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`)      |
+| `--restore-permissions`     | Reapply captured grants and recreate sharing links (default: off)             |
 | `-t, --tenant <id>`         | Override the tenant ID from config                                            |
 | `--target-profile <name>`   | Tenant profile for the writes. Requires `--target-site`.                      |
 
 Restored files nest under `Restore-<timestamp>` in each destination library, with the original structure beneath it. `--in-place` writes over the original paths, as earlier releases did. See [Where restored files land](../sharepoint-backup.md#where-restored-files-land).
+
+`--restore-permissions` behaves as for [`atlas onedrive restore`](#atlas-onedrive). With `--target-site`, reapplied permissions share the copy in the target site with the original audience.
 
 With `--target-site`, each file goes to the target library with the same name as its source library. If the restore comes from a single library, it goes to the target's only library. Any ambiguous case is refused. The file is skipped, the candidate libraries are listed, and the command exits non-zero. Atlas never writes into the source library instead. See [Where a cross-site restore lands](../sharepoint-backup.md#where-a-cross-site-restore-lands).
 

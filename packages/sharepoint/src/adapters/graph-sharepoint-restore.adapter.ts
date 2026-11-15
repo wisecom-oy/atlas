@@ -83,7 +83,7 @@ export async function graph_sharepoint_upload_small_file(
   content: Buffer,
   conflict_behavior: string = 'rename',
   file_system_info?: DriveFileSystemInfo,
-): Promise<void> {
+): Promise<string | undefined> {
   const parent_ref = parent_id === 'root' ? 'root' : `items/${parent_id}`;
   const encoded_name = encodeURIComponent(file_name);
   // Encoded: an unescaped value could append a second conflictBehavior to the query.
@@ -105,6 +105,7 @@ export async function graph_sharepoint_upload_small_file(
   );
 
   await stamp_file_system_info(client, site_id, drive_id, uploaded?.id, file_system_info);
+  return uploaded?.id;
 }
 
 /** Applies captured timestamps to an uploaded item, logging rather than failing. */
@@ -146,7 +147,7 @@ export async function graph_sharepoint_upload_large_file(
   content: LargeFileContent,
   conflict_behavior: string = 'rename',
   file_system_info?: DriveFileSystemInfo,
-): Promise<void> {
+): Promise<string | undefined> {
   const parent_ref = parent_id === 'root' ? 'root' : `items/${parent_id}`;
   const file_system_body = build_upload_file_system_info(file_system_info);
   const session_response = await with_graph_retry(
@@ -167,5 +168,5 @@ export async function graph_sharepoint_upload_large_file(
   }
   const upload_url = session_response.uploadUrl;
 
-  await upload_content_to_session(upload_url, content, file_name);
+  return upload_content_to_session(upload_url, content, file_name);
 }

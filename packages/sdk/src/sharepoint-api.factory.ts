@@ -140,6 +140,10 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
         ),
       );
     },
+    async listPermissions(site_input, snapshot_id) {
+      const site_id = await resolve_site_id(site_input);
+      return camelize(await catalog.list_sharepoint_permissions(tenant_id, site_id, snapshot_id));
+    },
     async listSites() {
       return camelize(await connector.list_sites(tenant_id));
     },

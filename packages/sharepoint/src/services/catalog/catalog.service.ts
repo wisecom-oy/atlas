@@ -1,5 +1,6 @@
 import { inject, injectable } from 'inversify';
 import type {
+  DrivePermissionListing,
   SharePointCatalogUseCase,
   SharePointFileVersionIndexRepository,
   SharePointFileVersionRecord,
@@ -19,6 +20,8 @@ import {
   list_drive_snapshots,
   type DriveCatalogDeps,
 } from '@wisecom/atlas-drive/catalog/catalog-queries';
+import { list_drive_permissions } from '@wisecom/atlas-drive/catalog/permission-listing';
+import { sharepoint_manifest_lookup } from '@/services/shared/manifest-lookup';
 
 /** Lists SharePoint snapshots and per-file version history from manifest and index repositories. */
 @injectable()
@@ -65,6 +68,23 @@ export class SharePointCatalogService implements SharePointCatalogUseCase {
       file_ref,
     );
     return [...versions];
+  }
+
+  /** Returns each item's captured non-inherited permissions at a snapshot, the newest by default. */
+  async list_sharepoint_permissions(
+    tenant_id: string,
+    site_id: string,
+    snapshot_id?: string,
+  ): Promise<DrivePermissionListing> {
+    return list_drive_permissions(
+      {
+        tenant_factory: this._tenant_factory,
+        manifests: sharepoint_manifest_lookup(this._manifests),
+      },
+      tenant_id,
+      site_id,
+      snapshot_id,
+    );
   }
 
   private catalog_deps(): DriveCatalogDeps<SharePointSnapshotManifest> {

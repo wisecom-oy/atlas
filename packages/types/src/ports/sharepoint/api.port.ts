@@ -1,3 +1,4 @@
+import type { DrivePermissionListing } from '@/ports/drive/permission-listing.port';
 import type {
   DriveVersionRestoreOptions,
   DriveVersionRestoreResult,
@@ -56,6 +57,7 @@ export type SharePointSdkVersionRestoreResult = Camelize<DriveVersionRestoreResu
 export type SharePointSdkSaveResult = Camelize<FileSaveResult>;
 export type SharePointSdkSnapshotManifest = Camelize<SharePointSnapshotManifest>;
 export type SharePointSdkSnapshotSummary = Camelize<SharePointSnapshotSummary>;
+export type SharePointSdkPermissionListing = Camelize<DrivePermissionListing>;
 export type SharePointSdkFileVersion = Camelize<SharePointFileVersionRecord>;
 export type SharePointSdkDeletionResult = Camelize<DeletionResult>;
 export type SharePointSdkStatusResult = Camelize<SharePointStatusResult>;
@@ -92,6 +94,8 @@ export interface SharePointApi {
   /** Snapshots from the site's summary index, newest first, without decrypting each manifest. */
   listSnapshotSummaries(siteId: string): Promise<SharePointSdkSnapshotSummary[]>;
   listFileVersions(siteId: string, fileRef: string): Promise<SharePointSdkFileVersion[]>;
+  /** Captured non-inherited permissions per item at a snapshot, the newest when snapshotId is absent. */
+  listPermissions(siteId: string, snapshotId?: string): Promise<SharePointSdkPermissionListing>;
   listSites(): Promise<SharePointSdkSite[]>;
   resolveSite(urlOrId: string): Promise<SharePointSdkSite>;
   deleteSiteData(siteId: string): Promise<SharePointSdkDeletionResult>;

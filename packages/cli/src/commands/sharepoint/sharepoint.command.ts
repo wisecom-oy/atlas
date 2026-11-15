@@ -15,6 +15,7 @@ import {
   type SharePointSaveCommandOptions,
 } from '@/commands/sharepoint/save.handlers';
 import {
+  register_sharepoint_list_permissions,
   register_sharepoint_list_snapshots,
   register_sharepoint_list_versions,
 } from '@/commands/sharepoint/catalog.command';
@@ -30,6 +31,7 @@ import {
 } from '@/commands/sharepoint/data-ops.handlers';
 import {
   with_conflict,
+  with_restore_permissions,
   with_file_filter,
   with_object_lock,
   with_output,
@@ -63,6 +65,7 @@ export function register_sharepoint_command(
   register_sharepoint_list_sites(group, get_container);
   register_sharepoint_list_snapshots(group, get_container);
   register_sharepoint_list_versions(group, get_container);
+  register_sharepoint_list_permissions(group, get_container);
   register_sharepoint_restore_version(group, get_container);
   register_sharepoint_backup(group, get_container);
   register_sharepoint_restore(group, get_container);
@@ -135,6 +138,7 @@ function register_sharepoint_restore(group: Command, get_container: ContainerFac
   with_required_snapshot(command, 'snapshot identifier');
   with_file_filter(command, 'restore');
   with_conflict(command);
+  with_restore_permissions(command);
   with_target_profile(command);
   with_tenant(command).action((options: SharePointRestoreCommandOptions) =>
     execute_sharepoint_restore(get_container(), options),

@@ -1,4 +1,5 @@
 import type { DriveFileSystemInfo, DriveItemIdentity } from '@/domain/drive/item-metadata';
+import type { DriveSharingConnector } from '@/ports/drive/drive-sharing.port';
 import type { LargeFileContent } from '@/ports/drive/large-file-content.port';
 /**
  * What a listed site is. `file_storage_container` is a SharePoint Embedded container (web URL under
@@ -56,6 +57,14 @@ export interface SharePointDeltaItem {
    */
   readonly quarantined?: boolean;
   readonly download_url?: string;
+  /** Graph's `root` facet: the drive root, which is never recorded as an entry. */
+  readonly is_root?: boolean;
+  /**
+   * Graph returned a `shared` facet. Under `Prefer: hierarchicalsharing` that happens only where
+   * sharing was set on the item itself, and as an empty facet where it was just removed, so it
+   * marks the items whose permissions are worth reading.
+   */
+  readonly sharing_facet?: boolean;
 }
 
 export interface SharePointDeltaResult {
@@ -63,6 +72,12 @@ export interface SharePointDeltaResult {
   readonly delta_link: string;
   readonly items: SharePointDeltaItem[];
   readonly reset_detected: boolean;
+  /**
+   * The delta was a fresh enumeration of the whole drive although tracking stays valid, because
+   * the saved link predates the `shared` facet this version selects. Unchanged files are not downloaded
+   * again, but the re-crawl tombstones still run, since a fresh listing reports no deletions.
+   */
+  readonly full_enumeration?: boolean;
 }
 
 export interface SharePointFileVersion {
@@ -73,7 +88,7 @@ export interface SharePointFileVersion {
   readonly last_modified_by?: DriveItemIdentity;
 }
 
-export interface SharePointSiteConnector {
+export interface SharePointSiteConnector extends DriveSharingConnector {
   /** Lists all SharePoint sites in the tenant. */
   list_sites(tenant_id: string): Promise<SharePointSite[]>;
 
@@ -156,9 +171,12 @@ export interface SharePointSiteConnector {
     content: Buffer,
     conflict_behavior?: string,
     file_system_info?: DriveFileSystemInfo,
-  ): Promise<void>;
+  ): Promise<string | undefined>;
 
-  /** Uploads a large file via resumable upload session, buffered or streamed. */
+  /**
+   * Uploads a large file via resumable upload session, buffered or streamed. Resolves the created
+   * item's id when Graph returned it, which a permission restore needs.
+   */
   upload_large_file(
     tenant_id: string,
     site_id: string,
@@ -168,5 +186,5 @@ export interface SharePointSiteConnector {
     content: LargeFileContent,
     conflict_behavior?: string,
     file_system_info?: DriveFileSystemInfo,
-  ): Promise<void>;
+  ): Promise<string | undefined>;
 }
