@@ -116,9 +116,9 @@ describe('fetch_drive_folder_colors (#581)', () => {
   });
 
   it('makes no request when there is nothing to read', async () => {
-    const { calls } = batch_client(() => ({ status: 200 }));
+    const { client, calls } = stub_graph_client(() => ({}));
 
-    await fetch_drive_folder_colors(stub_graph_client(() => ({})).client, 'drive-1', []);
+    await fetch_drive_folder_colors(client, 'drive-1', []);
 
     expect(calls).toHaveLength(0);
   });

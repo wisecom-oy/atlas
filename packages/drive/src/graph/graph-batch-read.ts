@@ -119,7 +119,8 @@ async function post_batch(
 /**
  * Records each read and returns the requests still to send (throttled or server-failed), plus the
  * first transient error so the caller backs off before resending. A request Graph refused for good
- * is counted and dropped.
+ * is counted and dropped. A body reader that fails (such as a later page of a paged result) settles
+ * only its own request the same way, so the other reads in the batch are kept.
  */
 async function settle_responses<T>(
   pending: readonly BatchReadRequest[],
@@ -133,11 +134,8 @@ async function settle_responses<T>(
 
   for (const [index, request] of pending.entries()) {
     const response = by_request.get(String(index));
-    if (response?.status === 200) {
-      outcome.found.set(request.key, await spec.read_body(response.body ?? {}));
-      continue;
-    }
-    const err = to_graph_error(response);
+    const err = await record_read(request, response, spec, outcome);
+    if (err === undefined) continue;
     if (response === undefined || is_transient_error(err)) {
       still_pending.push(request);
       transient ??= err;
@@ -147,6 +145,26 @@ async function settle_responses<T>(
     outcome.refusals.first ??= describe_graph_error(err);
   }
   return { still_pending, transient };
+}
+
+/**
+ * Files a 200 response's result under its key and returns undefined, or returns the error that
+ * kept this request from being read: the sub-response's own, or the one its body reader threw.
+ */
+async function record_read<T>(
+  request: BatchReadRequest,
+  response: BatchResponse | undefined,
+  spec: BatchReadSpec<T>,
+  outcome: BatchReadOutcome<T>,
+): Promise<Error | undefined> {
+  if (response?.status !== 200) return to_graph_error(response);
+  try {
+    outcome.found.set(request.key, await spec.read_body(response.body ?? {}));
+    return undefined;
+  } catch (err) {
+    if (is_active_run_cancelled()) throw err;
+    return err instanceof Error ? err : new Error(String(err));
+  }
 }
 
 /** Shapes a batch sub-response like the Graph SDK's own errors, so the shared helpers read it. */
