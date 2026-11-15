@@ -49,15 +49,14 @@ describe('storage usage token and the bucket name (issue #768)', () => {
 
   it('resumes a token on the bucket it was issued for', async () => {
     const first = service_on('tenant-copy');
-    const { continuation_token } = await first.service.measure_storage_usage(TENANT, {
-      max_list_requests: 1,
-    });
+    const stopped = await first.service.measure_storage_usage(TENANT, { max_list_requests: 1 });
 
     const resumed = await service_on('tenant-copy').service.measure_storage_usage(TENANT, {
-      continuation_token,
+      continuation_token: stopped.continuation_token,
       max_list_requests: 1,
     });
 
-    expect(resumed.list_requests).toBeGreaterThan(0);
+    // A restarted measurement would report one request again; a resumed one carries the count.
+    expect(resumed.list_requests).toBeGreaterThan(stopped.list_requests);
   });
 });
