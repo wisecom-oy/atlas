@@ -117,6 +117,18 @@ describe('GraphOneDriveConnector.fetch_delta', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('classifies a 403 on the full read after an expired cursor the same way', async () => {
+    const { connector, calls } = connector_over(({ url }) => {
+      if (url === CURRENT_CURSOR) throw RESYNC_REQUIRED;
+      throw graph_error(403, 'accessDenied', 'Access denied');
+    });
+
+    await expect(
+      connector.fetch_delta('tenant', OWNER, DRIVE, CURRENT_CURSOR),
+    ).rejects.toMatchObject({ name: 'MissingGraphPermissionsError', code: 'ATLAS_AUTH_DENIED' });
+    expect(calls.map((call) => call.url)).toEqual([CURRENT_CURSOR, ROOT_DELTA]);
+  });
+
   it('propagates an unrelated failure instead of treating it as a reset', async () => {
     const { connector, calls } = connector_over(() => {
       throw graph_error(400, 'invalidRequest', 'Invalid request');

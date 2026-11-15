@@ -51,7 +51,7 @@ If a permission is missing, the run stops before touching files with `MissingGra
 Microsoft Graph returned HTTP 403 accessDenied for site <site-id> and for the tenant's root site. The app registration needs the SharePoint application permissions Sites.Read.All with admin consent, or a Sites.Selected grant on this site.
 ```
 
-Graph answers a missing grant and a site it refuses to a working grant with the same `403 accessDenied`. Atlas tells them apart with one request, `GET /sites/root?$select=id`, made only after an enumeration call was refused. If the app can read the tenant's root site, the grant works and only this site is refused: the run fails with `GraphAccessRefusedError` (`ATLAS_ACCESS_REFUSED`, exit `4`) instead, and the other sites are unaffected. The answer is reused for 10 minutes per Graph client, so a run that meets several refused sites checks once. See [SharePoint: site refused although the permission is granted](/troubleshooting#sharepoint-site-refused-although-the-permission-is-granted).
+Graph answers a missing grant and a site it refuses to a working grant with the same `403 accessDenied`. Atlas tells them apart with one request, `GET /sites/root?$select=id`, made only after an enumeration call was refused. If the app can read the tenant's root site, the grant works and only this site is refused: the run fails with `GraphAccessRefusedError` (`ATLAS_ACCESS_REFUSED`, exit `4`) instead, and the other sites are unaffected. An app that relies on `Sites.Selected` grants can read the root site only if it was granted, so for it this result can also mean the refused site lacks its own grant; the message names that remedy. The answer is reused for 10 minutes per Graph client, so a run that meets several refused sites checks once. See [SharePoint: site refused although the permission is granted](/troubleshooting#sharepoint-site-refused-although-the-permission-is-granted).
 
 ## SharePoint Embedded containers
 
@@ -75,7 +75,7 @@ Most commands take `--site <url-or-id>`. Snapshot is `-s`, because `-s` is not u
 atlas sharepoint list-sites
 ```
 
-Lists every site Graph's site search returns, with its ID, name, kind, and URL. The kind is `site`, or `container (not backed up)` for a [SharePoint Embedded container](#sharepoint-embedded-containers), and the command adds a line counting the containers. Takes only `-t, --tenant <id>`.
+Lists every site Graph's site search returns, with its ID, name, kind, and URL. The kind is `site`, or `container (not backed up)` for a [SharePoint Embedded container](#sharepoint-embedded-containers), and the command adds a line counting the containers. Takes only `-t, --tenant <id>`. If Graph refuses the search with `403`, the command fails with `MissingGraphPermissionsError` (`ATLAS_AUTH_DENIED`, exit `4`) naming `Sites.Read.All`, because the search covers the whole tenant rather than one site.
 
 ### backup
 
@@ -217,12 +217,12 @@ Reports pending file changes and failed-item ledger entries per library, using a
 
 ### delete
 
-| Flag                  | Description                                          | Default        |
-| --------------------- | ---------------------------------------------------- | -------------- |
-| `--site <url-or-id>`  | Site                                                 | Required       |
+| Flag                  | Description                                                 | Default        |
+| --------------------- | ----------------------------------------------------------- | -------------- |
+| `--site <url-or-id>`  | Site                                                        | Required       |
 | `-s, --snapshot <id>` | Delete the newest snapshot instead of all data for the site | All data       |
-| `-y, --yes`           | Skip the confirmation prompt                         | `false`        |
-| `-t, --tenant <id>`   | Tenant identifier                                    | Config default |
+| `-y, --yes`           | Skip the confirmation prompt                                | `false`        |
+| `-t, --tenant <id>`   | Tenant identifier                                           | Config default |
 
 `-s` accepts only the site's newest snapshot. Every newer snapshot is built on the ones before it, so deleting an older one would silently change them. Atlas refuses that with exit code `11` and deletes nothing. Deleting the newest snapshot also removes the delta cursor, so the next backup reads every library in full and captures again what that snapshot held. See [what `-s` does](/reference/cli#drive-snapshot-delete).
 
@@ -287,11 +287,11 @@ Other content the service refuses to serve is handled as follows:
 
 Each file is read from a pre-authenticated download URL that Microsoft Graph issues with a limited lifetime. A long run can reach a file well after the delta listing that named it, so the URL in the listing is not trusted for a large file.
 
-| File size | URL at download start | On 401 or 403 during the transfer |
-| --- | --- | --- |
-| Up to 4 MiB | URL from the listing | Re-resolve once, retry the whole file, then fall back to the Graph `/content` endpoint |
-| Over 4 MiB, under 64 MiB | URL from the listing | Re-resolve once and restart the download from byte zero, then fall back to `/content` |
-| 64 MiB and larger | Fresh URL, one Graph request | Re-resolve and resume at the 4 MiB range that failed |
+| File size                | URL at download start        | On 401 or 403 during the transfer                                                      |
+| ------------------------ | ---------------------------- | -------------------------------------------------------------------------------------- |
+| Up to 4 MiB              | URL from the listing         | Re-resolve once, retry the whole file, then fall back to the Graph `/content` endpoint |
+| Over 4 MiB, under 64 MiB | URL from the listing         | Re-resolve once and restart the download from byte zero, then fall back to `/content`  |
+| 64 MiB and larger        | Fresh URL, one Graph request | Re-resolve and resume at the 4 MiB range that failed                                   |
 
 For files of 64 MiB and larger:
 
@@ -403,7 +403,9 @@ for (const s of sites) {
   } catch (err) {
     if (!(err instanceof GraphAccessRefusedError)) throw err;
     // Permanent for this site: mark it unsupported, do not retry.
-    console.log(`Refused: ${err.site_id} (${err.reason}, HTTP ${err.status_code} ${err.graph_code})`);
+    console.log(
+      `Refused: ${err.site_id} (${err.reason}, HTTP ${err.status_code} ${err.graph_code})`,
+    );
   }
 }
 

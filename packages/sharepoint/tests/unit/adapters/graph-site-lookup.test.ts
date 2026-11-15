@@ -43,6 +43,31 @@ describe('list_tenant_sites', () => {
       ['c,d', 'file_storage_container'],
     ]);
   });
+
+  it('types a 403 on the search as a missing Sites.Read.All grant', async () => {
+    const client = client_answering({ '/sites?search=*': () => Promise.reject(DENIED) });
+
+    const failure = await list_tenant_sites(client).catch((e: unknown) => e);
+
+    expect(failure).toBeInstanceOf(MissingGraphPermissionsError);
+    expect(failure).toMatchObject({
+      code: 'ATLAS_AUTH_DENIED',
+      permissions: ['Sites.Read.All'],
+      status_code: 403,
+      graph_code: 'accessDenied',
+      cause: DENIED,
+    });
+    expect((failure as Error).message).toContain(
+      "HTTP 403 accessDenied for the tenant's site search",
+    );
+  });
+
+  it('passes any other search failure through unchanged', async () => {
+    const outage = { statusCode: 503, code: 'serviceNotAvailable' };
+    const client = client_answering({ '/sites?search=*': () => Promise.reject(outage) });
+
+    await expect(list_tenant_sites(client)).rejects.toBe(outage);
+  });
 });
 
 describe('resolve_site_reference', () => {

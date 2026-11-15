@@ -134,6 +134,23 @@ describe('GraphSharePointConnector.fetch_delta', () => {
     });
   });
 
+  it('classifies a 403 on the full read after an expired cursor the same way', async () => {
+    const { connector, calls } = connector_over(({ url }) => {
+      if (url === CURRENT_CURSOR) throw RESYNC_REQUIRED;
+      if (url === '/sites/root?$select=id') return { id: 'root' };
+      throw graph_error(403, 'accessDenied', 'Access denied');
+    });
+
+    await expect(
+      connector.fetch_delta('tenant', SITE, DRIVE, CURRENT_CURSOR),
+    ).rejects.toMatchObject({ name: 'GraphAccessRefusedError', site_id: SITE, drive_id: DRIVE });
+    expect(calls.map((call) => call.url)).toEqual([
+      CURRENT_CURSOR,
+      ROOT_DELTA,
+      '/sites/root?$select=id',
+    ]);
+  });
+
   it('propagates an unrelated failure instead of treating it as a reset', async () => {
     const { connector, calls } = connector_over(() => {
       throw graph_error(400, 'invalidRequest', 'Invalid request');

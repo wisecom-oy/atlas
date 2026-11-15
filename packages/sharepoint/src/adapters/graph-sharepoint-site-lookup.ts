@@ -1,6 +1,6 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { with_graph_retry } from '@wisecom/atlas-m365-graph';
-import type { SharePointSite } from '@wisecom/atlas-types';
+import { read_graph_error_code, with_graph_retry } from '@wisecom/atlas-m365-graph';
+import { MissingGraphPermissionsError, type SharePointSite } from '@wisecom/atlas-types';
 import type { GraphCollectionResponse } from '@/adapters/graph-sharepoint-delta-fetch';
 import { SHAREPOINT_DOWNLOAD_EXECUTOR } from '@/adapters/graph-sharepoint-download-executor';
 import { parse_site_reference } from '@/adapters/graph-sharepoint-url-parser';
@@ -22,13 +22,29 @@ export async function list_tenant_sites(client: Client): Promise<SharePointSite[
     // Retry wraps a single page, never the whole walk.
     const page: GraphCollectionResponse<GraphSiteRecord> = await with_graph_retry(
       () => client.api(url).get() as Promise<GraphCollectionResponse<GraphSiteRecord>>,
-    );
+    ).catch(rethrow_search_failure);
     for (const raw of page.value ?? []) {
       if (has_site_id(raw)) sites.push(map_site_record(raw));
     }
     next_url = page['@odata.nextLink'];
   }
   return sites;
+}
+
+/**
+ * Rethrows a failed site search, typing a 403 as a missing grant. The search addresses the whole
+ * tenant rather than one site, so a refusal cannot be one site's.
+ */
+function rethrow_search_failure(err: unknown): never {
+  const status =
+    err !== null && typeof err === 'object' && 'statusCode' in err ? err.statusCode : undefined;
+  if (status !== 403) throw err;
+  const graph_code = read_graph_error_code(err);
+  throw new MissingGraphPermissionsError(
+    `Microsoft Graph returned HTTP 403 ${graph_code} for the tenant's site search. The app ` +
+      'registration needs the SharePoint application permission Sites.Read.All with admin consent.',
+    { permissions: ['Sites.Read.All'], status_code: 403, graph_code, cause: err },
+  );
 }
 
 /**

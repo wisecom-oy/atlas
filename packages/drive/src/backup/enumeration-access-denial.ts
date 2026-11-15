@@ -130,16 +130,20 @@ function access_refused_error(
   const container = resource.is_file_storage_container === true;
   return new GraphAccessRefusedError(
     `Microsoft Graph refused ${label} ${resource.label}: HTTP 403 ${graph_code}. ` +
-      refusal_explanation(label, known_by, container),
+      refusal_explanation(binding, known_by, container),
     { site_id: resource.site_id, drive_id: resource.drive_id, owner_id: resource.owner_id },
     container ? 'file_storage_container' : 'access_refused',
     { status_code: 403, graph_code, cause: err },
   );
 }
 
-/** Why the refusal is not a missing grant, and what to do about it. */
+/**
+ * Why the refusal is not a missing tenant-wide grant, and what to do about it. A readable root site
+ * rules out a missing tenant-wide grant only: an app on narrower per-site grants may still lack one
+ * for this site, so that remedy is named too.
+ */
 function refusal_explanation(
-  label: string,
+  binding: DenialBinding,
   known_by: 'code' | 'grant',
   container: boolean,
 ): string {
@@ -152,11 +156,15 @@ function refusal_explanation(
   if (known_by === 'code') {
     return 'The code does not name a missing permission. Retrying returns the same answer.';
   }
+  const label = DRIVE_WORKLOAD_LABEL[binding.workload];
+  const narrower =
+    binding.grant_alternative === undefined
+      ? ''
+      : ` If the app registration relies on per-site grants instead, it needs ${binding.grant_alternative}.`;
   return (
-    `The same app can read the tenant's root site, so its ${label} permission is granted and ` +
-    'Graph refuses this resource alone. A SharePoint Embedded container site (URL under ' +
-    '/contentstorage/) is refused this way. Retrying returns the same answer; leave it out of ' +
-    'the run.'
+    `The same app can read the tenant's root site, so a tenant-wide ${label} permission is not ` +
+    'what is missing. A SharePoint Embedded container site (URL under /contentstorage/) is ' +
+    `refused this way: leave it out of the run, since retrying returns the same answer.${narrower}`
   );
 }
 

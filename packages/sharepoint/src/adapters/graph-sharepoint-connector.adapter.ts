@@ -116,17 +116,18 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
     drive_id: string,
     prev_delta_link?: string,
   ): Promise<SharePointDeltaResult> {
+    const library = { label: `library ${drive_id} of site ${site_id}`, site_id, drive_id };
     try {
       return await this.execute_delta(drive_id, prev_delta_link, false);
     } catch (err) {
-      await SHAREPOINT_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(this._client, err, {
-        label: `library ${drive_id} of site ${site_id}`,
-        site_id,
-        drive_id,
-      });
-      if (is_invalid_delta_error(err)) {
-        return await this.execute_delta(drive_id, undefined, true);
-      }
+      await SHAREPOINT_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(this._client, err, library);
+      if (!is_invalid_delta_error(err)) throw err;
+    }
+    // The full read after an expired cursor classifies a 403 the same way.
+    try {
+      return await this.execute_delta(drive_id, undefined, true);
+    } catch (err) {
+      await SHAREPOINT_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(this._client, err, library);
       throw err;
     }
   }

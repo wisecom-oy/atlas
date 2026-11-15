@@ -98,17 +98,18 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     drive_id: string,
     prev_delta_link?: string,
   ): Promise<OneDriveDeltaResult> {
+    const drive = { label: `drive ${drive_id} of owner ${owner_id}`, owner_id, drive_id };
     try {
       return await this.execute_delta(owner_id, drive_id, prev_delta_link, false);
     } catch (err) {
-      await ONEDRIVE_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(this._client, err, {
-        label: `drive ${drive_id} of owner ${owner_id}`,
-        owner_id,
-        drive_id,
-      });
-      if (is_invalid_delta_error(err)) {
-        return await this.execute_delta(owner_id, drive_id, undefined, true);
-      }
+      await ONEDRIVE_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(this._client, err, drive);
+      if (!is_invalid_delta_error(err)) throw err;
+    }
+    // The full read after an expired cursor classifies a 403 the same way.
+    try {
+      return await this.execute_delta(owner_id, drive_id, undefined, true);
+    } catch (err) {
+      await ONEDRIVE_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(this._client, err, drive);
       throw err;
     }
   }
