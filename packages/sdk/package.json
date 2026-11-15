@@ -9,7 +9,7 @@
     "url": "https://github.com/wisecom-oy/atlas.git",
     "directory": "packages/sdk"
   },
-  "homepage": "https://wisecom-oy.github.io/atlas/reference/sdk",
+  "homepage": "https://docs.atlas.wisecom.fi/reference/sdk",
   "bugs": {
     "url": "https://github.com/wisecom-oy/atlas/issues"
   },
