@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { stub_graph_client, type GraphCall } from '@wisecom/atlas-types/testing/stub-graph-client';
+import {
+  graph_error,
+  stub_graph_client,
+  type GraphCall,
+} from '@wisecom/atlas-types/testing/stub-graph-client';
 import { fetch_drive_item_permissions } from '@/permissions/graph-permission-fetch';
 
 interface SubRequest {
@@ -95,6 +99,31 @@ describe('fetch_drive_item_permissions (#580)', () => {
 
     expect(calls.map((call) => call.url)).toContain('https://graph.microsoft.com/v1.0/next-page');
     expect(found.get('item-0')).toHaveLength(1);
+  });
+
+  it('keeps the other reads in a batch when one item fails on a later page', async () => {
+    const denied_page = 'https://graph.microsoft.com/v1.0/denied-page';
+    const batches: SubRequest[][] = [];
+    const { client } = stub_graph_client((call: GraphCall) => {
+      if (call.url === denied_page) throw graph_error(403, 'accessDenied');
+      const requests = (call.body as { requests: SubRequest[] }).requests;
+      batches.push(requests);
+      return {
+        responses: requests.map((request) => ({
+          id: request.id,
+          status: 200,
+          body:
+            item_of(request) === 'item-1'
+              ? { value: [GRANT], '@odata.nextLink': denied_page }
+              : { value: [GRANT] },
+        })),
+      };
+    });
+
+    const found = await fetch_drive_item_permissions(client, 'drive-1', ids(3));
+
+    expect(batches).toHaveLength(1);
+    expect([...found.keys()].sort()).toEqual(['item-0', 'item-2']);
   });
 
   it('makes no request when there is nothing to read', async () => {

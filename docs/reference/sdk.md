@@ -569,7 +569,7 @@ Each returns `deletedObjects`, `deletedManifests`, `retainedObjects`, `retainedM
 | `listSnapshots(id)`                            | _(none)_                               | Snapshot manifests, entries included. Decrypts every manifest                       |
 | `listSnapshotSummaries(id)`                    | `list-snapshots`                       | Snapshots without entries. See [Snapshot summaries](#snapshot-summaries)            |
 | `listFileVersions(id, fileRef)`                | `list-versions`                        | Stored versions of one file                                                         |
-| `listPermissions(id, snapshotId?)`             | `list-permissions`                     | Who had access to which file or folder at a snapshot. See [Sharing](#sharing)       |
+| `listPermissions(id, snapshotId?)`             | `list-permissions`                     | Who had access to which file or folder, and folder colours, at a snapshot. See [Sharing](#sharing) |
 | `checkStatus(id)`                              | `status`                               | Pending changes per drive or library. See [Status results](#status-results)         |
 | `getStats(id?)`                                | `atlas stats`                          | Backup statistics. Omit the argument for every drive or site in the tenant          |
 | `deleteSnapshot(id, snapshotId)`               | `delete -s`                            | Delete the newest snapshot                                                          |
@@ -682,7 +682,15 @@ for (const item of result.skippedItems ?? []) {
 - Each field is present only when non-zero.
 - None of these outcomes is added to `errors`, so a grant to a user deleted since the backup does not make the restore partial.
 
-`listPermissions(ownerOrSiteId, snapshotId?)` answers "who had access" from the backup alone, for the newest snapshot when `snapshotId` is absent. It resolves to `{ snapshotId, items }`, where each item has `fileId`, `driveId`, `path`, `kind` (`file` or `folder`), and `permissions`.
+`listPermissions(ownerOrSiteId, snapshotId?)` answers "who had access" from the backup alone, for the newest snapshot when `snapshotId` is absent. It resolves to `{ snapshotId, items, folderColors }`, where each item has `fileId`, `driveId`, `path`, `kind` (`file` or `folder`), and `permissions`, and each entry of `folderColors` has `fileId`, `driveId`, `path`, and `folderColor`.
+
+### Folder colours
+
+| Result field              | Meaning                                                    |
+| ------------------------- | ---------------------------------------------------------- |
+| `folderColorsNotRestored` | Restored folders whose captured colour was not applied     |
+
+Microsoft Graph refuses every write to a folder's colour, so a restore never attempts one. Like the sharing fields, `folderColorsNotRestored` is present only when non-zero and is never added to `errors`. See [Folder colours](/onedrive-backup#folder-colours).
 
 ### restoreVersion
 
@@ -764,10 +772,12 @@ Entries can also describe more than files:
 | ------------- | --------------------------------------------------------------------------------------- |
 | `kind`        | `folder`. Absent means a file, which is every entry written before sharing was captured |
 | `permissions` | The item's own permissions. Never a link URL                                            |
+| `folderColor` | A folder's colour: `colorHex`, `colorTag`, and `emoji`, each present only when set      |
 
 - Each permission has `roles`, and either `link` (`type`, `scope`) or `grantedTo`, with `expiresAt`, `hasPassword`, and `grantedToIdentities`.
-- A folder has an entry only while it has permissions of its own.
-- `changeType: 'permissions_changed'` marks a file whose sharing changed while its content did not. It reuses the stored content of the file's previous entry.
+- `colorHex` is the palette position the web UI chose, such as `'6'`, not a hex value.
+- A folder has an entry only while it has permissions or a colour of its own.
+- `changeType: 'permissions_changed'` marks a file whose sharing changed while its content did not. It reuses the stored content of the file's previous entry. On a folder entry it marks a sharing change, and `changeType: 'updated'` marks a change of colour alone.
 - `totalFiles` on a manifest counts files only.
 
 ### Deleting drive data

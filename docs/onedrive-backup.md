@@ -34,8 +34,9 @@ atlas onedrive restore -o user@example.com -s od-snap-1735689600000-a1b2c3
 | OneNote notebooks         | Section files and table of contents, as ordinary files ([details](#onenote-notebooks)) |
 | Moves, renames, deletions | Recorded as changes on the next run                                       |
 | Sharing                   | Each file's and folder's own permissions, without link URLs ([details](#sharing)) |
+| Folder colours            | Each folder's colour, captured but not restored ([details](#folder-colours)) |
 
-Restores do not recreate file authors, and reapply sharing only when asked. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
+Restores do not recreate file authors or folder colours, and reapply sharing only when asked. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
 
 To back up one folder tree instead of the whole drive, pass `--folder /Projects` to `backup`. Changing the folder scope forces a full backup.
 
@@ -197,7 +198,7 @@ atlas onedrive list-permissions -o user@example.com -s od-snap-123
 
 `list-versions` takes `-f, --file <ref>` (a file ID or path, required).
 
-`list-permissions` shows who had access to what at a snapshot, the newest unless `-s` names one. It prints one row per permission: the item's path, its kind (file or folder), the roles, and the grantee or the link's type and scope. It reads the backup alone, so it works when the drive or the user is gone.
+`list-permissions` shows who had access to what at a snapshot, the newest unless `-s` names one. It prints one row per permission: the item's path, its kind (file or folder), the roles, and the grantee or the link's type and scope. A second table lists each coloured folder. It reads the backup alone, so it works when the drive or the user is gone.
 
 ### status
 
@@ -240,7 +241,7 @@ Atlas records who each file and folder is shared with: direct grants to users an
 
 - Only an item's own permissions are recorded. Access inherited from a parent folder is implied by the folder's entry.
 - A change to sharing alone is picked up on the next backup without downloading the file again.
-- A folder appears in a snapshot only while it has permissions of its own.
+- A folder appears in a snapshot only while it has permissions or a [colour](#folder-colours) of its own.
 
 ::: details How sharing is read
 Atlas reads permissions only for items Microsoft Graph reports as shared, 20 items per `$batch` request. A file whose sharing changed and whose content did not is recorded as change type `permissions_changed` and reuses the stored content of its previous entry. See [the cost of capturing sharing](/security#the-cost-of-capturing-sharing).
@@ -282,6 +283,31 @@ Sync checkpoints saved before sharing was captured do not mark which items are s
 - Unchanged files are not downloaded again.
 - Files deleted since the last run are still recorded as deleted.
 - The run reads the permissions of every shared item, so expect it to take longer than an incremental backup.
+
+## Folder colours
+
+```bash
+atlas onedrive list-permissions -o user@example.com
+```
+
+Atlas records the colour of each coloured folder, and `list-permissions` shows it in a second table. Restore does not set it: a restored folder takes the destination's default colour.
+
+- A folder's colour is stored in the `_ColorHex`, `_ColorTag`, and `_Emoji` columns of its list item, not on the folder itself. Atlas records the values that are set. `_ColorHex` holds the palette position the web UI chose, such as `6`, not a hex value.
+- Changing a colour is picked up on the next backup. Removing one is recorded as well.
+- A folder appears in a snapshot only while it has a colour or permissions of its own. A folder with both has one entry.
+- A colour that cannot be read is logged, and the folder keeps the colour last recorded. It never fails the backup of the files around it.
+
+::: details How colours are read
+The change listing never carries these columns, so Atlas reads them separately for every folder a backup receives, 20 folders per `$batch` request. A new entry is written only when the colour differs from the last one recorded. See [the cost of capturing folder colours](/security#the-cost-of-capturing-folder-colours).
+:::
+
+### Why restore cannot set colours
+
+Microsoft Graph refuses every write to these columns with `403 accessDenied` (`Field '_ColorHex' is read-only`), even with `Files.ReadWrite.All` and `Sites.ReadWrite.All`, so Atlas does not attempt one. The restore summary reports `Folder colours not restored` with a count. That line does not change the exit code. Writing colours needs the SharePoint REST API with certificate authentication, tracked in [#778](https://github.com/wisecom-oy/atlas/issues/778).
+
+### Colours after upgrading
+
+The one-time full listing described in [First backup after upgrading](#first-backup-after-upgrading) reads every folder's colour. A drive whose sync checkpoint was already past that listing records a folder's colour the next time the folder comes back in the change listing, which happens when the folder or anything inside it changes. Atlas does not list such drives in full again to pick up colours sooner.
 
 ## Rolling a file back to an earlier version
 
@@ -420,7 +446,7 @@ See [reliability](/operations/reliability) for retries and what is safe to rerun
 | Uploads on restore   | Up to 4 MiB in one request; larger files in a resumable upload session in 10 MiB chunks           |
 | Throttling           | Retried with backoff, see below                                                                    |
 | Path length          | A restore folder adds path depth. Files over OneDrive's path length limit are skipped and reported. |
-| Scope                | File authors are not restored. Sharing is restored only with `--restore-permissions`               |
+| Scope                | File authors and folder colours are not restored. Sharing is restored only with `--restore-permissions` |
 
 When Microsoft 365 throttles requests or has a transient fault, Atlas waits and retries. See [Graph rate limits](/operations/graph-rate-limits) for request budgets.
 

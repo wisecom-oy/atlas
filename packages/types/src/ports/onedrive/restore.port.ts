@@ -3,6 +3,7 @@ import type {
   DriveSharingRestoreOptions,
   DriveSharingRestoreSummary,
 } from '@/ports/drive/sharing-restore.port';
+import type { DriveFolderColorRestoreSummary } from '@/ports/drive/folder-color.port';
 
 export type OneDriveRestoreConflictBehavior = 'replace' | 'rename' | 'fail';
 
@@ -23,8 +24,12 @@ export interface OneDriveRestoreOptions
   readonly rename_to?: string;
 }
 
-/** Permission outcomes are reported in the {@link DriveSharingRestoreSummary} fields, never in `errors`. */
-export interface OneDriveRestoreResult extends DriveSharingRestoreSummary {
+/**
+ * Permission and folder colour outcomes are reported in the {@link DriveSharingRestoreSummary} and
+ * {@link DriveFolderColorRestoreSummary} fields, never in `errors`.
+ */
+export interface OneDriveRestoreResult
+  extends DriveSharingRestoreSummary, DriveFolderColorRestoreSummary {
   readonly snapshot_id: string;
   readonly files_restored: number;
   readonly folders_created: number;

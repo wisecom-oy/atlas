@@ -104,3 +104,26 @@ describe('append_recrawl_tombstones with a damaged earlier manifest (issue #631)
     expect(skipped).toEqual([damaged]);
   });
 });
+
+describe('append_recrawl_tombstones for a coloured folder (#581)', () => {
+  it('drops the folder colour from the tombstone', async () => {
+    const { storage_key: _storage_key, checksum: _checksum, ...identity } = stored_entry(0);
+    const coloured = { ...identity, kind: 'folder', folder_color: { color_hex: '6' } };
+    const scan = {
+      entries: [] as Entry[],
+      deleted_items: 0,
+      recrawls: [{ drive_id: 'd1', returned_item_ids: new Set<string>() }],
+    };
+
+    await append_recrawl_tombstones(scan, async () =>
+      readable_manifests([
+        { snapshot_id: 'snap-1', created_at: new Date('2026-01-01'), entries: [coloured] },
+      ]),
+    );
+
+    expect(scan.entries).toEqual([
+      expect.objectContaining({ file_id: 'f-0', kind: 'folder', change_type: 'deleted' }),
+    ]);
+    expect(scan.entries[0]).not.toHaveProperty('folder_color');
+  });
+});

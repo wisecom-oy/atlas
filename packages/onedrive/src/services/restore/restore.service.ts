@@ -36,6 +36,7 @@ import { load_drive_chain_entries } from '@wisecom/atlas-drive/shared/manifest-c
 import { select_restore_entries } from '@wisecom/atlas-drive/restore/restore-selection';
 import type { ItemSharingRestoreDeps } from '@wisecom/atlas-drive/restore/item-sharing-restore';
 import { SharingRestoreTally } from '@wisecom/atlas-drive/restore/sharing-restore-tally';
+import { folder_colors_not_restored } from '@wisecom/atlas-drive/restore/folder-color-restore';
 import { restore_onedrive_file_entry } from '@/services/restore/restore-file-entry';
 import { restore_onedrive_item_metadata } from '@/services/restore/restore-item-metadata';
 import { empty_restore_result } from '@/services/restore/restore-result';
@@ -221,6 +222,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
           errors,
           interrupted,
           ...sharing.tally.summary(),
+          ...folder_colors_not_restored(selection.item_metadata),
         },
         selection.unmatched_filters,
       ),

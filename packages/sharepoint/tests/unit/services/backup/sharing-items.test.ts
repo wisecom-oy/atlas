@@ -5,7 +5,10 @@ import type {
   SharePointSiteConnector,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { stub_folder_color_reader } from '@wisecom/atlas-types/testing/stub-folder-color-reader';
 import { DriveSharingCapture } from '@wisecom/atlas-drive/backup/sharing-capture';
+import { DriveFolderColorCapture } from '@wisecom/atlas-drive/backup/folder-color-capture';
+import { DriveItemMetadataCapture } from '@wisecom/atlas-drive/backup/item-metadata-capture';
 import {
   process_delta_item,
   type FileTrackingState,
@@ -39,7 +42,7 @@ function library_state(): LibraryProcessingState {
   };
 }
 
-const sharing = new DriveSharingCapture(
+const sharing_capture = new DriveSharingCapture(
   {
     fetch_item_permissions: vi.fn(
       async (_d: string, ids: readonly string[]) => new Map(ids.map((id) => [id, [GRANT]])),
@@ -57,6 +60,10 @@ const sharing = new DriveSharingCapture(
     change_type: 'created',
   }),
 );
+const capture = new DriveItemMetadataCapture(
+  sharing_capture,
+  new DriveFolderColorCapture(stub_folder_color_reader().connector),
+);
 
 async function process(item: SharePointDeltaItem, state: LibraryProcessingState): Promise<void> {
   await process_delta_item(
@@ -70,7 +77,7 @@ async function process(item: SharePointDeltaItem, state: LibraryProcessingState)
     { watermarks: {}, rows: new Map() },
     { total_versions_stored: 0, total_versions_unavailable: 0, total_versions_failed: 0 },
     undefined,
-    sharing,
+    capture,
   );
 }
 

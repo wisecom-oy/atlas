@@ -8,6 +8,7 @@ import {
 } from '@wisecom/atlas-m365-graph';
 import type {
   DriveAccessGrantRequest,
+  DriveFolderColor,
   DriveFileSystemInfo,
   DriveLinkRequest,
   DrivePermission,
@@ -31,6 +32,7 @@ import {
 } from '@/adapters/graph-sharepoint-delta-fetch';
 import { has_item_id, map_delta_item } from '@/adapters/graph-sharepoint-delta-mapper';
 import { create_graph_drive_sharing } from '@wisecom/atlas-drive/permissions/graph-drive-sharing';
+import { fetch_drive_folder_colors } from '@wisecom/atlas-drive/graph/graph-folder-color-fetch';
 import { SHAREPOINT_DOWNLOAD_EXECUTOR } from '@/adapters/graph-sharepoint-download-executor';
 import {
   graph_sharepoint_create_folder,
@@ -278,6 +280,14 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
     item_ids: readonly string[],
   ): Promise<Map<string, DrivePermission[]>> {
     return this._sharing.fetch_item_permissions(drive_id, item_ids);
+  }
+
+  /** Reads folder colours from each folder's list item, 20 per `$batch` request. */
+  async fetch_folder_colors(
+    drive_id: string,
+    item_ids: readonly string[],
+  ): Promise<Map<string, DriveFolderColor>> {
+    return fetch_drive_folder_colors(this._client, drive_id, item_ids);
   }
 
   /** Grants direct access without an invitation email. */

@@ -41,7 +41,10 @@ import {
   completed_recrawl,
   type DriveRecrawl,
 } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
-import { DriveSharingCapture } from '@wisecom/atlas-drive/backup/sharing-capture';
+import {
+  create_item_metadata_capture,
+  type DriveItemMetadataCapture,
+} from '@wisecom/atlas-drive/backup/item-metadata-capture';
 import { accumulate_drive_result } from '@/services/backup/drive-result-accumulator';
 
 export interface SingleDriveResult {
@@ -105,7 +108,7 @@ export async function scan_all_drives(
   progress?: BackupProgressReporter,
   control: OperationControlOptions = {},
   folder_scope?: string,
-  sharing: DriveSharingCapture = new DriveSharingCapture(connector),
+  capture: DriveItemMetadataCapture = create_item_metadata_capture(connector),
 ): Promise<DriveScanAccumulators> {
   // No index read here: version dedup rides on the delta cursor watermarks the
   // caller already loaded (issue #161).
@@ -185,7 +188,7 @@ export async function scan_all_drives(
         on_version_stats_update,
         on_item_processed,
         control,
-        sharing,
+        capture,
       );
 
       // Notebook accounting stands apart from the entry bookkeeping: a drive
@@ -246,7 +249,7 @@ export async function process_single_drive(
   on_version_stats_update: (stored: number, unavailable: number, failed: number) => void,
   on_item_processed?: (item: OneDriveDeltaItem) => void,
   control: OperationControlOptions = {},
-  sharing: DriveSharingCapture = new DriveSharingCapture(connector),
+  capture: DriveItemMetadataCapture = create_item_metadata_capture(connector),
 ): Promise<SingleDriveResult> {
   const delta_item_ids = new Set(delta.items.map((item) => item.item_id));
   if (delta.reset_detected) {
@@ -271,8 +274,8 @@ export async function process_single_drive(
     ...retry.items.map((item) => ({ item, from_delta: false })),
     ...delta.items.map((item) => ({ item, from_delta: true })),
   ];
-  // One `$batch` per 20 shared items, ahead of the loop that would otherwise read them one by one.
-  await sharing.prefetch(
+  // `$batch` reads of 20 shared items or folders, ahead of the loop that would read them one by one.
+  await capture.prefetch(
     drive.drive_id,
     queue.map(({ item }) => item),
     state,
@@ -310,7 +313,7 @@ export async function process_single_drive(
         on_version_stats_update,
         versions,
         control.abort_signal,
-        sharing,
+        capture,
       );
     } catch (err) {
       // A cancelled transfer is the run stopping, not the item failing. Recording it would spend

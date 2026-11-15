@@ -38,8 +38,9 @@ atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering 
 | Subsites                        | Only with `--include-subsites`, one snapshot per subsite                |
 | Moves, renames, deletions       | Recorded as changes on the next run                                     |
 | Sharing                         | Each file's and folder's own permissions, without link URLs ([details](#sharing)) |
+| Folder colours                  | Each folder's colour, captured but not restored ([details](#folder-colours)) |
 
-Site and library permissions are not captured. Restores do not recreate file authors, and reapply sharing only when asked. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
+Site and library permissions are not captured. Restores do not recreate file authors or folder colours, and reapply sharing only when asked. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
 
 Sites that belong to SharePoint Embedded apps are not backed up. See [SharePoint Embedded containers](#sharepoint-embedded-containers).
 
@@ -239,7 +240,7 @@ atlas sharepoint list-versions --site https://contoso.sharepoint.com/sites/Engin
 atlas sharepoint list-permissions --site https://contoso.sharepoint.com/sites/Engineering
 ```
 
-`list-permissions` shows who had access to which file or folder at a snapshot, the newest unless `-s` names one. It reads the backup alone.
+`list-permissions` shows who had access to which file or folder at a snapshot, the newest unless `-s` names one, and the colour of each coloured folder. It reads the backup alone.
 
 ### status
 
@@ -301,6 +302,14 @@ Sharing on files and folders is captured and restored as for OneDrive. See [Shar
 ::: warning Restoring sharing into another site
 With `--target-site` and `--restore-permissions`, the original audience gets access to the copy in the target site. Check who should see it first.
 :::
+
+## Folder colours
+
+Folder colours are captured as for OneDrive and are never restored. See [Folder colours](./onedrive-backup.md#folder-colours).
+
+- Microsoft Graph refuses every write to a folder's colour with `403 accessDenied`, so a coloured folder restored into this or another site takes the library's default colour. Writing colours is tracked in [#778](https://github.com/wisecom-oy/atlas/issues/778).
+- The restore summary reports `Folder colours not restored` with a count, which does not change the exit code.
+- Reading colours adds 1 resource unit per folder the backup receives. See [the cost of capturing folder colours](/security#the-cost-of-capturing-folder-colours).
 
 ## Rolling a file back to an earlier version
 
@@ -442,7 +451,7 @@ See [reliability](/operations/reliability) for retries and what is safe to rerun
 | Uploads on restore   | Up to 4 MiB in one request; larger files in a resumable upload session in 10 MiB chunks           |
 | Throttling           | Retried with backoff, see below                                                                    |
 | Path length          | A restore folder adds path depth. Files over SharePoint's path length limit are skipped and reported. |
-| Scope                | File authors are not restored. Item sharing is restored only with `--restore-permissions`. Site and library permissions are not captured |
+| Scope                | File authors and folder colours are not restored. Item sharing is restored only with `--restore-permissions`. Site and library permissions are not captured |
 
 When Microsoft 365 throttles requests or has a transient fault, Atlas waits and retries. See [Graph rate limits](/operations/graph-rate-limits) for request budgets.
 

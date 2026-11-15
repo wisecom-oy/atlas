@@ -833,7 +833,7 @@ atlas onedrive restore -o user@example.com -s od-snap-1735689600000-a1b2c3
 | `save`            | Decrypt files from a snapshot into a local zip archive                                                                                   |
 | `list-snapshots`  | List snapshot IDs and timestamps for the owner                                                                                           |
 | `list-versions`   | List indexed versions of one file (`-f`, a file ID or path)                                                                              |
-| `list-permissions` | List who had access to which file or folder at a snapshot                                                                               |
+| `list-permissions` | List who had access to which file or folder, and folder colours, at a snapshot                                                          |
 | `restore-version` | Push stored file versions back into the drive, one file or a whole rollback                                                              |
 | `verify`          | Decrypt manifests and files for a snapshot, and check SHA-256 and index rows                                                             |
 | `status`          | Report pending changes per drive, without backing up                                                                                     |
@@ -915,6 +915,7 @@ atlas onedrive restore -o user@example.com -s od-snap-123 --file-filter "/Docume
 - **Where files land.** A restore nests under `/Restore-<timestamp>` at the target drive root and recreates the original folders beneath it. `--in-place` writes back over the original paths. It is never the default, because repeated in-place restores with `--conflict rename` create suffixed duplicates among live content. See [Where restored files land](/onedrive-backup#where-restored-files-land).
 - **Several drives.** Each manifest entry records the drive its file came from. A restore to the original owner returns each file to its drive, and a file whose drive no longer exists is reported and skipped, never written to a different drive. `--target-owner` has no drive mapping, because Atlas records drive IDs and not drive names, so it is refused when the snapshot spans more than one drive. Restore those to the original owner, or one drive at a time with `--file-filter`.
 - **Sharing.** Without `--restore-permissions` no permission is applied, and the summary shows how many were left out. With it, direct grants are reapplied with no invitation email and links are recreated with the same type and scope. A permission that cannot be restored, such as a grant to a user deleted since the backup, is listed with its reason and does not change the exit code. See [Restoring sharing](/onedrive-backup#restoring-sharing).
+- **Folder colours.** Never written, because Microsoft Graph refuses the write. The summary shows `Folder colours not restored` with a count, which does not change the exit code. See [Folder colours](/onedrive-backup#folder-colours).
 - **`--file-filter` paths** are the rooted paths shown in a listing. A file at the root is `/Report.docx`, not `//Report.docx`. Version commands accept the same path forms.
 - **Unmatched `--file-filter`.** On `restore` and `save`, for OneDrive and SharePoint: when no value matches, the command stops with `ATLAS_NOT_FOUND` (exit `7`) after reading the snapshot and before any Graph listing or write, so no file or archive is written. When some values match, it restores or saves those, names each unmatched value, and exits `2`, or `1` if a file also failed. When one path belongs to two drive items, as after a file is deleted and recreated at the same path, the command lists both file IDs and stops instead of choosing.
 - **Ctrl+C.** An upload already sent is never cut off, because Microsoft 365 may already have committed it; that file counts as restored if it was accepted. A large file stopped before its final chunk is not created. The run prints the files restored so far and exits `2`, and a file stopped before it was written is not reported as failed. A second Ctrl+C exits at once with status `130`, so the file in flight may or may not exist: check the destination before retrying, especially with `--in-place`. This applies to `atlas sharepoint restore` and to `restore-version` on both drives. Upload sizes and session cleanup are under [File transfers](/operations/reliability#file-transfers-onedrive-and-sharepoint).
@@ -1004,6 +1005,7 @@ atlas onedrive list-permissions -o user@example.com -s od-snap-123
 - Only an item's own permissions are captured, so an item that only inherits access from its folder is not listed.
 - It reads the backup alone and makes no Graph call.
 - A snapshot taken before sharing was captured records no permissions, so it lists nothing.
+- A second table lists each coloured folder with its colour as stored: `palette 6`, plus `tag` and `emoji` when those columns are set. It is left out when no folder is coloured, which includes every snapshot taken before folder colours were captured.
 
 ### atlas onedrive restore-version
 
@@ -1116,7 +1118,7 @@ atlas sharepoint quarantine --key sharepoint/manifests/<site-id>/sp-snap-1735689
 | `list-sites`      | List every site the tenant search returns, with its kind: `site`, or `container (not backed up)` for a SharePoint Embedded container     |
 | `list-snapshots`  | List all SharePoint snapshots for a site                                                                                                 |
 | `list-versions`   | List all backed-up versions of one file                                                                                                  |
-| `list-permissions` | List who had access to which file or folder at a snapshot                                                                               |
+| `list-permissions` | List who had access to which file or folder, and folder colours, at a snapshot                                                          |
 | `restore-version` | Push stored file versions back into the library, one file or a whole rollback                                                            |
 | `restore`         | Restore files from a snapshot to the site's document libraries                                                                           |
 | `save`            | Decrypt files from a snapshot into a local zip archive                                                                                   |
@@ -1207,7 +1209,7 @@ atlas sharepoint list-permissions --site https://contoso.sharepoint.com/sites/En
 | `-s, --snapshot <id>` | Snapshot to list (default: the newest)          |
 | `-t, --tenant <id>`   | Override the tenant ID from config              |
 
-Output matches [`atlas onedrive list-permissions`](#atlas-onedrive-list-permissions). Site and library permissions are not captured.
+Output matches [`atlas onedrive list-permissions`](#atlas-onedrive-list-permissions), including the table of coloured folders. Site and library permissions are not captured.
 
 ### atlas sharepoint restore-version
 
@@ -1257,7 +1259,7 @@ atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering
 - Restored files nest under `Restore-<timestamp>` in each destination library, with the original structure beneath it. `--in-place` writes over the original paths. See [Where restored files land](../sharepoint-backup.md#where-restored-files-land).
 - With `--target-site`, each file goes to the target library with the same name as its source library. A restore from a single library goes to the target's only library. Any ambiguous case is refused: the file is skipped, the candidate libraries are listed, and the command exits non-zero. Atlas never writes into the source library instead. See [Where a cross-site restore lands](../sharepoint-backup.md#where-a-cross-site-restore-lands).
 - `--restore-permissions` behaves as for [`atlas onedrive restore`](#atlas-onedrive-restore). With `--target-site`, reapplied permissions share the copy in the target site with the original audience.
-- `--file-filter` matching and Ctrl+C behave as for [`atlas onedrive restore`](#atlas-onedrive-restore).
+- `--file-filter` matching, Ctrl+C, and the `Folder colours not restored` count behave as for [`atlas onedrive restore`](#atlas-onedrive-restore).
 
 ### atlas sharepoint save
 

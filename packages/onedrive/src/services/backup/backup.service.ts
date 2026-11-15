@@ -46,8 +46,8 @@ import { load_run_version_collector } from '@/services/versioning/run-version-co
 import { scan_all_drives } from '@/services/backup/backup-drive-processor';
 import {
   build_tracking_state,
-  create_run_sharing_capture,
-} from '@/services/backup/run-sharing-capture';
+  create_run_metadata_capture,
+} from '@/services/backup/run-metadata-capture';
 import { build_package_warnings } from '@/services/backup/package-report';
 import { interrupted_before_scan } from '@/services/backup/interrupted-scan-result';
 import { cleanup_stale_staging } from '@/services/backup/large-file-pipeline';
@@ -201,7 +201,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         progress,
         options,
         folder_scope,
-        create_run_sharing_capture(this._connector, this._manifests, ctx, owner_id, head),
+        create_run_metadata_capture(this._connector, this._manifests, ctx, owner_id, head),
       );
       const skipped_manifests = await append_recrawl_tombstones(
         scan_result,

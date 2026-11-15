@@ -12,6 +12,7 @@ import {
 } from '@wisecom/atlas-m365-graph';
 import type {
   DriveAccessGrantRequest,
+  DriveFolderColor,
   DriveFileSystemInfo,
   DriveLinkRequest,
   DrivePermission,
@@ -35,6 +36,7 @@ import {
 import { ONEDRIVE_DOWNLOAD_EXECUTOR } from '@/adapters/graph-onedrive-download-executor';
 import { execute_onedrive_delta } from '@/adapters/graph-onedrive-delta-fetch';
 import { create_graph_drive_sharing } from '@wisecom/atlas-drive/permissions/graph-drive-sharing';
+import { fetch_drive_folder_colors } from '@wisecom/atlas-drive/graph/graph-folder-color-fetch';
 import { graph_onedrive_fetch_item_by_id } from '@/adapters/graph-onedrive-item-fetch';
 
 /** Floor for draining one buffered version, whatever its listed size. */
@@ -229,6 +231,14 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     item_ids: readonly string[],
   ): Promise<Map<string, DrivePermission[]>> {
     return this._sharing.fetch_item_permissions(drive_id, item_ids);
+  }
+
+  /** Reads folder colours from each folder's list item, 20 per `$batch` request. */
+  async fetch_folder_colors(
+    drive_id: string,
+    item_ids: readonly string[],
+  ): Promise<Map<string, DriveFolderColor>> {
+    return fetch_drive_folder_colors(this._client, drive_id, item_ids);
   }
 
   /** Grants direct access without an invitation email. */

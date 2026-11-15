@@ -1,5 +1,6 @@
 import type { DriveFileSystemInfo, DriveItemIdentity } from '@/domain/drive/item-metadata';
 import type { DriveSharingConnector } from '@/ports/drive/drive-sharing.port';
+import type { DriveFolderColorConnector } from '@/ports/drive/folder-color.port';
 import type { LargeFileContent } from '@/ports/drive/large-file-content.port';
 /**
  * What a listed site is. `file_storage_container` is a SharePoint Embedded container (web URL under
@@ -88,7 +89,7 @@ export interface SharePointFileVersion {
   readonly last_modified_by?: DriveItemIdentity;
 }
 
-export interface SharePointSiteConnector extends DriveSharingConnector {
+export interface SharePointSiteConnector extends DriveSharingConnector, DriveFolderColorConnector {
   /** Lists all SharePoint sites in the tenant. */
   list_sites(tenant_id: string): Promise<SharePointSite[]>;
 

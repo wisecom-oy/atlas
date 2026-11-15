@@ -18,4 +18,12 @@ export type {
   DriveSharingRestoreOptions,
   DriveSharingRestoreSummary,
 } from './sharing-restore.port';
-export type { DriveItemPermissions, DrivePermissionListing } from './permission-listing.port';
+export type {
+  DriveFolderColorItem,
+  DriveItemPermissions,
+  DrivePermissionListing,
+} from './permission-listing.port';
+export type {
+  DriveFolderColorConnector,
+  DriveFolderColorRestoreSummary,
+} from './folder-color.port';
