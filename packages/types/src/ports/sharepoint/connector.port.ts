@@ -1,9 +1,17 @@
 import type { DriveFileSystemInfo, DriveItemIdentity } from '@/domain/drive/item-metadata';
 import type { LargeFileContent } from '@/ports/drive/large-file-content.port';
+/**
+ * What a listed site is. `file_storage_container` is a SharePoint Embedded container (web URL under
+ * `/contentstorage/`): Graph refuses it to an app that holds only `Sites` permissions, because it
+ * needs `FileStorageContainer.Selected`, so Atlas cannot back it up (issue #772).
+ */
+export type SharePointSiteKind = 'site' | 'file_storage_container';
+
 export interface SharePointSite {
   readonly site_id: string;
   readonly site_url: string;
   readonly display_name: string;
+  readonly kind: SharePointSiteKind;
 }
 
 /**

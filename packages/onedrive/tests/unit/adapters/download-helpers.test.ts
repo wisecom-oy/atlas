@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { binary_graph_response } from '@wisecom/atlas-types/testing/queued-graph-fetch';
-import type { OneDriveDeltaItem } from '@wisecom/atlas-types';
+import { MissingGraphPermissionsError, type OneDriveDeltaItem } from '@wisecom/atlas-types';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import { CdnHttpError } from '@wisecom/atlas-drive/backup/cdn-chunk-errors';
 import { CHUNK_DOWNLOAD_THRESHOLD } from '@wisecom/atlas-drive/backup/cdn-chunk-download';
@@ -254,18 +254,42 @@ describe('OneDrive download executor', () => {
   });
 
   describe('rethrow_if_access_denied', () => {
-    it('throws only on statusCode 403, naming the permissions to grant', () => {
-      expect(() => rethrow_if_access_denied({ statusCode: 403 })).toThrow(
-        'Missing Microsoft Graph application permissions for OneDrive: Files.Read.All, Sites.Read.All.',
+    const OWNER = { label: 'owner owner-1', owner_id: 'owner-1' };
+
+    it('throws a missing grant naming the permissions, status and Graph code', async () => {
+      const denied = { statusCode: 403, code: 'accessDenied' };
+      const failure = await rethrow_if_access_denied(make_client().client, denied, OWNER).catch(
+        (err: unknown) => err,
       );
+      expect(failure).toBeInstanceOf(MissingGraphPermissionsError);
+      expect(failure).toMatchObject({
+        code: 'ATLAS_AUTH_DENIED',
+        permissions: ['Files.Read.All', 'Sites.Read.All'],
+        cause: denied,
+      });
+      expect((failure as Error).message).toContain('HTTP 403 accessDenied for owner owner-1');
+      expect((failure as Error).message).toContain('Files.Read.All, Sites.Read.All');
     });
 
-    it.each([401, 404, 500, undefined])('is a no-op for statusCode %s', (status) => {
-      expect(() => rethrow_if_access_denied({ statusCode: status })).not.toThrow();
+    it('does not claim a missing grant for a 403 whose code does not mean one', async () => {
+      const refused = { statusCode: 403, code: 'notAllowed' };
+      await expect(
+        rethrow_if_access_denied(make_client().client, refused, OWNER),
+      ).rejects.toMatchObject({ code: 'ATLAS_ACCESS_REFUSED', owner_id: 'owner-1' });
     });
 
-    it('is a no-op for a CdnHttpError carrying 403, because it reads statusCode only', () => {
-      expect(() => rethrow_if_access_denied(new CdnHttpError('denied', 403))).not.toThrow();
+    it('is a no-op for a status other than 403', async () => {
+      for (const status of [401, 404, 500, undefined]) {
+        await expect(
+          rethrow_if_access_denied(make_client().client, { statusCode: status }, OWNER),
+        ).resolves.toBeUndefined();
+      }
+    });
+
+    it('is a no-op for a CdnHttpError carrying 403, because it reads statusCode only', async () => {
+      await expect(
+        rethrow_if_access_denied(make_client().client, new CdnHttpError('denied', 403), OWNER),
+      ).resolves.toBeUndefined();
     });
   });
 });

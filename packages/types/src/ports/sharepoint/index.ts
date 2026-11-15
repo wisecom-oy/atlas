@@ -22,6 +22,7 @@ export type { SharePointVersionRestoreUseCase } from './use-case.port';
 export type {
   SharePointSiteConnector,
   SharePointSite,
+  SharePointSiteKind,
   SharePointSubsiteTree,
   SharePointDocumentLibrary,
   SharePointDeltaItem,

@@ -14,10 +14,12 @@ import type {
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { map_attachments, resolve_downloaded_attachment } from '@/adapters/graph-attachment-mapper';
 import {
+  describe_graph_error,
   GRAPH_CLIENT_TOKEN,
   is_invalid_delta_error,
   rethrow_if_access_denied,
   rethrow_if_mailbox_not_licensed,
+  rethrow_if_retry_exhausted,
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
 import { fetch_message_mime } from '@/adapters/graph-message-mime-fetcher';
@@ -72,7 +74,11 @@ export class GraphMailboxConnector implements MailboxConnector {
     }
   }
 
-  /** Resolves userPurpose from mailboxSettings; returns undefined on any error (metadata must never fail a backup). */
+  /**
+   * Resolves userPurpose from mailboxSettings; undefined when the lookup fails, since metadata must
+   * never fail a backup. An exhausted retry budget is rethrown: the folder listing that follows
+   * would otherwise spend a second budget on the same outage (issue #773).
+   */
   async get_mailbox_purpose(
     _tenant_id: string,
     owner_id: string,
@@ -84,8 +90,9 @@ export class GraphMailboxConnector implements MailboxConnector {
         ),
       );
     } catch (err) {
-      // ponytail: swallow-all — 403/404 on some shared/resource mailboxes is a known Graph quirk
-      logger.debug(`mailboxSettings lookup failed for ${owner_id}: ${(err as Error).message}`);
+      rethrow_if_retry_exhausted(err);
+      // 403/404 on some shared/resource mailboxes is a known Graph quirk.
+      logger.debug(`mailboxSettings lookup failed for ${owner_id}: ${describe_graph_error(err)}`);
       return undefined;
     }
   }

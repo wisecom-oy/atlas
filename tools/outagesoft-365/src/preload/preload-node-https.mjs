@@ -46,7 +46,9 @@ function resolve_target({ url, options }) {
   const host_option =
     options.hostname ?? (options.host ? String(options.host).replace(/:\d+$/, '') : undefined);
   const hostname = String(host_option ?? url?.hostname ?? 'localhost').toLowerCase();
-  const port = Number(options.port ?? (url?.port || 443));
+  // `||`, not `??`: @azure/core-rest-pipeline passes `port: url.port`, which is '' for the default
+  // port, and https.request reads an empty port as 443. Number('') would send the relay to port 0.
+  const port = Number(options.port || url?.port || 443);
   const path = options.path ?? (url ? `${url.pathname}${url.search}` : '/');
   return { hostname, port, path };
 }

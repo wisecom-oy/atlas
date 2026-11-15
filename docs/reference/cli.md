@@ -46,21 +46,21 @@ esac
 exit "$status"
 ```
 
-| Code | Meaning                                                                                                                                                                                                                                                    | Action                                                                                                                                                                                                                                                                                                                              |
-| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`  | Success, help, or a command with no failure reported                                                                                                                                                                                                       | Continue normally.                                                                                                                                                                                                                                                                                                                  |
-| `1`  | Unexpected or unclassified failure, invalid command usage, a command-reported failure without a typed exception, or `ATLAS_WRITE_REFUSED`: Atlas refused to store a manifest, index, or cursor it built                                                    | Inspect stderr. Do not assume the failure is transient. For a refused write see [Refused and unconfirmed metadata writes](/troubleshooting#refused-and-unconfirmed-metadata-writes).                                                                                                                                                |
-| `2`  | Partial backup, restore, or save: item errors, skipped files, integrity failures, a soft interrupt, or an unmatched `--folder` or `--file-filter` value, a `keys rewrap` that left a tenant under the old passphrase, or a `keys purge-old-wrappers` that left an old wrapper | Inspect the partial result before relying on it.                                                                                                                                                                                                                                                                                    |
-| `3`  | Throttling retry budget exhausted, a recognized network error, or transient HTTP `429`, `500`, `502`, `503`, `504`                                                                                                                                         | Schedule a later attempt. A timeout does not prove a write was never committed, so inspect partial work before repeating a restore.                                                                                                                                                                                                 |
-| `4`  | `ATLAS_AUTH_DENIED`, `ATLAS_MAILBOX_NOT_LICENSED`, or an unwrapped HTTP `401` or `403`                                                                                                                                                                     | Correct credentials, permissions, admin consent, or licensing before retrying.                                                                                                                                                                                                                                                      |
-| `5`  | `ATLAS_WRONG_PASSPHRASE`: the data key would not unwrap                                                                                                                                                                                                    | Supply the original tenant passphrase. Never pad it or delete the wrapped key. If it is correct, investigate possible corruption.                                                                                                                                                                                                   |
-| `6`  | `ATLAS_CONFIG_INVALID`, including failure to load the CLI configuration or a partial `ATLAS_*` Graph override that changes the selected profile's tenant or client ID                                                                                      | Correct the configuration or its storage access.                                                                                                                                                                                                                                                                                    |
-| `7`  | `ATLAS_NOT_FOUND` or an unwrapped HTTP `404`, including a `--folder`, `--file-filter`, or `--message` selection that matched nothing                                                                                                                       | Check the selected resource, identifiers, and selectors.                                                                                                                                                                                                                                                                            |
-| `8`  | `ATLAS_OBJECT_LOCK_RETAINED`                                                                                                                                                                                                                               | Respect retention or legal hold. Repeating the same deletion cannot bypass it.                                                                                                                                                                                                                                                      |
-| `9`  | `ATLAS_CONTENT_UNREADABLE`, `ATLAS_FORMAT_UNSUPPORTED`, or a command that skipped a damaged manifest or version index and named it                                                                                                                         | The stored bytes cannot be parsed back, or were written by a newer Atlas format. Repeating the command will not help. For a newer format, upgrade Atlas. For a named manifest or version index, see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes). Otherwise extract the raw content with `save`. |
-| `10` | Unassigned. It was `ATLAS_KEY_CONFLICT`, raised only by `rehydrate`, which Atlas 7 removed. Kept free so the codes after it keep their numbers | Not returned |
-| `11` | `ATLAS_SNAPSHOT_NOT_NEWEST`: `outlook delete -s`, `onedrive delete -s`, or `sharepoint delete -s` named a snapshot that newer snapshots of the same mailbox, owner, or site are built on                                                                   | Repeating the command will not help. Delete the newer snapshots first, newest first, or delete the whole backup of that mailbox, owner, or site by leaving out `-s`.                                                                                                                                                                |
-| `12` | `ATLAS_OWNER_BUSY`: another backup, restore, deletion, or quarantine holds the lease on the same mailbox, drive owner, site, or team, a purge or key re-wrap holds the tenant, or this run lost its lease before it could commit | Nothing was committed. Retry once the other operation ends. If its process was killed, the lease expires 5 minutes after its last renewal, and the message names that time. See [Another operation holds the owner](/troubleshooting#another-operation-holds-the-owner).                                                            |
+| Code | Meaning                                                                                                                                                                                                                                                                       | Action                                                                                                                                                                                                                                                                                                                                                                     |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | Success, help, or a command with no failure reported                                                                                                                                                                                                                          | Continue normally.                                                                                                                                                                                                                                                                                                                                                         |
+| `1`  | Unexpected or unclassified failure, invalid command usage, a command-reported failure without a typed exception, or `ATLAS_WRITE_REFUSED`: Atlas refused to store a manifest, index, or cursor it built                                                                       | Inspect stderr. Do not assume the failure is transient. For a refused write see [Refused and unconfirmed metadata writes](/troubleshooting#refused-and-unconfirmed-metadata-writes).                                                                                                                                                                                       |
+| `2`  | Partial backup, restore, or save: item errors, skipped files, integrity failures, a soft interrupt, or an unmatched `--folder` or `--file-filter` value, a `keys rewrap` that left a tenant under the old passphrase, or a `keys purge-old-wrappers` that left an old wrapper | Inspect the partial result before relying on it.                                                                                                                                                                                                                                                                                                                           |
+| `3`  | `ATLAS_THROTTLED` or `ATLAS_GRAPH_UNAVAILABLE`: Graph kept answering `429`, `500`, `502`, `503`, `504`, or a network error through the retry budget, or an unwrapped transient status or recognized network error                                                             | Schedule a later attempt. For `ATLAS_GRAPH_UNAVAILABLE`, check Microsoft 365 service health first. A timeout does not prove a write was never committed, so inspect partial work before repeating a restore.                                                                                                                                                               |
+| `4`  | `ATLAS_AUTH_DENIED`, `ATLAS_MAILBOX_NOT_LICENSED`, `ATLAS_ACCESS_REFUSED` (Graph refused one site, drive, or owner, and Atlas did not attribute it to a missing grant, such as a SharePoint Embedded container), or an unwrapped HTTP `401` or `403`                          | Correct credentials, permissions, admin consent, or licensing before retrying. For `ATLAS_ACCESS_REFUSED`, retrying returns the same answer: leave a container out of the run, and check the per-site grant of an ordinary site. See [SharePoint: site refused while the root site is readable](/troubleshooting#sharepoint-site-refused-while-the-root-site-is-readable). |
+| `5`  | `ATLAS_WRONG_PASSPHRASE`: the data key would not unwrap                                                                                                                                                                                                                       | Supply the original tenant passphrase. Never pad it or delete the wrapped key. If it is correct, investigate possible corruption.                                                                                                                                                                                                                                          |
+| `6`  | `ATLAS_CONFIG_INVALID`, including failure to load the CLI configuration or a partial `ATLAS_*` Graph override that changes the selected profile's tenant or client ID                                                                                                         | Correct the configuration or its storage access.                                                                                                                                                                                                                                                                                                                           |
+| `7`  | `ATLAS_NOT_FOUND` or an unwrapped HTTP `404`, including a `--folder`, `--file-filter`, or `--message` selection that matched nothing                                                                                                                                          | Check the selected resource, identifiers, and selectors.                                                                                                                                                                                                                                                                                                                   |
+| `8`  | `ATLAS_OBJECT_LOCK_RETAINED`                                                                                                                                                                                                                                                  | Respect retention or legal hold. Repeating the same deletion cannot bypass it.                                                                                                                                                                                                                                                                                             |
+| `9`  | `ATLAS_CONTENT_UNREADABLE`, `ATLAS_FORMAT_UNSUPPORTED`, or a command that skipped a damaged manifest or version index and named it                                                                                                                                            | The stored bytes cannot be parsed back, or were written by a newer Atlas format. Repeating the command will not help. For a newer format, upgrade Atlas. For a named manifest or version index, see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes). Otherwise extract the raw content with `save`.                                        |
+| `10` | Unassigned. It was `ATLAS_KEY_CONFLICT`, raised only by `rehydrate`, which Atlas 7 removed. Kept free so the codes after it keep their numbers                                                                                                                                | Not returned                                                                                                                                                                                                                                                                                                                                                               |
+| `11` | `ATLAS_SNAPSHOT_NOT_NEWEST`: `outlook delete -s`, `onedrive delete -s`, or `sharepoint delete -s` named a snapshot that newer snapshots of the same mailbox, owner, or site are built on                                                                                      | Repeating the command will not help. Delete the newer snapshots first, newest first, or delete the whole backup of that mailbox, owner, or site by leaving out `-s`.                                                                                                                                                                                                       |
+| `12` | `ATLAS_OWNER_BUSY`: another backup, restore, deletion, or quarantine holds the lease on the same mailbox, drive owner, site, or team, a purge or key re-wrap holds the tenant, or this run lost its lease before it could commit                                              | Nothing was committed. Retry once the other operation ends. If its process was killed, the lease expires 5 minutes after its last renewal, and the message names that time. See [Another operation holds the owner](/troubleshooting#another-operation-holds-the-owner).                                                                                                   |
 
 ### Run leases
 
@@ -620,10 +620,10 @@ atlas delete --purge        # delete everything in the tenant bucket
 atlas delete --purge -y     # skip the typed confirmation
 ```
 
-| Option              | Description                                                                  |
-| ------------------- | ---------------------------------------------------------------------------- |
-| `--purge`           | Delete all data, manifests, and encryption keys. Irreversible.               |
-| `-y, --yes`         | Skip the typed confirmation, for scheduled and scripted runs                 |
+| Option              | Description                                                                                                                                                                             |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--purge`           | Delete all data, manifests, and encryption keys. Irreversible.                                                                                                                          |
+| `-y, --yes`         | Skip the typed confirmation, for scheduled and scripted runs                                                                                                                            |
 | `-t, --tenant <id>` | Override the tenant ID from config. The confirmation checks against this ID. The purge targets that tenant's own bucket, and is refused under `ATLAS_S3_BUCKET` set for another tenant. |
 
 `atlas delete` without `--purge` exits non-zero and deletes nothing. For scoped deletes, use `atlas outlook delete`, `atlas contacts delete`, `atlas calendar delete`, `atlas onedrive delete`, or `atlas sharepoint delete`.
@@ -984,6 +984,7 @@ atlas sharepoint quarantine --key sharepoint/manifests/<site-id>/sp-snap-1735689
 | Subcommand        | Description                                                                                                                              |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `backup`          | Incremental sync. Use `--full` to ignore saved delta state.                                                                              |
+| `list-sites`      | List every site the tenant search returns, with its kind: `site`, or `container (not backed up)` for a SharePoint Embedded container     |
 | `list-snapshots`  | List all SharePoint snapshots for a site                                                                                                 |
 | `list-versions`   | List all backed-up versions of one file                                                                                                  |
 | `restore-version` | Push stored file versions back into the library, one file or a whole rollback                                                            |
@@ -1008,7 +1009,7 @@ atlas sharepoint quarantine --key sharepoint/manifests/<site-id>/sp-snap-1735689
 ::: tip Subsites are separate sites
 Graph's `GET /sites/{site-id}/sites` returns only a site's direct subsites, so Atlas walks the tree explicitly. By default a backup covers only the named site and warns once for each subsite it does not cover. Classic site collections with nested subsites would otherwise look fully protected while whole subsites sat outside the backup.
 
-`--include-subsites` backs up the whole tree. Each subsite has its own drives, so it gets its own snapshot under its own `site_id` prefix (`sharepoint/manifests/{site_id}/...`). It has the same structure as a root-site backup, so you restore a subsite by naming it. Graph returns only the subsites the application can read. A subsite whose listing fails after retries (for example `403`, or `429` once the retry budget is spent) is an error naming its parent site. The run prints `Status: UNHEALTHY` and exits `2`, so an access gap never narrows the scope silently. A rejected token (`401`) ends the run with exit `4`, and Ctrl+C during the listing ends it as an interrupt with exit `2`. Without `--include-subsites` the same failure stays a warning, because no subsite is in scope. Traversal stops at 20 levels.
+`--include-subsites` backs up the whole tree. Each subsite has its own drives, so it gets its own snapshot under its own `site_id` prefix (`sharepoint/manifests/{site_id}/...`). It has the same structure as a root-site backup, so you restore a subsite by naming it. Graph returns only the subsites the application can read. A subsite whose listing fails (for example `403`) is an error naming its parent site. The run prints `Status: UNHEALTHY` and exits `2`, so an access gap never narrows the scope silently. A rejected token (`401`) ends the run with exit `4`, a `429` or a Graph outage that outlasts the retry budget ends it with exit `3` before any library is listed, so one outage costs one retry budget, and Ctrl+C during the listing ends it as an interrupt with exit `2`. Without `--include-subsites` the same failure stays a warning, because no subsite is in scope. Traversal stops at 20 levels.
 :::
 
 **`atlas sharepoint list-snapshots`**
@@ -1110,7 +1111,7 @@ A drive is up to date only when both columns are `0`. A file in the ledger is mi
 
 When the delta cursor has outlived the snapshot it was saved with, the next backup reads in full instead of resuming it, so status does not replay its links either. Every drive is then reported as not backed up and not up to date.
 
-A Graph `401` or `403` stops the command with exit code `4` (`ATLAS_AUTH_DENIED`). Any other failure marks the drive `peek failed` with the error class and message, and the owner or site is reported as not up to date.
+A Graph `401` or a missing-grant `403` stops the command with exit code `4` (`ATLAS_AUTH_DENIED`). A SharePoint site Graph refuses while the root site is readable stops it with exit code `4` and `ATLAS_ACCESS_REFUSED`. Any other failure, including a drive refused that way, marks the drive `peek failed` with the error class and message, and the owner or site is reported as not up to date.
 
 **`atlas sharepoint delete`**
 
@@ -1307,14 +1308,14 @@ atlas stats storage --max-requests 1000 --json        # stop after 1,000 request
 atlas stats storage --continue <token> --json         # resume from that token
 ```
 
-| Option                      | Description                                                                              |
-| --------------------------- | ---------------------------------------------------------------------------------------- |
-| `--by <breakdown>`          | `workload` (default) or `owner`, which adds one row per mailbox, OneDrive owner, or site |
-| `--max-requests <n>`        | Stop after this many S3 requests and print a continuation token                          |
-| `--continue <token>`        | Resume a measurement from its continuation token                                         |
-| `--top <n>`                 | Maximum owner rows with `--by owner` (default 20)                                        |
-| `--json`                    | Output raw JSON instead of formatted tables                                              |
-| `-t, --tenant <id>`         | Override the tenant ID from config                                                       |
+| Option               | Description                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------------- |
+| `--by <breakdown>`   | `workload` (default) or `owner`, which adds one row per mailbox, OneDrive owner, or site |
+| `--max-requests <n>` | Stop after this many S3 requests and print a continuation token                          |
+| `--continue <token>` | Resume a measurement from its continuation token                                         |
+| `--top <n>`          | Maximum owner rows with `--by owner` (default 20)                                        |
+| `--json`             | Output raw JSON instead of formatted tables                                              |
+| `-t, --tenant <id>`  | Override the tenant ID from config                                                       |
 
 The JSON output includes `totals`, `by_workload`, `stored_bytes`, `list_requests`, and `complete`. It includes `by_owner` with `--by owner`, and `logical_bytes_referenced` on a complete run with readable manifests. If the credentials cannot list versions, multipart uploads, or their parts, the report says so in `versions_visible` and `incomplete_uploads_visible`. The affected columns show `n/a`, and the stored totals become a lower bound.
 
@@ -1347,40 +1348,40 @@ atlas keys rewrap --old-passphrase        # finish a rotation after the configur
 atlas keys purge-old-wrappers --old-passphrase                  # delete the old wrappers once the rotation is done
 ```
 
-| Subcommand                | Description                                                                                         |
-| ------------------------- | --------------------------------------------------------------------------------------------------- |
+| Subcommand                | Description                                                                                               |
+| ------------------------- | --------------------------------------------------------------------------------------------------------- |
 | `keys rewrap`             | Re-wrap `_meta/dek.enc` of every profile's tenant under a new passphrase, current KDF parameters, or both |
-| `keys purge-old-wrappers` | Delete the noncurrent versions of `_meta/dek.enc` that a re-wrap left behind                        |
+| `keys purge-old-wrappers` | Delete the noncurrent versions of `_meta/dek.enc` that a re-wrap left behind                              |
 
 ### keys rewrap
 
-| Option              | Description                                                                                                         |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `--new-passphrase`  | Prompt for a new passphrase. Omit it to re-wrap under the configured one                                            |
+| Option              | Description                                                                                                       |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `--new-passphrase`  | Prompt for a new passphrase. Omit it to re-wrap under the configured one                                          |
 | `--old-passphrase`  | Prompt for the passphrase the keys are still wrapped under. Use it when the configured passphrase already changed |
-| `-t, --tenant <id>` | Re-wrap one tenant only. With `--new-passphrase` it also needs `--allow-partial`                                    |
-| `--allow-partial`   | Allow `--tenant` to change the passphrase of one tenant while other profiles stay under the old one                |
+| `-t, --tenant <id>` | Re-wrap one tenant only. With `--new-passphrase` it also needs `--allow-partial`                                  |
+| `--allow-partial`   | Allow `--tenant` to change the passphrase of one tenant while other profiles stay under the old one               |
 
 The command covers the tenant of every profile in the encrypted config store and in `atlas.config.json`, plus the tenant this run resolved. A tenant listed twice is re-wrapped once. Each tenant is opened in its own bucket: a profile's [bucket override](/configuration#bucket-override) applies to that profile's tenant only. Under `ATLAS_S3_BUCKET`, every tenant but the run's is reported as `failed`, so the run is not complete and the passphrase is not retired. Tenants run one after another, each under its own tenant lease, so a busy tenant is reported and skipped rather than stopping the rest.
 
 Each tenant gets one result:
 
-| Result                      | Meaning                                                                                  |
-| --------------------------- | ---------------------------------------------------------------------------------------- |
-| `re-wrapped`                | The key opened with the old passphrase and now opens with the new one                    |
-| `already re-wrapped`        | The key already opens with the new passphrase. Nothing was written                       |
-| `no key yet`                | The tenant has no bucket or no key. Its first backup creates one under the configured passphrase |
-| `neither passphrase opens it` | Nothing was written. Check the passphrase, or pass `--old-passphrase`                  |
-| `busy, skipped`             | Another operation holds the tenant or one of its owners. Nothing was written             |
-| `failed`                    | The re-wrap of that tenant stopped with the error printed below the table                |
+| Result                        | Meaning                                                                                          |
+| ----------------------------- | ------------------------------------------------------------------------------------------------ |
+| `re-wrapped`                  | The key opened with the old passphrase and now opens with the new one                            |
+| `already re-wrapped`          | The key already opens with the new passphrase. Nothing was written                               |
+| `no key yet`                  | The tenant has no bucket or no key. Its first backup creates one under the configured passphrase |
+| `neither passphrase opens it` | Nothing was written. Check the passphrase, or pass `--old-passphrase`                            |
+| `busy, skipped`               | Another operation holds the tenant or one of its owners. Nothing was written                     |
+| `failed`                      | The re-wrap of that tenant stopped with the error printed below the table                        |
 
 The run is complete when every tenant is `re-wrapped`, `already re-wrapped`, or `no key yet`. Only then is the old passphrase retired:
 
-| Where the passphrase came from     | What a complete run does                                                       |
-| ---------------------------------- | ------------------------------------------------------------------------------ |
-| The encrypted config store         | Writes the new passphrase there and reads it back                             |
-| `ATLAS_ENCRYPTION_PASSPHRASE`      | Writes nothing. Prints that the variable must be changed where it is defined  |
-| `atlas.config.json`                | Writes nothing. Prints the path of the file to change                         |
+| Where the passphrase came from | What a complete run does                                                     |
+| ------------------------------ | ---------------------------------------------------------------------------- |
+| The encrypted config store     | Writes the new passphrase there and reads it back                            |
+| `ATLAS_ENCRYPTION_PASSPHRASE`  | Writes nothing. Prints that the variable must be changed where it is defined |
+| `atlas.config.json`            | Writes nothing. Prints the path of the file to change                        |
 
 Any other result exits `2`, writes no configuration, and names every tenant still under the old passphrase. Keep the old passphrase, fix what the table reports, and run the same command again. A rerun recognises tenants already under the new passphrase and skips them, so it only re-wraps what is left. If the configured passphrase was changed by hand before every tenant finished, run `atlas keys rewrap --old-passphrase` to move the rest to the configured one.
 
@@ -1413,23 +1414,23 @@ atlas keys purge-old-wrappers --old-passphrase      # asks for the old passphras
 atlas keys purge-old-wrappers -y --old-passphrase < old.txt   # scripted
 ```
 
-| Option              | Description                                                                                  |
-| ------------------- | -------------------------------------------------------------------------------------------- |
+| Option              | Description                                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------- |
 | `--old-passphrase`  | Prompt for the previous passphrase, so an old version can be proven to hold the same data key |
-| `-t, --tenant <id>` | Purge one tenant only                                                                        |
-| `-y, --yes`         | Skip the confirmation. Required when the old passphrase is piped on stdin                    |
+| `-t, --tenant <id>` | Purge one tenant only                                                                         |
+| `-y, --yes`         | Skip the confirmation. Required when the old passphrase is piped on stdin                     |
 
 The command lists the versions of `_meta/dek.enc` in each tenant bucket and deletes the noncurrent ones that hold the current data key. It never deletes the current version. Each tenant runs under its tenant lease, taken as a re-wrap.
 
 A tenant is refused, with nothing deleted, unless the configured passphrase opens its current wrapper. That proves the re-wrap finished and the configuration was switched. Each noncurrent version is unwrapped with the configured passphrase and the one given with `--old-passphrase`. Only a version that unwraps to the same data key as the current one is deleted:
 
-| Version result | Meaning                                                                                                   |
-| -------------- | --------------------------------------------------------------------------------------------------------- |
-| deleted        | It held the current data key and is gone                                                                  |
-| retained       | Object Lock or a bucket policy refused the delete. Governance retention is never bypassed                 |
-| unverified     | No supplied passphrase opens it. Rerun with `--old-passphrase`                                            |
-| different key  | It holds another data key, which may still protect retained data. It is kept                              |
-| failed         | Reading or deleting it failed. The error is printed                                                       |
+| Version result | Meaning                                                                                   |
+| -------------- | ----------------------------------------------------------------------------------------- |
+| deleted        | It held the current data key and is gone                                                  |
+| retained       | Object Lock or a bucket policy refused the delete. Governance retention is never bypassed |
+| unverified     | No supplied passphrase opens it. Rerun with `--old-passphrase`                            |
+| different key  | It holds another data key, which may still protect retained data. It is kept              |
+| failed         | Reading or deleting it failed. The error is printed                                       |
 
 A storage backend whose version listing does not name exactly one current version gets nothing deleted, and the tenant is reported as `failed`. When `_meta/dek.enc` has no current version, for example behind a delete marker, its old versions are reported as `unverified` and kept, because there is no current key to compare them with. The command exits `0` only when no old wrapper is left in any covered bucket, and `2` otherwise.
 
@@ -1488,22 +1489,22 @@ atlas --profile fabrikam outlook backup -m john.doe@example.com
 atlas tenants remove fabrikam -y
 ```
 
-| Subcommand                | Description                                                                                                                                                                                                                                                                                                                  |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tenants add <name>`      | Save a profile, then check its Graph credentials. `--replace` overwrites an existing profile's credentials. A failed check keeps the profile and exits with code 1.                                                                                                                                                          |
-| `tenants list`            | List the stored profiles with masked secrets, and each profile's bucket when one is set. The selected profile is marked with `*`.                                                                                                                                                                                           |
-| `tenants use <name>`      | Set the active profile for later runs when neither `--profile` nor `ATLAS_PROFILE` is set.                                                                                                                                                                                                                                   |
-| `tenants remove <name>`   | Delete a profile from the store. Removing the active profile needs `-y`, and no profile is active afterward.                                                                                                                                                                                                                 |
+| Subcommand                | Description                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tenants add <name>`      | Save a profile, then check its Graph credentials. `--replace` overwrites an existing profile's credentials. A failed check keeps the profile and exits with code 1.                                                                                                                                                                                                |
+| `tenants list`            | List the stored profiles with masked secrets, and each profile's bucket when one is set. The selected profile is marked with `*`.                                                                                                                                                                                                                                  |
+| `tenants use <name>`      | Set the active profile for later runs when neither `--profile` nor `ATLAS_PROFILE` is set.                                                                                                                                                                                                                                                                         |
+| `tenants remove <name>`   | Delete a profile from the store. Removing the active profile needs `-y`, and no profile is active afterward.                                                                                                                                                                                                                                                       |
 | `tenants validate [name]` | Check a profile's Graph credentials, then print its effective bucket and send it `HeadBucket`. Without a name, checks the selected profile. Exits with code 1 if a check fails, and with code 6 before any check when a partial `ATLAS_*` Graph override changes the selected profile's tenant or client ID (see [Configuration](/configuration#tenant-profiles)). |
 
-| Option                    | Command  | Description                                                                       |
-| ------------------------- | -------- | --------------------------------------------------------------------------------- |
-| `--tenant-id <id>`        | add      | Microsoft Entra tenant: a GUID, or a domain such as `contoso.onmicrosoft.com`     |
-| `--client-id <id>`        | add      | Application (client) ID of the app registration. Must be a GUID.                  |
-| `--client-secret <value>` | add      | Client secret. A single token with no whitespace. Pass `-` to read it from stdin. |
+| Option                    | Command  | Description                                                                                                                                              |
+| ------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--tenant-id <id>`        | add      | Microsoft Entra tenant: a GUID, or a domain such as `contoso.onmicrosoft.com`                                                                            |
+| `--client-id <id>`        | add      | Application (client) ID of the app registration. Must be a GUID.                                                                                         |
+| `--client-secret <value>` | add      | Client secret. A single token with no whitespace. Pass `-` to read it from stdin.                                                                        |
 | `--bucket <name>`         | add      | Bucket to use instead of `atlas-<tenant-id>`, such as a provider replica. Never created by Atlas. See [Bucket override](/configuration#bucket-override). |
-| `--replace`               | add      | Overwrite an existing profile with the same name. A bucket the new command omits is removed. |
-| `-y, --yes`               | remove   | Required to remove the active profile                                             |
-| `--all`                   | validate | Validate every profile instead of one                                             |
+| `--replace`               | add      | Overwrite an existing profile with the same name. A bucket the new command omits is removed.                                                             |
+| `-y, --yes`               | remove   | Required to remove the active profile                                                                                                                    |
+| `--all`                   | validate | Validate every profile instead of one                                                                                                                    |
 
 Profile names are lowercase letters, digits, and dashes, up to 32 characters. Prefer `--client-secret -`: a value passed on the command line can appear in shell history and the process list.

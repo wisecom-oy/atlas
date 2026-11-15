@@ -33,7 +33,7 @@ const BINDINGS: readonly [string, DriveDownloadBinding][] = [
     'OneDrive',
     {
       workload: 'onedrive',
-      read_permissions: 'Files.Read.All, Sites.Read.All',
+      read_permissions: ['Files.Read.All', 'Sites.Read.All'],
       chunk_downloader: CHUNK_DOWNLOADER,
     },
   ],
@@ -41,7 +41,7 @@ const BINDINGS: readonly [string, DriveDownloadBinding][] = [
     'SharePoint',
     {
       workload: 'sharepoint',
-      read_permissions: 'Sites.Read.All',
+      read_permissions: ['Sites.Read.All'],
       chunk_downloader: CHUNK_DOWNLOADER,
     },
   ],
@@ -121,7 +121,7 @@ describe.each(BINDINGS)('shared download executor bound to %s', (label, binding)
         ITEM,
       ),
     ).rejects.toThrow(
-      `Missing Microsoft Graph application permissions for ${label}: ${binding.read_permissions}.`,
+      `Microsoft Graph returned HTTP 403 accessDenied downloading ${ITEM.file_name}`,
     );
   });
 
@@ -131,9 +131,14 @@ describe.each(BINDINGS)('shared download executor bound to %s', (label, binding)
     );
   });
 
-  it('names the workload and its permissions on a missing grant', () => {
-    expect(() => executor.rethrow_if_access_denied({ statusCode: 403 })).toThrow(
-      `Missing Microsoft Graph application permissions for ${label}: ${binding.read_permissions}.`,
+  it('names the workload, the Graph answer and the permissions on a missing grant', async () => {
+    const denied = { statusCode: 403, code: 'accessDenied' };
+    await expect(
+      executor.rethrow_if_access_denied(make_client().client, denied, { label: 'site s-1' }),
+    ).rejects.toThrow(
+      `Microsoft Graph returned HTTP 403 accessDenied for site s-1. The app registration needs ` +
+        `the ${label} application permissions ${binding.read_permissions.join(', ')} with ` +
+        'admin consent.',
     );
   });
 

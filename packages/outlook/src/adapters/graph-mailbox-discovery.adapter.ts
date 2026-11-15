@@ -21,6 +21,7 @@ import {
 } from '@/adapters/graph-mailbox-response-mappers';
 import {
   parse_user_page,
+  is_exhausted_retry,
   rethrow_if_access_denied,
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
@@ -137,6 +138,12 @@ export class GraphMailboxDiscoveryAdapter implements MailboxDiscoveryService {
           );
           if (purpose) purposes.set(user_id, purpose);
         } catch (err) {
+          // An exhausted retry budget is an outage, not one mailbox's gap: stop the other workers
+          // and fail discovery, rather than spend one more budget per remaining user (issue #773).
+          if (is_exhausted_retry(err)) {
+            queue.length = 0;
+            throw err;
+          }
           // A 403/404 here must never fail discovery; tenant backup decides what the gap means.
           const error = err instanceof Error ? err.message : String(err);
           logger.warn(`Could not resolve mailbox purpose for ${user_id} (${error})`);

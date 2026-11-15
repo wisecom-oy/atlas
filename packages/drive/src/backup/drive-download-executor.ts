@@ -3,13 +3,17 @@ import {
   classify_download_failure,
   read_graph_error_code,
   DownloadRefusedError,
-  MissingGraphPermissionsError,
   type DownloadFailureKind,
 } from '@wisecom/atlas-m365-graph';
-import type { DriveWorkload } from '@/drive-ports';
 import { CHUNK_DOWNLOAD_THRESHOLD, type CdnChunkDownloader } from '@/backup/cdn-chunk-download';
 import { download_from_url } from '@/backup/cdn-url-download';
 import { DRIVE_WORKLOAD_LABEL } from '@/backup/drive-workload-label';
+import {
+  missing_permissions_error,
+  rethrow_enumeration_denial,
+  type DenialBinding,
+  type DeniedResource,
+} from '@/backup/enumeration-access-denial';
 import {
   download_via_graph_content,
   resolve_download_url,
@@ -18,10 +22,7 @@ import {
 } from '@/backup/graph-item-content';
 
 /** The values one provider supplies to the shared download executor. */
-export interface DriveDownloadBinding {
-  readonly workload: DriveWorkload;
-  /** The application permissions a missing-grant error names, e.g. `Sites.Read.All`. */
-  readonly read_permissions: string;
+export interface DriveDownloadBinding extends DenialBinding {
   /** The provider's CDN chunk downloader, used above CHUNK_DOWNLOAD_THRESHOLD. */
   readonly chunk_downloader: CdnChunkDownloader;
 }
@@ -46,14 +47,17 @@ export interface DriveDownloadExecutor {
     item: DriveDownloadItem,
   ): Promise<string | undefined>;
   /**
-   * Rethrows any Graph 403 as a missing grant.
-   *
-   * Deliberately broader than the download-path classification. Its callers are the enumeration
-   * paths (listing drives or libraries, delta), where a 403 has one plausible cause: there is no
-   * per-item protection state when listing. The split between a missing grant and a service
-   * refusal belongs to the download path, where both are reachable for the same item (issue #246).
+   * Rethrows a Graph 403 from an enumeration call (a site lookup, listing drives or libraries,
+   * delta) as `MissingGraphPermissionsError` or `GraphAccessRefusedError`, and returns for anything
+   * else. A 403 there has two causes Graph does not tell apart by code: a missing grant, and one
+   * resource refused on its own, such as a SharePoint Embedded container (issue #772).
+   * `resource` names what was addressed.
    */
-  rethrow_if_access_denied(err: unknown): void;
+  rethrow_if_access_denied(
+    client: DriveGraphClient,
+    err: unknown,
+    resource: DeniedResource,
+  ): Promise<void>;
 }
 
 /** Everything the attempt needs that is not the attempt itself. */
@@ -79,7 +83,8 @@ export function create_drive_download_executor(
     download_with_fallback: (client, item, abort_signal) =>
       download_with_fallback({ binding, client, item, abort_signal }),
     resolve_download_url: (client, item) => resolve_fresh_url(binding, client, item),
-    rethrow_if_access_denied: (err) => rethrow_if_access_denied(binding, err),
+    rethrow_if_access_denied: (client, err, resource) =>
+      rethrow_enumeration_denial(binding, client, err, resource),
   };
 }
 
@@ -197,7 +202,14 @@ function rethrow_if_unrecoverable(
   err: unknown,
 ): void {
   // A missing grant answers 403 on every item, so the run must stop and name it.
-  if (kind === 'missing_permission') throw missing_permissions_error(context.binding);
+  if (kind === 'missing_permission') {
+    const { item } = context;
+    throw missing_permissions_error(
+      context.binding,
+      err,
+      `downloading ${item.file_name} (${item.item_id})`,
+    );
+  }
 
   // The service will keep refusing this item, so it is recorded against the snapshot with the
   // code that explains it, rather than retried.
@@ -211,19 +223,4 @@ function rethrow_if_unrecoverable(
       code,
     );
   }
-}
-
-/** Rethrows a Graph 403 from an enumeration call as the binding's missing-grant error. */
-function rethrow_if_access_denied(binding: DriveDownloadBinding, err: unknown): void {
-  if (err === null || typeof err !== 'object') return;
-  if ((err as { statusCode?: unknown }).statusCode !== 403) return;
-  throw missing_permissions_error(binding);
-}
-
-/** The missing-grant error naming the workload and the permissions to grant. */
-function missing_permissions_error(binding: DriveDownloadBinding): MissingGraphPermissionsError {
-  const label = DRIVE_WORKLOAD_LABEL[binding.workload];
-  return new MissingGraphPermissionsError(
-    `Missing Microsoft Graph application permissions for ${label}: ${binding.read_permissions}.`,
-  );
 }

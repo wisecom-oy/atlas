@@ -120,8 +120,9 @@ export class GraphUserIdentityResolver implements UserIdentityResolver {
         email: response.mail ?? response.userPrincipalName ?? '',
       };
     } catch (err) {
-      // An exhausted 429 arrives as ThrottledError, and other exhausted failures keep their status,
-      // so only a genuine 404 reaches the undefined below.
+      // An exhausted 429 arrives as ThrottledError and any other exhausted failure as
+      // GraphUnavailableError, neither with a top-level status, so only a genuine 404 reaches the
+      // undefined below.
       if ((err as Record<string, unknown>).statusCode !== 404) throw err;
 
       logger.debug(`Graph has no user for object ID ${object_id}: ${describe_graph_error(err)}`);

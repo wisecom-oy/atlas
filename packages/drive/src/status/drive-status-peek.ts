@@ -1,5 +1,4 @@
-import { AuthError, type FailedItemLedger } from '@wisecom/atlas-types';
-import { is_missing_graph_permissions } from '@wisecom/atlas-m365-graph';
+import type { FailedItemLedger } from '@wisecom/atlas-types';
 import {
   describe_peek_error,
   rethrow_if_peek_fatal,
@@ -94,16 +93,6 @@ export function summarize_drive_statuses(
 }
 
 /**
- * Rethrows a peek failure that applies to every drive. The drive connectors report a Graph 403 on
- * enumeration as `MissingGraphPermissionsError`, which carries neither a status nor an Atlas code,
- * so it is promoted to the `AuthError` the CLI maps to exit code 4.
- */
-function rethrow_if_drive_peek_fatal(err: unknown): void {
-  if (is_missing_graph_permissions(err)) throw new AuthError(err.message, { cause: err });
-  rethrow_if_peek_fatal(err);
-}
-
-/**
  * Peeks one drive, rethrowing a failure no other drive can escape and recording any other on the
  * row, so a Graph error reads as an error rather than as pending changes.
  */
@@ -124,7 +113,9 @@ async function peek_one_drive(
       is_up_to_date: pending_changes === 0 && failed_items === 0,
     };
   } catch (err) {
-    rethrow_if_drive_peek_fatal(err);
+    // The connectors' MissingGraphPermissionsError is an AuthError, so it stops every drive here
+    // as in a backup; a GraphAccessRefusedError stays on this drive's row (issue #772).
+    rethrow_if_peek_fatal(err);
     const peek_error = describe_peek_error(err);
     logger.warn(`Status peek failed for ${input.item_label} ${drive.drive_name}: ${peek_error}`);
     return { ...row, pending_changes: 0, failed_items, is_up_to_date: false, peek_error };

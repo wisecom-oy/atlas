@@ -2,6 +2,7 @@ import type { MailFolder, MailFolderListOptions, WellKnownMailFolder } from '@wi
 import { enumerate_folder_tree } from '@/adapters/graph-folder-tree-enumerator';
 import { enumerate_recoverable_items, type FolderReader } from '@/adapters/graph-recoverable-items';
 import type { GraphFolderRecord } from '@/adapters/graph-mailbox-response-mappers';
+import { rethrow_if_retry_exhausted } from '@wisecom/atlas-m365-graph';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
 const FOLDER_SELECT = 'id,displayName,parentFolderId,totalItemCount,childFolderCount,isHidden';
@@ -79,7 +80,10 @@ async function tag_well_known_folders(
       if (folder_id) name_by_id.set(folder_id, name);
     } catch (err) {
       // The role is a label for browsing, so a failure must not fail the backup. It stops the
-      // remaining lookups too: each one would spend a full retry budget on the same outage.
+      // remaining lookups too: each one would spend a full retry budget on the same outage. An
+      // exhausted budget fails the run outright, because the delta reads that follow would spend
+      // another one (issue #773).
+      rethrow_if_retry_exhausted(err);
       const reason = err instanceof Error ? err.message : String(err);
       logger.warn(
         `Well-known folder lookup for ${name} failed; later roles left untagged: ${reason}`,

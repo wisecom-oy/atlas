@@ -9,6 +9,7 @@
 export { createAtlasInstance } from './atlas-instance.adapter';
 export { create_tenant as createTenant } from './target-tenant';
 export { getGraphCost, getStorageUsageToken, GRAPH_SERVICE_LIMITS } from './public-values';
+export { isFileStorageContainerSite } from './sharepoint-site-kind';
 
 export type { AtlasInstance, AtlasInstanceConfig } from '@wisecom/atlas-types';
 export type { AtlasTenant, AtlasTenantConfig } from '@wisecom/atlas-types';
@@ -167,8 +168,15 @@ export {
   RefusedWriteError,
   OwnerBusyError,
   OwnerLeaseLostError,
+  MissingGraphPermissionsError,
+  GraphAccessRefusedError,
+  GraphUnavailableError,
 } from '@wisecom/atlas-types';
-export type { AtlasErrorCode } from '@wisecom/atlas-types';
+export type {
+  AtlasErrorCode,
+  GraphAccessRefusalReason,
+  SharePointSiteKind,
+} from '@wisecom/atlas-types';
 export {
   ObjectLockVersioningDisabledError,
   ObjectLockUnsupportedError,

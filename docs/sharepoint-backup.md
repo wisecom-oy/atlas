@@ -45,7 +45,25 @@ Add these application permissions to the Atlas app registration in Microsoft Ent
 | `Files.Read.All`      | Reading file content for backup, verify, and save |
 | `Sites.ReadWrite.All` | Restore only                                      |
 
-If a permission is missing, the run stops before touching files and names the missing scope, for example `Missing Microsoft Graph application permissions for SharePoint: Sites.Read.All.`
+If a permission is missing, the run stops before touching files with `MissingGraphPermissionsError` (`ATLAS_AUTH_DENIED`, exit `4`). The message names the HTTP status, the Graph error code, and the permission to grant:
+
+```text
+Microsoft Graph returned HTTP 403 accessDenied for site <site-id> and for the tenant's root site. The app registration needs the SharePoint application permissions Sites.Read.All with admin consent, or a Sites.Selected grant on this site.
+```
+
+Graph answers a missing grant and a site it refuses on its own with the same `403 accessDenied`. Atlas tells them apart with one request, `GET /sites/root?$select=id`, made only after an enumeration call was refused. If the app can read the tenant's root site, its credentials work and Graph refused this site alone: the run fails with `GraphAccessRefusedError` (`ATLAS_ACCESS_REFUSED`, exit `4`) instead, and the other sites are unaffected. An app that relies on `Sites.Selected` grants can read the root site only if it was granted, so for it this result can also mean the refused site lacks its own grant; the message names that remedy. The answer is reused for 10 minutes per Graph client, so a run that meets several refused sites checks once. See [SharePoint: site refused while the root site is readable](/troubleshooting#sharepoint-site-refused-while-the-root-site-is-readable).
+
+## SharePoint Embedded containers
+
+Apps built on SharePoint Embedded, among them several Microsoft apps, store their files in container sites under `https://contoso.sharepoint.com/contentstorage/`. They appear in the tenant's site search, but Graph refuses them to an app that holds only `Sites` permissions: they need `FileStorageContainer.Selected` and a grant from the app that owns the container type. Atlas does not request that permission and does not back these sites up.
+
+Atlas lists them rather than hiding them, so a coverage report still shows they exist:
+
+- `atlas sharepoint list-sites` shows them with the kind `container (not backed up)`.
+- `atlas.sharepoint.listSites()` returns them with `kind: 'file_storage_container'`. Every other site has `kind: 'site'`.
+- `isFileStorageContainerSite(webUrl)` applies the same rule to a URL from your own site discovery.
+
+Leave them out of scheduled runs. A backup of one fails at once with `GraphAccessRefusedError`. When the site was given by URL, its `reason` is `file_storage_container`. When it was given by site ID, Atlas never learns the URL, because Graph refuses that lookup too, so `reason` is `access_refused`. Neither is transient: retrying returns the same answer.
 
 ## Commands
 
@@ -57,7 +75,7 @@ Most commands take `--site <url-or-id>`. Snapshot is `-s`, because `-s` is not u
 atlas sharepoint list-sites
 ```
 
-Lists the sites in the tenant that Atlas can back up. Takes only `-t, --tenant <id>`.
+Lists every site Graph's site search returns, with its ID, name, kind, and URL. The kind is `site`, or `container (not backed up)` for a [SharePoint Embedded container](#sharepoint-embedded-containers), and the command adds a line counting the containers. Takes only `-t, --tenant <id>`. If Graph refuses the search with `403`, the command fails with `MissingGraphPermissionsError` (`ATLAS_AUTH_DENIED`, exit `4`) naming `Sites.Read.All`, because the search covers the whole tenant rather than one site.
 
 ### backup
 
@@ -199,12 +217,12 @@ Reports pending file changes and failed-item ledger entries per library, using a
 
 ### delete
 
-| Flag                  | Description                                          | Default        |
-| --------------------- | ---------------------------------------------------- | -------------- |
-| `--site <url-or-id>`  | Site                                                 | Required       |
+| Flag                  | Description                                                 | Default        |
+| --------------------- | ----------------------------------------------------------- | -------------- |
+| `--site <url-or-id>`  | Site                                                        | Required       |
 | `-s, --snapshot <id>` | Delete the newest snapshot instead of all data for the site | All data       |
-| `-y, --yes`           | Skip the confirmation prompt                         | `false`        |
-| `-t, --tenant <id>`   | Tenant identifier                                    | Config default |
+| `-y, --yes`           | Skip the confirmation prompt                                | `false`        |
+| `-t, --tenant <id>`   | Tenant identifier                                           | Config default |
 
 `-s` accepts only the site's newest snapshot. Every newer snapshot is built on the ones before it, so deleting an older one would silently change them. Atlas refuses that with exit code `11` and deletes nothing. Deleting the newest snapshot also removes the delta cursor, so the next backup reads every library in full and captures again what that snapshot held. See [what `-s` does](/reference/cli#drive-snapshot-delete).
 
@@ -269,11 +287,11 @@ Other content the service refuses to serve is handled as follows:
 
 Each file is read from a pre-authenticated download URL that Microsoft Graph issues with a limited lifetime. A long run can reach a file well after the delta listing that named it, so the URL in the listing is not trusted for a large file.
 
-| File size | URL at download start | On 401 or 403 during the transfer |
-| --- | --- | --- |
-| Up to 4 MiB | URL from the listing | Re-resolve once, retry the whole file, then fall back to the Graph `/content` endpoint |
-| Over 4 MiB, under 64 MiB | URL from the listing | Re-resolve once and restart the download from byte zero, then fall back to `/content` |
-| 64 MiB and larger | Fresh URL, one Graph request | Re-resolve and resume at the 4 MiB range that failed |
+| File size                | URL at download start        | On 401 or 403 during the transfer                                                      |
+| ------------------------ | ---------------------------- | -------------------------------------------------------------------------------------- |
+| Up to 4 MiB              | URL from the listing         | Re-resolve once, retry the whole file, then fall back to the Graph `/content` endpoint |
+| Over 4 MiB, under 64 MiB | URL from the listing         | Re-resolve once and restart the download from byte zero, then fall back to `/content`  |
+| 64 MiB and larger        | Fresh URL, one Graph request | Re-resolve and resume at the 4 MiB range that failed                                   |
 
 For files of 64 MiB and larger:
 
@@ -375,13 +393,28 @@ console.log(`Deleted: ${deletion.deletedObjects} objects`);
 ### Site discovery
 
 ```ts
+import { GraphAccessRefusedError, isFileStorageContainerSite } from '@wisecom/atlas-sdk';
+
 const sites = await atlas.sharepoint.listSites();
 for (const s of sites) {
-  console.log(`${s.displayName}: ${s.siteUrl} (${s.siteId})`);
+  if (s.kind === 'file_storage_container') continue; // SharePoint Embedded, not backed up
+  try {
+    await atlas.sharepoint.backup(s.siteId);
+  } catch (err) {
+    if (!(err instanceof GraphAccessRefusedError)) throw err;
+    // Retrying returns the same answer. Containers were skipped above, so check this site's
+    // per-site grant before treating it as unsupported.
+    console.log(
+      `Refused: ${err.site_id} (${err.reason}, HTTP ${err.status_code} ${err.graph_code})`,
+    );
+  }
 }
 
+// The same rule for sites found by your own discovery
+isFileStorageContainerSite('https://contoso.sharepoint.com/contentstorage/CSP_example'); // true
+
 const resolved = await atlas.sharepoint.resolveSite(site);
-console.log(resolved.siteId);
+console.log(resolved.siteId, resolved.kind);
 ```
 
 Other methods: `restoreVersion`, `listSnapshots`, `listFileVersions`, `checkStatus`, and `deleteSnapshot`.

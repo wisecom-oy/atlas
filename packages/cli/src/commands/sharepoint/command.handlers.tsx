@@ -7,6 +7,7 @@ import type {
   SharePointBackupResult,
   SharePointSiteTreeBackupUseCase,
   SharePointRestoreUseCase,
+  SharePointSite,
   SharePointSiteConnector,
   SharePointVerificationUseCase,
 } from '@wisecom/atlas-types';
@@ -79,13 +80,21 @@ interface SiteRow {
   site_id: string;
   display_name: string;
   site_url: string;
+  kind: string;
 }
 
 const site_columns: TableColumn<SiteRow>[] = [
   { key: 'site_id', header: 'Site ID' },
   { key: 'display_name', header: 'Name' },
+  { key: 'kind', header: 'Kind' },
   { key: 'site_url', header: 'URL' },
 ];
+
+/** How `list-sites` names a site kind; a container cannot be backed up, and says so. */
+const SITE_KIND_LABEL: Readonly<Record<SharePointSite['kind'], string>> = {
+  site: 'site',
+  file_storage_container: 'container (not backed up)',
+};
 
 export async function execute_sharepoint_list_sites(
   container: Container,
@@ -105,9 +114,17 @@ export async function execute_sharepoint_list_sites(
     site_id: site.site_id,
     display_name: site.display_name,
     site_url: site.site_url,
+    kind: SITE_KIND_LABEL[site.kind],
   }));
   await render_static_view(<DataTable columns={site_columns} rows={rows} />);
   logger.info(`\n${sites.length} site(s) found.`);
+  const containers = sites.filter((site) => site.kind === 'file_storage_container').length;
+  if (containers > 0) {
+    logger.info(
+      `${containers} of them are SharePoint Embedded containers, which need ` +
+        'FileStorageContainer.Selected; Atlas does not back them up.',
+    );
+  }
 }
 
 export async function execute_sharepoint_backup(

@@ -84,7 +84,7 @@ Run one operation at a time per tenant unless your scheduler guarantees that no 
 | `atlas.validate()`          | S3 access, existing key and Graph token validation                               |
 | `createTenant()`            | A second tenant to pass as a restore's `targetTenant` (cross-tenant restore)     |
 
-The SDK exports named public option/result types, error classes and `GRAPH_SERVICE_LIMITS`. Internal ports, DI tokens and container factories are not public API.
+The SDK exports named public option/result types, error classes, `GRAPH_SERVICE_LIMITS` and `isFileStorageContainerSite`. Internal ports, DI tokens and container factories are not public API.
 
 ## CLI alternative
 
