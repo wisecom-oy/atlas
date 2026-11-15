@@ -1,4 +1,4 @@
-import type { AtlasConfig } from '@/utils/config';
+import type { StringConfigField } from '@/utils/config';
 import { MIN_PASSPHRASE_BYTES } from '@/adapters/keystore/kdf-strategy';
 
 export const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -7,7 +7,7 @@ const DOMAIN_RE = /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i;
 export interface ConfigKeySpec {
   /** CLI name: a dotted `atlas config` key ("s3.endpoint") or an `atlas tenants add` flag. */
   readonly key: string;
-  readonly field: keyof AtlasConfig;
+  readonly field: StringConfigField;
   /** Secrets are masked in get/list output. */
   readonly secret: boolean;
   readonly description: string;

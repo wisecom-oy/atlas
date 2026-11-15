@@ -25,6 +25,12 @@ export interface AtlasInstanceConfig {
   readonly s3AccessKey: string;
   readonly s3SecretKey: string;
   readonly s3Region?: string;
+  /**
+   * Bucket to use instead of the derived `atlas-<tenantId>`, such as a provider replica under
+   * another name. Bound to `tenantId`: opening any other tenant on this instance is refused, and
+   * a missing bucket is an error rather than created.
+   */
+  readonly s3Bucket?: string;
   readonly encryptionPassphrase: string;
   /**
    * Where Atlas sends log output. Omitted means silent: an embedded Atlas

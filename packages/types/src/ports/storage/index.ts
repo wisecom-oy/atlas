@@ -14,3 +14,4 @@ export type * from '@/ports/storage/quarantine.port';
 export type { StorageDisposer } from './storage-disposer.port';
 export type * from './storage-request-observer.port';
 export type * from './storage-inventory.port';
+export type * from './bucket-name-resolver.port';

@@ -1,5 +1,9 @@
 import { Buffer } from 'node:buffer';
-import type { AtlasConfig } from '@wisecom/atlas-core';
+import {
+  assert_valid_bucket_name,
+  type AtlasConfig,
+  type BucketSelection,
+} from '@wisecom/atlas-core';
 import { ConfigError } from '@wisecom/atlas-types';
 import { MIN_PASSPHRASE_BYTES } from '@wisecom/atlas-core/adapters/keystore/kdf-strategy';
 import type { AtlasInstanceConfig, ThrottleCoordinator } from '@wisecom/atlas-types';
@@ -27,6 +31,7 @@ export function normalize_config(config: AtlasInstanceConfig): AtlasConfig {
   }
   assert_throttle_coordinator(config.throttleCoordinator);
   assert_teams_pacing_share(config.teamsPacingShare);
+  const s3_bucket = bind_bucket_override(config.s3Bucket, config.tenantId);
 
   return {
     tenant_id: config.tenantId,
@@ -37,6 +42,21 @@ export function normalize_config(config: AtlasInstanceConfig): AtlasConfig {
     s3_secret_key: config.s3SecretKey,
     s3_region: config.s3Region || 'us-east-1',
     encryption_passphrase: config.encryptionPassphrase,
+    ...(s3_bucket !== undefined ? { s3_bucket } : {}),
+  };
+}
+
+/**
+ * Binds `s3Bucket` to the instance's tenant. Exclusive: an instance has one tenant, so a restore
+ * or key operation that opens another tenant is refused rather than pointed at this bucket.
+ */
+function bind_bucket_override(bucket: unknown, tenant_id: string): BucketSelection | undefined {
+  if (bucket === undefined) return undefined;
+  assert_required_field(bucket, 's3Bucket');
+  assert_valid_bucket_name(bucket as string, 's3Bucket');
+  return {
+    run: { tenant_id, bucket: bucket as string, exclusive: true, set_by: 's3Bucket' },
+    profiles: [],
   };
 }
 
