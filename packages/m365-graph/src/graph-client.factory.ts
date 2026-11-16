@@ -6,10 +6,12 @@ import {
   RedirectHandler,
   RedirectHandlerOptions,
   TelemetryHandler,
+  type AuthenticationProvider,
   type Middleware,
 } from '@microsoft/microsoft-graph-client';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js';
 import { GraphCostMiddleware } from '@/graph-cost-middleware';
+import { TypedTokenAuthProvider } from '@/graph-token-auth-provider';
 import type { GraphConfig } from '@wisecom/atlas-core/utils/config';
 
 export const GRAPH_CLIENT_TOKEN = Symbol.for('GraphClient');
@@ -33,7 +35,7 @@ const GRAPH_BASE_URL = 'https://graph.microsoft.com';
  * any downstream override to a non-TLS endpoint. Refuses to start
  * if NODE_TLS_REJECT_UNAUTHORIZED=0 would disable certificate validation.
  */
-export function create_graph_client(auth_provider: TokenCredentialAuthenticationProvider): Client {
+export function create_graph_client(auth_provider: AuthenticationProvider): Client {
   assert_tls_not_disabled();
   return Client.initWithMiddleware({
     middleware: build_middleware_chain(auth_provider),
@@ -59,7 +61,7 @@ export function create_graph_client(auth_provider: TokenCredentialAuthentication
  * telemetry to be the handler immediately before the transport, so its usage
  * flags cover the real request.
  */
-function build_middleware_chain(auth_provider: TokenCredentialAuthenticationProvider): Middleware {
+function build_middleware_chain(auth_provider: AuthenticationProvider): Middleware {
   const chain: Middleware[] = [
     new AuthenticationHandler(auth_provider),
     new RedirectHandler(new RedirectHandlerOptions()),
@@ -84,16 +86,19 @@ function assert_tls_not_disabled(): void {
   }
 }
 
-/** Creates the shared, caching authentication provider for Graph requests and validation. */
-export function create_graph_auth_provider(
-  config: GraphConfig,
-): TokenCredentialAuthenticationProvider {
+/**
+ * Creates the shared, caching authentication provider for Graph requests and validation. A failed
+ * token request throws `GraphTokenRequestError` rather than the credential's own error.
+ */
+export function create_graph_auth_provider(config: GraphConfig): AuthenticationProvider {
   const credential = new ClientSecretCredential(
     config.tenant_id,
     config.client_id,
     config.client_secret,
   );
-  return new TokenCredentialAuthenticationProvider(credential, {
-    scopes: ['https://graph.microsoft.com/.default'],
-  });
+  return new TypedTokenAuthProvider(
+    new TokenCredentialAuthenticationProvider(credential, {
+      scopes: ['https://graph.microsoft.com/.default'],
+    }),
+  );
 }
