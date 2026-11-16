@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import secrets
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +46,33 @@ def _scrub_every_log_record(settings: config.Settings) -> Iterator[None]:
         yield
     finally:
         logging.LogRecord.getMessage = original  # type: ignore[method-assign]
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[None]
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
+    """Scrubs every failure and skip report before the terminal or `report.xml` can print it.
+
+    A long traceback quotes the arguments of each frame and the text of each exception, and a skip
+    carries its reason. A Graph path holds the mailbox address, so a failed permission probe wrote
+    it into `report.xml`, which is a public artifact (the workflow's leak check refused the upload).
+    Every reporter reads `longrepr`, so replacing it here covers all of them, the same way the log
+    scrubber covers every handler.
+    """
+    report = yield
+    if report.longrepr is None:
+        return report
+    try:
+        settings = config.load()
+    except RuntimeError:
+        return report
+    if isinstance(report.longrepr, tuple):
+        path, line, reason = report.longrepr
+        report.longrepr = (path, line, scrub_module.scrub(str(reason), settings))
+    else:
+        report.longrepr = scrub_module.scrub(str(report.longrepr), settings)
+    return report
 
 
 @pytest.fixture(scope="session")
