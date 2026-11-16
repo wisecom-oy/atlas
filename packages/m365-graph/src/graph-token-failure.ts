@@ -10,6 +10,12 @@ const TRANSIENT_ENTRA_STATUSES = new Set([408, 429]);
 const MSAL_NETWORK_ERROR_CODE = 'network_error';
 
 /**
+ * The OAuth code for a server too busy to answer. Entra ID documents it as retryable and can send it
+ * with a `400`, like any token-endpoint error, so it outranks the status.
+ */
+const TEMPORARILY_UNAVAILABLE_CODE = 'temporarily_unavailable';
+
+/**
  * A Graph token request that failed, carried through the Graph SDK intact (issue #786).
  *
  * `GraphRequest` turns any other error the authentication middleware throws into a `GraphError`
@@ -45,7 +51,7 @@ export function to_token_request_error(err: unknown): GraphTokenRequestError {
   const entra_status = find_entra_status(err);
   const oauth_code = find_oauth_code(err);
   const detail = describe_token_failure(entra_status, oauth_code);
-  if (is_credential_refusal(entra_status)) {
+  if (is_credential_refusal(entra_status, oauth_code)) {
     const refusal = new AuthError(
       `Microsoft Entra ID refused the Graph token request: ${detail}. Check the tenant ID, ` +
         'client ID and client secret, and that the secret has not expired.',
@@ -88,8 +94,15 @@ export function to_token_unavailable_error(
   );
 }
 
-/** A 4xx other than 408 and 429: Entra ID judged the tenant, client ID or secret and said no. */
-function is_credential_refusal(status: number | undefined): boolean {
+/**
+ * A 4xx other than 408 and 429, without `temporarily_unavailable`: Entra ID judged the tenant,
+ * client ID or secret and said no.
+ */
+function is_credential_refusal(
+  status: number | undefined,
+  oauth_code: string | undefined,
+): boolean {
+  if (oauth_code === TEMPORARILY_UNAVAILABLE_CODE) return false;
   return (
     status !== undefined && status >= 400 && status < 500 && !TRANSIENT_ENTRA_STATUSES.has(status)
   );
@@ -100,6 +113,7 @@ function is_transient_token_failure(
   oauth_code: string | undefined,
   err: unknown,
 ): boolean {
+  if (oauth_code === TEMPORARILY_UNAVAILABLE_CODE) return true;
   if (status !== undefined) return status >= 500 || TRANSIENT_ENTRA_STATUSES.has(status);
   return oauth_code === MSAL_NETWORK_ERROR_CODE || is_network_error(err);
 }

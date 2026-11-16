@@ -97,6 +97,11 @@ describe('token request failures', () => {
   it.each([
     ['an Entra ID outage', entra_error(503, 'temporarily_unavailable', 'AADSTS90033'), 503],
     ['Entra ID throttling', entra_error(429, 'temporarily_unavailable', 'AADSTS50196'), 429],
+    [
+      'a busy Entra ID answering 400',
+      entra_error(400, 'temporarily_unavailable', 'AADSTS90033'),
+      400,
+    ],
     ['a refused connection', { network: 'ECONNREFUSED' }, undefined],
   ])('marks %s transient, not refused', async (_label, answer, status) => {
     const failure = await provider_for(answer)
