@@ -21,6 +21,8 @@ These occur before any backup work starts. Atlas signs in to Microsoft Graph wit
 
 When Microsoft Entra ID refuses the token request, the command exits `4` with `Atlas code: ATLAS_AUTH_DENIED` and prints Entra's answer as the cause, for example `Cause: invalid_client: Error(s): 7000215`. Atlas does not retry a refusal, because Entra gives the same answer until the credentials change. A token request that gets no answer, or a `5xx` from Entra, is retried and ends in exit `3`.
 
+`atlas tenants validate` and `atlas tenants add` are the exception. They request one token, print Entra's answer, and exit `1` for any failure, refused or unanswered, without retrying.
+
 ### AADSTS error codes
 
 | Error code | Meaning | Fix |
