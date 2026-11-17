@@ -89,7 +89,7 @@ If you believe you have found a vulnerability, report it privately through [wise
 
 Atlas is developed and maintained by [Wisecom Oy](https://wisecom.fi). Sponsorship helps keep it maintained, reliable, and free.
 
-[❤️ Sponsor Wisecom Oy on GitHub](https://github.com/sponsors/wisecom-oy)
+❤️ [Sponsor Wisecom Oy on GitHub](https://github.com/sponsors/wisecom-oy)
 
 ## License
 
