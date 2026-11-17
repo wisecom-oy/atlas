@@ -131,7 +131,7 @@ The repository's `docker/docker-compose.yml` starts MinIO with a named volume.
    docker compose up -d
    ```
 
-   The first `up` builds the MinIO image from source, which takes about a minute and needs outbound HTTPS to Docker Hub and `proxy.golang.org`. Later starts reuse the local image.
+   The first `up` builds the MinIO image from source, which takes about a minute. It needs outbound HTTPS to Docker Hub, the Go module proxy `proxy.golang.org`, which serves some module archives from `storage.googleapis.com`, and the Go checksum database `sum.golang.org`. Allow all four if your egress is filtered. Later starts reuse the local image.
 
 The compose file:
 
