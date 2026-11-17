@@ -5,6 +5,8 @@
  * default rename policy, overwrites under `--conflict replace`, and silent either way because
  * every upload succeeded against real folder ids.
  */
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type {
@@ -16,6 +18,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { OneDriveRestoreService } from '@/services/restore/restore.service';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 const CONTENT = Buffer.from('file-content');
 const CHECKSUM = createHash('sha256').update(CONTENT).digest('hex');
@@ -81,10 +84,14 @@ function make_harness(entries: OneDriveManifestEntry[], target_drives: string[])
 
   const manifests = {
     find_by_snapshot: vi.fn().mockResolvedValue(manifest),
-    list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
+    list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
+    ...drive_chain_reads('onedrive'),
   } as unknown as OneDriveManifestRepository;
 
-  return { service: new OneDriveRestoreService(factory, connector, manifests), connector };
+  return {
+    service: new OneDriveRestoreService(factory, connector, manifests, stub_owner_leases().leases),
+    connector,
+  };
 }
 
 /** The drive id each upload was addressed to, in call order. */

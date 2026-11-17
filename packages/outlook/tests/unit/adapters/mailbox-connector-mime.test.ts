@@ -46,9 +46,7 @@ const MIME = Buffer.from(
 
 describe('GraphMailboxConnector.fetch_mime', () => {
   it('returns the original MIME bytes from /$value', async () => {
-    const harness = create_harness(async () =>
-      MIME.buffer.slice(MIME.byteOffset, MIME.byteOffset + MIME.byteLength),
-    );
+    const harness = create_harness(async () => new Response(MIME));
 
     const result = await harness.connector.fetch_mime('t', 'owner-1', 'msg-1');
 
@@ -58,12 +56,12 @@ describe('GraphMailboxConnector.fetch_mime', () => {
   });
 
   it('requests immutable IDs and raw bytes', async () => {
-    const harness = create_harness(async () => new ArrayBuffer(0));
+    const harness = create_harness(async () => new Response(new ArrayBuffer(0)));
 
     await harness.connector.fetch_mime('t', 'owner-1', 'msg-1');
 
     expect(harness.header).toHaveBeenCalledWith('Prefer', 'IdType="ImmutableId"');
-    expect(harness.response_type).toHaveBeenCalledWith('arraybuffer');
+    expect(harness.response_type).toHaveBeenCalledWith('raw');
   });
 
   it('resolves undefined when the message no longer exists', async () => {

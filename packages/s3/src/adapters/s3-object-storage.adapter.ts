@@ -19,6 +19,7 @@ import type {
   StorageImmutabilityProbeRequest,
   StorageImmutabilityProbeResult,
   StorageObjectLockPolicy,
+  StorageObjectVersion,
 } from '@wisecom/atlas-types';
 import { probe_bucket_immutability } from '@/adapters/s3-bucket-manager';
 import type { BucketCache } from '@/adapters/bucket-cache';
@@ -102,6 +103,16 @@ export class S3ObjectStorage implements ObjectStorage {
     const stream = response.Body;
     if (!stream) throw new Error(`Empty response body for key ${key}`);
 
+    return Buffer.from(await stream.transformToByteArray());
+  }
+
+  /** Reads one specific version of an object. */
+  async get_version(key: string, version_id: string): Promise<Buffer> {
+    const response = await this._client.send(
+      new GetObjectCommand({ Bucket: this._bucket, Key: key, VersionId: version_id }),
+    );
+    const stream = response.Body;
+    if (!stream) throw new Error(`Empty response body for key ${key} version ${version_id}`);
     return Buffer.from(await stream.transformToByteArray());
   }
 
@@ -212,10 +223,8 @@ export class S3ObjectStorage implements ObjectStorage {
   }
 
   /** Lists all object versions and delete markers under a prefix. */
-  async list_versions(
-    prefix: string,
-  ): Promise<{ key: string; version_id: string; is_delete_marker: boolean }[]> {
-    const versions: { key: string; version_id: string; is_delete_marker: boolean }[] = [];
+  async list_versions(prefix: string): Promise<StorageObjectVersion[]> {
+    const versions: StorageObjectVersion[] = [];
     let key_marker: string | undefined;
     let version_id_marker: string | undefined;
 
@@ -235,6 +244,7 @@ export class S3ObjectStorage implements ObjectStorage {
             key: version.Key,
             version_id: version.VersionId,
             is_delete_marker: false,
+            ...currency_of(version.IsLatest),
           });
         }
       }
@@ -245,6 +255,7 @@ export class S3ObjectStorage implements ObjectStorage {
             key: marker.Key,
             version_id: marker.VersionId,
             is_delete_marker: true,
+            ...currency_of(marker.IsLatest),
           });
         }
       }
@@ -351,6 +362,15 @@ export class S3ObjectStorage implements ObjectStorage {
  * Names a refused delete for what it is. Retention and legal holds are an expected outcome a
  * caller reports as retained; anything else is a failure it must not file as recoverable.
  */
+/**
+ * The listing's own statement of whether a version is current. A backend that leaves `IsLatest`
+ * out says nothing, and that must stay unknown rather than read as noncurrent: a caller that
+ * deletes old versions would otherwise delete the current one.
+ */
+function currency_of(is_latest: boolean | undefined): { is_latest?: boolean } {
+  return is_latest === undefined ? {} : { is_latest };
+}
+
 function as_delete_failure(key: string, err: unknown): Error {
   if (is_object_lock_refusal(err)) return new ObjectLockRetainedError(key, { cause: err });
   return err instanceof Error ? err : new Error(String(err));

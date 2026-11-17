@@ -78,12 +78,7 @@ describe('GraphMailboxConnector – fetch_attachments', () => {
       })
       // Only the item attachment needs a /$value fetch: the file attachment
       // arrived inline, and a reference attachment has no bytes to fetch.
-      .mockResolvedValueOnce(
-        attached_mail.buffer.slice(
-          attached_mail.byteOffset,
-          attached_mail.byteOffset + attached_mail.byteLength,
-        ),
-      );
+      .mockResolvedValueOnce(new Response(attached_mail));
 
     const result = await connector.fetch_attachments('tenant-1', 'user-1', 'msg-1');
 
@@ -121,9 +116,7 @@ describe('GraphMailboxConnector – fetch_attachments', () => {
           },
         ],
       })
-      .mockResolvedValueOnce(
-        raw_bytes.buffer.slice(raw_bytes.byteOffset, raw_bytes.byteOffset + raw_bytes.byteLength),
-      );
+      .mockResolvedValueOnce(new Response(raw_bytes));
 
     const result = await connector.fetch_attachments('tenant-1', 'user-1', 'msg-1');
 

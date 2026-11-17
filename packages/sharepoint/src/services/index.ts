@@ -7,3 +7,4 @@ export { SharePointCatalogService } from '@/services/catalog/catalog.service';
 export { SharePointSiteTreeBackupService } from '@/services/backup/site-tree-backup.service';
 export { SharePointStatusService } from '@/services/status/status.service';
 export { canonical_site_id } from '@/services/shared/site-id';
+export { classify_site_kind } from '@/services/shared/site-kind';

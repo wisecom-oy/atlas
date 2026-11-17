@@ -2,16 +2,20 @@ export { S3ObjectStorage } from './s3-object-storage.adapter';
 export { create_s3_client, S3_CLIENT_TOKEN } from './s3-client.factory';
 export { S3ManifestRepository } from './s3-manifest-repository.adapter';
 export { ensure_bucket_exists, probe_bucket_immutability } from './s3-bucket-manager';
-export { tenant_bucket_name } from './tenant-bucket-name';
+export {
+  invalid_bucket_name_error,
+  resolve_tenant_bucket,
+  tenant_bucket_name,
+} from './tenant-bucket-name';
+export { ConfiguredBucketNameResolver } from './configured-bucket-name-resolver';
+export { bucket_exists } from './s3-bucket-manager';
 export {
   ObjectLockVersioningDisabledError,
   ObjectLockUnsupportedError,
   ObjectLockModeRejectedError,
   PreconditionFailedError,
 } from './object-lock.errors';
-export { validate_dek_match, DekMismatchError } from './dek-validator';
 export { DefaultTenantContextFactory } from './tenant-context.factory';
-export { create_storage_target, DefaultStorageTarget } from './storage-target.factory';
 export { S3IdentityRegistryRepository } from './s3-identity-registry-repository.adapter';
 export { BucketCache } from './bucket-cache';
 export { observe_storage_requests } from './s3-request-observer';

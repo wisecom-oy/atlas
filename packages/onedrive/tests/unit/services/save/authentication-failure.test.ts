@@ -1,3 +1,4 @@
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
@@ -14,6 +15,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 /**
  * Issue #341: a file whose decryption failed was mapped to `undefined` and counted as a skip, so a
@@ -45,7 +47,6 @@ vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', async (impor
 });
 vi.mock('@wisecom/atlas-drive/restore/streaming-restore', () => ({
   should_stream_restore: vi.fn().mockReturnValue(false),
-  stream_decrypt_from_storage: vi.fn(),
   verify_streaming_checksum: vi.fn().mockReturnValue(true),
 }));
 vi.mock('@wisecom/atlas-core/utils/zone-identifier', () => ({
@@ -112,7 +113,8 @@ function make_service(entries: OneDriveManifestEntry[]): OneDriveSaveService {
   } as unknown as TenantContextFactory);
   container.bind(ONEDRIVE_MANIFEST_REPOSITORY_TOKEN).toConstantValue({
     find_by_snapshot: vi.fn().mockResolvedValue(manifest),
-    list_snapshots_by_owner: vi.fn().mockResolvedValue([manifest]),
+    list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([manifest])),
+    ...drive_chain_reads('onedrive'),
   } as unknown as OneDriveManifestRepository);
   container.bind(OneDriveSaveService).toSelf();
   return container.get(OneDriveSaveService);

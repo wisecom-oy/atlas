@@ -1,8 +1,11 @@
 import { BucketCache } from '@/adapters/bucket-cache';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DefaultTenantContextFactory } from '@/adapters/tenant-context.factory';
+import { ConfiguredBucketNameResolver } from '@/adapters/configured-bucket-name-resolver';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ConfigError } from '@wisecom/atlas-types';
+
+const DERIVED = new ConfiguredBucketNameResolver(undefined);
 
 // Regression tests for issue #25: two processes bootstrapping the same fresh
 // tenant concurrently must converge on one DEK - the loser of the create-only
@@ -61,7 +64,7 @@ function make_factory(
   s3: { send: ReturnType<typeof vi.fn> },
   buckets: BucketCache,
 ): DefaultTenantContextFactory {
-  return new DefaultTenantContextFactory(s3 as never, CONFIG, buckets);
+  return new DefaultTenantContextFactory(s3 as never, CONFIG, buckets, DERIVED);
 }
 
 describe('DEK bootstrap race (issue #25)', () => {
@@ -136,7 +139,7 @@ describe('DEK bootstrap race (issue #25)', () => {
     const short = { encryption_passphrase: 'abcd' } as AtlasConfig;
 
     await expect(
-      new DefaultTenantContextFactory(s3 as never, short, buckets).create('tenant-new'),
+      new DefaultTenantContextFactory(s3 as never, short, buckets, DERIVED).create('tenant-new'),
     ).rejects.toBeInstanceOf(ConfigError);
     expect(s3.objects.size).toBe(0);
   });

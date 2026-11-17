@@ -1,7 +1,7 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { ResponseType } from '@microsoft/microsoft-graph-client';
 import {
   describe_graph_error,
+  get_graph_bytes,
   is_retryable_error,
   rethrow_if_access_denied,
   rethrow_if_mailbox_not_licensed,
@@ -33,12 +33,7 @@ export async function fetch_message_mime(
   const url = `/users/${owner_id}/messages/${message_id}/$value`;
   try {
     const data = await with_graph_retry(
-      () =>
-        client
-          .api(url)
-          .header('Prefer', immutable_id_prefer)
-          .responseType(ResponseType.ARRAYBUFFER)
-          .get() as Promise<ArrayBuffer>,
+      () => get_graph_bytes(client.api(url).header('Prefer', immutable_id_prefer)),
       { timeout_ms: MIME_DOWNLOAD_TIMEOUT_MS },
     );
     return Buffer.from(data);

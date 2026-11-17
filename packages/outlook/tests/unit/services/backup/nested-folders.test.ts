@@ -1,3 +1,4 @@
+import { outlook_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
@@ -6,7 +7,9 @@ import {
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
   MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
+  NotFoundError,
 } from '@wisecom/atlas-types';
 import type {
   MailboxConnector,
@@ -17,6 +20,8 @@ import type {
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 function make_folder(path: string, id: string): MailFolder {
   const segments = path.split('/');
@@ -54,6 +59,7 @@ function synced_folder_ids(connector: MailboxConnector): unknown[] {
 describe('MailboxSyncService - nested folders', () => {
   let mock_connector: MailboxConnector;
   let service: MailboxSyncService;
+  let mock_factory: TenantContextFactory;
 
   beforeEach(() => {
     mock_connector = {
@@ -72,13 +78,21 @@ describe('MailboxSyncService - nested folders', () => {
 
     const mock_manifests: ManifestRepository = {
       save: vi.fn(),
+      forget_snapshot_summary: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
       list_by_owner: vi.fn().mockResolvedValue([]),
-      find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
+      find_latest_readable: vi.fn().mockResolvedValue(latest_readable(undefined)),
       list_all_manifests: vi.fn().mockResolvedValue([]),
       list_owner_ids: vi.fn().mockResolvedValue([]),
+      list_readable_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
+      list_all_readable: vi.fn().mockResolvedValue(readable_manifests()),
+      read_manifest_at: vi.fn(outlook_chain_reads(() => mock_manifests).read_manifest_at),
+      list_all_snapshot_summaries: vi.fn(),
+      list_snapshot_summaries: vi.fn(
+        outlook_chain_reads(() => mock_manifests).list_snapshot_summaries,
+      ),
     };
-    const mock_factory = {
+    mock_factory = {
       create: vi.fn().mockResolvedValue(make_mock_context()),
       create_readonly: vi.fn().mockResolvedValue(make_mock_context()),
     } as unknown as TenantContextFactory;
@@ -90,6 +104,7 @@ describe('MailboxSyncService - nested folders', () => {
       .bind(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN)
       .toConstantValue({ load: vi.fn().mockResolvedValue(undefined), save: vi.fn() });
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(mock_factory);
+    container.bind(OWNER_LEASE_TOKEN).toConstantValue(stub_owner_leases().leases);
     container.bind(MailboxSyncService).toSelf();
 
     service = container.get(MailboxSyncService);
@@ -132,14 +147,42 @@ describe('MailboxSyncService - nested folders', () => {
     expect(synced_folder_ids(mock_connector)).toEqual(['f2']);
   });
 
-  it('warns instead of silently syncing nothing when a selector matches no folder', async () => {
+  it('fails before opening storage when no selector matches a folder (issue #707)', async () => {
     vi.mocked(mock_connector.list_mail_folders).mockResolvedValue([make_folder('Inbox', 'f1')]);
 
+    const run = service.sync_mailbox('t', 'user@test.com', { folder_filter: ['Inbox/Nope'] });
+
+    await expect(run).rejects.toBeInstanceOf(NotFoundError);
+    await expect(run).rejects.toThrow('"Inbox/Nope"');
+    expect(mock_factory.create).not.toHaveBeenCalled();
+    expect(synced_folder_ids(mock_connector)).toEqual([]);
+  });
+
+  it('backs up the matches and reports an unmatched selector as a folder error', async () => {
+    vi.mocked(mock_connector.list_mail_folders).mockResolvedValue([
+      make_folder('Inbox', 'f1'),
+      make_folder('Archive', 'f2'),
+    ]);
+
     const result = await service.sync_mailbox('t', 'user@test.com', {
-      folder_filter: ['Inbox/Nope'],
+      folder_filter: ['Archive', 'Nope'],
     });
 
-    expect(synced_folder_ids(mock_connector)).toEqual([]);
-    expect(result.summary.warnings.join(' ')).toContain('Inbox/Nope');
+    expect(synced_folder_ids(mock_connector)).toEqual(['f2']);
+    expect(result.summary.folder_errors).toEqual([
+      'Folder "Nope" not found. Available: Inbox, Archive',
+    ]);
+  });
+
+  it('selects a localised well-known folder and its subtree by its well-known name', async () => {
+    vi.mocked(mock_connector.list_mail_folders).mockResolvedValue([
+      { ...make_folder('Saapuneet', 'f1'), well_known_name: 'inbox' },
+      make_folder('Saapuneet/Projects', 'f2'),
+      make_folder('Archive', 'f3'),
+    ]);
+
+    await service.sync_mailbox('t', 'user@test.com', { folder_filter: ['Inbox'] });
+
+    expect(synced_folder_ids(mock_connector)).toEqual(['f1', 'f2']);
   });
 });

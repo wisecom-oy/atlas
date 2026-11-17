@@ -9,13 +9,8 @@ import type {
   TenantContext,
   OperationControlOptions,
 } from '@wisecom/atlas-types';
-import { logger } from '@wisecom/atlas-core/utils/logger';
 import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
-import {
-  clear_item_failure,
-  record_item_failure,
-  type FailedItemLedger,
-} from '@wisecom/atlas-core/services/shared/failed-item-ledger';
+import type { FailedItemLedger } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import type { PackageReport } from '@wisecom/atlas-core/services/shared/package-item-reporter';
 import {
   clear_file_tracking_on_reset,
@@ -26,6 +21,7 @@ import {
 } from '@/services/backup/delta-item-processor';
 import {
   apply_item_outcome,
+  record_failed_or_cancelled_drive,
   record_item_outcome_failure,
 } from '@/services/backup/drive-item-outcome';
 import { resolve_retry_items } from '@/services/backup/failed-item-retry';
@@ -45,6 +41,10 @@ import {
   completed_recrawl,
   type DriveRecrawl,
 } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
+import {
+  create_item_metadata_capture,
+  type DriveItemMetadataCapture,
+} from '@wisecom/atlas-drive/backup/item-metadata-capture';
 import { accumulate_drive_result } from '@/services/backup/drive-result-accumulator';
 
 export interface SingleDriveResult {
@@ -108,6 +108,7 @@ export async function scan_all_drives(
   progress?: BackupProgressReporter,
   control: OperationControlOptions = {},
   folder_scope?: string,
+  capture: DriveItemMetadataCapture = create_item_metadata_capture(connector),
 ): Promise<DriveScanAccumulators> {
   // No index read here: version dedup rides on the delta cursor watermarks the
   // caller already loaded (issue #161).
@@ -187,6 +188,7 @@ export async function scan_all_drives(
         on_version_stats_update,
         on_item_processed,
         control,
+        capture,
       );
 
       // Notebook accounting stands apart from the entry bookkeeping: a drive
@@ -217,11 +219,8 @@ export async function scan_all_drives(
         break;
       }
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      logger.error(`Drive ${drive.drive_id} failed: ${reason}`);
-      accumulators.errors.push(`Drive ${drive.drive_name} (${drive.drive_id}): ${reason}`);
-      progress?.mark_error(index, reason);
       Object.assign(tracking_state, tracking_before);
+      record_failed_or_cancelled_drive(err, drive, index, accumulators, progress, control);
     }
   }
 
@@ -250,6 +249,7 @@ export async function process_single_drive(
   on_version_stats_update: (stored: number, unavailable: number, failed: number) => void,
   on_item_processed?: (item: OneDriveDeltaItem) => void,
   control: OperationControlOptions = {},
+  capture: DriveItemMetadataCapture = create_item_metadata_capture(connector),
 ): Promise<SingleDriveResult> {
   const delta_item_ids = new Set(delta.items.map((item) => item.item_id));
   if (delta.reset_detected) {
@@ -274,6 +274,12 @@ export async function process_single_drive(
     ...retry.items.map((item) => ({ item, from_delta: false })),
     ...delta.items.map((item) => ({ item, from_delta: true })),
   ];
+  // `$batch` reads of 20 shared items or folders, ahead of the loop that would read them one by one.
+  await capture.prefetch(
+    drive.drive_id,
+    queue.map(({ item }) => item),
+    state,
+  );
 
   const result: SingleDriveResult = {
     entries: [],
@@ -307,6 +313,7 @@ export async function process_single_drive(
         on_version_stats_update,
         versions,
         control.abort_signal,
+        capture,
       );
     } catch (err) {
       // A cancelled transfer is the run stopping, not the item failing. Recording it would spend

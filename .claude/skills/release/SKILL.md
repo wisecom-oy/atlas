@@ -90,6 +90,12 @@ Before merging:
 - Confirm every PR in the release carries a label (`enhancement`, `bug`,
   `documentation`, `security`) -- notes are categorised by label only, and
   unlabelled PRs land under "Other changes".
+- Run one live cross-tenant Outlook restore from the release branch build:
+  `atlas --profile <source> outlook restore -s <snapshot-id> --target-profile <target> -T <target-mailbox> --destination Release-check-<version>`,
+  with a snapshot taken by Atlas 5.2.3 or later. Run it under
+  `./tools/graph-tap/graph-tap run`, confirm the summary holds no
+  `mailFolders?includeHiddenFolders` listing for the source owner (issue #713),
+  then delete the restored folder in the target mailbox.
 - Confirm the docs governance checklist in `.claude/CLAUDE.md` is satisfied for
   everything in the release: CLI flags, SDK methods, config variables, and
   security changes all have documentation in place.

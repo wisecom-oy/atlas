@@ -7,14 +7,10 @@ import {
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
   MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
-import type {
-  MailboxConnector,
-  MailMessage,
-  MailFolder,
-  DeltaSyncResult,
-} from '@wisecom/atlas-types';
+import type { MailboxConnector, MailMessage, MailFolder } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import type { ObjectStorage } from '@wisecom/atlas-types';
@@ -22,6 +18,9 @@ import { SnapshotStatus } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
+import { latest_readable, readable_summaries } from '@wisecom/atlas-types/testing/readable-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
+import { make_delta } from './mailbox-sync.fixtures';
 
 function make_message(id: string, body: string, has_attachments = false): MailMessage {
   const raw = Buffer.from(body);
@@ -43,10 +42,6 @@ function make_folder(name: string, id?: string, count = 10, path?: string): Mail
     folder_path: path ?? name,
     total_item_count: count,
   };
-}
-
-function make_delta(messages: MailMessage[], delta_link = 'https://delta/link'): DeltaSyncResult {
-  return { messages, removed_ids: [], delta_link, delta_reset: false };
 }
 
 function make_mock_storage(): ObjectStorage {
@@ -117,10 +112,12 @@ describe('MailboxSyncService', () => {
       save: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
       list_by_owner: vi.fn().mockResolvedValue([]),
-      find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
+      find_latest_readable: vi.fn().mockResolvedValue(latest_readable(undefined)),
       list_all_manifests: vi.fn().mockResolvedValue([]),
       list_owner_ids: vi.fn().mockResolvedValue([]),
-    };
+      // A backup reads the newest readable manifest and the summary rows its count builds on.
+      list_snapshot_summaries: vi.fn().mockResolvedValue(readable_summaries()),
+    } as unknown as ManifestRepository;
 
     mock_factory = {
       create: vi.fn().mockResolvedValue(mock_context),
@@ -135,6 +132,7 @@ describe('MailboxSyncService', () => {
       .bind(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN)
       .toConstantValue({ load: vi.fn().mockResolvedValue(undefined), save: vi.fn() });
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(mock_factory);
+    container.bind(OWNER_LEASE_TOKEN).toConstantValue(stub_owner_leases().leases);
     container.bind(MailboxSyncService).toSelf();
 
     service = container.get(MailboxSyncService);

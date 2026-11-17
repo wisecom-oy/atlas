@@ -87,7 +87,8 @@ describe('GraphOneDriveConnector.list_drives for an unprovisioned drive', () => 
 
   it('still reports a 403 as a missing Graph grant', async () => {
     const connector = make_connector({
-      [DRIVES_PATH]: () => Promise.reject(graph_error(403, 'ErrorAccessDenied')),
+      [DRIVES_PATH]: () =>
+        Promise.reject(Object.assign(graph_error(403, 'Access denied'), { code: 'accessDenied' })),
     });
 
     await expect(connector.list_drives('tenant-1', 'owner-1')).rejects.toBeInstanceOf(

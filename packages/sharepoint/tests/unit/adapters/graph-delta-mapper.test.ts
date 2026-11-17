@@ -1,14 +1,29 @@
 import { describe, it, expect } from 'vitest';
-import { map_delta_item, type GraphDeltaDriveItem } from '@/adapters/graph-sharepoint-delta-mapper';
+import {
+  has_item_id,
+  map_delta_item,
+  type IdentifiedGraphDeltaDriveItem,
+} from '@/adapters/graph-sharepoint-delta-mapper';
 
 // Issue #139: driveItem delta signals removal with the `deleted` facet, not the
 // `@removed` annotation used by messages/delta.
 
 const DRIVE_ID = 'lib1';
 
+describe('has_item_id', () => {
+  it('accepts an item with a non-empty id', () => {
+    expect(has_item_id({ id: 'i1', name: 'a.txt' })).toBe(true);
+  });
+
+  it('rejects an item Graph returned without an id, or with an empty one', () => {
+    expect(has_item_id({ name: 'a.txt', file: {} })).toBe(false);
+    expect(has_item_id({ id: '', name: 'a.txt' })).toBe(false);
+  });
+});
+
 describe('map_delta_item deletion detection', () => {
   it('treats the deleted facet as a removal', () => {
-    const raw: GraphDeltaDriveItem = {
+    const raw: IdentifiedGraphDeltaDriveItem = {
       id: 'i1',
       parentReference: { path: '/drives/lib1/root:/Shared Documents' },
       file: {},

@@ -97,6 +97,10 @@ Three decisions do the work:
 **Identifiers are templated.** Path segments that are GUIDs, UPNs, or long opaque
 item IDs become `{guid}`, `{upn}`, `{id}`. Four thousand per-message fetches
 therefore aggregate into one row instead of four thousand near-identical lines.
+The rules live in `tools/graph-tap/redact.mjs`, shared with
+[outagesoft-365](/development/outagesoft-365#security), and also template ids by
+position, path-addressed file names as `{path}`, SharePoint tenants and sites as
+`{tenant}` and `{site}`, and quoted query literals as `'{value}'`.
 
 **Opaque values are reduced to their size.** Delta and skip tokens run to
 kilobytes of base64 that no analysis reads, so `$deltatoken=<1840b>` is recorded

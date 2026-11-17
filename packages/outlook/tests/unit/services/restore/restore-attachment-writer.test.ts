@@ -48,6 +48,8 @@ function make_ctx(): TenantContext {
 function make_restore_connector(): RestoreConnector {
   return {
     create_mail_folder: vi.fn(),
+    find_child_mail_folder: vi.fn().mockResolvedValue(undefined),
+    find_well_known_folder_role: vi.fn().mockResolvedValue(undefined),
     create_message: vi.fn(),
     add_attachment: vi.fn(),
     create_upload_session: vi.fn(),

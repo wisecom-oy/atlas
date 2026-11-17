@@ -20,9 +20,18 @@ import type {
   SharePointSite,
   SharePointSiteTreeBackupUseCase,
   SharePointSiteConnector,
+  SharePointSubsiteTree,
 } from '@wisecom/atlas-types';
-import { SHAREPOINT_BACKUP_USE_CASE_TOKEN, SHAREPOINT_CONNECTOR_TOKEN } from '@wisecom/atlas-types';
+import {
+  OwnerBusyError,
+  SHAREPOINT_BACKUP_USE_CASE_TOKEN,
+  SHAREPOINT_CONNECTOR_TOKEN,
+} from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
+import { build_empty_result } from '@/services/backup/backup-builders';
+import { interrupted_before_scan } from '@/services/backup/interrupted-scan-result';
 
 @injectable()
 export class SharePointSiteTreeBackupService implements SharePointSiteTreeBackupUseCase {
@@ -31,38 +40,78 @@ export class SharePointSiteTreeBackupService implements SharePointSiteTreeBackup
     @inject(SHAREPOINT_BACKUP_USE_CASE_TOKEN) private readonly _backup: SharePointBackupUseCase,
   ) {}
 
+  /**
+   * Backs up the site, then its subsites when asked; cancelling also ends the subsite listing.
+   *
+   * Each site is backed up under its own lease. A busy root site rejects with `OwnerBusyError`,
+   * as a single-site backup does. A busy subsite is that subsite's failure: its result carries
+   * the error and the remaining subsites are still backed up (issue #623).
+   */
   async backup_site_tree(
     tenant_id: string,
     root_site_id: string,
     options: SharePointBackupOptions = {},
   ): Promise<SharePointBackupResult[]> {
+    return run_cancellable(
+      options,
+      () => this.run_site_tree(tenant_id, root_site_id, options),
+      () => [interrupted_before_scan(normalize_owner_id(root_site_id), options)],
+    );
+  }
+
+  private async run_site_tree(
+    tenant_id: string,
+    root_site_id: string,
+    options: SharePointBackupOptions,
+  ): Promise<SharePointBackupResult[]> {
     const tree = await this._connector.list_subsites(tenant_id, root_site_id);
     const include_subsites = options.include_subsites === true;
 
-    const root_warnings = [
-      ...tree.warnings,
-      ...(include_subsites ? [] : uncovered_subsite_warnings(tree.sites)),
-    ];
-
+    const root_findings = listing_findings(tree, include_subsites);
     const root_result = await this._backup.backup_site(tenant_id, root_site_id, options);
-    const results = [with_extra_warnings(root_result, root_warnings)];
+    const results = [with_extra_findings(root_result, root_findings)];
 
     if (!include_subsites || root_result.interrupted) return results;
 
     for (const subsite of tree.sites) {
-      if (options.should_interrupt?.() === true) break;
+      if (options.should_interrupt?.() === true) {
+        results.push(not_started_subsite_result(subsite));
+        break;
+      }
       logger.info(`Backing up subsite: ${subsite.display_name || subsite.site_url}`);
-      const subsite_result = await this._backup.backup_site(tenant_id, subsite.site_id, {
-        ...options,
-        site_url: subsite.site_url,
-        site_display_name: subsite.display_name,
-      });
+      const subsite_result = await this.backup_subsite_unless_busy(tenant_id, subsite, options);
       results.push(subsite_result);
       if (subsite_result.interrupted) break;
     }
 
     return results;
   }
+
+  /** Backs up one subsite; a subsite another operation holds becomes a failed, unhealthy result. */
+  private async backup_subsite_unless_busy(
+    tenant_id: string,
+    subsite: SharePointSite,
+    options: SharePointBackupOptions,
+  ): Promise<SharePointBackupResult> {
+    try {
+      return await this._backup.backup_site(tenant_id, subsite.site_id, {
+        ...options,
+        site_url: subsite.site_url,
+        site_display_name: subsite.display_name,
+      });
+    } catch (err) {
+      if (!(err instanceof OwnerBusyError)) throw err;
+      logger.warn(
+        `Subsite ${subsite.site_url || subsite.site_id} was not backed up: ${err.message}`,
+      );
+      return busy_subsite_result(normalize_owner_id(subsite.site_id), err);
+    }
+  }
+}
+
+/** The result of a subsite that was not backed up because another operation held it. */
+function busy_subsite_result(site_id: string, busy: OwnerBusyError): SharePointBackupResult {
+  return build_empty_result(site_id, 0, 0, 0, 0, 0, 0, [busy.message], [], false, false, false);
 }
 
 /** One warning per subsite left out of the backup, naming the flag that covers it. */
@@ -75,14 +124,59 @@ function uncovered_subsite_warnings(subsites: SharePointSite[]): string[] {
   );
 }
 
-/** Returns the result with additional warnings merged into its summary. */
-function with_extra_warnings(
+/** Findings from the subsite listing, attached to the root result. */
+interface ListingFindings {
+  readonly errors: string[];
+  readonly warnings: string[];
+}
+
+/**
+ * Routes the listing's findings. With subsites included, a failed listing is an error: the
+ * subtree it was meant to cover is missing. Without them the listing only tells the operator what
+ * is left out, so its failures stay warnings and a default run keeps its verdict.
+ */
+function listing_findings(tree: SharePointSubsiteTree, include_subsites: boolean): ListingFindings {
+  if (include_subsites) return { errors: tree.errors, warnings: tree.warnings };
+  return {
+    errors: [],
+    warnings: [...tree.warnings, ...tree.errors, ...uncovered_subsite_warnings(tree.sites)],
+  };
+}
+
+/** Returns the result with extra findings merged in; an extra error makes it unhealthy. */
+function with_extra_findings(
   result: SharePointBackupResult,
-  extra: string[],
+  extra: ListingFindings,
 ): SharePointBackupResult {
-  if (extra.length === 0) return result;
+  if (extra.errors.length === 0 && extra.warnings.length === 0) return result;
   return {
     ...result,
-    summary: { ...result.summary, warnings: [...result.summary.warnings, ...extra] },
+    summary: {
+      ...result.summary,
+      errors: [...result.summary.errors, ...extra.errors],
+      warnings: [...result.summary.warnings, ...extra.warnings],
+      healthy: result.summary.healthy && extra.errors.length === 0,
+    },
   };
+}
+
+/** The result of a subsite the run was interrupted before reaching: nothing backed up, unhealthy. */
+function not_started_subsite_result(subsite: SharePointSite): SharePointBackupResult {
+  const warning =
+    `Subsite not backed up: ${subsite.site_url || subsite.site_id}. ` +
+    'The run was interrupted before it started.';
+  return build_empty_result(
+    normalize_owner_id(subsite.site_id),
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    [],
+    [warning],
+    false,
+    true,
+    false,
+  );
 }

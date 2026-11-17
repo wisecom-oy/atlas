@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { DRIVE_DELTA_SELECT_FIELDS, map_delta_item } from '@/adapters/graph-onedrive-delta-mapper';
+import {
+  DRIVE_DELTA_SELECT_FIELDS,
+  map_delta_item,
+  type IdentifiedGraphDeltaDriveItem,
+} from '@/adapters/graph-onedrive-delta-mapper';
 import {
   graph_onedrive_upload_large_file,
   graph_onedrive_upload_small_file,
@@ -11,7 +15,7 @@ const FILE_SYSTEM_INFO = {
   lastModifiedDateTime: '2021-07-08T11:30:00Z',
 };
 
-function raw_item(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function raw_item(overrides: Record<string, unknown> = {}): IdentifiedGraphDeltaDriveItem {
   return {
     id: 'item-1',
     name: 'report.docx',
@@ -35,6 +39,7 @@ function make_client(put_result: unknown = { id: 'new-item' }): {
   const api = vi.fn((url: string) => {
     const chain = {
       header: vi.fn(() => chain),
+      option: vi.fn(() => chain),
       select: vi.fn(() => chain),
       put: vi.fn(async () => {
         calls.push({ url, method: 'put' });
@@ -172,6 +177,7 @@ describe('restoring original timestamps (issue #54)', () => {
     const api = vi.fn(() => {
       const chain = {
         header: vi.fn(() => chain),
+        option: vi.fn(() => chain),
         put: vi.fn(async () => {
           calls.push('put');
           return { id: 'new-item' };
@@ -195,7 +201,7 @@ describe('restoring original timestamps (issue #54)', () => {
         'rename',
         captured,
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe('new-item');
     expect(calls).toContain('put');
   });
 

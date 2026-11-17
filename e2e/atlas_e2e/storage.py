@@ -15,6 +15,9 @@ MANIFEST_PREFIXES = {
     "outlook": "manifests/",
     "onedrive": "onedrive/manifests/",
     "sharepoint": "sharepoint/manifests/",
+    "contacts": "contacts/manifests/",
+    "calendar": "calendar/manifests/",
+    "teams": "teams/manifests/",
 }
 DATA_PREFIXES = {
     "outlook": "data/",
@@ -27,11 +30,11 @@ INDEX_PREFIXES = {
 }
 
 
-def client(settings: Settings, endpoint: str | None = None) -> Any:
+def client(settings: Settings) -> Any:
     """An S3 client for MinIO: path-style addressing, no retries beyond botocore's default."""
     return boto3.client(
         "s3",
-        endpoint_url=endpoint or settings.s3_endpoint,
+        endpoint_url=settings.s3_endpoint,
         aws_access_key_id=settings.s3_access_key,
         aws_secret_access_key=settings.s3_secret_key,
         region_name=settings.s3_region,
@@ -79,6 +82,24 @@ def snapshot_ids(s3: Any, bucket: str, owner_id: str, workload: str = "outlook")
     ]
 
 
+def owner_segments(s3: Any, bucket: str, workload: str) -> list[str]:
+    """Owner, site or team segments that hold a manifest for a workload, read from the key names.
+
+    The segment is whatever Atlas derived from the identifier it was given, so the suite reads it
+    back instead of repeating the normalisation.
+    """
+    prefix = MANIFEST_PREFIXES[workload]
+    return sorted({key[len(prefix) :].split("/")[0] for key in list_keys(s3, bucket, prefix)})
+
+
+def object_version_ids(s3: Any, bucket: str, key: str) -> list[str]:
+    """Version ids of one key, current and noncurrent, delete markers excluded."""
+    ids: list[str] = []
+    for page in s3.get_paginator("list_object_versions").paginate(Bucket=bucket, Prefix=key):
+        ids.extend(v["VersionId"] for v in page.get("Versions", []) if v["Key"] == key)
+    return ids
+
+
 def retention(s3: Any, bucket: str, key: str) -> dict[str, Any] | None:
     """Object Lock retention on a key, or None when the object carries none."""
     try:
@@ -122,3 +143,41 @@ def physical_usage(s3: Any, bucket: str) -> dict[str, Any]:
                 part.get("Size", 0) for parts_page in parts for part in parts_page.get("Parts", [])
             )
     return usage
+
+
+def copy_bucket(s3: Any, source: str, destination: str) -> int:
+    """Copies every current object into a new versioned bucket, as `mc mirror` would.
+
+    Versioning is on so that any write to the copy, even an overwrite with identical bytes, shows
+    up as a new version in `version_listing`. Returns the number of objects copied.
+    """
+    s3.create_bucket(Bucket=destination)
+    s3.put_bucket_versioning(Bucket=destination, VersioningConfiguration={"Status": "Enabled"})
+    keys = list_keys(s3, source)
+    for key in keys:
+        s3.copy_object(Bucket=destination, Key=key, CopySource={"Bucket": source, "Key": key})
+    return len(keys)
+
+
+def version_listing(s3: Any, bucket: str) -> list[tuple[str, str, bool]]:
+    """Every version and delete marker as (key, version id, is delete marker), plus uploads.
+
+    Equal listings before and after a run prove the run wrote, overwrote and deleted nothing.
+    """
+    entries: list[tuple[str, str, bool]] = []
+    for page in s3.get_paginator("list_object_versions").paginate(Bucket=bucket):
+        entries.extend((v["Key"], v["VersionId"], False) for v in page.get("Versions", []))
+        entries.extend((m["Key"], m["VersionId"], True) for m in page.get("DeleteMarkers", []))
+    for page in s3.get_paginator("list_multipart_uploads").paginate(Bucket=bucket):
+        entries.extend((u["Key"], u["UploadId"], False) for u in page.get("Uploads", []))
+    return sorted(entries)
+
+
+def delete_bucket(s3: Any, bucket: str) -> None:
+    """Deletes every version and delete marker, then the bucket. A missing bucket is a no-op."""
+    if not bucket_exists(s3, bucket):
+        return
+    for page in s3.get_paginator("list_object_versions").paginate(Bucket=bucket):
+        for entry in [*page.get("Versions", []), *page.get("DeleteMarkers", [])]:
+            s3.delete_object(Bucket=bucket, Key=entry["Key"], VersionId=entry["VersionId"])
+    s3.delete_bucket(Bucket=bucket)

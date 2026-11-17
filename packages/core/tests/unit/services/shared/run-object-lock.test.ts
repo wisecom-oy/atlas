@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ObjectStorage, TenantContext } from '@wisecom/atlas-types';
 import {
-  lock_run_writes,
+  attach_run_retention,
   ObjectLockingStorage,
   UNLOCKED_STAGING_UPLOAD,
 } from '@/services/shared/run-object-lock';
@@ -88,19 +88,19 @@ describe('ObjectLockingStorage', () => {
   });
 });
 
-describe('lock_run_writes', () => {
+describe('attach_run_retention', () => {
   it('returns the context unchanged when no retention was requested', async () => {
     const ctx = make_ctx(make_storage());
 
-    await expect(lock_run_writes(ctx, undefined)).resolves.toBe(ctx);
-    await expect(lock_run_writes(ctx, { mode: 'COMPLIANCE' })).resolves.toBe(ctx);
+    await expect(attach_run_retention(ctx, undefined)).resolves.toBe(ctx);
+    await expect(attach_run_retention(ctx, { mode: 'COMPLIANCE' })).resolves.toBe(ctx);
     expect(ctx.storage.validate_object_lock_policy).not.toHaveBeenCalled();
   });
 
   it('validates first, then wraps storage and keeps the rest of the context', async () => {
     const ctx = make_ctx(make_storage());
 
-    const locked = await lock_run_writes(ctx, { retention_days: 7 });
+    const locked = await attach_run_retention(ctx, { retention_days: 7 });
 
     expect(ctx.storage.validate_object_lock_policy).toHaveBeenCalledWith(
       expect.objectContaining({ mode: 'GOVERNANCE' }),
@@ -114,7 +114,7 @@ describe('lock_run_writes', () => {
     const storage = make_storage();
     vi.mocked(storage.validate_object_lock_policy).mockRejectedValue(new Error('no lock'));
 
-    await expect(lock_run_writes(make_ctx(storage), { retention_days: 7 })).rejects.toThrow(
+    await expect(attach_run_retention(make_ctx(storage), { retention_days: 7 })).rejects.toThrow(
       'no lock',
     );
     expect(storage.put).not.toHaveBeenCalled();
@@ -122,8 +122,8 @@ describe('lock_run_writes', () => {
 
   it('gives two concurrent runs their own retention', async () => {
     const storage = make_storage();
-    const short_run = await lock_run_writes(make_ctx(storage), { retention_days: 7 });
-    const long_run = await lock_run_writes(make_ctx(storage), { retention_days: 365 });
+    const short_run = await attach_run_retention(make_ctx(storage), { retention_days: 7 });
+    const long_run = await attach_run_retention(make_ctx(storage), { retention_days: 365 });
 
     await long_run.storage.put('long', Buffer.from('x'));
     await short_run.storage.put('short', Buffer.from('x'));

@@ -1,20 +1,31 @@
-import type { DriveFileSystemInfo, DriveItemIdentity } from '@/domain/drive-item-metadata';
+import type { DriveFileSystemInfo, DriveItemIdentity } from '@/domain/drive/item-metadata';
+import type { DriveSharingConnector } from '@/ports/drive/drive-sharing.port';
+import type { DriveFolderColorConnector } from '@/ports/drive/folder-color.port';
 import type { LargeFileContent } from '@/ports/drive/large-file-content.port';
+/**
+ * What a listed site is. `file_storage_container` is a SharePoint Embedded container (web URL under
+ * `/contentstorage/`): Graph refuses it to an app that holds only `Sites` permissions, because it
+ * needs `FileStorageContainer.Selected`, so Atlas cannot back it up (issue #772).
+ */
+export type SharePointSiteKind = 'site' | 'file_storage_container';
+
 export interface SharePointSite {
   readonly site_id: string;
   readonly site_url: string;
   readonly display_name: string;
+  readonly kind: SharePointSiteKind;
 }
 
 /**
- * Result of walking a site's subsite tree. Subsites the application cannot
- * read are reported in `warnings` rather than silently dropped -- Graph
- * returns only the subsites the caller has access to, so an empty list and
- * an inaccessible subtree are otherwise indistinguishable.
+ * Result of walking a site's subsite tree. A listing that failed after retries
+ * is reported in `errors`, naming the parent site, so an empty list and an
+ * inaccessible subtree are never indistinguishable. `warnings` carries the
+ * coverage notes that are not failures, such as the depth ceiling.
  */
 export interface SharePointSubsiteTree {
   readonly sites: SharePointSite[];
   readonly warnings: string[];
+  readonly errors: string[];
 }
 
 export interface SharePointDocumentLibrary {
@@ -47,6 +58,14 @@ export interface SharePointDeltaItem {
    */
   readonly quarantined?: boolean;
   readonly download_url?: string;
+  /** Graph's `root` facet: the drive root, which is never recorded as an entry. */
+  readonly is_root?: boolean;
+  /**
+   * Graph returned a `shared` facet. Under `Prefer: hierarchicalsharing` that happens only where
+   * sharing was set on the item itself, and as an empty facet where it was just removed, so it
+   * marks the items whose permissions are worth reading.
+   */
+  readonly sharing_facet?: boolean;
 }
 
 export interface SharePointDeltaResult {
@@ -54,6 +73,12 @@ export interface SharePointDeltaResult {
   readonly delta_link: string;
   readonly items: SharePointDeltaItem[];
   readonly reset_detected: boolean;
+  /**
+   * The delta was a fresh enumeration of the whole drive although tracking stays valid, because
+   * the saved link predates the `shared` facet this version selects. Unchanged files are not downloaded
+   * again, but the re-crawl tombstones still run, since a fresh listing reports no deletions.
+   */
+  readonly full_enumeration?: boolean;
 }
 
 export interface SharePointFileVersion {
@@ -64,7 +89,7 @@ export interface SharePointFileVersion {
   readonly last_modified_by?: DriveItemIdentity;
 }
 
-export interface SharePointSiteConnector {
+export interface SharePointSiteConnector extends DriveSharingConnector, DriveFolderColorConnector {
   /** Lists all SharePoint sites in the tenant. */
   list_sites(tenant_id: string): Promise<SharePointSite[]>;
 
@@ -96,8 +121,8 @@ export interface SharePointSiteConnector {
     item_id: string,
   ): Promise<SharePointDeltaItem | undefined>;
 
-  /** Downloads full file content for small/medium files. */
-  download_file_content(item: SharePointDeltaItem): Promise<Buffer>;
+  /** Downloads full file content for small/medium files; `abort_signal` ends the transfer. */
+  download_file_content(item: SharePointDeltaItem, abort_signal?: AbortSignal): Promise<Buffer>;
 
   /** Resolves the temporary download URL for chunked download. */
   resolve_download_url(item: SharePointDeltaItem): Promise<string | undefined>;
@@ -105,8 +130,16 @@ export interface SharePointSiteConnector {
   /** Lists version history for a file. */
   list_file_versions(drive_id: string, item_id: string): Promise<SharePointFileVersion[]>;
 
-  /** Downloads a specific historical version of a file. */
-  download_file_version(drive_id: string, item_id: string, version_id: string): Promise<Buffer>;
+  /**
+   * Downloads a specific historical version of a file. `size_bytes` is the size Graph listed for
+   * the version and scales the drain timeout.
+   */
+  download_file_version(
+    drive_id: string,
+    item_id: string,
+    version_id: string,
+    size_bytes?: number,
+  ): Promise<Buffer>;
 
   /**
    * Opens a specific historical version as a stream, for versions too large to
@@ -139,9 +172,12 @@ export interface SharePointSiteConnector {
     content: Buffer,
     conflict_behavior?: string,
     file_system_info?: DriveFileSystemInfo,
-  ): Promise<void>;
+  ): Promise<string | undefined>;
 
-  /** Uploads a large file via resumable upload session, buffered or streamed. */
+  /**
+   * Uploads a large file via resumable upload session, buffered or streamed. Resolves the created
+   * item's id when Graph returned it, which a permission restore needs.
+   */
   upload_large_file(
     tenant_id: string,
     site_id: string,
@@ -151,5 +187,5 @@ export interface SharePointSiteConnector {
     content: LargeFileContent,
     conflict_behavior?: string,
     file_system_info?: DriveFileSystemInfo,
-  ): Promise<void>;
+  ): Promise<string | undefined>;
 }

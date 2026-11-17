@@ -51,13 +51,16 @@ export function is_object_lock_refusal(err: unknown): boolean {
   );
 }
 
+/** True when the error text names Object Lock: the only signal that a rejection is about the lock. */
+export function names_object_lock(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const text = `${err.name} ${err.message}`.toLowerCase();
+  return text.includes('object lock') || text.includes('objectlock');
+}
+
+/** True when the backend rejected a retention mode and the rejection names Object Lock. */
 export function is_backend_mode_rejection(err: unknown, mode?: string): boolean {
   if (!mode) return false;
   if (!(err instanceof S3ServiceException)) return false;
-  const error_text = `${err.name} ${err.message}`.toLowerCase();
-  return (
-    error_text.includes('object lock') ||
-    error_text.includes('invalidrequest') ||
-    error_text.includes('invalidargument')
-  );
+  return names_object_lock(err);
 }

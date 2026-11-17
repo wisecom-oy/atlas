@@ -1,3 +1,4 @@
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
@@ -16,6 +17,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { OneDriveSaveService } from '@/services/save/save.service';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 /**
  * Issue #344: a consumer that disconnects mid-export takes the destination with it, and every
@@ -106,7 +108,8 @@ function make_service(entries: OneDriveManifestEntry[]): {
   } as unknown as TenantContextFactory);
   container.bind(ONEDRIVE_MANIFEST_REPOSITORY_TOKEN).toConstantValue({
     find_by_snapshot: vi.fn().mockResolvedValue(manifest),
-    list_snapshots_by_owner: vi.fn().mockResolvedValue([manifest]),
+    list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([manifest])),
+    ...drive_chain_reads('onedrive'),
   } as unknown as OneDriveManifestRepository);
   container.bind(OneDriveSaveService).toSelf();
   return { service: container.get(OneDriveSaveService), reads: () => reads };

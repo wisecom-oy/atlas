@@ -23,7 +23,10 @@ export type { FailedItemLedger, FailedItemRecord };
  */
 export const MAX_FAILED_ITEM_ATTEMPTS = 5;
 
-/** Returns the ledger with this failure recorded, incrementing the item's attempt count. */
+/**
+ * Returns the ledger with this failure recorded. The attempt count goes up by one unless the failure
+ * is not the item's own fault, such as a download URL that expired before the file was read.
+ */
 export function record_item_failure(
   ledger: FailedItemLedger,
   failure: {
@@ -33,10 +36,13 @@ export function record_item_failure(
     reason: string;
     /** The service refuses this content by policy; retrying cannot help. */
     permanent?: boolean;
+    /** False when the failure says nothing about the file, so it is retried without spending an attempt. */
+    consumes_attempt?: boolean;
   },
 ): FailedItemLedger {
   const now = new Date().toISOString();
   const previous = ledger[failure.item_id];
+  const previous_attempts = previous?.attempts ?? 0;
 
   return {
     ...ledger,
@@ -45,7 +51,7 @@ export function record_item_failure(
       drive_id: failure.drive_id,
       name: failure.name,
       reason: failure.reason,
-      attempts: (previous?.attempts ?? 0) + 1,
+      attempts: failure.consumes_attempt === false ? previous_attempts : previous_attempts + 1,
       ...(failure.permanent === true ? { permanent: true } : {}),
       first_failed_at: previous?.first_failed_at ?? now,
       last_failed_at: now,
@@ -87,7 +93,9 @@ export function describe_failed_items(ledger: FailedItemLedger): string[] {
         ? 'PERMANENTLY SKIPPED by service policy, not retried'
         : record.attempts >= MAX_FAILED_ITEM_ATTEMPTS
           ? `PERMANENTLY SKIPPED after ${record.attempts} attempts`
-          : `will retry (attempt ${record.attempts} of ${MAX_FAILED_ITEM_ATTEMPTS})`;
+          : record.attempts === 0
+            ? 'will retry (no attempt counted yet)'
+            : `will retry (attempt ${record.attempts} of ${MAX_FAILED_ITEM_ATTEMPTS})`;
     return (
       `Not backed up: ${record.name} (${record.item_id}) -- ${record.reason}; ` +
       `${status}, first failed ${record.first_failed_at}`

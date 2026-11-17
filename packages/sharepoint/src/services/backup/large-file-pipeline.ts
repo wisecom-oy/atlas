@@ -6,7 +6,7 @@ import {
   type DriveLargeFileDeps,
   type LargeFileResult,
 } from '@wisecom/atlas-drive/backup/large-file-pipeline';
-import { fetch_file_chunks } from '@/services/backup/large-file-chunk-download';
+import { SHAREPOINT_CHUNK_DOWNLOADER } from '@/adapters/graph-sharepoint-chunk-downloader';
 import { SHAREPOINT_KEYS } from '@/services/shared/storage-keys';
 
 export { LARGE_FILE_THRESHOLD } from '@wisecom/atlas-drive/backup/large-file-threshold';
@@ -15,7 +15,7 @@ export type { LargeFileResult } from '@wisecom/atlas-drive/backup/large-file-pip
 /** SharePoint's half of the shared large-file pipeline: its key layout and its chunk fetcher. */
 export const SHAREPOINT_LARGE_FILE_DEPS: DriveLargeFileDeps = {
   keys: SHAREPOINT_KEYS,
-  fetch_chunks: fetch_file_chunks,
+  fetch_chunks: SHAREPOINT_CHUNK_DOWNLOADER.fetch_file_chunks,
 };
 
 /** Streams a large file to storage through a staging key, deduplicating by content hash. */

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+import secrets
+from collections.abc import Generator, Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from atlas_e2e import cleanup, config, drive, marker, storage
+from atlas_e2e import cleanup, config, drive, marker, minio_admin, people, storage
 from atlas_e2e import scrub as scrub_module
 from atlas_e2e.atlas import Cli
 from atlas_e2e.graph import Graph
@@ -47,6 +48,33 @@ def _scrub_every_log_record(settings: config.Settings) -> Iterator[None]:
         logging.LogRecord.getMessage = original  # type: ignore[method-assign]
 
 
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[None]
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
+    """Scrubs every failure and skip report before the terminal or `report.xml` can print it.
+
+    A long traceback quotes the arguments of each frame and the text of each exception, and a skip
+    carries its reason. A Graph path holds the mailbox address, so a failed permission probe wrote
+    it into `report.xml`, which is a public artifact (the workflow's leak check refused the upload).
+    Every reporter reads `longrepr`, so replacing it here covers all of them, the same way the log
+    scrubber covers every handler.
+    """
+    report = yield
+    if report.longrepr is None:
+        return report
+    try:
+        settings = config.load()
+    except RuntimeError:
+        return report
+    if isinstance(report.longrepr, tuple):
+        path, line, reason = report.longrepr
+        report.longrepr = (path, line, scrub_module.scrub(str(reason), settings))
+    else:
+        report.longrepr = scrub_module.scrub(str(report.longrepr), settings)
+    return report
+
+
 @pytest.fixture(scope="session")
 def run_marker() -> str:
     """The tag every artifact of this run embeds, e.g. `atlas-e2e-1234567890`."""
@@ -78,12 +106,6 @@ def s3(settings: config.Settings) -> Any:
 
 
 @pytest.fixture(scope="session")
-def s3_replica(settings: config.Settings) -> Any:
-    """S3 client for the replica MinIO (used by the replication suite)."""
-    return storage.client(settings, settings.s3_replica_endpoint)
-
-
-@pytest.fixture(scope="session")
 def graph(settings: config.Settings) -> Iterator[Graph]:
     """Graph client with app-only auth."""
     client = Graph(settings)
@@ -101,6 +123,32 @@ def exports(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return tmp_path_factory.mktemp("exports")
 
 
+@pytest.fixture(scope="module")
+def bucket_copy(
+    settings: config.Settings, s3: Any, run_marker: str
+) -> Iterator[minio_admin.ReadOnlyCopy]:
+    """A copy of the tenant bucket under another name, readable by a user scoped to it (#768).
+
+    The copy and the user are removed afterwards, pass or fail, including when setup itself fails
+    halfway. Each removal runs on its own and logs instead of raising, so a cleanup error never
+    replaces the setup error or the real test failure.
+    """
+    copy = minio_admin.ReadOnlyCopy(
+        bucket=f"{run_marker}-copy", user=f"{run_marker}-reader", secret=secrets.token_urlsafe(24)
+    )
+    try:
+        storage.copy_bucket(s3, settings.bucket, copy.bucket)
+        minio_admin.add_read_only_user(settings, copy.bucket, copy.user, copy.secret)
+        yield copy
+    finally:
+        # remove_user tolerates a user or policy that was never created.
+        minio_admin.remove_user(settings, copy.user)
+        try:
+            storage.delete_bucket(s3, copy.bucket)
+        except Exception as err:  # noqa: BLE001 - teardown must not mask a test failure
+            log.warning("Teardown: could not remove the bucket copy: %s", err)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _teardown(settings: config.Settings, cli: Cli, graph: Graph, run_marker: str) -> Iterator[None]:
     """Sweeps M365 fixtures and empties the tenant bucket after the session, pass or fail.
@@ -115,6 +163,12 @@ def _teardown(settings: config.Settings, cli: Cli, graph: Graph, run_marker: str
         log.info("Teardown: removed %d mailbox folder(s)", len(removed))
     except Exception as err:  # noqa: BLE001 - teardown must not mask a test failure
         log.warning("Teardown: mailbox sweep failed: %s", err)
+
+    try:
+        removed = people.sweep(graph, settings.mailbox, run_marker)
+        log.info("Teardown: removed %d contact folder(s) and calendar(s)", len(removed))
+    except Exception as err:  # noqa: BLE001 - teardown must not mask a test failure
+        log.warning("Teardown: contacts and calendar sweep failed: %s", err)
 
     for label, drive_id in _fixture_drives(graph, settings).items():
         try:

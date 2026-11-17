@@ -1,3 +1,6 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
+import { OWNER_LEASE_TOKEN } from '@wisecom/atlas-types';
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
@@ -15,10 +18,10 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 vi.mock('@wisecom/atlas-drive/restore/streaming-restore', () => ({
   should_stream_restore: vi.fn().mockReturnValue(false),
-  stream_decrypt_from_storage: vi.fn(),
   verify_streaming_checksum: vi.fn().mockReturnValue(true),
 }));
 
@@ -79,10 +82,12 @@ describe('SharePointRestoreService cross-site routing', () => {
         total_files: 1,
         entries: [make_entry()],
       }),
-      list_snapshots_by_site: vi.fn().mockResolvedValue([]),
+      list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests([])),
+      ...drive_chain_reads('sharepoint'),
     } as unknown as SharePointManifestRepository;
 
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(factory);
+    container.bind(OWNER_LEASE_TOKEN).toConstantValue(stub_owner_leases().leases);
     container.bind(SHAREPOINT_CONNECTOR_TOKEN).toConstantValue(connector);
     container.bind(SHAREPOINT_MANIFEST_REPOSITORY_TOKEN).toConstantValue(manifests);
     container.bind(SharePointRestoreService).toSelf();

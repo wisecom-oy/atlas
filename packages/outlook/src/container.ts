@@ -1,5 +1,6 @@
 import { type Container } from 'inversify';
 import {
+  OUTLOOK_QUARANTINE_USE_CASE_TOKEN,
   MAILBOX_CONNECTOR_TOKEN,
   RESTORE_CONNECTOR_TOKEN,
   MAILBOX_DISCOVERY_TOKEN,
@@ -22,6 +23,7 @@ import { RestoreService } from '@/services/restore/restore.service';
 import { SaveService } from '@/services/save/save.service';
 import { MailboxStatusService } from '@/services/status/mailbox-status.service';
 import { DefaultTenantBackupOrchestrator } from '@/services/backup/tenant-backup-orchestrator';
+import { OutlookQuarantineService } from '@/services/quarantine/quarantine.service';
 
 /** Registers Outlook Graph adapters and backup/restore/save/status use cases on the container. */
 export function bind_outlook(container: Container): void {
@@ -75,4 +77,5 @@ export function bind_outlook(container: Container): void {
   container.bind(STATUS_USE_CASE_TOKEN).toService(MailboxStatusService);
   container.bind(DefaultTenantBackupOrchestrator).toSelf();
   container.bind(TENANT_ORCHESTRATOR_TOKEN).toService(DefaultTenantBackupOrchestrator);
+  container.bind(OUTLOOK_QUARANTINE_USE_CASE_TOKEN).to(OutlookQuarantineService).inSingletonScope();
 }

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Manifest, ManifestRepository } from '@wisecom/atlas-types';
 import { create_mailbox_sync_harness } from './mailbox-sync.fixtures';
 import type { MailboxSyncHarness } from './mailbox-sync.fixtures';
+import { latest_readable } from '@wisecom/atlas-types/testing/readable-listing';
 
 function legacy_manifest(overrides: Partial<Manifest> = {}): Manifest {
   return {
@@ -44,8 +45,8 @@ describe('MailboxSyncService - delta link continuity', () => {
   });
 
   it('passes previous delta link for incremental sync', async () => {
-    vi.mocked(mock_manifests.find_latest_by_owner).mockResolvedValue(
-      legacy_manifest({ id_format: 'immutable' }),
+    vi.mocked(mock_manifests.find_latest_readable).mockResolvedValue(
+      latest_readable(legacy_manifest({ id_format: 'immutable' })),
     );
 
     await harness.service.sync_mailbox('t', 'user@test.com');
@@ -61,7 +62,9 @@ describe('MailboxSyncService - delta link continuity', () => {
   });
 
   it('restarts full when the previous manifest predates immutable IDs (issue #48)', async () => {
-    vi.mocked(mock_manifests.find_latest_by_owner).mockResolvedValue(legacy_manifest());
+    vi.mocked(mock_manifests.find_latest_readable).mockResolvedValue(
+      latest_readable(legacy_manifest()),
+    );
 
     await harness.service.sync_mailbox('t', 'user@test.com');
 
@@ -74,5 +77,40 @@ describe('MailboxSyncService - delta link continuity', () => {
       expect.any(Function),
       undefined,
     );
+  });
+
+  it('backs up past a damaged head manifest and names its key (issue #631)', async () => {
+    const damaged = 'manifests/user@test.com/head-snap.json';
+    vi.mocked(mock_manifests.find_latest_readable).mockResolvedValue({
+      manifest: legacy_manifest({ id_format: 'immutable', total_objects: 5 }),
+      unreadable_keys: [damaged],
+    });
+    vi.mocked(harness.mock_connector.fetch_delta).mockResolvedValue({
+      messages: [],
+      removed_ids: [],
+      delta_link: 'https://new-delta',
+      delta_reset: false,
+    });
+
+    const result = await harness.service.sync_mailbox('t', 'user@test.com');
+
+    // An Outlook manifest holds only its own run's changes, so nothing is built on the damaged
+    // head: the run resumes from the older baseline and still records where the delta stopped.
+    expect(harness.mock_connector.fetch_delta).toHaveBeenCalledWith(
+      't',
+      'user@test.com',
+      'folder-1',
+      'https://prev-delta',
+      expect.any(Function),
+      undefined,
+    );
+    expect(result.summary.unreadable_keys).toEqual([damaged]);
+    expect(harness.mock_cursors.save).toHaveBeenCalledOnce();
+  });
+
+  it('reports no unreadable keys when the head reads cleanly', async () => {
+    const result = await harness.service.sync_mailbox('t', 'user@test.com');
+
+    expect(result.summary.unreadable_keys).toBeUndefined();
   });
 });

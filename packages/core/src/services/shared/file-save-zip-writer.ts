@@ -227,7 +227,7 @@ export async function append_archive_entry(
  * {@link ArchiveDestinationError} and stops the run, an archiver-level error is itself and fails
  * the entry that saw it.
  */
-function archive_failure(file_archive: FileArchive): Promise<never> {
+export function archive_failure(file_archive: FileArchive): Promise<never> {
   return file_archive.promise.then(
     () => new Promise<never>(() => undefined),
     (err: unknown) => {
@@ -243,13 +243,18 @@ export async function add_file_to_archive(
   file_name: string,
   content: Buffer,
 ): Promise<void> {
-  const normalized =
-    folder_path === '/' || folder_path === '' ? '' : folder_path.replace(/^\//, '');
   await append_archive_entry(
     file_archive,
-    normalized ? `${normalized}/${file_name}` : file_name,
+    build_archive_entry_path(folder_path, file_name),
     content,
   );
+}
+
+/** Builds the archive entry path for a file under a drive folder path, without a leading slash. */
+export function build_archive_entry_path(folder_path: string, file_name: string): string {
+  const normalized =
+    folder_path === '/' || folder_path === '' ? '' : folder_path.replace(/^\//, '');
+  return normalized ? `${normalized}/${file_name}` : file_name;
 }
 
 /** Finalizes the archive (must be called after all files are added). */

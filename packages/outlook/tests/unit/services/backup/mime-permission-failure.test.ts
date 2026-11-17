@@ -36,14 +36,36 @@ describe('MIME capture failures', () => {
     ).rejects.toBeInstanceOf(MailboxNotLicensedError);
   });
 
-  it('still falls back to JSON for a per-message fault', async () => {
-    const payload = await capture_mime_payload(
-      make_connector(new Error('ErrorItemNotFound')),
+  it('reports a failure that a later run may not hit, with no MIME (issue #614)', async () => {
+    const capture = await capture_mime_payload(
+      make_connector(Object.assign(new Error('Service Unavailable'), { statusCode: 503 })),
       't',
       'o',
       MESSAGE,
     );
 
-    expect(payload).toBeUndefined();
+    expect(capture).toEqual({ mime: undefined, failure: 'Service Unavailable' });
+  });
+
+  it('names the HTTP status when the Graph error carries no message', async () => {
+    // A `$value` request reads its body as binary, so the SDK's error has an empty message.
+    const capture = await capture_mime_payload(
+      make_connector(Object.assign(new Error(''), { statusCode: 503 })),
+      't',
+      'o',
+      MESSAGE,
+    );
+
+    expect(capture.failure).toBe('HTTP 503');
+  });
+
+  it('reports no failure when Graph has no MIME for the item', async () => {
+    const connector = {
+      fetch_mime: vi.fn().mockResolvedValue(undefined),
+    } as unknown as MailboxConnector;
+
+    const capture = await capture_mime_payload(connector, 't', 'o', MESSAGE);
+
+    expect(capture).toEqual({ mime: undefined });
   });
 });

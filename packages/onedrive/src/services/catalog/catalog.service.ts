@@ -1,10 +1,12 @@
 import { inject, injectable } from 'inversify';
 import type {
+  DrivePermissionListing,
   OneDriveCatalogUseCase,
   OneDriveFileVersionIndexRepository,
   OneDriveFileVersionRecord,
   OneDriveManifestRepository,
   OneDriveSnapshotManifest,
+  OneDriveSnapshotSummary,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import {
@@ -14,9 +16,12 @@ import {
 } from '@wisecom/atlas-types';
 import {
   list_drive_file_versions,
+  list_drive_snapshot_summaries,
   list_drive_snapshots,
   type DriveCatalogDeps,
 } from '@wisecom/atlas-drive/catalog/catalog-queries';
+import { list_drive_permissions } from '@wisecom/atlas-drive/catalog/permission-listing';
+import { onedrive_manifest_lookup } from '@/services/shared/manifest-lookup';
 
 /** Lists OneDrive snapshots and per-file version history from manifest and index repositories. */
 @injectable()
@@ -37,6 +42,19 @@ export class OneDriveCatalogService implements OneDriveCatalogUseCase {
     return list_drive_snapshots(this.catalog_deps(), tenant_id, owner_id);
   }
 
+  /** Returns the owner's snapshots from its summary index, newest first, without entries. */
+  async list_onedrive_snapshot_summaries(
+    tenant_id: string,
+    owner_id: string,
+  ): Promise<OneDriveSnapshotSummary[]> {
+    return list_drive_snapshot_summaries(
+      this._tenant_factory,
+      (ctx, id) => this._manifests.list_snapshot_summaries(ctx, id),
+      tenant_id,
+      owner_id,
+    );
+  }
+
   /** Resolves `file_ref` to a Graph file id (or path) and returns stored version rows. */
   async list_onedrive_file_versions(
     tenant_id: string,
@@ -52,11 +70,29 @@ export class OneDriveCatalogService implements OneDriveCatalogUseCase {
     return [...versions];
   }
 
+  /** Returns each item's captured non-inherited permissions at a snapshot, the newest by default. */
+  async list_onedrive_permissions(
+    tenant_id: string,
+    owner_id: string,
+    snapshot_id?: string,
+  ): Promise<DrivePermissionListing> {
+    return list_drive_permissions(
+      {
+        tenant_factory: this._tenant_factory,
+        manifests: onedrive_manifest_lookup(this._manifests),
+      },
+      tenant_id,
+      owner_id,
+      snapshot_id,
+    );
+  }
+
   private catalog_deps(): DriveCatalogDeps<OneDriveSnapshotManifest> {
     return {
       tenant_factory: this._tenant_factory,
-      list_snapshots: (ctx, owner_id) => this._manifests.list_snapshots_by_owner(ctx, owner_id),
-      list_indexes: (ctx, owner_id) => this._indexes.list_by_owner(ctx, owner_id),
+      list_snapshots: (ctx, owner_id) =>
+        this._manifests.list_readable_snapshots_by_owner(ctx, owner_id),
+      list_indexes: (ctx, owner_id) => this._indexes.list_readable_by_owner(ctx, owner_id),
     };
   }
 }

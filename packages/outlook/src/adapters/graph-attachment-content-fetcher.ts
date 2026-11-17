@@ -1,6 +1,5 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { ResponseType } from '@microsoft/microsoft-graph-client';
-import { with_graph_retry } from '@wisecom/atlas-m365-graph';
+import { get_graph_bytes, with_graph_retry } from '@wisecom/atlas-m365-graph';
 
 // 30 min per attempt for attachment $value transfers (up to ~150 MB); the
 // default 60s per-request window kills large bodies on slow links (issue #33).
@@ -22,12 +21,7 @@ export async function fetch_attachment_content(
 ): Promise<Buffer> {
   const url = `/users/${owner_id}/messages/${message_id}/attachments/${attachment_id}/$value`;
   const data = await with_graph_retry(
-    () =>
-      client
-        .api(url)
-        .header('Prefer', immutable_id_prefer)
-        .responseType(ResponseType.ARRAYBUFFER)
-        .get() as Promise<ArrayBuffer>,
+    () => get_graph_bytes(client.api(url).header('Prefer', immutable_id_prefer)),
     { timeout_ms: LARGE_DOWNLOAD_TIMEOUT_MS },
   );
   return Buffer.from(data);

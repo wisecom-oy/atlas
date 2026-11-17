@@ -1,7 +1,9 @@
+import { outlook_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
 import { MailboxStatusService } from '@/services/status/mailbox-status.service';
+import { STATUS_PEEK_PAGE_SIZE } from '@/services/status/folder-delta-peek';
 import {
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
@@ -15,6 +17,7 @@ import type { Manifest } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 function make_folder(name: string, id?: string, count = 10): MailFolder {
   return {
@@ -97,11 +100,19 @@ describe('MailboxStatusService', () => {
 
     mock_manifests = {
       save: vi.fn(),
+      forget_snapshot_summary: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
       list_by_owner: vi.fn().mockResolvedValue([]),
-      find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
+      find_latest_readable: vi.fn().mockResolvedValue(latest_readable(undefined)),
       list_all_manifests: vi.fn().mockResolvedValue([]),
       list_owner_ids: vi.fn().mockResolvedValue([]),
+      list_readable_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
+      list_all_readable: vi.fn().mockResolvedValue(readable_manifests()),
+      read_manifest_at: vi.fn(outlook_chain_reads(() => mock_manifests).read_manifest_at),
+      list_all_snapshot_summaries: vi.fn(),
+      list_snapshot_summaries: vi.fn(
+        outlook_chain_reads(() => mock_manifests).list_snapshot_summaries,
+      ),
     };
 
     const mock_factory: TenantContextFactory = {
@@ -147,9 +158,21 @@ describe('MailboxStatusService', () => {
     expect(mock_connector.fetch_delta).not.toHaveBeenCalled();
   });
 
+  it('reports a damaged head manifest by key instead of failing (issue #631)', async () => {
+    vi.mocked(mock_manifests.find_latest_readable).mockResolvedValue({
+      manifest: undefined,
+      unreadable_keys: ['manifests/user@test.com/snap-head.json'],
+    });
+
+    const result = await service.check_mailbox_status('t', 'user@test.com');
+
+    expect(result.unreadable_keys).toEqual(['manifests/user@test.com/snap-head.json']);
+    expect(result.last_snapshot_id).toBeUndefined();
+  });
+
   it('reports up-to-date when delta returns no changes', async () => {
     const manifest = make_manifest('user@test.com', { f1: 'https://delta/link1' });
-    vi.mocked(mock_manifests.find_latest_by_owner).mockResolvedValue(manifest);
+    vi.mocked(mock_manifests.find_latest_readable).mockResolvedValue(latest_readable(manifest));
     vi.mocked(mock_connector.list_mail_folders).mockResolvedValue([make_folder('Inbox', 'f1')]);
 
     vi.mocked(mock_connector.fetch_delta).mockImplementation(async (_t, _m, _f, _link, on_page) => {
@@ -169,7 +192,7 @@ describe('MailboxStatusService', () => {
 
   it('reports pending changes when delta has new messages', async () => {
     const manifest = make_manifest('user@test.com', { f1: 'https://delta/link1' });
-    vi.mocked(mock_manifests.find_latest_by_owner).mockResolvedValue(manifest);
+    vi.mocked(mock_manifests.find_latest_readable).mockResolvedValue(latest_readable(manifest));
     vi.mocked(mock_connector.list_mail_folders).mockResolvedValue([make_folder('Inbox', 'f1')]);
 
     const fake_msg = {
@@ -196,7 +219,7 @@ describe('MailboxStatusService', () => {
 
   it('reports pending removals from delta removed_ids', async () => {
     const manifest = make_manifest('user@test.com', { f1: 'https://delta/link1' });
-    vi.mocked(mock_manifests.find_latest_by_owner).mockResolvedValue(manifest);
+    vi.mocked(mock_manifests.find_latest_readable).mockResolvedValue(latest_readable(manifest));
     vi.mocked(mock_connector.list_mail_folders).mockResolvedValue([make_folder('Inbox', 'f1')]);
 
     vi.mocked(mock_connector.fetch_delta).mockImplementation(async (_t, _m, _f, _link, on_page) => {
@@ -218,7 +241,7 @@ describe('MailboxStatusService', () => {
 
   it('handles mixed backed-up and never-backed-up folders', async () => {
     const manifest = make_manifest('user@test.com', { f1: 'https://delta/link1' });
-    vi.mocked(mock_manifests.find_latest_by_owner).mockResolvedValue(manifest);
+    vi.mocked(mock_manifests.find_latest_readable).mockResolvedValue(latest_readable(manifest));
     vi.mocked(mock_connector.list_mail_folders).mockResolvedValue([
       make_folder('Inbox', 'f1'),
       make_folder('Archive', 'f2'),
@@ -243,7 +266,7 @@ describe('MailboxStatusService', () => {
       f1: 'https://delta/link1',
       f2: 'https://delta/link2',
     });
-    vi.mocked(mock_manifests.find_latest_by_owner).mockResolvedValue(manifest);
+    vi.mocked(mock_manifests.find_latest_readable).mockResolvedValue(latest_readable(manifest));
     vi.mocked(mock_connector.list_mail_folders).mockResolvedValue([
       make_folder('Inbox', 'f1'),
       make_folder('Sent', 'f2'),
@@ -261,18 +284,16 @@ describe('MailboxStatusService', () => {
     expect(result.folders[0]!.is_up_to_date).toBe(true);
     expect(result.folders[1]!.has_backup).toBe(true);
     expect(result.folders[1]!.is_up_to_date).toBe(false);
+    expect(result.folders[1]!.peek_error).toBe('Error: Network timeout');
+    // A failed folder reports zero pending; the roll-up must still not call it current (#630).
+    expect(result.total_pending_changes).toBe(0);
+    expect(result.is_up_to_date).toBe(false);
   });
 
-  it('passes page_size=1 and stops after first page via on_page returning false', async () => {
+  it('reads the delta at the status page size from the saved link', async () => {
     const manifest = make_manifest('user@test.com', { f1: 'https://delta/saved' });
-    vi.mocked(mock_manifests.find_latest_by_owner).mockResolvedValue(manifest);
+    vi.mocked(mock_manifests.find_latest_readable).mockResolvedValue(latest_readable(manifest));
     vi.mocked(mock_connector.list_mail_folders).mockResolvedValue([make_folder('Inbox', 'f1')]);
-
-    vi.mocked(mock_connector.fetch_delta).mockImplementation(async (_t, _m, _f, _link, on_page) => {
-      const should_continue = on_page?.(1, 0, []);
-      expect(should_continue).toBe(false);
-      return make_empty_delta();
-    });
 
     await service.check_mailbox_status('t', 'user@test.com');
 
@@ -282,7 +303,7 @@ describe('MailboxStatusService', () => {
       'f1',
       'https://delta/saved',
       expect.any(Function),
-      1,
+      STATUS_PEEK_PAGE_SIZE,
     );
   });
 });

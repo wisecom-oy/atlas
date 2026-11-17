@@ -5,6 +5,7 @@ import type {
   DriveScanAccumulators,
   SingleDriveResult,
 } from '@/services/backup/backup-drive-processor';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /** Folds one drive's outcome into the run accumulators and the delta link map. */
 export function accumulate_drive_result(
@@ -15,7 +16,7 @@ export function accumulate_drive_result(
   recrawl: DriveRecrawl | undefined,
 ): void {
   if (recrawl) accumulators.recrawls.push(recrawl);
-  accumulators.entries.push(...drive_result.entries);
+  append_all(accumulators.entries, drive_result.entries);
   accumulators.files_stored += drive_result.files_stored;
   accumulators.files_deduplicated += drive_result.files_deduplicated;
   accumulators.deleted_items += drive_result.deleted_items;

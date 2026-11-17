@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -60,8 +61,18 @@ class Result:
 class Cli:
     """A CLI bound to one settings object and one isolated HOME."""
 
-    def __init__(self, settings: Settings, home: Path, transcript: Path | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        home: Path,
+        transcript: Path | None = None,
+        *,
+        graph_env: bool = True,
+    ) -> None:
         self._settings = settings
+        # False leaves the Graph identity out of the environment, so the run has to take it from a
+        # stored tenant profile. Storage and the passphrase still come from the environment.
+        self._graph_env = graph_env
         # An isolated HOME keeps ~/.atlas/config.enc and the OS keyring out of the run: the suite
         # must depend on the env vars it sets, not on whatever a developer configured locally.
         self._home = home
@@ -71,8 +82,21 @@ class Cli:
         if transcript:
             transcript.parent.mkdir(parents=True, exist_ok=True)
 
-    def run(self, *args: str, timeout: int = DEFAULT_TIMEOUT) -> Result:
+    def run(
+        self,
+        *args: str,
+        timeout: int = DEFAULT_TIMEOUT,
+        extra_env: Mapping[str, str] | None = None,
+        stdin: str | None = None,
+    ) -> Result:
         """Invokes `atlas <args>` and captures both streams. Never raises on a non-zero exit.
+
+        `extra_env` adds or replaces ATLAS_* variables for this one invocation, for example to
+        point a run at a copy of the bucket with other credentials.
+
+        `stdin` is piped to the command and then closed. Secrets the CLI refuses to take as flag
+        values (a client secret, a passphrase) go in this way, and an empty string is stdin at EOF,
+        which is what a prompt sees under cron.
 
         The stored argv is scrubbed: it can carry the site URL or composite ids (SharePoint
         `--site`), and both the log line below and failure descriptions end up in public CI logs.
@@ -89,7 +113,8 @@ class Cli:
             # `scrub` needs the value contiguous, so a wrapped address or site URL survives
             # redaction. A width nothing reaches keeps values on one line.
             "COLUMNS": str(NO_WRAP_COLUMNS),
-            **self._settings.cli_env(),
+            **self._settings.cli_env(graph=self._graph_env),
+            **(extra_env or {}),
         }
         log.info("atlas %s", " ".join(display_argv))
         # S603/S607: fixed argv, no shell, and `node` is resolved from PATH on purpose so the
@@ -99,6 +124,7 @@ class Cli:
             check=False,  # the caller inspects returncode; a raise here would lose stdout
             capture_output=True,
             text=True,
+            input=stdin,
             timeout=timeout,
             cwd=self._home,  # no repo-root atlas.config.json in scope
             env=env,
@@ -127,11 +153,17 @@ class Cli:
         with self._transcript.open("a", encoding="utf-8") as handle:
             handle.write(scrub(entry, self._settings))
 
-    def ok(self, *args: str, timeout: int = DEFAULT_TIMEOUT) -> Result:
+    def ok(
+        self,
+        *args: str,
+        timeout: int = DEFAULT_TIMEOUT,
+        extra_env: Mapping[str, str] | None = None,
+        stdin: str | None = None,
+    ) -> Result:
         """Runs and asserts a clean exit.
 
         Exit 2 (partial) is a failure: the suite seeded every item.
         """
-        result = self.run(*args, timeout=timeout)
+        result = self.run(*args, timeout=timeout, extra_env=extra_env, stdin=stdin)
         assert result.code == 0, result.describe()
         return result

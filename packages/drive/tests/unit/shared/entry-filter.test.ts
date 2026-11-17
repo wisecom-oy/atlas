@@ -30,30 +30,30 @@ const ROOT_ENTRY = {
 
 describe('drive file_filter', () => {
   it('matches an item id pasted verbatim from a listing', () => {
-    expect(filter_drive_entries([ENTRY], [ITEM_ID])).toHaveLength(1);
+    expect(filter_drive_entries([ENTRY], [ITEM_ID]).entries).toHaveLength(1);
   });
 
   it('matches an item id typed in any case', () => {
-    expect(filter_drive_entries([ENTRY], [ITEM_ID.toLowerCase()])).toHaveLength(1);
+    expect(filter_drive_entries([ENTRY], [ITEM_ID.toLowerCase()]).entries).toHaveLength(1);
   });
 
   it('still matches by path', () => {
-    expect(filter_drive_entries([ENTRY], ['/documents/report.docx'])).toHaveLength(1);
+    expect(filter_drive_entries([ENTRY], ['/documents/report.docx']).entries).toHaveLength(1);
   });
 
   it('excludes what was not asked for', () => {
-    expect(filter_drive_entries([ENTRY], ['/Documents/Other.docx'])).toHaveLength(0);
+    expect(filter_drive_entries([ENTRY], ['/Documents/Other.docx']).entries).toHaveLength(0);
   });
 
   it('returns everything when no filter is given', () => {
-    expect(filter_drive_entries([ENTRY], [])).toHaveLength(1);
+    expect(filter_drive_entries([ENTRY], []).entries).toHaveLength(1);
   });
 
   it('matches a file at the drive root by the path an operator would type (issue #299)', () => {
-    expect(filter_drive_entries([ROOT_ENTRY], ['/Report.docx'])).toHaveLength(1);
+    expect(filter_drive_entries([ROOT_ENTRY], ['/Report.docx']).entries).toHaveLength(1);
   });
 
   it('does not match a root-level file by the doubled-slash path it used to build', () => {
-    expect(filter_drive_entries([ROOT_ENTRY], ['//Report.docx'])).toHaveLength(0);
+    expect(filter_drive_entries([ROOT_ENTRY], ['//Report.docx']).entries).toHaveLength(0);
   });
 });

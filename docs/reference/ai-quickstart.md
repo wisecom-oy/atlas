@@ -4,15 +4,15 @@ description: Prompt a coding agent such as Claude Code or Codex to build a local
 
 # AI quickstart
 
-Copy the prompt below into a coding agent that can run shell commands on your machine, such as Claude Code, Codex, or Pi. It clones the Atlas repository and builds a local test lab from what the repository already ships: MinIO from `docker/docker-compose.yml`, the CLI built from source, the root `.env.example` as the configuration template, and one verified backup of a test mailbox.
+Paste the prompt below into a coding agent that runs shell commands on your machine, such as Claude Code, Codex, or Pi. It clones Atlas and builds a local test lab from what the repository ships: MinIO from `docker/docker-compose.yml`, the CLI built from source, the root `.env.example` as the configuration template, and one verified backup of a test mailbox.
 
-The agent follows the documentation in the cloned `docs/` folder, so the lab matches the code it builds. The prompt is written for a lab, not production. MinIO listens on localhost only, and the agent stops to ask before it installs system packages, handles your Entra credentials, or does anything that writes to Microsoft 365.
+The agent follows the `docs/` folder of its own clone, so the lab matches the code it builds. The lab is not for production: MinIO listens on localhost only, and the agent asks before it installs system packages, handles your Microsoft Entra credentials, or writes to Microsoft 365.
 
 ## Before you start
 
-- A **non-production** Microsoft 365 tenant or a test mailbox you can afford to read.
-- An Entra app registration with admin consent. See [Entra ID app registration](/azure-ad-setup). The agent asks for the tenant ID and client ID; you paste the client secret into `.env` yourself. It cannot create the registration for you.
-- Git, Docker, OpenSSL, and Node.js 22.22.2 or later (the repository root's `engines` range; the published CLI alone needs 22.12). The agent checks for all four and asks before installing anything.
+- A **non-production** Microsoft 365 tenant, or a test mailbox you can afford to read.
+- A Microsoft Entra app registration with admin consent. See [Entra ID app registration](/azure-ad-setup). The agent asks for the tenant ID and client ID. You paste the client secret into `.env` yourself. The agent cannot create the registration.
+- Git, Docker, OpenSSL, and Node.js 22.22.2 or later (the repository root's `engines` range; the published CLI alone needs 22.12). The agent checks all four and asks before installing anything.
 
 ## Prompt
 
@@ -56,7 +56,7 @@ Steps:
    - Run `docker compose up -d` in docker/ and wait until the container
      reports healthy.
    Use docker/docker-compose.yml, not docker-compose.dev.yml. The dev file
-   adds a second MinIO for replication testing, which this lab does not need.
+   is for the E2E suite, which this lab does not need.
 4. Build and link the CLI from source with pnpm (the version is pinned in
    package.json's packageManager field; Corepack provides it):
    `pnpm install`, `pnpm run build`, then `pnpm run link-cli`.
@@ -72,12 +72,13 @@ Steps:
    Tell me the passphrase lives in that file and that losing it makes every
    backup permanently unreadable (docs/security.md). Do not show it.
    Run every atlas command from the repository root, where .env is loaded.
-6. Run `atlas config validate`. It must report a working Graph token and
-   S3 connection.
+6. Run `atlas config validate`, which checks the S3 connection. Then run
+   `atlas tenants validate`, which requests a Graph token. Both must pass.
 7. Ask me which test mailbox to back up. Then run
    `atlas outlook backup -m <mailbox>`. The first run creates the bucket
    atlas-<tenant-id> with Object Lock support.
-8. Run `atlas storage-check` and confirm the bucket reports lock-capable.
+8. Run `atlas storage-check` and confirm it reports Bucket class
+   lock-capable and Status ready.
 9. Run `atlas outlook list -m <mailbox>`, take the newest snapshot ID, and
    run `atlas outlook verify -m <mailbox> -s <snapshot-id>`. It must pass.
 10. Finish with a short summary: what is running, every file you created or
@@ -88,23 +89,25 @@ Steps:
 
 ## What the agent sets up
 
-| Item                | Location                                          | Notes                                                                  |
-| ------------------- | ------------------------------------------------- | ---------------------------------------------------------------------- |
-| Repository          | `~/atlas-lab`                                     | Fresh clone. Tracked files stay unchanged unless the agent reports why |
-| MinIO               | `127.0.0.1:9000` (S3), `127.0.0.1:9001` (console) | `docker/docker-compose.yml`, pinned release, ports bound to loopback   |
-| MinIO credentials   | `~/atlas-lab/docker/.env`                         | Random root password, mode 600                                         |
-| Atlas CLI           | `packages/cli/dist/cli.mjs`, linked as `atlas`    | Built from the cloned source, so it matches the cloned docs            |
-| Atlas configuration | `~/atlas-lab/.env`                                | Mode 600. The CLI loads it from the working directory                  |
-| Backup bucket       | `atlas-<tenant-id>` in MinIO                      | Created lock-capable on the first backup                               |
+| Item | Location | Notes |
+| --- | --- | --- |
+| Repository | `~/atlas-lab` | Fresh clone. Tracked files stay unchanged unless the agent reports why |
+| MinIO | `127.0.0.1:9000` (S3), `127.0.0.1:9001` (console) | `docker/docker-compose.yml`, built from MinIO source at a pinned commit, ports bound to loopback |
+| MinIO credentials | `~/atlas-lab/docker/.env` | Random root password, mode 600 |
+| Atlas CLI | `packages/cli/dist/cli.mjs`, linked as `atlas` | Built from the cloned source, so it matches the cloned docs |
+| Atlas configuration | `~/atlas-lab/.env` | Mode 600. The CLI loads it from the working directory |
+| Backup bucket | `atlas-<tenant-id>` in MinIO | Created lock-capable on the first backup |
 
 ## Security notes
 
-The agent can read everything it writes, including `.env`. Run it only where you are comfortable with that, and use a test app registration whose client secret you can revoke afterwards. `Mail.ReadWrite` is required for backup, so the secret can modify mailboxes in that tenant. See [Entra ID app registration](/azure-ad-setup#security-implications).
+::: warning The agent can read every secret it writes
+That includes `.env`. Run it only where you accept that, and use a test app registration whose client secret you can revoke afterwards. Backup requires `Mail.ReadWrite`, so the secret can modify mailboxes in that tenant. See [Entra ID app registration](/azure-ad-setup#security-implications).
+:::
 
-The lab keeps the encryption passphrase in a plaintext file. That is fine for a disposable lab. For anything that holds real data, follow [Configuration](/configuration) and store the passphrase in a password manager or secrets vault.
+The lab keeps the encryption passphrase in a plaintext file, which is acceptable only for a disposable lab. For real data, store the passphrase in a password manager or secrets vault as described in [Configuration](/configuration).
 
 ## See also
 
-- [Getting started](/getting-started): the same setup done by hand
+- [Getting started](/getting-started): the same setup by hand
 - [Storage](/self-hosting/storage): MinIO for production
 - [CLI reference](/reference/cli)

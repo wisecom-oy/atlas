@@ -1,6 +1,7 @@
 import type {
   OneDriveChangeType,
   OneDriveDeltaItem,
+  OneDriveDriveStatus,
   OneDriveFileVersion,
   OneDriveFileVersionIndex,
   OneDriveFileVersionRecord,
@@ -18,6 +19,7 @@ import type {
  */
 export type DriveChangeType = OneDriveChangeType;
 export type DriveDeltaItem = OneDriveDeltaItem;
+export type DriveStatus = OneDriveDriveStatus;
 export type DriveFileVersion = OneDriveFileVersion;
 export type DriveFileVersionRecord = OneDriveFileVersionRecord;
 export type DriveFileVersionIndex = OneDriveFileVersionIndex;
@@ -43,9 +45,14 @@ export type DriveWorkload = 'onedrive' | 'sharepoint';
  * `SharePointSiteConnector` satisfy it structurally, so neither package has to adapt anything.
  */
 export interface DriveContentConnector {
-  download_file_content(item: DriveDeltaItem): Promise<Buffer>;
+  download_file_content(item: DriveDeltaItem, abort_signal?: AbortSignal): Promise<Buffer>;
   list_file_versions(drive_id: string, item_id: string): Promise<DriveFileVersion[]>;
-  download_file_version(drive_id: string, item_id: string, version_id: string): Promise<Buffer>;
+  download_file_version(
+    drive_id: string,
+    item_id: string,
+    version_id: string,
+    size_bytes?: number,
+  ): Promise<Buffer>;
   stream_file_version(
     drive_id: string,
     item_id: string,

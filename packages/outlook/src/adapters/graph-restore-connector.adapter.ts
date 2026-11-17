@@ -2,16 +2,29 @@ import { inject, injectable } from 'inversify';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import { GRAPH_CLIENT_TOKEN } from '@wisecom/atlas-m365-graph';
 import type { RestoreConnector, AttachmentUpload, UploadSession } from '@wisecom/atlas-types';
-import type { MailFolder } from '@wisecom/atlas-types';
+import type { MailFolder, WellKnownMailFolder } from '@wisecom/atlas-types';
 import {
   rethrow_if_access_denied,
   rethrow_if_mailbox_not_licensed,
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { create_folder_reader } from '@/adapters/graph-mail-folder-listing';
+import {
+  find_child_folder_by_name,
+  find_well_known_role,
+} from '@/adapters/graph-restore-folder-lookup';
 
 const LARGE_ATTACHMENT_THRESHOLD = 3 * 1024 * 1024;
 const UPLOAD_CHUNK_SIZE = 13 * 320 * 1024; // ~4 MiB; Graph API requires multiples of 320 KiB
+
+/**
+ * Retry policy for a POST that creates a folder, message or attachment. Sending one again after a
+ * 5xx or a timeout can create a second copy, so only a throttle response is retried (issue #624).
+ * An upload session is not covered: a spare session creates nothing and expires on its own.
+ */
+// Sent once, and once sent finished: a create cut off mid-flight may still have landed (#682).
+const CREATE_ONCE = { idempotent: false, complete_in_flight: true } as const;
 
 interface GraphFolderResponse {
   id?: string;
@@ -45,8 +58,10 @@ export class GraphRestoreConnector implements RestoreConnector {
       : `/users/${owner_id}/mailFolders`;
 
     try {
-      const response = (await with_graph_retry(() =>
-        this._client.api(url).post({ displayName: display_name }),
+      const response = (await with_graph_retry(
+        (signal) =>
+          this._client.api(url).option('signal', signal).post({ displayName: display_name }),
+        CREATE_ONCE,
       )) as GraphFolderResponse;
 
       const created_name = response.displayName ?? display_name;
@@ -66,6 +81,37 @@ export class GraphRestoreConnector implements RestoreConnector {
     }
   }
 
+  /** Finds a visible folder by display name under a parent, compared case-insensitively. */
+  async find_child_mail_folder(
+    _tenant_id: string,
+    owner_id: string,
+    display_name: string,
+    parent_folder_id?: string,
+  ): Promise<MailFolder | undefined> {
+    try {
+      return await find_child_folder_by_name(
+        (url) => this.get_with_retry(url),
+        owner_id,
+        display_name,
+        parent_folder_id,
+      );
+    } catch (err) {
+      rethrow_if_mailbox_not_licensed(err);
+      rethrow_if_access_denied(err);
+      throw err;
+    }
+  }
+
+  /** Returns the well-known role of a folder, or undefined when it is an ordinary folder. */
+  async find_well_known_folder_role(
+    _tenant_id: string,
+    owner_id: string,
+    folder_id: string,
+  ): Promise<WellKnownMailFolder | undefined> {
+    const read_folder = create_folder_reader((url) => this.get_with_retry(url), owner_id);
+    return find_well_known_role(read_folder, folder_id);
+  }
+
   /** Creates a message in the target folder. Returns the new Graph message ID. */
   async create_message(
     _tenant_id: string,
@@ -76,8 +122,9 @@ export class GraphRestoreConnector implements RestoreConnector {
     const url = `/users/${owner_id}/mailFolders/${folder_id}/messages`;
 
     try {
-      const response = (await with_graph_retry(() =>
-        this._client.api(url).post(message_body),
+      const response = (await with_graph_retry(
+        (signal) => this._client.api(url).option('signal', signal).post(message_body),
+        CREATE_ONCE,
       )) as GraphMessageResponse;
 
       if (!response.id) throw new Error('Graph returned no message ID after create');
@@ -115,7 +162,10 @@ export class GraphRestoreConnector implements RestoreConnector {
     }
 
     try {
-      await with_graph_retry(() => this._client.api(url).post(payload));
+      await with_graph_retry(
+        (signal) => this._client.api(url).option('signal', signal).post(payload),
+        CREATE_ONCE,
+      );
     } catch (err) {
       rethrow_if_mailbox_not_licensed(err);
       rethrow_if_access_denied(err);
@@ -164,12 +214,14 @@ export class GraphRestoreConnector implements RestoreConnector {
     const range_end = range_start + chunk.length - 1;
     const content_range = `bytes ${range_start}-${range_end}/${total_size}`;
 
-    await with_graph_retry(() =>
-      this._client
-        .api(upload_url)
-        .header('Content-Range', content_range)
-        .header('Content-Length', String(chunk.length))
-        .put(chunk),
+    await with_graph_retry(
+      () =>
+        this._client
+          .api(upload_url)
+          .header('Content-Range', content_range)
+          .header('Content-Length', String(chunk.length))
+          .put(chunk),
+      { complete_in_flight: true },
     );
   }
 
@@ -203,6 +255,11 @@ export class GraphRestoreConnector implements RestoreConnector {
       subject: m.subject ?? '(no subject)',
       is_draft: m.isDraft ?? true,
     }));
+  }
+
+  /** One idempotent Graph GET under the default retry policy. */
+  private get_with_retry(url: string): Promise<unknown> {
+    return with_graph_retry((signal) => this._client.api(url).option('signal', signal).get());
   }
 
   /** Handles large attachments by chunking through an upload session. */

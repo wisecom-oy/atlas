@@ -1,4 +1,4 @@
-import type { OneDriveDeltaCursor } from '../../domain/onedrive-manifest';
+import type { OneDriveDeltaCursor } from '../../domain/onedrive/manifest';
 import type { TenantContext } from '../tenant/context.port';
 
 export interface OneDriveDeltaCursorRepository {

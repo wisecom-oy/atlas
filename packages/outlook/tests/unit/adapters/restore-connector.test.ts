@@ -9,12 +9,14 @@ function make_mock_client(): {
   post: ReturnType<typeof vi.fn>;
   put: ReturnType<typeof vi.fn>;
   header: ReturnType<typeof vi.fn>;
+  option: ReturnType<typeof vi.fn>;
 } {
   const client = {
     api: vi.fn().mockReturnThis(),
     post: vi.fn(),
     put: vi.fn(),
     header: vi.fn().mockReturnThis(),
+    option: vi.fn().mockReturnThis(),
   };
   client.api.mockReturnValue(client);
   return client;

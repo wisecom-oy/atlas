@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apply_overrides, type Overrides } from '@wisecom/atlas-types/testing/apply-overrides';
@@ -11,6 +12,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { stub_encrypted_object_store } from '@wisecom/atlas-types/testing/stub-encrypted-object-store';
 import { OneDriveVersionRestoreService } from '@/services/restore/version-restore.service';
+import { readable_indexes } from '@wisecom/atlas-types/testing/readable-listing';
 
 const TENANT_ID = 'tenant-1';
 const OWNER_ID = '00000000-0000-0000-0000-000000000001';
@@ -58,7 +60,7 @@ function make_mocks() {
   } as unknown as OneDriveConnector;
 
   const indexes: OneDriveFileVersionIndexRepository = {
-    list_by_owner: vi.fn().mockResolvedValue([]),
+    list_readable_by_owner: vi.fn().mockResolvedValue(readable_indexes([])),
   } as unknown as OneDriveFileVersionIndexRepository;
 
   return { ctx, tenant_factory, connector, indexes };
@@ -74,11 +76,12 @@ describe('OneDriveVersionRestoreService', () => {
       mocks.tenant_factory,
       mocks.connector,
       mocks.indexes,
+      stub_owner_leases().leases,
     );
   });
 
   const given_versions = (...indexes: OneDriveFileVersionIndex[]): void => {
-    vi.mocked(mocks.indexes.list_by_owner).mockResolvedValue(indexes);
+    vi.mocked(mocks.indexes.list_readable_by_owner).mockResolvedValue(readable_indexes(indexes));
   };
 
   const restore = (options: Parameters<typeof service.restore_onedrive_version>[2]) =>
@@ -147,7 +150,7 @@ describe('OneDriveVersionRestoreService', () => {
 
     expect(result.files_restored).toBe(0);
     expect(result.files_skipped).toBe(1);
-    expect(result.errors[0]).toMatch(/could not be read or verified/);
+    expect(result.errors[0]).toMatch(/does not match its recorded SHA-256 checksum/);
     // Nothing may reach the live drive when the bytes cannot be trusted.
     expect(mocks.connector.upload_small_file).not.toHaveBeenCalled();
   });
@@ -219,6 +222,7 @@ describe('OneDriveVersionRestoreService', () => {
     let uploaded = 0;
     vi.mocked(mocks.connector.upload_small_file).mockImplementation(async () => {
       uploaded++;
+      return undefined;
     });
 
     const result = await restore({ before: CUTOFF, should_interrupt: () => uploaded >= 1 });
@@ -232,7 +236,9 @@ describe('OneDriveVersionRestoreService', () => {
     await restore({ file_ref: 'file-1', version_id: '1.0' });
     expect(mocks.ctx.destroy).toHaveBeenCalledTimes(1);
 
-    vi.mocked(mocks.indexes.list_by_owner).mockRejectedValue(new Error('index unreadable'));
+    vi.mocked(mocks.indexes.list_readable_by_owner).mockRejectedValue(
+      new Error('index unreadable'),
+    );
     await expect(restore({ before: CUTOFF })).rejects.toThrow('index unreadable');
     expect(mocks.ctx.destroy).toHaveBeenCalledTimes(2);
   });
@@ -245,6 +251,6 @@ describe('OneDriveVersionRestoreService', () => {
       version_id: '1.0',
     });
 
-    expect(mocks.indexes.list_by_owner).toHaveBeenCalledWith(expect.anything(), OWNER_ID);
+    expect(mocks.indexes.list_readable_by_owner).toHaveBeenCalledWith(expect.anything(), OWNER_ID);
   });
 });

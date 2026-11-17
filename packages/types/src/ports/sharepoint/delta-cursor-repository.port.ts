@@ -1,4 +1,4 @@
-import type { SharePointDeltaCursor } from '../../domain/sharepoint-manifest';
+import type { SharePointDeltaCursor } from '../../domain/sharepoint/manifest';
 import type { TenantContext } from '../tenant/context.port';
 
 export interface SharePointDeltaCursorRepository {

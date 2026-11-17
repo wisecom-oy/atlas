@@ -5,6 +5,7 @@ import type {
   Manifest,
 } from '@wisecom/atlas-types';
 import { create_mailbox_sync_harness, make_delta } from './mailbox-sync.fixtures';
+import { latest_readable } from '@wisecom/atlas-types/testing/readable-listing';
 
 /**
  * Issue #370. Outlook backup wrote a snapshot manifest on every run, including runs where the
@@ -34,7 +35,9 @@ function saved_cursor(harness: { mock_cursors: MailboxDeltaCursorRepository }): 
 describe('an outlook backup that captured nothing', () => {
   it('writes no snapshot manifest, and still persists the delta link', async () => {
     const harness = create_mailbox_sync_harness();
-    vi.mocked(harness.mock_manifests.find_latest_by_owner).mockResolvedValue(make_head({}));
+    vi.mocked(harness.mock_manifests.find_latest_readable).mockResolvedValue(
+      latest_readable(make_head({})),
+    );
     vi.mocked(harness.mock_cursors.load).mockResolvedValue({
       owner_id: 'john.doe@example.com',
       delta_links: { 'folder-1': 'https://delta/old' },
@@ -54,7 +57,9 @@ describe('an outlook backup that captured nothing', () => {
 
   it('keeps a link for a folder this run did not visit', async () => {
     const harness = create_mailbox_sync_harness();
-    vi.mocked(harness.mock_manifests.find_latest_by_owner).mockResolvedValue(make_head({}));
+    vi.mocked(harness.mock_manifests.find_latest_readable).mockResolvedValue(
+      latest_readable(make_head({})),
+    );
     vi.mocked(harness.mock_cursors.load).mockResolvedValue({
       owner_id: 'john.doe@example.com',
       delta_links: { 'folder-1': 'https://delta/old', 'folder-2': 'https://delta/other' },
@@ -71,8 +76,8 @@ describe('an outlook backup that captured nothing', () => {
 
   it('falls back to the head manifest links for a mailbox with no cursor yet', async () => {
     const harness = create_mailbox_sync_harness();
-    vi.mocked(harness.mock_manifests.find_latest_by_owner).mockResolvedValue(
-      make_head({ 'folder-1': 'https://delta/from-manifest' }),
+    vi.mocked(harness.mock_manifests.find_latest_readable).mockResolvedValue(
+      latest_readable(make_head({ 'folder-1': 'https://delta/from-manifest' })),
     );
     vi.mocked(harness.mock_connector.fetch_delta).mockResolvedValue(make_delta([]));
 

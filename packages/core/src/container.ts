@@ -3,38 +3,42 @@ import {
   CATALOG_USE_CASE_TOKEN,
   DELETION_USE_CASE_TOKEN,
   DEK_REWRAP_USE_CASE_TOKEN,
+  OLD_WRAPPER_PURGE_USE_CASE_TOKEN,
+  TENANT_SET_REWRAP_USE_CASE_TOKEN,
   VERIFICATION_USE_CASE_TOKEN,
   STATS_USE_CASE_TOKEN,
   STORAGE_USAGE_USE_CASE_TOKEN,
-  REPLICATION_USE_CASE_TOKEN,
-  SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
-  ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
   ONEDRIVE_DELETION_USE_CASE_TOKEN,
   SHAREPOINT_DELETION_USE_CASE_TOKEN,
-  type SharePointReplicationUseCase,
-  type OneDriveReplicationUseCase,
+  OWNER_LEASE_TOKEN,
+  type OwnerLeasePort,
   type OneDriveDeletionUseCase,
   type SharePointDeletionUseCase,
 } from '@wisecom/atlas-types';
 import { CatalogService } from '@/services/catalog/catalog.service';
 import { DeletionService } from '@/services/deletion/deletion.service';
 import { DekRewrapService } from '@/services/keys/dek-rewrap.service';
+import { StorageOwnerLeases } from '@/services/lease/storage-owner-leases';
 import { OneDriveDeletionService } from '@/services/deletion/onedrive-deletion.service';
 import { SharePointDeletionService } from '@/services/deletion/sharepoint-deletion.service';
 import { VerificationService } from '@/services/verification/verification.service';
 import { StatsService } from '@/services/stats/stats.service';
 import { StorageUsageService } from '@/services/stats/storage-usage.service';
-import { ReplicationService } from '@/services/replication/replication.service';
-import { SharePointReplicationService } from '@/services/replication/sharepoint-replication.service';
-import { OneDriveReplicationService } from '@/services/replication/onedrive-replication.service';
+import { TenantSetRewrapService } from '@/services/keys/tenant-set-rewrap.service';
+import { OldWrapperPurgeService } from '@/services/keys/old-wrapper-purge.service';
 
 export function bind_core_services(container: Container): void {
+  container.bind<OwnerLeasePort>(OWNER_LEASE_TOKEN).toConstantValue(new StorageOwnerLeases());
   container.bind(CatalogService).toSelf();
   container.bind(CATALOG_USE_CASE_TOKEN).toService(CatalogService);
   container.bind(DeletionService).toSelf();
   container.bind(DELETION_USE_CASE_TOKEN).toService(DeletionService);
   container.bind(DekRewrapService).toSelf();
   container.bind(DEK_REWRAP_USE_CASE_TOKEN).toService(DekRewrapService);
+  container.bind(TenantSetRewrapService).toSelf();
+  container.bind(TENANT_SET_REWRAP_USE_CASE_TOKEN).toService(TenantSetRewrapService);
+  container.bind(OldWrapperPurgeService).toSelf();
+  container.bind(OLD_WRAPPER_PURGE_USE_CASE_TOKEN).toService(OldWrapperPurgeService);
   container.bind(OneDriveDeletionService).toSelf();
   container
     .bind<OneDriveDeletionUseCase>(ONEDRIVE_DELETION_USE_CASE_TOKEN)
@@ -49,14 +53,4 @@ export function bind_core_services(container: Container): void {
   container.bind(STATS_USE_CASE_TOKEN).toService(StatsService);
   container.bind(StorageUsageService).toSelf();
   container.bind(STORAGE_USAGE_USE_CASE_TOKEN).toService(StorageUsageService);
-  container.bind(ReplicationService).toSelf();
-  container.bind(REPLICATION_USE_CASE_TOKEN).toService(ReplicationService);
-  container.bind(SharePointReplicationService).toSelf();
-  container
-    .bind<SharePointReplicationUseCase>(SHAREPOINT_REPLICATION_USE_CASE_TOKEN)
-    .toService(SharePointReplicationService);
-  container.bind(OneDriveReplicationService).toSelf();
-  container
-    .bind<OneDriveReplicationUseCase>(ONEDRIVE_REPLICATION_USE_CASE_TOKEN)
-    .toService(OneDriveReplicationService);
 }

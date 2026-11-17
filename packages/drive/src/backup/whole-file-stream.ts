@@ -1,4 +1,5 @@
 import { report_transfer_throttle, wait_for_transfer_slot } from '@wisecom/atlas-m365-graph';
+import { CdnHttpError } from '@/backup/cdn-chunk-errors';
 
 /** Options for {@link stream_whole_file_in_chunks}. */
 export interface WholeFileStreamOptions {
@@ -53,7 +54,11 @@ export async function* stream_whole_file_in_chunks(
     const response = await fetch(url, { signal });
     report_transfer_throttle(response);
     if (!response.ok || !response.body) {
-      throw new Error(`HTTP ${response.status} for the streamed download of ${item_id}`);
+      // Typed with the status, so an expired URL here is refreshed like one on a Range request.
+      throw new CdnHttpError(
+        `HTTP ${response.status} for the streamed download of ${item_id}`,
+        response.status,
+      );
     }
 
     let pending: Buffer[] = [];

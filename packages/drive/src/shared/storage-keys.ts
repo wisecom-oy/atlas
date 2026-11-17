@@ -48,6 +48,8 @@ export interface DriveStorageKeys {
   staging_prefix_for(owner_id: string): string;
   /** Builds the key for the delta cursor state. */
   delta_cursor_key(owner_id: string): string;
+  /** Builds the key for the owning segment's snapshot summary index (#625). */
+  snapshot_summary_key(owner_id: string): string;
 }
 
 /**
@@ -137,6 +139,9 @@ export function build_drive_storage_keys(
     },
     delta_cursor_key(owner_id) {
       return `${meta_prefix}/${owning_segment(owner_id)}/delta.json`;
+    },
+    snapshot_summary_key(owner_id) {
+      return `${meta_prefix}/${owning_segment(owner_id)}/snapshots.json`;
     },
   };
 }

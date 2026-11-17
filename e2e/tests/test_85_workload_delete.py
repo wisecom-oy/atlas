@@ -3,17 +3,18 @@
 Wired to the CLI by issue #163: the OneDrive and SharePoint deletion services existed, were tested,
 and only the SDK could reach them.
 
-Deliberately snapshot-scoped rather than owner- or site-scoped. A snapshot delete removes exactly
+Deliberately snapshot-scoped rather than owner- or site-scoped, and always the newest snapshot:
+each drive snapshot holds one run's changes, so Atlas refuses to delete one that newer snapshots
+are built on (exit 11). The id embeds its creation time, so the greatest key is the newest.
+
+A snapshot delete removes exactly
 one manifest and retains the content-addressed blobs, which is the property worth asserting here,
 and it leaves the drive prefixes populated so `test_90_purge` still proves the cross-workload sweep
 it claims to. The owner and site scopes are covered by the CLI unit suite, which can assert the
 use-case call without erasing a live tenant's backup.
 
-Runs after replication (`test_40`), which destroys the primary bucket and rehydrates it from the
-replica. The drive snapshots asserted here are therefore the rehydrated copies, which makes this a
-stronger check than it looks: it only passes if the drives survived the whole replicate, purge and
-rehydrate loop. That is exactly what failed before issue #210, when `test_40` replicated the mailbox
-alone and the drives never came back.
+Runs on the snapshots the workload suites wrote. Until Atlas 7 removed replication (#769), a
+`test_40` suite purged and rehydrated the bucket in between, so these were the recovered copies.
 """
 
 from __future__ import annotations
@@ -38,19 +39,19 @@ def test_01_onedrive_snapshot_delete_keeps_the_blobs(cli: Cli, settings: Setting
 
     data_before = storage.list_keys(s3, settings.bucket, f"onedrive/data/{owner}/")
     sharepoint_before = storage.list_keys(s3, settings.bucket, "sharepoint/")
-    outlook_before = storage.list_keys(s3, settings.bucket, "outlook/")
+    outlook_before = _outlook_keys(s3, settings.bucket)
 
-    cli.ok("onedrive", "delete", "-o", settings.onedrive_owner, "-s", snapshots[0], "-y")
+    cli.ok("onedrive", "delete", "-o", settings.onedrive_owner, "-s", snapshots[-1], "-y")
 
     remaining = storage.snapshot_ids(s3, settings.bucket, owner, "onedrive")
-    assert snapshots[0] not in remaining, "the deleted OneDrive snapshot is still listed"
+    assert snapshots[-1] not in remaining, "the deleted OneDrive snapshot is still listed"
     assert storage.list_keys(s3, settings.bucket, f"onedrive/data/{owner}/") == data_before, (
         "a snapshot delete removed content-addressed blobs other snapshots may reference"
     )
     assert storage.list_keys(s3, settings.bucket, "sharepoint/") == sharepoint_before, (
         "a OneDrive-scoped delete touched SharePoint objects"
     )
-    assert storage.list_keys(s3, settings.bucket, "outlook/") == outlook_before, (
+    assert _outlook_keys(s3, settings.bucket) == outlook_before, (
         "a OneDrive-scoped delete touched Outlook objects"
     )
 
@@ -68,21 +69,29 @@ def test_02_sharepoint_snapshot_delete_keeps_the_blobs(
 
     data_before = storage.list_keys(s3, settings.bucket, f"sharepoint/data/{site}/")
     onedrive_before = storage.list_keys(s3, settings.bucket, "onedrive/")
-    outlook_before = storage.list_keys(s3, settings.bucket, "outlook/")
+    outlook_before = _outlook_keys(s3, settings.bucket)
 
-    cli.ok("sharepoint", "delete", "--site", settings.sharepoint_site, "-s", snapshots[0], "-y")
+    cli.ok("sharepoint", "delete", "--site", settings.sharepoint_site, "-s", snapshots[-1], "-y")
 
     remaining = storage.snapshot_ids(s3, settings.bucket, site, "sharepoint")
-    assert snapshots[0] not in remaining, "the deleted SharePoint snapshot is still listed"
+    assert snapshots[-1] not in remaining, "the deleted SharePoint snapshot is still listed"
     assert storage.list_keys(s3, settings.bucket, f"sharepoint/data/{site}/") == data_before, (
         "a snapshot delete removed content-addressed blobs other snapshots may reference"
     )
     assert storage.list_keys(s3, settings.bucket, "onedrive/") == onedrive_before, (
         "a SharePoint-scoped delete touched OneDrive objects"
     )
-    assert storage.list_keys(s3, settings.bucket, "outlook/") == outlook_before, (
+    assert _outlook_keys(s3, settings.bucket) == outlook_before, (
         "a SharePoint-scoped delete touched Outlook objects"
     )
+
+
+def _outlook_keys(s3: Any, bucket: str) -> list[str]:
+    """Outlook's manifests and data, which predate the per-workload prefixes: no `outlook/`."""
+    return [
+        *storage.list_keys(s3, bucket, storage.MANIFEST_PREFIXES["outlook"]),
+        *storage.list_keys(s3, bucket, storage.DATA_PREFIXES["outlook"]),
+    ]
 
 
 def _single_segment(s3: Any, bucket: str, prefix: str) -> str:

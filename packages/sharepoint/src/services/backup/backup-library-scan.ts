@@ -18,6 +18,8 @@ import type {
 } from '@/services/backup/library-item-processor';
 import type { RunVersionCollector } from '@/services/versioning/version-sync';
 import type { DriveRecrawl } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
+import type { DriveItemMetadataCapture } from '@wisecom/atlas-drive/backup/item-metadata-capture';
 
 export interface SharePointLibraryScanResult {
   entries: SharePointManifestEntry[];
@@ -52,6 +54,8 @@ interface SharePointLibraryScanParams {
   delta_link_by_drive: Record<string, string>;
   ctx: TenantContext;
   initial_failed_items: FailedItemLedger;
+  /** The run's metadata capture; absent reads metadata without carrying blobs forward. */
+  capture?: DriveItemMetadataCapture;
 }
 
 /** Scans libraries sequentially and stops at a safe item boundary. */
@@ -68,6 +72,7 @@ export async function scan_all_libraries({
   delta_link_by_drive,
   ctx,
   initial_failed_items,
+  capture,
 }: SharePointLibraryScanParams): Promise<SharePointLibraryScanResult> {
   // No index read here: version dedup rides on the delta cursor watermarks the
   // caller already loaded (issue #161).
@@ -124,11 +129,12 @@ export async function scan_all_libraries({
             current: item.file_name,
           });
         },
+        capture,
       );
 
       result.failed_items = library_result.failed_items;
       result.package_reports.push(library_result.package_report);
-      result.entries.push(...library_result.entries);
+      append_all(result.entries, library_result.entries);
       result.files_stored += library_result.files_stored;
       result.files_deduplicated += library_result.files_deduplicated;
       result.deleted_items += library_result.deleted_items;
@@ -138,6 +144,12 @@ export async function scan_all_libraries({
         break;
       }
     } catch (err) {
+      // A Graph call cut short by cancellation is the run stopping, not the library failing. The
+      // library keeps its old delta link either way (issue #673).
+      if (options.abort_signal?.aborted === true) {
+        result.interrupted = true;
+        break;
+      }
       const reason = err instanceof Error ? err.message : String(err);
       logger.error(`Library ${library.drive_id} failed: ${reason}`);
       result.errors.push(`Library ${library.drive_name} (${library.drive_id}): ${reason}`);

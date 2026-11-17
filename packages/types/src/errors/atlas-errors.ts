@@ -11,7 +11,13 @@ export type AtlasErrorCode =
   | 'ATLAS_OBJECT_LOCK_RETAINED'
   | 'ATLAS_STORAGE_FAILURE'
   | 'ATLAS_CONTENT_UNREADABLE'
-  | 'ATLAS_CONFIG_INVALID';
+  | 'ATLAS_FORMAT_UNSUPPORTED'
+  | 'ATLAS_SNAPSHOT_NOT_NEWEST'
+  | 'ATLAS_WRITE_REFUSED'
+  | 'ATLAS_OWNER_BUSY'
+  | 'ATLAS_CONFIG_INVALID'
+  | 'ATLAS_ACCESS_REFUSED'
+  | 'ATLAS_GRAPH_UNAVAILABLE';
 
 /**
  * Base class for every failure Atlas raises on purpose.
@@ -90,10 +96,162 @@ export class ObjectLockRetainedError extends AtlasError {
   }
 }
 
+/** How a refused snapshot delete names the chain it protects. Defaults to an Outlook mailbox. */
+export interface SnapshotChainWording {
+  /** What owns the chain, e.g. `mailbox`, `OneDrive`, `site`. */
+  readonly owner: string;
+  /** What a snapshot records, e.g. `messages`, `files`. */
+  readonly records: string;
+  /** The CLI flag that deletes the whole backup when given without `-s`, e.g. `-m`. */
+  readonly delete_all_flag: string;
+}
+
+const MAILBOX_CHAIN_WORDING: SnapshotChainWording = {
+  owner: 'mailbox',
+  records: 'messages',
+  delete_all_flag: '-m',
+};
+
+/**
+ * A snapshot delete was refused because newer snapshots are built on it. An Outlook, OneDrive or
+ * SharePoint manifest holds only its own run's changes, so the items and removals it recorded
+ * exist in no later manifest; deleting it would silently change every newer snapshot (issues
+ * #704, #725).
+ */
+export class SnapshotNotNewestError extends AtlasError {
+  constructor(
+    readonly snapshot_id: string,
+    readonly newer_snapshot_ids: readonly string[],
+    options?: { cause?: unknown; wording?: SnapshotChainWording },
+  ) {
+    const { owner, records, delete_all_flag } = options?.wording ?? MAILBOX_CHAIN_WORDING;
+    super(
+      'ATLAS_SNAPSHOT_NOT_NEWEST',
+      `Refusing to delete snapshot ${snapshot_id}: ${newer_snapshot_ids.length} newer ` +
+        `snapshot(s) of this ${owner} include the ${records} it recorded. Delete the newer ` +
+        `snapshots first, newest first, or delete the whole ${owner} backup with ${delete_all_flag}.`,
+      options?.cause === undefined ? undefined : { cause: options.cause },
+    );
+  }
+}
+
 /** The storage backend failed for a reason that is not permission, retention or absence. */
 export class StorageError extends AtlasError {
   constructor(message: string, options?: { cause?: unknown }) {
     super('ATLAS_STORAGE_FAILURE', message, options);
+  }
+}
+
+/**
+ * A create-only write found a different object already stored under its key, and left it in place.
+ *
+ * A `StorageError` like the refused conditional write it comes from. The key belongs to a snapshot
+ * or run, so the next run writes under a new one and a rerun is the remedy.
+ */
+export class StoredObjectConflictError extends StorageError {
+  constructor(
+    readonly key: string,
+    label: string,
+    options?: { cause?: unknown },
+  ) {
+    super(
+      `The ${label} at ${key} already exists and holds a different object. ` +
+        'It was not overwritten.',
+      options,
+    );
+  }
+}
+
+/**
+ * Atlas built a metadata object it could not store safely and refused before writing anything:
+ * the object is too large for one JSON document, fails the checks its own reader applies, or does
+ * not decrypt back to what was encrypted.
+ *
+ * A writer-side defect, never storage damage. No object exists at `key`, so it is neither
+ * `StorageError` nor `UnreadableObjectsError`, whose remedy is `quarantine`.
+ */
+export class RefusedWriteError extends AtlasError {
+  constructor(
+    readonly key: string,
+    label: string,
+    reason: string,
+    options?: { cause?: unknown },
+  ) {
+    super(
+      'ATLAS_WRITE_REFUSED',
+      `Refusing to write the ${label} at ${key}: ${reason}. Nothing was written.`,
+      options,
+    );
+  }
+}
+
+/** The owner a lease error is about, and what is known of the operation that holds it. */
+export interface OwnerLeaseHolder {
+  /** Workload namespace of the lease, e.g. `outlook`, `onedrive`, `teams`. */
+  readonly workload: string;
+  /** The mailbox, drive owner, site or team id the lease covers. */
+  readonly owner_id: string;
+  /** The operation that holds the owner, when its lease could be read: `backup`, `delete`, `quarantine`. */
+  readonly held_by_operation?: string | undefined;
+  /** When the holder's lease runs out unless it renews it first, as an ISO 8601 UTC timestamp. */
+  readonly lease_expires_at?: string | undefined;
+}
+
+/**
+ * Another operation holds the lease on this mailbox, drive owner, site or team, so this one did not
+ * start and wrote nothing (issue #623). Retrying helps once the other operation ends, or after its
+ * lease expires when the process that held it was killed.
+ */
+export class OwnerBusyError extends AtlasError {
+  readonly workload: string;
+  readonly owner_id: string;
+  readonly held_by_operation: string | undefined;
+  readonly lease_expires_at: string | undefined;
+
+  constructor(holder: OwnerLeaseHolder, options?: { cause?: unknown; message?: string }) {
+    super(
+      'ATLAS_OWNER_BUSY',
+      options?.message ?? owner_busy_message(holder),
+      options?.cause === undefined ? undefined : { cause: options.cause },
+    );
+    this.workload = holder.workload;
+    this.owner_id = holder.owner_id;
+    this.held_by_operation = holder.held_by_operation;
+    this.lease_expires_at = holder.lease_expires_at;
+  }
+}
+
+function owner_busy_message(holder: OwnerLeaseHolder): string {
+  const operation = holder.held_by_operation ?? 'operation';
+  const expiry =
+    holder.lease_expires_at === undefined
+      ? ''
+      : ` Its lease expires at ${holder.lease_expires_at} unless that operation is still running and renews it.`;
+  return (
+    `Another ${operation} is running on ${holder.workload} owner ${holder.owner_id}, so this ` +
+    `operation did not start and wrote nothing.${expiry} Retry once the other operation ends, ` +
+    'or after the lease expires.'
+  );
+}
+
+/**
+ * This run held the owner's lease and lost it before a commit point: it could not renew the lease
+ * until it expired, or another operation took the owner over. The run stopped before writing the
+ * manifest, cursor or deletion the check guarded.
+ *
+ * An `OwnerBusyError`, with the same code and exit status, because the remedy is the same: another
+ * operation may own the mailbox, drive owner, site or team now, and a rerun is safe once it ends.
+ * Content objects this run already uploaded stay in storage and are deduplicated by the next run.
+ */
+export class OwnerLeaseLostError extends OwnerBusyError {
+  constructor(holder: OwnerLeaseHolder, reason: string, options?: { cause?: unknown }) {
+    super(holder, {
+      ...options,
+      message:
+        `This run lost its lease on ${holder.workload} owner ${holder.owner_id}: ${reason}. It ` +
+        'stopped before committing, so no manifest, cursor or deletion was written past this ' +
+        'point. Retry once no other operation is running on the owner.',
+    });
   }
 }
 
@@ -115,5 +273,158 @@ export class ConfigError extends AtlasError {
 export class UnreadableContentError extends AtlasError {
   constructor(message: string, options?: { cause?: unknown }) {
     super('ATLAS_CONTENT_UNREADABLE', message, options);
+  }
+}
+
+/**
+ * One or more stored objects an operation needed could not be decrypted, parsed, or identified as
+ * the key they sit under, so the operation would give a wrong answer if it went on without them.
+ *
+ * Names every key so an operator can inspect it and move it aside with `quarantine`. A listing
+ * that could still read the rest carries what it read in `partial_result`, so one damaged object
+ * never hides the others (issue #631).
+ */
+export class UnreadableObjectsError<T = unknown> extends UnreadableContentError {
+  readonly unreadable_keys: readonly string[];
+  /** What the operation could read, for a listing that skipped the damaged objects. */
+  readonly partial_result: T | undefined;
+
+  constructor(
+    message: string,
+    unreadable_keys: readonly string[],
+    options?: { cause?: unknown; partial_result?: T | undefined },
+  ) {
+    super(`${message}: ${unreadable_keys.join(', ')}`, options);
+    this.unreadable_keys = unreadable_keys;
+    this.partial_result = options?.partial_result;
+  }
+}
+
+/**
+ * Stored content was written by a newer Atlas format version than this build reads. It is intact,
+ * so it is not `UnreadableContentError`: the fix is an Atlas upgrade, not a restore.
+ */
+export class UnsupportedFormatVersionError extends AtlasError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super('ATLAS_FORMAT_UNSUPPORTED', message, options);
+  }
+}
+
+/** What Graph answered, as far as the failure that carried it says. */
+export interface GraphErrorFacts {
+  /** HTTP status of the last response, or undefined for a failure that got no response. */
+  readonly status_code?: number | undefined;
+  /** Graph's error code, such as `accessDenied`, when the response carried one. */
+  readonly graph_code?: string | undefined;
+  /** The Graph or network error this one classifies. */
+  readonly cause?: unknown;
+}
+
+/**
+ * The app registration lacks an application permission the operation needs. Graph answered 403
+ * with a code that means a missing grant, and nothing showed the grant to be working.
+ *
+ * An `AuthError`, so it stops the run for the whole tenant and exits 4: every other owner would be
+ * refused the same way. `permissions` names what to grant.
+ */
+export class MissingGraphPermissionsError extends AuthError {
+  /** The application permissions to grant, as named in the message. */
+  readonly permissions: readonly string[];
+  readonly status_code: number | undefined;
+  readonly graph_code: string | undefined;
+
+  constructor(
+    message: string,
+    options: GraphErrorFacts & { readonly permissions?: readonly string[] } = {},
+  ) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
+    this.permissions = options.permissions ?? [];
+    this.status_code = options.status_code;
+    this.graph_code = options.graph_code;
+  }
+}
+
+/**
+ * Why Graph refused one resource. `file_storage_container`: the site's web URL is under
+ * `/contentstorage/`, a SharePoint Embedded container, which needs `FileStorageContainer.Selected`.
+ * `access_refused`: any other refusal, including a container addressed only by its site ID.
+ */
+export type GraphAccessRefusalReason = 'file_storage_container' | 'access_refused';
+
+/** What a refused call addressed. Fields the call did not address are undefined. */
+export interface RefusedGraphResource {
+  readonly site_id?: string | undefined;
+  readonly drive_id?: string | undefined;
+  readonly owner_id?: string | undefined;
+}
+
+/**
+ * Graph refused one resource with a 403 Atlas does not attribute to a missing grant: its code does
+ * not name a missing permission, or, for SharePoint, the same app can read the tenant's root site
+ * (issue #772). A SharePoint Embedded container site is the known case: Graph answers 403
+ * `accessDenied` to an app holding `Sites.Read.All`.
+ *
+ * Retrying returns the same answer until something changes. A container (`reason`
+ * `file_storage_container`) is unsupported; any other resource may need a per-site grant, such as
+ * `Sites.Selected` on the site, before it can be read. Not an `AuthError`: the refusal is about one
+ * resource, not the tenant, so a caller that stops a tenant run on `AuthError` keeps backing up the
+ * other owners.
+ */
+export class GraphAccessRefusedError extends AtlasError {
+  readonly site_id: string | undefined;
+  readonly drive_id: string | undefined;
+  readonly owner_id: string | undefined;
+  readonly reason: GraphAccessRefusalReason;
+  readonly status_code: number | undefined;
+  readonly graph_code: string | undefined;
+
+  constructor(
+    message: string,
+    resource: RefusedGraphResource,
+    reason: GraphAccessRefusalReason,
+    options: GraphErrorFacts = {},
+  ) {
+    super(
+      'ATLAS_ACCESS_REFUSED',
+      message,
+      options.cause === undefined ? undefined : { cause: options.cause },
+    );
+    this.site_id = resource.site_id;
+    this.drive_id = resource.drive_id;
+    this.owner_id = resource.owner_id;
+    this.reason = reason;
+    this.status_code = options.status_code;
+    this.graph_code = options.graph_code;
+  }
+}
+
+/**
+ * Graph kept failing a request with a transient answer (500, 502, 503, 504, a network error or a
+ * timeout) until the retry budget ran out (issue #773). The service, not the request, is at fault,
+ * so a later attempt can succeed. An exhausted 429 is `ThrottledError` instead.
+ */
+export class GraphUnavailableError extends AtlasError {
+  /** HTTP status of the last attempt, or undefined when it got no response at all. */
+  readonly status_code: number | undefined;
+  readonly graph_code: string | undefined;
+  /** Retries made after the first attempt before giving up. */
+  readonly retries: number;
+  /** Milliseconds from the first attempt until the call gave up, waits included. */
+  readonly elapsed_ms: number;
+
+  constructor(
+    message: string,
+    attempts: { readonly retries: number; readonly elapsed_ms: number },
+    options: GraphErrorFacts = {},
+  ) {
+    super(
+      'ATLAS_GRAPH_UNAVAILABLE',
+      message,
+      options.cause === undefined ? undefined : { cause: options.cause },
+    );
+    this.status_code = options.status_code;
+    this.graph_code = options.graph_code;
+    this.retries = attempts.retries;
+    this.elapsed_ms = attempts.elapsed_ms;
   }
 }

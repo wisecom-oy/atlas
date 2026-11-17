@@ -69,7 +69,7 @@ export async function graph_onedrive_create_folder(
 }
 
 /**
- * Uploads file contents with a single PUT (small files).
+ * Uploads file contents with a single PUT (small files), resolving the created item's id.
  *
  * `PUT /content` carries bytes only, so original timestamps need a follow-up
  * PATCH on the created item. The PATCH is best-effort: a restored file with
@@ -85,22 +85,29 @@ export async function graph_onedrive_upload_small_file(
   content: Buffer,
   conflict_behavior: string = 'rename',
   file_system_info?: DriveFileSystemInfo,
-): Promise<void> {
+): Promise<string | undefined> {
   const parent_ref = parent_id === 'root' ? 'root' : `items/${parent_id}`;
   const encoded_name = encodeURIComponent(file_name);
   // Encoded: an unescaped value could append a second conflictBehavior to the query.
   const conflict_qs = `@microsoft.graph.conflictBehavior=${encodeURIComponent(conflict_behavior)}`;
+  // Only `replace` makes a repeated PUT land on the same item. Under `rename` a PUT that Graph
+  // committed before answering 5xx or timing out comes back as "name (1).ext", and under `fail` as a
+  // 409 for the file this call wrote, so those are sent once (issue #624).
   const uploaded = await with_graph_retry(
-    () =>
+    (signal) =>
       client
         .api(
           `/users/${owner_id}/drives/${drive_id}/${parent_ref}:/${encoded_name}:/content?${conflict_qs}`,
         )
         .header('Content-Type', 'application/octet-stream')
+        .option('signal', signal)
         .put(content) as Promise<{ id?: string } | undefined>,
+    // Sent means finished: a PUT cut off mid-flight may still have written the file (#682).
+    { idempotent: conflict_behavior === 'replace', complete_in_flight: true },
   );
 
   await stamp_file_system_info(client, owner_id, drive_id, uploaded?.id, file_system_info);
+  return uploaded?.id;
 }
 
 /** Applies captured timestamps to an uploaded item, logging rather than failing. */
@@ -145,7 +152,7 @@ export async function graph_onedrive_upload_large_file(
   content: LargeFileContent,
   conflict_behavior: string = 'rename',
   file_system_info?: DriveFileSystemInfo,
-): Promise<void> {
+): Promise<string | undefined> {
   const parent_ref = parent_id === 'root' ? 'root' : `items/${parent_id}`;
   const file_system_body = build_upload_file_system_info(file_system_info);
   const session_response = await with_graph_retry(
@@ -166,5 +173,5 @@ export async function graph_onedrive_upload_large_file(
   }
   const upload_url = session_response.uploadUrl;
 
-  await upload_content_to_session(upload_url, content, file_name);
+  return upload_content_to_session(upload_url, content, file_name);
 }

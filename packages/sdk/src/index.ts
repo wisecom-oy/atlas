@@ -7,11 +7,12 @@
  * (issue #45). Everything below is camelCase, converted at the boundary.
  */
 export { createAtlasInstance } from './atlas-instance.adapter';
-export { create_storage_target as createStorageTarget } from '@wisecom/atlas-s3';
+export { create_tenant as createTenant } from './target-tenant';
 export { getGraphCost, getStorageUsageToken, GRAPH_SERVICE_LIMITS } from './public-values';
+export { isFileStorageContainerSite } from './sharepoint-site-kind';
 
 export type { AtlasInstance, AtlasInstanceConfig } from '@wisecom/atlas-types';
-export type { StorageTarget, StorageTargetConfig } from '@wisecom/atlas-types';
+export type { AtlasTenant, AtlasTenantConfig } from '@wisecom/atlas-types';
 export type { LogSink, LogFields } from '@wisecom/atlas-types';
 export type {
   StorageRequestEvent,
@@ -32,6 +33,7 @@ export type {
   OutlookSaveResult,
   OutlookMailboxSummary,
   OutlookSnapshotManifest,
+  OutlookSdkSnapshotSummary,
   OutlookReadMessageResult,
   OutlookDeletionResult,
   OutlookMailboxStats,
@@ -53,11 +55,38 @@ export type {
   OneDriveSdkSaveOptions,
   OneDriveSdkSaveResult,
   OneDriveSdkSnapshotManifest,
+  OneDriveSdkSnapshotSummary,
   OneDriveSdkFileVersion,
+  OneDriveSdkPermissionListing,
   OneDriveSdkDeletionResult,
-  OneDriveSdkReplicationResult,
   OneDriveSdkStatusResult,
   OneDriveSdkStats,
+} from '@wisecom/atlas-types';
+
+export type {
+  ContactsApi,
+  ContactsSdkBackupOptions,
+  ContactsSdkBackupResult,
+  ContactsSdkVerificationOptions,
+  ContactsSdkVerificationResult,
+  ContactsSdkRestoreOptions,
+  ContactsSdkRestoreResult,
+  ContactsSdkSnapshotManifest,
+  ContactsSdkSnapshotSummary,
+  ContactsSdkDeletionResult,
+} from '@wisecom/atlas-types';
+
+export type {
+  CalendarApi,
+  CalendarSdkBackupOptions,
+  CalendarSdkBackupResult,
+  CalendarSdkVerificationOptions,
+  CalendarSdkVerificationResult,
+  CalendarSdkRestoreOptions,
+  CalendarSdkRestoreResult,
+  CalendarSdkSnapshotManifest,
+  CalendarSdkSnapshotSummary,
+  CalendarSdkDeletionResult,
 } from '@wisecom/atlas-types';
 
 export type {
@@ -73,13 +102,31 @@ export type {
   SharePointSdkSaveOptions,
   SharePointSdkSaveResult,
   SharePointSdkSnapshotManifest,
+  SharePointSdkSnapshotSummary,
   SharePointSdkFileVersion,
+  SharePointSdkPermissionListing,
   SharePointSdkDeletionResult,
-  SharePointSdkReplicationResult,
   SharePointSdkStatusResult,
   SharePointSdkSite,
   SharePointSdkStats,
 } from '@wisecom/atlas-types';
+
+export type {
+  TeamsApi,
+  TeamsSdkBackupOptions,
+  TeamsSdkBackupResult,
+  TeamsSdkVerificationOptions,
+  TeamsSdkVerificationResult,
+  TeamsSdkSaveOptions,
+  TeamsSdkSaveResult,
+  TeamsSdkSnapshotIndex,
+  TeamsSdkSnapshotListing,
+  TeamsSdkTeamStatus,
+  TeamsSdkTeam,
+  TeamsSdkDeletionResult,
+} from '@wisecom/atlas-types';
+
+export type { KeysApi, KeysRewrapOptions, KeysPurgeOptions } from '@wisecom/atlas-types';
 
 export type {
   SdkOperationOptions,
@@ -88,7 +135,7 @@ export type {
   OperationProgressCallback,
 } from '@wisecom/atlas-types';
 
-export type { ObjectLockMode, BackupSyncMode, RehydrationWorkload } from '@wisecom/atlas-types';
+export type { ObjectLockMode, BackupSyncMode } from '@wisecom/atlas-types';
 export type { GraphServicePool, ThrottleCoordinator, ThrottleScope } from '@wisecom/atlas-types';
 
 /**
@@ -105,6 +152,7 @@ export type {
   StorageUsageTotals,
   StorageOwnerUsage,
 } from './public-types';
+export type { SdkQuarantineResult as QuarantineResult } from '@wisecom/atlas-types';
 export type {
   StorageUsageOptions,
   StorageUsageBreakdown,
@@ -122,8 +170,21 @@ export {
   ObjectLockRetainedError,
   StorageError,
   ConfigError,
+  UnreadableObjectsError,
+  SnapshotNotNewestError,
+  StoredObjectConflictError,
+  RefusedWriteError,
+  OwnerBusyError,
+  OwnerLeaseLostError,
+  MissingGraphPermissionsError,
+  GraphAccessRefusedError,
+  GraphUnavailableError,
 } from '@wisecom/atlas-types';
-export type { AtlasErrorCode } from '@wisecom/atlas-types';
+export type {
+  AtlasErrorCode,
+  GraphAccessRefusalReason,
+  SharePointSiteKind,
+} from '@wisecom/atlas-types';
 export {
   ObjectLockVersioningDisabledError,
   ObjectLockUnsupportedError,

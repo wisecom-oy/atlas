@@ -115,6 +115,19 @@ describe('S3OneDriveDeltaCursorRepository', () => {
     await expect(repo.load(ctx, OWNER)).rejects.toBeInstanceOf(UnreadableContentError);
   });
 
+  it('rejects another owner cursor stored under this owner key', async () => {
+    const { ctx } = make_ctx({ [CURSOR_KEY]: make_cursor({ owner_id: 'owner-2' }) });
+
+    // Resuming one drive from another drive's delta links would skip its changes (issue #622).
+    await expect(repo.load(ctx, OWNER)).rejects.toBeInstanceOf(UnreadableContentError);
+  });
+
+  it('accepts a cursor whose owner differs from its key only in case', async () => {
+    const { ctx } = make_ctx({ [CURSOR_KEY]: make_cursor({ owner_id: 'Owner-1' }) });
+
+    await expect(repo.load(ctx, OWNER)).resolves.toMatchObject({ owner_id: 'Owner-1' });
+  });
+
   it('encrypts the cursor before it is stored', async () => {
     const encrypt = vi.fn((data: Buffer) => data);
     const { ctx } = make_ctx();

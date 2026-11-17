@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createAtlasInstance } from '@/atlas-instance.adapter';
-import type { AtlasInstance, AtlasInstanceConfig, StorageTarget } from '@wisecom/atlas-types';
+import type { AtlasInstance, AtlasInstanceConfig } from '@wisecom/atlas-types';
 
 const VALID_CONFIG: AtlasInstanceConfig = {
   tenantId: 'test-tenant-id',
@@ -41,15 +41,6 @@ const mocks: Record<string, Record<string, ReturnType<typeof vi.fn>>> = {
   StorageUsageUseCase: { measure_storage_usage: resolved({}) },
   StatusUseCase: { check_mailbox_status: resolved({}) },
   MailboxDiscoveryService: { list_tenant_mailboxes: resolved([]) },
-  ReplicationUseCase: {
-    replicate_snapshot: resolved([]),
-    replicate_mailbox: resolved([]),
-    rehydrate_snapshot: resolved({}),
-    rehydrate_mailbox: resolved({}),
-    rehydrate_tenant: resolved({}),
-    get_replication_status: resolved([]),
-    get_replication_status_by_owner: resolved([]),
-  },
   OneDriveBackupUseCase: { backup_onedrive: resolved({}) },
   OneDriveVerificationUseCase: { verify_onedrive_snapshot: resolved({}) },
   OneDriveCatalogUseCase: {
@@ -59,12 +50,6 @@ const mocks: Record<string, Record<string, ReturnType<typeof vi.fn>>> = {
   OneDriveRestoreUseCase: { restore_onedrive: resolved({}) },
   OneDriveSaveUseCase: { save_snapshot: resolved({}) },
   OneDriveDeletionUseCase: { delete_owner_data: resolved({}), delete_snapshot: resolved({}) },
-  OneDriveReplicationUseCase: {
-    replicate_owner: resolved([]),
-    replicate_all_owner_snapshots: resolved([]),
-    rehydrate_owner_snapshot: resolved({}),
-    rehydrate_owner: resolved({}),
-  },
   OneDriveStatusUseCase: { check_onedrive_status: resolved({}) },
   SharePointSiteTreeBackupUseCase: { backup_site_tree: resolved([]) },
   SharePointVerificationUseCase: { verify_sharepoint_snapshot: resolved({}) },
@@ -74,18 +59,33 @@ const mocks: Record<string, Record<string, ReturnType<typeof vi.fn>>> = {
   },
   SharePointRestoreUseCase: { restore_sharepoint: resolved({}) },
   SharePointSaveUseCase: { save_snapshot: resolved({}) },
-  SharePointReplicationUseCase: {
-    replicate_site: resolved([]),
-    replicate_all_site_snapshots: resolved([]),
-    rehydrate_site_snapshot: resolved({}),
-    rehydrate_site: resolved({}),
-  },
   SharePointDeletionUseCase: { delete_site_data: resolved({}), delete_snapshot: resolved({}) },
   SharePointStatusUseCase: { check_sharepoint_status: resolved({}) },
+  TeamsBackupUseCase: { backup_team: resolved({}) },
+  TeamsVerificationUseCase: { verify_teams_snapshot: resolved({}) },
+  TeamsCatalogUseCase: {
+    list_teams: resolved([]),
+    list_teams_snapshots: resolved({ manifests: [], unreadable_keys: [] }),
+  },
+  TeamsStatusUseCase: { check_teams_status: resolved([]) },
+  TeamsDeletionUseCase: { delete_team_data: resolved({}), delete_snapshot: resolved({}) },
+  ContactsBackupUseCase: { backup_contacts: resolved({}) },
+  ContactsRestoreUseCase: { restore_contacts: resolved({}) },
+  ContactsCatalogUseCase: { list_contacts_snapshots: resolved([]) },
+  ContactsVerificationUseCase: { verify_contacts_snapshot: resolved({}) },
+  ContactsDeletionUseCase: { delete_mailbox_data: resolved({}), delete_snapshot: resolved({}) },
+  CalendarBackupUseCase: { backup_calendar: resolved({}) },
+  CalendarRestoreUseCase: { restore_calendar: resolved({}) },
+  CalendarCatalogUseCase: { list_calendar_snapshots: resolved([]) },
+  CalendarVerificationUseCase: { verify_calendar_snapshot: resolved({}) },
+  CalendarDeletionUseCase: { delete_mailbox_data: resolved({}), delete_snapshot: resolved({}) },
   SharePointSiteConnector: { list_sites: resolved([]), resolve_site: resolved({}) },
   UserIdentityResolver: { resolve_user: resolved({}) },
   IdentityRegistryRepository: { load: resolved(undefined) },
-  TenantContextFactory: { create: resolved({ destroy: vi.fn() }) },
+  TenantContextFactory: {
+    create: resolved({ destroy: vi.fn() }),
+    create_readonly: resolved({ destroy: vi.fn() }),
+  },
 };
 
 vi.mock('@/container', () => ({
@@ -106,13 +106,6 @@ describe('createAtlasInstance — async contract', () => {
   });
 
   it('every method on every sub-API returns a Promise', () => {
-    const source: StorageTarget = {
-      target_id: 'src-target',
-      endpoint: 'http://src:9000',
-      create_context: vi.fn().mockResolvedValue(undefined),
-      open_inventory: vi.fn(),
-    };
-    const targets = [source];
     for (const call of [
       () => atlas.outlook.backup('m'),
       () => atlas.outlook.verify('s'),
@@ -139,10 +132,18 @@ describe('createAtlasInstance — async contract', () => {
       () => atlas.onedrive.deleteOwnerData('o'),
       () => atlas.onedrive.deleteSnapshot('o', 's'),
       () => atlas.onedrive.checkStatus('o'),
-      () => atlas.onedrive.replicateSnapshot('o', 's', targets),
-      () => atlas.onedrive.replicateAll('o', targets),
-      () => atlas.onedrive.rehydrateSnapshot('o', 's', source),
-      () => atlas.onedrive.rehydrateOwner('o', source),
+      () => atlas.contacts.backup('o'),
+      () => atlas.contacts.verify('o', 's'),
+      () => atlas.contacts.restore('o', { snapshotId: 's', targetMailboxId: 'o' }),
+      () => atlas.contacts.listSnapshots('o'),
+      () => atlas.contacts.deleteMailboxData('o'),
+      () => atlas.contacts.deleteSnapshot('o', 's'),
+      () => atlas.calendar.backup('o'),
+      () => atlas.calendar.verify('o', 's'),
+      () => atlas.calendar.restore('o', { snapshotId: 's', targetMailboxId: 'o' }),
+      () => atlas.calendar.listSnapshots('o'),
+      () => atlas.calendar.deleteMailboxData('o'),
+      () => atlas.calendar.deleteSnapshot('o', 's'),
       () => atlas.onedrive.getStats('o'),
       () => atlas.sharepoint.backup('site'),
       () => atlas.sharepoint.verify('site', 's'),
@@ -155,23 +156,18 @@ describe('createAtlasInstance — async contract', () => {
       () => atlas.sharepoint.deleteSiteData('site'),
       () => atlas.sharepoint.deleteSnapshot('site', 's'),
       () => atlas.sharepoint.checkStatus('site'),
-      () => atlas.sharepoint.replicateSnapshot('site', 's', targets),
-      () => atlas.sharepoint.replicateAll('site', targets),
-      () => atlas.sharepoint.rehydrateSnapshot('site', 's', source),
-      () => atlas.sharepoint.rehydrateSite('site', source),
       () => atlas.sharepoint.getStats('site'),
+      () => atlas.teams.backup('team'),
+      () => atlas.teams.verify('team', 's'),
+      () => atlas.teams.listTeams(),
+      () => atlas.teams.listSnapshots('team'),
+      () => atlas.teams.status(),
+      () => atlas.teams.delete('team', 's'),
       () => atlas.checkStorage(),
       () => atlas.getBucketStats(),
       () => atlas.getStorageUsage(),
       () => atlas.resolveUser('alice@test.com'),
       () => atlas.listUsers(),
-      () => atlas.replicateSnapshot('s', targets),
-      () => atlas.replicateMailbox('m', targets),
-      () => atlas.rehydrateSnapshot('s', source),
-      () => atlas.rehydrateMailbox('m', source),
-      () => atlas.rehydrateTenant(source),
-      () => atlas.getReplicationStatus('s'),
-      () => atlas.getReplicationStatusByOwner('m'),
     ]) {
       expect(call()).toBeInstanceOf(Promise);
     }

@@ -38,11 +38,7 @@ const _request_timing = new AsyncLocalStorage<RequestTiming>();
  * wrapping only the HTTP exchange, so it runs once per attempt and splits socket queueing from
  * network time. The inner one is skipped on Node releases that cannot measure the split.
  */
-export function observe_storage_requests(
-  client: S3Client,
-  observer: StorageRequestObserver,
-  target: string,
-): void {
+export function observe_storage_requests(client: S3Client, observer: StorageRequestObserver): void {
   const timed_attempts = supports_attempt_timing();
 
   client.middlewareStack.add(
@@ -56,7 +52,6 @@ export function observe_storage_requests(
         start_time: Date.now(),
         started: performance.now(),
         request_bytes: request_body_bytes(input),
-        target,
       };
       const result = await _request_timing
         .run(timing, () => next(args))
@@ -89,7 +84,6 @@ interface PendingEvent {
   readonly start_time: number;
   readonly started: number;
   readonly request_bytes: number | undefined;
-  readonly target: string;
 }
 
 /** Assembles the event once the request settled, from either its output or its error. */
@@ -115,7 +109,6 @@ function build_event(
     ...(typeof pending.operation === 'string' ? { operation: pending.operation } : {}),
     workload,
     keyClass: key_class,
-    target: pending.target,
     startTime: pending.start_time,
     durationMs: performance.now() - pending.started,
     attempts: metadata?.attempts ?? 1,

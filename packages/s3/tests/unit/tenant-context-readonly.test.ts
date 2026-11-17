@@ -1,9 +1,12 @@
 import { BucketCache } from '@/adapters/bucket-cache';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DefaultTenantContextFactory } from '@/adapters/tenant-context.factory';
+import { ConfiguredBucketNameResolver } from '@/adapters/configured-bucket-name-resolver';
 import { EnvelopeKeyService } from '@wisecom/atlas-core';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { NotFoundError, WrongPassphraseError } from '@wisecom/atlas-types';
+
+const DERIVED = new ConfiguredBucketNameResolver(undefined);
 
 // Regression tests for issue #93: browsing a tenant must not provision it.
 // A read-only context issues no CreateBucket and no PutObject, so a mistyped
@@ -55,9 +58,12 @@ describe('read-only tenant context (issue #93)', () => {
   it('loads an existing tenant without CreateBucket, HeadBucket, or PutObject', async () => {
     const { objects } = await stored_dek();
     const s3 = make_s3(objects);
-    const ctx = await new DefaultTenantContextFactory(s3 as never, CONFIG, buckets).create_readonly(
-      TENANT_ID,
-    );
+    const ctx = await new DefaultTenantContextFactory(
+      s3 as never,
+      CONFIG,
+      buckets,
+      DERIVED,
+    ).create_readonly(TENANT_ID);
 
     const commands = s3.send.mock.calls.map(([cmd]) => cmd.constructor.name);
     expect(commands).toEqual(['GetObjectCommand']);
@@ -66,7 +72,12 @@ describe('read-only tenant context (issue #93)', () => {
 
   it('decrypts data encrypted with the tenant DEK', async () => {
     const { objects } = await stored_dek();
-    const factory = new DefaultTenantContextFactory(make_s3(objects) as never, CONFIG, buckets);
+    const factory = new DefaultTenantContextFactory(
+      make_s3(objects) as never,
+      CONFIG,
+      buckets,
+      DERIVED,
+    );
     const ctx = await factory.create_readonly(TENANT_ID);
 
     expect(
@@ -82,7 +93,7 @@ describe('read-only tenant context (issue #93)', () => {
 
   it('reports a typed absence instead of generating a DEK', async () => {
     const s3 = make_s3(new Map());
-    const factory = new DefaultTenantContextFactory(s3 as never, CONFIG, buckets);
+    const factory = new DefaultTenantContextFactory(s3 as never, CONFIG, buckets, DERIVED);
 
     const error = await factory.create_readonly(TENANT_ID).catch((cause: unknown) => cause);
 
@@ -102,7 +113,7 @@ describe('read-only tenant context (issue #93)', () => {
         });
       }),
     };
-    const factory = new DefaultTenantContextFactory(s3 as never, CONFIG, buckets);
+    const factory = new DefaultTenantContextFactory(s3 as never, CONFIG, buckets, DERIVED);
 
     await expect(factory.create_readonly(TENANT_ID)).rejects.toThrow(
       `No backups found for tenant ${TENANT_ID}`,
@@ -116,7 +127,7 @@ describe('read-only tenant context (issue #93)', () => {
       ...CONFIG,
       encryption_passphrase: 'different-passphrase-long',
     } as AtlasConfig;
-    const factory = new DefaultTenantContextFactory(s3 as never, wrong_config, buckets);
+    const factory = new DefaultTenantContextFactory(s3 as never, wrong_config, buckets, DERIVED);
 
     const error = await factory.create_readonly(TENANT_ID).catch((cause: unknown) => cause);
 
@@ -135,8 +146,43 @@ describe('read-only tenant context (issue #93)', () => {
         });
       }),
     };
-    const factory = new DefaultTenantContextFactory(s3 as never, CONFIG, buckets);
+    const factory = new DefaultTenantContextFactory(s3 as never, CONFIG, buckets, DERIVED);
 
     await expect(factory.create_readonly(TENANT_ID)).rejects.toThrow('signature');
+  });
+});
+
+describe('storage-only tenant context (issue #601)', () => {
+  const command_names = (send: ReturnType<typeof vi.fn>): string[] =>
+    send.mock.calls.map(([cmd]) => (cmd as object).constructor.name);
+
+  it('opens an existing bucket with one HeadBucket and creates nothing', async () => {
+    const send = vi.fn(async () => ({}));
+    const factory = new DefaultTenantContextFactory(
+      { send } as never,
+      CONFIG,
+      new BucketCache(),
+      DERIVED,
+    );
+
+    const ctx = await factory.create_storage_only(TENANT_ID);
+
+    expect(ctx.tenant_id).toBe(TENANT_ID);
+    expect(command_names(send)).toEqual(['HeadBucketCommand']);
+  });
+
+  it('reports that no backups exist instead of creating a missing bucket', async () => {
+    const send = vi.fn(async () => {
+      throw Object.assign(new Error('NotFound'), { name: 'NotFound' });
+    });
+    const factory = new DefaultTenantContextFactory(
+      { send } as never,
+      CONFIG,
+      new BucketCache(),
+      DERIVED,
+    );
+
+    await expect(factory.create_storage_only(TENANT_ID)).rejects.toBeInstanceOf(NotFoundError);
+    expect(command_names(send)).toEqual(['HeadBucketCommand']);
   });
 });

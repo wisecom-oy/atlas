@@ -1,5 +1,5 @@
 import type { TenantContext } from '../tenant/context.port';
-import type { IdentityRegistry } from '../../domain/identity-registry';
+import type { IdentityRegistry } from '../../domain/shared/identity-registry';
 
 /**
  * Computes the next registry from the one currently stored, or `undefined` to leave it unchanged.

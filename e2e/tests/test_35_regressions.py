@@ -8,7 +8,7 @@ Bugs whose regression guard lives better elsewhere are named at the bottom of th
 faked here.
 
 Numbered 35 on purpose: after the workload suites, so their blobs exist to be tampered with, and
-before `test_40_replication.py`, which purges primary and rehydrates only what it replicated.
+before `test_90_purge`, which empties the bucket.
 """
 
 from __future__ import annotations
@@ -129,7 +129,9 @@ def test_02_corrupt_ciphertext_is_reported_as_tampering(
             f"restore of tampered ciphertext reported success\n{result.describe()}"
         )
         lower = result.out.lower()
-        assert "authentication failed" in lower, result.describe()
+        assert "failed aes-gcm authentication" in lower, result.describe()
+        # A damaged object fails its own file and the run is partial, not a crash.
+        assert result.code == 2, result.describe()
         # The distinction that matters to an operator: this must not read as a transient or
         # missing-object problem, because the honest diagnosis is wrong key or altered bytes.
         assert "missing or unreadable" not in lower, result.describe()

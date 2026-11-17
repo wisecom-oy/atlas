@@ -2,6 +2,7 @@
 // manifests they build differ in their identity fields and in what each provider records per
 // entry, so the shared version would be generic over almost every line.
 import type {
+  HeldOwnerLease,
   NoSnapshotReason,
   OneDriveBackupResult,
   OneDriveChangeType,
@@ -17,6 +18,7 @@ import type {
   TenantContext,
 } from '@wisecom/atlas-types';
 import type { VersionSyncResult } from '@/services/versioning/version-sync';
+import { count_file_entries, records_file_content } from '@wisecom/atlas-drive/shared/entry-kind';
 
 export function build_deleted_entry(
   item: OneDriveDeltaItem,
@@ -81,12 +83,16 @@ export function build_snapshot_manifest(
     ...(owner_display_name !== undefined && { owner_display_name }),
     snapshot_id,
     created_at,
-    total_files: entries.length,
+    total_files: count_file_entries(entries),
     total_size_bytes: entries.reduce((sum, entry) => sum + entry.size_bytes, 0),
     entries,
   };
 }
 
+/**
+ * Builds the result of a run that created no snapshot. `cursor_updated` says whether the run saved
+ * its delta cursor: a run cancelled before its scan finished writes none (issue #693).
+ */
 export function build_empty_result(
   owner_id: string,
   drives_scanned: number,
@@ -99,6 +105,7 @@ export function build_empty_result(
   warnings: string[],
   interrupted: boolean,
   healthy: boolean,
+  cursor_updated: boolean,
   no_snapshot_reason?: NoSnapshotReason,
 ): OneDriveBackupResult {
   return {
@@ -111,7 +118,7 @@ export function build_empty_result(
       files_stored,
       files_deduplicated,
       deleted_items,
-      cursor_updated: true,
+      cursor_updated,
       snapshot_created: false,
       ...(no_snapshot_reason !== undefined && { no_snapshot_reason }),
       versions_stored,
@@ -139,7 +146,11 @@ export function accumulate_version_stats(
   );
 }
 
-/** Folds manifest entries and version downloads into per-file groups for the run's single index object. */
+/**
+ * Folds manifest entries and version downloads into per-file groups for the run's single index
+ * object. Only entries that recorded file content start a row: a folder entry or a sharing-only
+ * change has no version of its own.
+ */
 export function build_run_version_indexes(
   owner_id: string,
   snapshot_id: string,
@@ -152,7 +163,7 @@ export function build_run_version_indexes(
     if (rows) rows.push(record);
     else versions_by_file.set(file_id, [record]);
   };
-  for (const entry of entries) {
+  for (const entry of entries.filter(records_file_content)) {
     add(entry.file_id, {
       snapshot_id,
       backup_at: entry.backup_at,
@@ -215,23 +226,30 @@ export function build_success_result(
 }
 
 /** Saves snapshot manifest, the run's single version index object, and the delta cursor. */
+/**
+ * Saves the snapshot manifest, the run's version index and the delta cursor. Each write is
+ * preceded by a lease check, so a run that lost its owner commits nothing (issue #623).
+ */
 export async function persist_snapshot_backup(
   manifests: OneDriveManifestRepository,
   file_indexes: OneDriveFileVersionIndexRepository,
   cursors: OneDriveDeltaCursorRepository,
   ctx: TenantContext,
+  lease: HeldOwnerLease,
   owner_id: string,
   snapshot: OneDriveSnapshotManifest,
   entries: OneDriveManifestEntry[],
   cursor: OneDriveDeltaCursor,
   collected_rows: Map<string, OneDriveFileVersionRecord[]>,
 ): Promise<void> {
-  await manifests.save(ctx, snapshot);
+  lease.assert_held();
+  await manifests.save(ctx, snapshot, lease);
   await file_indexes.write_run_index(
     ctx,
     owner_id,
     snapshot.snapshot_id,
     build_run_version_indexes(owner_id, snapshot.snapshot_id, entries, collected_rows),
   );
+  lease.assert_held();
   await cursors.save(ctx, cursor);
 }

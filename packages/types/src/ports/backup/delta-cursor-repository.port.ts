@@ -1,4 +1,4 @@
-import type { MailboxDeltaCursor } from '../../domain/manifest';
+import type { MailboxDeltaCursor } from '../../domain/outlook/manifest';
 import type { TenantContext } from '../tenant/context.port';
 
 export interface MailboxDeltaCursorRepository {

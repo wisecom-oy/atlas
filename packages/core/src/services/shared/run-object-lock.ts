@@ -31,7 +31,7 @@ export const UNLOCKED_STAGING_UPLOAD: StorageObjectLockPolicy = Object.freeze({}
  * setting and one run's files were locked for the other's period. A policy carried by the run's
  * own context reaches every object it writes and nothing it does not.
  */
-export async function lock_run_writes(
+export async function attach_run_retention(
   ctx: TenantContext,
   request: ObjectLockRequest | undefined,
 ): Promise<TenantContext> {
@@ -137,6 +137,11 @@ export class ObjectLockingStorage implements ObjectStorage {
   /** Deletes one object version. */
   delete_version(key: string, version_id: string): Promise<void> {
     return this._inner.delete_version(key, version_id);
+  }
+
+  /** Reads one object version, when the wrapped storage can. */
+  get get_version(): ObjectStorage['get_version'] {
+    return this._inner.get_version?.bind(this._inner);
   }
 
   /** Probes bucket immutability readiness. */

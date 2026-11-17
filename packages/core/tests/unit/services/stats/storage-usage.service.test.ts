@@ -5,7 +5,7 @@ import type {
   ManifestRepository,
   OneDriveManifestRepository,
   SharePointManifestRepository,
-  StorageTarget,
+  TeamsIndexRepository,
   StorageUsage,
   TenantContext,
   TenantContextFactory,
@@ -14,6 +14,8 @@ import {
   get_storage_usage_token,
   StorageUsageService,
 } from '@/services/stats/storage-usage.service';
+import type { S3Config } from '@/utils/config';
+import { storage_endpoint_fingerprint } from '@/services/stats/storage-endpoint-fingerprint';
 import {
   fake_inventory,
   MIXED_BUCKET,
@@ -22,6 +24,7 @@ import {
 } from './storage-usage.fixtures';
 
 const TENANT = '00000000-0000-0000-0000-000000000000';
+const PRIMARY_ENDPOINT = 'https://s3.primary.example';
 
 interface Harness {
   readonly service: StorageUsageService;
@@ -29,7 +32,12 @@ interface Harness {
   readonly create_readonly: Mock;
 }
 
-function harness(bucket: FakeBucket = MIXED_BUCKET, readonly_fails = false): Harness {
+function harness(
+  bucket: FakeBucket = MIXED_BUCKET,
+  readonly_fails = false,
+  onedrive_unreadable = false,
+  s3_endpoint = PRIMARY_ENDPOINT,
+): Harness {
   const inventory = fake_inventory(bucket);
   const ctx = { destroy: vi.fn() } as unknown as TenantContext;
   const create_readonly = vi.fn(async () => {
@@ -40,18 +48,34 @@ function harness(bucket: FakeBucket = MIXED_BUCKET, readonly_fails = false): Har
     () => inventory,
     { create_readonly } as unknown as TenantContextFactory,
     {
-      list_all_manifests: async () => [
-        {
-          owner_id: 'm1',
-          created_at: new Date(),
-          entries: [{ size_bytes: 100 }, { size_bytes: 50 }],
-        },
-      ],
+      list_all_manifests: async () => {
+        throw new Error('Outlook manifests must not be read for logical bytes');
+      },
+      list_all_snapshot_summaries: async () => ({
+        summaries: [{ owner_id: 'm1', aggregates: { entry_size_bytes: 150 } }],
+        unreadable_keys: [],
+      }),
     } as unknown as ManifestRepository,
     {
-      list_all_manifests: async () => [{ total_size_bytes: 4000 }],
+      list_all_manifests: async () => {
+        throw new Error('drive manifests must not be read for logical bytes');
+      },
+      list_all_snapshot_summaries: async () => ({
+        summaries: [{ total_size_bytes: 4000 }],
+        unreadable_keys: onedrive_unreadable ? ['onedrive/manifests/m1/damaged.json'] : [],
+      }),
     } as unknown as OneDriveManifestRepository,
-    { list_all_manifests: async () => [] } as unknown as SharePointManifestRepository,
+    {
+      list_all_manifests: async () => {
+        throw new Error('drive manifests must not be read for logical bytes');
+      },
+      list_all_snapshot_summaries: async () => ({ summaries: [], unreadable_keys: [] }),
+    } as unknown as SharePointManifestRepository,
+    {
+      list_all: async () => [{ totals: { size_bytes: 700 } }],
+    } as unknown as TeamsIndexRepository,
+    { s3_endpoint, s3_region: 'us-east-1' } as S3Config,
+    { resolve: () => ({ name: `atlas-${TENANT}`, configured: false }) },
   );
   return { service, inventory, create_readonly };
 }
@@ -101,8 +125,18 @@ describe('StorageUsageService', () => {
       outlook: 150,
       onedrive: 4000,
       sharepoint: 0,
+      teams: 700,
     });
-    expect(usage.logical_bytes_referenced).toBe(4150);
+    expect(usage.logical_bytes_referenced).toBe(4850);
+  });
+
+  it('reports no logical bytes when a drive summary names a damaged manifest', async () => {
+    const { service } = harness(MIXED_BUCKET, false, true);
+
+    const usage = await service.measure_storage_usage(TENANT);
+
+    expect(usage.complete).toBe(true);
+    expect(usage.logical_bytes_referenced).toBeUndefined();
   });
 
   it('still reports physical usage when the manifests cannot be read', async () => {
@@ -245,22 +279,18 @@ describe('StorageUsageService', () => {
     expect(usage.totals.current.objects).toBe(8);
   });
 
-  it('measures a replication target through its own inventory and reports its id', async () => {
-    const inventory = fake_inventory({
-      objects: [{ key: 'data/m1/a', size: 5, is_latest: true, is_delete_marker: false }],
+  it('refuses a token issued against another endpoint, so two buckets are never summed (#769)', async () => {
+    const primary = harness();
+    const { continuation_token } = await primary.service.measure_storage_usage(TENANT, {
+      max_list_requests: 1,
     });
-    const target = {
-      target_id: 'offsite',
-      open_inventory: vi.fn(() => inventory),
-      create_context: vi.fn(async () => ({ destroy: vi.fn() })),
-    } as unknown as StorageTarget;
-    const { service } = harness();
+    const replica = harness(MIXED_BUCKET, false, false, 'https://s3.replica.example');
 
-    const usage = await service.measure_storage_usage(TENANT, { target });
+    const resume = replica.service.measure_storage_usage(TENANT, { continuation_token });
 
-    expect(usage.target).toBe('offsite');
-    expect(usage.totals.current.bytes).toBe(5);
-    expect(target.open_inventory).toHaveBeenCalledWith(TENANT);
+    await expect(resume).rejects.toThrow(/different endpoint/);
+    await expect(resume).rejects.toBeInstanceOf(ConfigError);
+    expect(replica.inventory.requests()).toBe(0);
   });
 
   it.each<[string, string, 'workload' | 'owner', RegExp]>([
@@ -284,9 +314,13 @@ describe('StorageUsageService', () => {
       'a tampered count',
       Buffer.from(
         JSON.stringify({
-          version: 1,
+          version: 2,
           tenant_id: TENANT,
-          target_id: 'primary',
+          endpoint_id: storage_endpoint_fingerprint(
+            PRIMARY_ENDPOINT,
+            'us-east-1',
+            `atlas-${TENANT}`,
+          ),
           breakdown: 'workload',
           requests: -1,
         }),

@@ -1,7 +1,7 @@
 import type { TenantContext } from '@wisecom/atlas-types';
-import type { MailboxConnector } from '@wisecom/atlas-types';
+import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
-import type { ManifestEntry } from '@wisecom/atlas-types';
+import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
 import type { RestoreResult, RestoredMessageReport } from '@wisecom/atlas-types';
 import {
   decrypt_and_parse_message,
@@ -19,15 +19,17 @@ import {
   attachment_shortfall_warning,
   count_attachment_kinds,
 } from '@/services/restore/restored-message-report';
-import {
-  build_folder_map,
-  create_restore_root,
-  ensure_subfolder,
-} from '@/services/restore/folder-restore-planner';
+import { ensure_subfolder } from '@/services/restore/folder-restore-planner';
+import { resolve_folder_paths } from '@/services/shared/recorded-folder-catalog';
 import type { OperationControlOptions, TransferProgressReporter } from '@wisecom/atlas-types';
+import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
+
+/** The folder_id of a legacy MIME entry, whose RFC 822 payload records no source folder. */
+const UNKNOWN_FOLDER_ID = '__unknown__';
 
 /** Creates one message via Graph from its stored payload, then uploads attachments. */
 export async function restore_one_entry(
@@ -91,7 +93,7 @@ async function restore_json_entry(
   entry: ManifestEntry,
 ): Promise<EntryRestoreOutcome> {
   const json = await decrypt_and_parse_message(ctx, entry);
-  const sanitized = sanitize_message_for_restore(json, entry.reaction_properties);
+  const sanitized = sanitize_message_for_restore(json, entry);
   const new_msg_id = await restore_connector.create_message(
     tenant_id,
     owner_id,
@@ -132,7 +134,7 @@ async function restore_mime_entry(
     tenant_id,
     owner_id,
     target_folder_id,
-    build_restore_payload_from_mime(parsed, entry.reaction_properties),
+    build_restore_payload_from_mime(parsed, entry),
   );
 
   if (parsed.attachments.length === 0)
@@ -194,11 +196,16 @@ export async function restore_folder_entries(
       attachments += outcome.att;
       // The message landed, so this is not an entry failure, but the mailbox is missing content
       // the snapshot holds. Reporting it keeps the run out of a clean exit (issue #341).
-      attachment_errors.push(...outcome.attachment_errors.map((e) => `${entry.object_id}: ${e}`));
+      append_all(
+        attachment_errors,
+        outcome.attachment_errors.map((e) => `${entry.object_id}: ${e}`),
+      );
       messages.push(outcome.report);
       const shortfall = attachment_shortfall_warning(outcome.report);
       if (shortfall) warnings.push(shortfall);
     } catch (err) {
+      // A create cut short by Ctrl+C is the run stopping, not a failed message (issue #682).
+      if (is_active_run_cancelled()) break;
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`${entry.object_id}: ${msg}`);
     }
@@ -227,7 +234,11 @@ export async function restore_folder_entries(
   return { restored, attachments, errors, attachment_errors, messages, warnings };
 }
 
-/** Restores a single message with its attachments. No dashboard needed. */
+/**
+ * Restores a single message with its attachments under an opened restore root. No dashboard
+ * needed. `restore_connector` is the root's connector, so a chosen destination also reuses the
+ * source folder levels beneath it. `manifests` name the source folder as the backup recorded it.
+ */
 export async function restore_single_message(
   ctx: TenantContext,
   connector: MailboxConnector,
@@ -237,11 +248,16 @@ export async function restore_single_message(
   target_mailbox: string,
   snapshot_id: string,
   entry: ManifestEntry,
+  root: MailFolder,
+  manifests: readonly Manifest[] = [],
 ): Promise<RestoreResult> {
-  const root = await create_restore_root(restore_connector, tenant_id, target_mailbox);
   const folder_id = await resolve_source_folder_id(ctx, entry);
 
-  const folder_map = await build_folder_map(connector, tenant_id, source_mailbox);
+  const named = folder_id === UNKNOWN_FOLDER_ID ? [] : [{ ...entry, folder_id }];
+  const folder_map = await resolve_folder_paths(
+    { connector, tenant_id, owner_id: source_mailbox, manifests },
+    named,
+  );
   const created_folders = new Map<string, string>();
   const target_fid = await ensure_subfolder(
     restore_connector,
@@ -287,7 +303,7 @@ export async function restore_single_message(
  */
 async function resolve_source_folder_id(ctx: TenantContext, entry: ManifestEntry): Promise<string> {
   if (entry.folder_id) return entry.folder_id;
-  if (entry.payload_format === 'mime') return '__unknown__';
+  if (entry.payload_format === 'mime') return UNKNOWN_FOLDER_ID;
   return extract_folder_id_from_json(await decrypt_and_parse_message(ctx, entry));
 }
 

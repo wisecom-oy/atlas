@@ -11,6 +11,8 @@ import type {
 } from '@wisecom/atlas-types';
 import { SharePointBackupService } from '@/services/backup/backup.service';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 export function make_file_item(
   id: string,
@@ -74,6 +76,7 @@ export function make_connector(
     resolve_download_url: vi.fn(),
     list_file_versions: vi.fn().mockResolvedValue([]),
     download_file_version: vi.fn(),
+    fetch_folder_colors: vi.fn().mockResolvedValue(new Map()),
     ...overrides,
   } as unknown as SharePointSiteConnector;
 }
@@ -82,8 +85,8 @@ export function make_manifests(): SharePointManifestRepository {
   return {
     save: vi.fn().mockResolvedValue(undefined),
     find_by_snapshot: vi.fn(),
-    find_latest_by_site: vi.fn(),
-    list_snapshots_by_site: vi.fn().mockResolvedValue([]),
+    find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
+    list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests([])),
   } as unknown as SharePointManifestRepository;
 }
 
@@ -107,9 +110,10 @@ export function make_service(
     manifests?: SharePointManifestRepository;
     file_indexes?: SharePointFileVersionIndexRepository;
     cursors?: SharePointDeltaCursorRepository;
+    ctx?: TenantContext;
   } = {},
 ): SharePointBackupService {
-  const ctx = make_ctx();
+  const ctx = overrides.ctx ?? make_ctx();
   const factory: TenantContextFactory = {
     create: vi.fn().mockResolvedValue(ctx),
     create_readonly: vi.fn().mockResolvedValue(ctx),
@@ -120,13 +124,12 @@ export function make_service(
   const file_indexes = overrides.file_indexes ?? make_file_indexes();
   const cursors = overrides.cursors ?? make_cursors();
 
-  return new (
-    SharePointBackupService as unknown as new (
-      factory: TenantContextFactory,
-      connector: SharePointSiteConnector,
-      manifests: SharePointManifestRepository,
-      file_indexes: SharePointFileVersionIndexRepository,
-      cursors: SharePointDeltaCursorRepository,
-    ) => SharePointBackupService
-  )(factory, connector, manifests, file_indexes, cursors);
+  return new SharePointBackupService(
+    factory,
+    connector,
+    manifests,
+    file_indexes,
+    cursors,
+    stub_owner_leases().leases,
+  );
 }

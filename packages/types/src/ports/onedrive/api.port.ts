@@ -1,0 +1,92 @@
+import type { DrivePermissionListing } from '@/ports/drive/permission-listing.port';
+import type {
+  DriveVersionRestoreOptions,
+  DriveVersionRestoreResult,
+} from '@/ports/drive/version-restore.port';
+import type {
+  OneDriveBackupOptions,
+  OneDriveBackupResult,
+  OneDriveVerificationResult,
+} from '@/ports/onedrive/use-case.port';
+import type { OneDriveRestoreOptions, OneDriveRestoreResult } from '@/ports/onedrive/restore.port';
+import type {
+  OneDriveSnapshotManifest,
+  OneDriveFileVersionRecord,
+} from '@/domain/onedrive/manifest';
+import type { OneDriveSnapshotSummary } from '@/domain/shared/snapshot-summary';
+import type { FileSaveOptions, FileSaveResult } from '@/ports/save/file-save.port';
+import type { DeletionResult } from '@/ports/deletion/use-case.port';
+import type { OneDriveStatusResult } from '@/ports/onedrive/status.port';
+import type { DriveStats } from '@/domain/stats/stats';
+import type { VerificationOptions } from '@/ports/verification/use-case.port';
+import type { SdkOperationOptions } from '@/ports/atlas/progress-event.port';
+import type { TargetTenantOption } from '@/ports/atlas/tenant.port';
+import type { Camelize } from '@/public/case-convert';
+import type { SdkQuarantineResult } from '@/ports/storage/quarantine.port';
+
+export type OneDriveSdkBackupOptions = Camelize<
+  Omit<OneDriveBackupOptions, 'create_progress' | 'on_progress' | 'should_interrupt'>
+> &
+  SdkOperationOptions;
+export type OneDriveSdkVerificationOptions = Camelize<
+  Omit<VerificationOptions, 'on_progress' | 'should_interrupt'>
+> &
+  SdkOperationOptions;
+export type OneDriveSdkRestoreOptions = Camelize<
+  Omit<OneDriveRestoreOptions, 'on_progress' | 'should_interrupt'>
+> &
+  SdkOperationOptions &
+  TargetTenantOption;
+export type OneDriveSdkVersionRestoreOptions = Camelize<
+  Omit<DriveVersionRestoreOptions, 'on_progress' | 'should_interrupt'>
+> &
+  SdkOperationOptions;
+export type OneDriveSdkSaveOptions = Camelize<
+  Omit<FileSaveOptions, 'on_progress' | 'should_interrupt'>
+> &
+  SdkOperationOptions;
+
+export type OneDriveSdkBackupResult = Camelize<OneDriveBackupResult>;
+export type OneDriveSdkVerificationResult = Camelize<OneDriveVerificationResult>;
+export type OneDriveSdkRestoreResult = Camelize<OneDriveRestoreResult>;
+export type OneDriveSdkVersionRestoreResult = Camelize<DriveVersionRestoreResult>;
+export type OneDriveSdkSaveResult = Camelize<FileSaveResult>;
+export type OneDriveSdkSnapshotManifest = Camelize<OneDriveSnapshotManifest>;
+export type OneDriveSdkSnapshotSummary = Camelize<OneDriveSnapshotSummary>;
+export type OneDriveSdkPermissionListing = Camelize<DrivePermissionListing>;
+export type OneDriveSdkFileVersion = Camelize<OneDriveFileVersionRecord>;
+export type OneDriveSdkDeletionResult = Camelize<DeletionResult>;
+export type OneDriveSdkStatusResult = Camelize<OneDriveStatusResult>;
+export type OneDriveSdkStats = Camelize<DriveStats>;
+
+export interface OneDriveApi {
+  backup(ownerId: string, options?: OneDriveSdkBackupOptions): Promise<OneDriveSdkBackupResult>;
+  verify(
+    ownerId: string,
+    snapshotId: string,
+    options?: OneDriveSdkVerificationOptions,
+  ): Promise<OneDriveSdkVerificationResult>;
+  restore(ownerId: string, options: OneDriveSdkRestoreOptions): Promise<OneDriveSdkRestoreResult>;
+  /** Restores stored file version bytes back into OneDrive. */
+  restoreVersion(
+    ownerId: string,
+    options: OneDriveSdkVersionRestoreOptions,
+  ): Promise<OneDriveSdkVersionRestoreResult>;
+  save(ownerId: string, options: OneDriveSdkSaveOptions): Promise<OneDriveSdkSaveResult>;
+  listSnapshots(ownerId: string): Promise<OneDriveSdkSnapshotManifest[]>;
+  /** Snapshots from the owner's summary index, newest first, without decrypting each manifest. */
+  listSnapshotSummaries(ownerId: string): Promise<OneDriveSdkSnapshotSummary[]>;
+  listFileVersions(ownerId: string, fileRef: string): Promise<OneDriveSdkFileVersion[]>;
+  /** Captured non-inherited permissions per item at a snapshot, the newest when snapshotId is absent. */
+  listPermissions(ownerId: string, snapshotId?: string): Promise<OneDriveSdkPermissionListing>;
+  deleteOwnerData(ownerId: string): Promise<OneDriveSdkDeletionResult>;
+  deleteSnapshot(ownerId: string, snapshotId: string): Promise<OneDriveSdkDeletionResult>;
+  checkStatus(ownerId: string): Promise<OneDriveSdkStatusResult>;
+  /** Aggregates OneDrive backup statistics; without ownerId, tenant-wide across drives. */
+  getStats(ownerId?: string): Promise<OneDriveSdkStats>;
+  /**
+   * Moves an unreadable manifest or version index to `_quarantine/{storageKey}` so listings, status
+   * and backups stop reporting it. Refuses an object that reads cleanly or does not exist.
+   */
+  quarantine(storageKey: string): Promise<SdkQuarantineResult>;
+}

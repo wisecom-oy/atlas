@@ -1,3 +1,4 @@
+import { outlook_stub_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import { describe, it, expect, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { VerificationService } from '@/services/verification/verification.service';
@@ -49,6 +50,7 @@ function make_service(entries: ManifestEntry[], storage: Partial<ObjectStorage>)
   const manifests = {
     find_by_snapshot: vi.fn().mockResolvedValue(manifest),
     list_by_owner: vi.fn().mockResolvedValue([]),
+    ...outlook_stub_chain_reads(),
   } as unknown as ManifestRepository;
   const factory = {
     create_readonly: vi.fn().mockResolvedValue(ctx),

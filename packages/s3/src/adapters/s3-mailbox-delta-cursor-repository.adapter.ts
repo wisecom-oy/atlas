@@ -4,6 +4,11 @@ import type {
   MailboxDeltaCursorRepository,
   TenantContext,
 } from '@wisecom/atlas-types';
+import {
+  load_encrypted_json_bound_to_key,
+  state_names_key_check,
+} from '@wisecom/atlas-core/services/shared/encrypted-state-reader';
+import { write_encrypted_json } from '@wisecom/atlas-core/services/shared/stored-json-writer';
 
 const CURSOR_PREFIX = '_meta/outlook-cursors';
 
@@ -21,25 +26,39 @@ function cursor_key(owner_id: string): string {
  */
 @injectable()
 export class S3MailboxDeltaCursorRepository implements MailboxDeltaCursorRepository {
-  /** Loads the cursor; undefined before the first save, or when it cannot be read. */
+  /**
+   * Loads the cursor; undefined only before the first save.
+   *
+   * A cursor that cannot be fetched, decrypted or parsed, or that belongs to another owner, throws.
+   * Every cursor shares one directory, so the envelope does not stop another mailbox's cursor from
+   * decrypting here, and reading a damaged one as absent would fall back to the manifest links and
+   * hide the delta links a failed run withheld (issue #622).
+   */
   async load(ctx: TenantContext, owner_id: string): Promise<MailboxDeltaCursor | undefined> {
-    const key = cursor_key(owner_id);
-    if (!(await ctx.storage.exists(key))) return undefined;
-
-    try {
-      const payload = await ctx.storage.get(key);
-      return JSON.parse(ctx.decrypt(payload, key).toString('utf-8')) as MailboxDeltaCursor;
-    } catch {
-      // An unreadable cursor is not fatal: the manifest links are still there to fall back on,
-      // and the worst case is one re-enumeration.
-      return undefined;
-    }
+    return load_encrypted_json_bound_to_key<MailboxDeltaCursor>(
+      ctx,
+      cursor_key(owner_id),
+      key_cursor_names,
+    );
   }
 
-  /** Encrypts and stores the cursor. */
+  /** Stores the cursor, overwriting the previous one, and reads it back. */
   async save(ctx: TenantContext, cursor: MailboxDeltaCursor): Promise<void> {
-    const key = cursor_key(cursor.owner_id);
-    const payload = Buffer.from(JSON.stringify(cursor));
-    await ctx.storage.put(key, ctx.encrypt(payload, key));
+    await write_encrypted_json(
+      ctx,
+      {
+        key: cursor_key(cursor.owner_id),
+        label: 'Outlook delta cursor',
+        reader_check: state_names_key_check(key_cursor_names),
+        write: 'overwrite',
+        confirm_read_back: true,
+      },
+      cursor,
+    );
   }
+}
+
+/** The key a cursor body claims to live under. */
+function key_cursor_names(cursor: MailboxDeltaCursor): string {
+  return cursor_key(cursor.owner_id);
 }

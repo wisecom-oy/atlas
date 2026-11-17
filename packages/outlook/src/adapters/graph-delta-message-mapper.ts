@@ -3,7 +3,7 @@
  * list, response shapes, and conversion of raw Graph messages into MailMessage.
  */
 
-import type { MailAddress, MailMessage } from '@wisecom/atlas-types';
+import type { FollowUpFlag, MailAddress, MailMessage, ZonedDateTime } from '@wisecom/atlas-types';
 import type { GraphUserRecord, GraphFolderRecord } from '@/adapters/graph-mailbox-response-mappers';
 
 /**
@@ -42,6 +42,11 @@ export interface GraphPageResponse {
   '@odata.deltaLink'?: string;
 }
 
+interface GraphDateTimeTimeZone {
+  dateTime?: unknown;
+  timeZone?: unknown;
+}
+
 export interface GraphDeltaMessage {
   id?: string;
   subject?: string;
@@ -49,6 +54,12 @@ export interface GraphDeltaMessage {
   hasAttachments?: boolean;
   receivedDateTime?: string;
   from?: { emailAddress?: { name?: unknown; address?: unknown } };
+  flag?: {
+    flagStatus?: unknown;
+    startDateTime?: GraphDateTimeTimeZone;
+    dueDateTime?: GraphDateTimeTimeZone;
+    completedDateTime?: GraphDateTimeTimeZone;
+  };
   parentFolderId?: string;
   '@removed'?: { reason: string };
   [key: string]: unknown;
@@ -63,6 +74,7 @@ export function graph_message_to_mail_message(msg: GraphDeltaMessage): MailMessa
     ...(typeof msg.subject === 'string' ? { subject: msg.subject } : {}),
     ...(msg.receivedDateTime ? { received_at: new Date(msg.receivedDateTime) } : {}),
     ...parse_sender(msg.from),
+    ...parse_follow_up_flag(msg.flag),
     size_bytes: body_buffer.length,
     raw_body: body_buffer,
     has_attachments: msg.hasAttachments === true,
@@ -75,6 +87,33 @@ function parse_sender(from: GraphDeltaMessage['from']): { from?: MailAddress } {
   if (typeof address !== 'string' || address === '') return {};
   const name = from?.emailAddress?.name;
   return { from: typeof name === 'string' && name !== '' ? { name, address } : { address } };
+}
+
+/** Reads Graph `flag`; a message that is not flagged, or has no flag field, records none. */
+function parse_follow_up_flag(flag: GraphDeltaMessage['flag']): { flag?: FollowUpFlag } {
+  const status = flag?.flagStatus;
+  if (status !== 'flagged' && status !== 'complete') return {};
+  const start = parse_zoned_date_time(flag?.startDateTime);
+  const due = parse_zoned_date_time(flag?.dueDateTime);
+  const completed = parse_zoned_date_time(flag?.completedDateTime);
+  return {
+    flag: {
+      status,
+      ...(start ? { start } : {}),
+      ...(due ? { due } : {}),
+      ...(completed ? { completed } : {}),
+    },
+  };
+}
+
+/** Reads a Graph `dateTimeTimeZone`, dropping one without both parts. */
+function parse_zoned_date_time(
+  value: GraphDateTimeTimeZone | undefined,
+): ZonedDateTime | undefined {
+  const date_time = value?.dateTime;
+  const time_zone = value?.timeZone;
+  if (typeof date_time !== 'string' || typeof time_zone !== 'string') return undefined;
+  return { date_time, time_zone };
 }
 
 /** Separates delta page items into live messages and removed message IDs. */

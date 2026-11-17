@@ -1,7 +1,9 @@
+import type { DrivePermissionListing } from '@/ports/drive/permission-listing.port';
 import type {
   SharePointFileVersionRecord,
   SharePointSnapshotManifest,
-} from '../../domain/sharepoint-manifest';
+} from '../../domain/sharepoint/manifest';
+import type { SharePointSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type { NoSnapshotReason, ObjectLockRequest } from '../backup/use-case.port';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';
@@ -29,6 +31,11 @@ export interface SharePointBackupSummary {
   readonly errors: string[];
   readonly warnings: string[];
   readonly healthy: boolean;
+  /**
+   * Earlier manifests a re-crawl could not read while placing tombstones, by key. The run still
+   * completed; only those manifests' files went uncompared (issue #631).
+   */
+  readonly unreadable_keys?: string[] | undefined;
 }
 
 export interface SharePointBackupResult {
@@ -84,6 +91,8 @@ export interface SharePointVerificationResult {
   readonly failed_file_ids: string[];
   readonly interrupted: boolean;
   readonly index_issues: string[];
+  /** Damaged manifests outside the snapshot's chain, and damaged version indexes, by key (issue #631). */
+  readonly unreadable_keys?: string[] | undefined;
 }
 
 export interface SharePointVerificationUseCase {
@@ -103,12 +112,30 @@ export interface SharePointCatalogUseCase {
     site_id: string,
   ): Promise<SharePointSnapshotManifest[]>;
 
+  /** Lists a site's SharePoint snapshots from its summary index, newest first, without entries. */
+  list_sharepoint_snapshot_summaries(
+    tenant_id: string,
+    site_id: string,
+  ): Promise<SharePointSnapshotSummary[]>;
+
   /** Lists all version records for a specific file. */
   list_sharepoint_file_versions(
     tenant_id: string,
     site_id: string,
     file_ref: string,
   ): Promise<SharePointFileVersionRecord[]>;
+
+  /**
+   * Lists the non-inherited permissions captured for each item at a snapshot, the newest one when
+   * `snapshot_id` is absent.
+   *
+   * @throws NotFoundError when the site has no snapshot, or not the one named.
+   */
+  list_sharepoint_permissions(
+    tenant_id: string,
+    site_id: string,
+    snapshot_id?: string,
+  ): Promise<DrivePermissionListing>;
 }
 
 export interface SharePointVersionRestoreUseCase {

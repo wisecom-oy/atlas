@@ -112,6 +112,46 @@ def test_sites_read_permission(graph: Graph, settings: Settings) -> None:
     _require(graph, "/sites", "Sites.Read.All", search="*")
 
 
+def test_contacts_permission(graph: Graph, settings: Settings) -> None:
+    """Contacts.ReadWrite: required by the contacts suite, which skips itself without it."""
+    _require(
+        graph,
+        f"/users/{settings.mailbox}/contactFolders",
+        "Contacts.ReadWrite",
+        **{"$top": 1, "$select": "id"},
+    )
+
+
+def test_calendars_permission(graph: Graph, settings: Settings) -> None:
+    """Calendars.ReadWrite: required by the calendar suite, which skips itself without it."""
+    _require(
+        graph,
+        f"/users/{settings.mailbox}/calendars",
+        "Calendars.ReadWrite",
+        **{"$top": 1, "$select": "id"},
+    )
+
+
+def test_teams_permissions(graph: Graph, settings: Settings) -> None:
+    """The Teams read permissions, probed on the configured team.
+
+    Three calls, each naming the grant it needs. `ChannelMessage.Read.All` is a protected API, so
+    it can be consented and still refused until Microsoft approves the tenant.
+    """
+    if not settings.team_id:
+        pytest.skip("E2E_TEAM_ID not set")
+    team = f"/teams/{settings.team_id}"
+    _require(graph, team, "Team.ReadBasic.All", **{"$select": "id"})
+    channels = _require(graph, f"{team}/channels", "Channel.ReadBasic.All", **{"$select": "id"})
+    channel_id = channels["value"][0]["id"]
+    _require(
+        graph,
+        f"{team}/channels/{channel_id}/messages",
+        "ChannelMessage.Read.All",
+        **{"$top": 1},
+    )
+
+
 def test_tenant_bucket_is_local_only(settings: Settings, s3: Any) -> None:
     """The endpoint under test is the runner's MinIO, never a production endpoint.
 
@@ -123,9 +163,9 @@ def test_tenant_bucket_is_local_only(settings: Settings, s3: Any) -> None:
     )
 
 
-def _require(graph: Graph, path: str, permission: str, **params: Any) -> None:
+def _require(graph: Graph, path: str, permission: str, **params: Any) -> dict[str, Any]:
     """Asserts a Graph endpoint is reachable, naming the permission when it is not."""
     try:
-        graph.get(path, **params)
+        return graph.get(path, **params)
     except GraphError as err:
         pytest.fail(f"{permission} appears to be missing or unconsented: {err}")

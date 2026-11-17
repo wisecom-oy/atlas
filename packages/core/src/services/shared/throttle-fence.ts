@@ -4,16 +4,25 @@
  * When any request receives a 429 with Retry-After, it calls `raise(seconds)`.
  * All concurrent and future requests call `wait()` before proceeding.
  * Multiple `raise()` calls are non-additive -- the longest remaining duration wins.
- * All blocked callers are released simultaneously when the last timer expires.
+ *
+ * When the last timer expires, each parked caller resumes after its own random delay, bounded by
+ * `cooldown_release_jitter_bound_ms` for the longest cooldown raised. Releasing them all in one
+ * instant sent every request back to Graph at once and drew the next 429 (issue #641). `clear()`
+ * releases callers at once, since it is for shutdown.
  *
  * Inspired by Corso's (alcionai/corso) timedFence.
  */
 
+// Relative, like its siblings: m365-graph's tests load this file from source, where core's `@/` alias does not resolve.
+import { cooldown_release_jitter_bound_ms } from './cooldown-release-jitter';
+
 export class ThrottleFence {
-  private _resolve: (() => void) | undefined;
-  private _promise: Promise<void> | undefined;
+  /** Resolves the fence with the bound of the release delay each parked caller draws, in ms. */
+  private _resolve: ((jitter_bound_ms: number) => void) | undefined;
+  private _promise: Promise<number> | undefined;
   private _timers = new Map<number, ReturnType<typeof setTimeout>>();
   private _next_id = 0;
+  private _longest_ms = 0;
 
   /** Returns true when a fence is currently active. */
   get is_raised(): boolean {
@@ -29,16 +38,17 @@ export class ThrottleFence {
     if (seconds <= 0) return;
 
     if (!this._promise) {
-      this._promise = new Promise<void>((resolve) => {
+      this._promise = new Promise<number>((resolve) => {
         this._resolve = resolve;
       });
     }
+    this._longest_ms = Math.max(this._longest_ms, seconds * 1000);
 
     const id = this._next_id++;
     const timer = setTimeout(() => {
       this._timers.delete(id);
       if (this._timers.size === 0) {
-        this.dropFence();
+        this.dropFence(cooldown_release_jitter_bound_ms(this._longest_ms));
       }
     }, seconds * 1000);
 
@@ -50,27 +60,36 @@ export class ThrottleFence {
     this._timers.set(id, timer);
   }
 
-  /** Blocks until the fence drops. Returns immediately if no fence is active. */
+  /**
+   * Blocks until the fence drops, then for a random share of the release jitter. Returns
+   * immediately if no fence is active.
+   */
   async wait(): Promise<void> {
-    if (this._promise) {
-      await this._promise;
-    }
+    if (!this._promise) return;
+    const jitter_bound_ms = await this._promise;
+    if (jitter_bound_ms > 0) await delay(Math.random() * jitter_bound_ms);
   }
 
-  /** Forces the fence down, releasing all blocked callers and clearing all timers. */
+  /** Forces the fence down, releasing all blocked callers at once and clearing all timers. */
   clear(): void {
     for (const timer of this._timers.values()) {
       clearTimeout(timer);
     }
     this._timers.clear();
-    this.dropFence();
+    this.dropFence(0);
   }
 
-  private dropFence(): void {
+  private dropFence(jitter_bound_ms: number): void {
     if (this._resolve) {
-      this._resolve();
+      this._resolve(jitter_bound_ms);
     }
     this._resolve = undefined;
     this._promise = undefined;
+    this._longest_ms = 0;
   }
+}
+
+/** Waits `ms`; the timer is not unref'd, for the same reason as the fence timer. */
+function delay(ms: number): Promise<void> {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }

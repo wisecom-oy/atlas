@@ -51,7 +51,7 @@ being verified` is an invariant. Contradicting it is a finding; misreading it
   is not.
 - **Whether a `ponytail:` comment already owns it.** Those mark deliberate
   shortcuts and name their ceiling and upgrade path (`packages/s3/src/adapters/s3-bucket-manager.ts:75`,
-  `packages/types/src/ports/mail/connector.port.ts:100`). A shortcut behaving as
+  `packages/types/src/ports/outlook/connector.port.ts:100`). A shortcut behaving as
   documented is not a defect. `ponytail-debt` already harvests these, so filing
   one as a bug double-tracks it. Recording it is justified only when you can show
   the named ceiling has actually been crossed.
@@ -114,7 +114,7 @@ a backup tool, so the ranking is not the usual one.
   `403` as an expired URL. Both cause a real fault to be reported as the wrong
   fault, which is worse than an unhandled one.
 - **Encryption, DEK handling, and key material lifetime.** A tenant context not
-  destroyed on an error path, a key held past its use, a replica missing
+  destroyed on an error path, a key held past its use, a replica copy missing
   `_meta/dek.enc` and therefore unopenable. Label `security`.
 - **Object Lock and retention.** A retained object copied without its policy, a
   mode requested and not honoured. Silent loss of immutability defeats the

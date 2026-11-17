@@ -3,14 +3,19 @@ import type { S3Client } from '@aws-sdk/client-s3';
 import { S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
 import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
 import { PreconditionFailedError } from '@/adapters/object-lock.errors';
-import { ensure_bucket_exists } from '@/adapters/s3-bucket-manager';
+import { bucket_exists, ensure_bucket_exists } from '@/adapters/s3-bucket-manager';
 import { BucketCache } from '@/adapters/bucket-cache';
-import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
+import {
+  missing_configured_bucket,
+  require_configured_bucket,
+} from '@/adapters/configured-bucket-check';
 import { EnvelopeKeyService, ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
 import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
 import type { AtlasConfig } from '@wisecom/atlas-core';
-import { NotFoundError } from '@wisecom/atlas-types';
+import { BUCKET_NAME_RESOLVER_TOKEN, NotFoundError } from '@wisecom/atlas-types';
 import type {
+  BucketNameResolver,
+  ResolvedBucket,
   TenantContext,
   TenantContextFactory,
   TenantStorageContext,
@@ -24,19 +29,36 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
     @inject(S3_CLIENT_TOKEN) private readonly _s3: S3Client,
     @inject(ATLAS_CONFIG_TOKEN) private readonly _config: AtlasConfig,
     @inject(BucketCache) private readonly _buckets: BucketCache,
+    @inject(BUCKET_NAME_RESOLVER_TOKEN) private readonly _bucket_names: BucketNameResolver,
   ) {}
 
-  /** Ensures the tenant bucket exists and returns raw storage (no DEK). */
+  /**
+   * Opens the tenant bucket as raw storage (no DEK) without creating it. Its callers delete,
+   * list, or re-wrap what is already stored, so a missing bucket means there is nothing to act
+   * on, and creating one would leave a bucket behind for a mistyped tenant (issue #601).
+   */
   async create_storage_only(tenant_id: string): Promise<TenantStorageContext> {
-    const bucket = tenant_bucket_name(tenant_id);
-    await ensure_bucket_exists(this._s3, bucket, this._buckets);
-    return { tenant_id, storage: new S3ObjectStorage(this._s3, bucket, this._buckets) };
+    const bucket = this._bucket_names.resolve(tenant_id);
+    const name = bucket.name;
+    if (!this._buckets.is_bucket_checked(name) && !(await bucket_exists(this._s3, name))) {
+      if (bucket.configured) throw missing_configured_bucket(name, tenant_id);
+      throw new NotFoundError(`No backups found for tenant ${tenant_id}`);
+    }
+    return { tenant_id, storage: new S3ObjectStorage(this._s3, name, this._buckets) };
   }
 
-  /** Initializes a tenant context with bucket, DEK, and crypto bindings. */
+  /**
+   * Initializes a tenant context with bucket, DEK, and crypto bindings. A derived bucket is
+   * created when missing; a configured one never is.
+   */
   async create(tenant_id: string): Promise<TenantContext> {
-    const bucket = tenant_bucket_name(tenant_id);
-    await ensure_bucket_exists(this._s3, bucket, this._buckets);
+    const resolved = this._bucket_names.resolve(tenant_id);
+    const bucket = resolved.name;
+    if (resolved.configured) {
+      await require_configured_bucket(this._s3, bucket, tenant_id, this._buckets);
+    } else {
+      await ensure_bucket_exists(this._s3, bucket, this._buckets);
+    }
     const storage = new S3ObjectStorage(this._s3, bucket, this._buckets);
 
     const key_service = new EnvelopeKeyService(this._config.encryption_passphrase);
@@ -53,7 +75,8 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
    * `_meta/` write permission (issue #93).
    */
   async create_readonly(tenant_id: string): Promise<TenantContext> {
-    const storage = new S3ObjectStorage(this._s3, tenant_bucket_name(tenant_id), this._buckets);
+    const bucket = this._bucket_names.resolve(tenant_id);
+    const storage = new S3ObjectStorage(this._s3, bucket.name, this._buckets);
     const key_service = new EnvelopeKeyService(this._config.encryption_passphrase);
 
     let wrapped: Buffer;
@@ -61,9 +84,7 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
       wrapped = await storage.get(DEK_META_KEY);
     } catch (err) {
       key_service.destroy();
-      if (is_absent_object_error(err)) {
-        throw new NotFoundError(`No backups found for tenant ${tenant_id}`, { cause: err });
-      }
+      if (is_absent_object_error(err)) throw await this.describe_absent_key(bucket, tenant_id, err);
       throw err;
     }
 
@@ -73,6 +94,21 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
       key_service,
       await key_service.unwrap_dek(wrapped, tenant_id),
     );
+  }
+
+  /**
+   * Explains a missing `_meta/dek.enc`. For a configured bucket a missing bucket is a
+   * configuration error, not an empty tenant, so it costs one HeadBucket to tell them apart.
+   */
+  private async describe_absent_key(
+    bucket: ResolvedBucket,
+    tenant_id: string,
+    cause: unknown,
+  ): Promise<Error> {
+    if (bucket.configured && !(await bucket_exists(this._s3, bucket.name))) {
+      return missing_configured_bucket(bucket.name, tenant_id);
+    }
+    return new NotFoundError(`No backups found for tenant ${tenant_id}`, { cause });
   }
 
   /** Loads an existing DEK or creates one with a race-safe conditional write. */

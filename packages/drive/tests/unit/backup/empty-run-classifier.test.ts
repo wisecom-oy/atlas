@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { classify_empty_run, type EmptyRunEvidence } from '@/backup/empty-run-classifier';
+import { latest_readable } from '@wisecom/atlas-types/testing/readable-listing';
 
 // Issue #572: folders and the library root are delta items but not content, so a full crawl that
 // walked only those must report `no_content`. Only walked files distinguish `no_changes`.
@@ -8,7 +9,7 @@ function evidence(overrides: Partial<EmptyRunEvidence> = {}): EmptyRunEvidence {
   return {
     previous_kind_by_file_id: {},
     files_processed: 0,
-    find_latest_snapshot: vi.fn().mockResolvedValue(undefined),
+    find_latest_snapshot: vi.fn().mockResolvedValue(latest_readable()),
     ...overrides,
   };
 }
@@ -19,7 +20,7 @@ describe('classify_empty_run', () => {
   });
 
   it('reports no_content when a full crawl walked only folders', async () => {
-    const find_latest_snapshot = vi.fn().mockResolvedValue(undefined);
+    const find_latest_snapshot = vi.fn().mockResolvedValue(latest_readable());
 
     const reason = await classify_empty_run(
       evidence({
@@ -56,7 +57,20 @@ describe('classify_empty_run', () => {
   it('reports no_changes when nothing was walked but a snapshot exists in storage', async () => {
     const reason = await classify_empty_run(
       evidence({
-        find_latest_snapshot: vi.fn().mockResolvedValue({ snapshot_id: 'snap-1' }),
+        find_latest_snapshot: vi.fn().mockResolvedValue(latest_readable({ snapshot_id: 'snap-1' })),
+      }),
+    );
+
+    expect(reason).toBe('no_changes');
+  });
+
+  it('counts a damaged snapshot as a snapshot, not as no content (issue #631)', async () => {
+    const reason = await classify_empty_run(
+      evidence({
+        find_latest_snapshot: vi.fn().mockResolvedValue({
+          manifest: undefined,
+          unreadable_keys: ['onedrive/manifests/owner-1/od-snap-1-abc.json'],
+        }),
       }),
     );
 

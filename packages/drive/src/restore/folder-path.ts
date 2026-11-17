@@ -1,3 +1,4 @@
+import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
 /** The one connector call folder creation needs. */
@@ -54,25 +55,52 @@ export async function ensure_drive_folder_path(
       continue;
     }
 
-    try {
-      const folder_id = await connector.create_folder(
-        tenant_id,
-        owner_id,
-        drive_id,
-        parent_id,
-        segment,
-      );
-      folder_ids.set(segment_key, folder_id);
-      parent_id = folder_id;
-    } catch (err) {
-      logger.warn(
-        `Failed to create folder ${current_path} in drive ${drive_id}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return undefined;
-    }
+    const folder_id = await create_folder_segment(
+      connector,
+      { tenant_id, owner_id, drive_id, parent_id, segment },
+      current_path,
+    );
+    if (folder_id === undefined) return undefined;
+    folder_ids.set(segment_key, folder_id);
+    parent_id = folder_id;
   }
 
   return parent_id;
+}
+
+/** Where one folder segment is created. */
+interface FolderSegment {
+  readonly tenant_id: string;
+  readonly owner_id: string;
+  readonly drive_id: string;
+  readonly parent_id: string;
+  readonly segment: string;
+}
+
+/**
+ * Creates one folder segment, or logs why it could not and returns undefined. A create cut short
+ * by Ctrl+C is the run stopping, not a path that cannot exist, so it is rethrown (issue #682).
+ */
+async function create_folder_segment(
+  connector: DriveFolderCreator,
+  at: FolderSegment,
+  current_path: string,
+): Promise<string | undefined> {
+  try {
+    return await connector.create_folder(
+      at.tenant_id,
+      at.owner_id,
+      at.drive_id,
+      at.parent_id,
+      at.segment,
+    );
+  } catch (err) {
+    if (is_active_run_cancelled()) throw err;
+    logger.warn(
+      `Failed to create folder ${current_path} in drive ${at.drive_id}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return undefined;
+  }
 }
 
 /**

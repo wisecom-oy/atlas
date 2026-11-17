@@ -5,8 +5,8 @@ import type {
   ManifestRepository,
   OneDriveManifestRepository,
   SharePointManifestRepository,
-  OneDriveSnapshotManifest,
-  SharePointSnapshotManifest,
+  OneDriveSnapshotSummary,
+  SharePointSnapshotSummary,
 } from '@wisecom/atlas-types';
 import type { StatsUseCase } from '@wisecom/atlas-types';
 import type { BucketStats, MailboxStats, DriveStats } from '@wisecom/atlas-types';
@@ -16,7 +16,11 @@ import {
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
 } from '@wisecom/atlas-types';
-import { aggregate_bucket_stats, aggregate_mailbox_stats } from '@/services/stats/stats-aggregator';
+import {
+  aggregate_bucket_stats_from_summaries,
+  aggregate_mailbox_stats_from_summaries,
+} from '@/services/stats/stats-summary-aggregator';
+import { require_every_summary } from '@/services/stats/require-every-summary';
 import {
   aggregate_drive_stats,
   type DriveManifestSummary,
@@ -31,8 +35,8 @@ function timed<T>(fn: () => T): T & { aggregation_us: number } {
   return { ...result, aggregation_us: elapsed_us };
 }
 
-/** Maps a OneDrive manifest to the service-agnostic aggregation shape. */
-function to_onedrive_summary(manifest: OneDriveSnapshotManifest): DriveManifestSummary {
+/** Maps a OneDrive snapshot summary to the service-agnostic aggregation shape. */
+function to_onedrive_summary(manifest: OneDriveSnapshotSummary): DriveManifestSummary {
   return {
     owner_id: manifest.owner_id,
     owner_label: manifest.owner_email ?? manifest.owner_display_name,
@@ -42,8 +46,8 @@ function to_onedrive_summary(manifest: OneDriveSnapshotManifest): DriveManifestS
   };
 }
 
-/** Maps a SharePoint manifest to the service-agnostic aggregation shape. */
-function to_sharepoint_summary(manifest: SharePointSnapshotManifest): DriveManifestSummary {
+/** Maps a SharePoint snapshot summary to the service-agnostic aggregation shape. */
+function to_sharepoint_summary(manifest: SharePointSnapshotSummary): DriveManifestSummary {
   return {
     owner_id: manifest.site_id,
     owner_label: manifest.site_display_name ?? manifest.site_url,
@@ -64,51 +68,53 @@ export class StatsService implements StatsUseCase {
     private readonly _sp_manifests: SharePointManifestRepository,
   ) {}
 
-  /** Loads all manifests and computes bucket-wide statistics. */
+  /** Reads every mailbox's snapshot summaries and computes bucket-wide statistics (#726). */
   async get_bucket_stats(tenant_id: string): Promise<BucketStats> {
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const all = await this._manifests.list_all_manifests(ctx);
-      return timed(() => aggregate_bucket_stats(tenant_id, all));
+      const listing = await this._manifests.list_all_snapshot_summaries(ctx);
+      const summaries = require_every_summary(listing, 'Outlook');
+      return timed(() => aggregate_bucket_stats_from_summaries(tenant_id, summaries));
     } finally {
       ctx.destroy();
     }
   }
 
-  /** Loads manifests for a single mailbox and computes its statistics. */
+  /** Reads one mailbox's snapshot summaries and computes its statistics (#726). */
   async get_mailbox_stats(tenant_id: string, owner_id: string): Promise<MailboxStats> {
     owner_id = normalize_owner_id(owner_id);
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const filtered = await this._manifests.list_by_owner(ctx, owner_id);
-      return timed(() => aggregate_mailbox_stats(owner_id, filtered));
+      const listing = await this._manifests.list_snapshot_summaries(ctx, owner_id);
+      const summaries = require_every_summary(listing, 'Outlook');
+      return timed(() => aggregate_mailbox_stats_from_summaries(owner_id, summaries));
     } finally {
       ctx.destroy();
     }
   }
 
-  /** Loads OneDrive manifests (all owners or one) and computes drive statistics. */
+  /** Reads OneDrive snapshot summaries (all owners or one) and computes drive statistics. */
   async get_onedrive_stats(tenant_id: string, owner_id?: string): Promise<DriveStats> {
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const manifests = owner_id
-        ? await this._od_manifests.list_snapshots_by_owner(ctx, owner_id)
-        : await this._od_manifests.list_all_manifests(ctx);
-      const summaries = manifests.map(to_onedrive_summary);
+      const listing = owner_id
+        ? await this._od_manifests.list_snapshot_summaries(ctx, owner_id)
+        : await this._od_manifests.list_all_snapshot_summaries(ctx);
+      const summaries = require_every_summary(listing, 'OneDrive').map(to_onedrive_summary);
       return timed(() => aggregate_drive_stats(tenant_id, 'onedrive', summaries));
     } finally {
       ctx.destroy();
     }
   }
 
-  /** Loads SharePoint manifests (all sites or one) and computes drive statistics. */
+  /** Reads SharePoint snapshot summaries (all sites or one) and computes drive statistics. */
   async get_sharepoint_stats(tenant_id: string, site_id?: string): Promise<DriveStats> {
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const manifests = site_id
-        ? await this._sp_manifests.list_snapshots_by_site(ctx, site_id)
-        : await this._sp_manifests.list_all_manifests(ctx);
-      const summaries = manifests.map(to_sharepoint_summary);
+      const listing = site_id
+        ? await this._sp_manifests.list_snapshot_summaries(ctx, site_id)
+        : await this._sp_manifests.list_all_snapshot_summaries(ctx);
+      const summaries = require_every_summary(listing, 'SharePoint').map(to_sharepoint_summary);
       return timed(() => aggregate_drive_stats(tenant_id, 'sharepoint', summaries));
     } finally {
       ctx.destroy();

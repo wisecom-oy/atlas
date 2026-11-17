@@ -9,11 +9,14 @@ import {
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import type {
+  ReadableVersionIndexListing,
   TenantContext,
   TenantContextFactory,
   VerificationOptions,
 } from '@wisecom/atlas-types';
+import { with_unreadable_keys } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
 import type { DriveFileVersionIndexView, DriveManifestEntry, DriveWorkload } from '@/drive-ports';
+import { is_file_entry, records_file_content } from '@/shared/entry-kind';
 import {
   load_drive_chain_entries,
   type DriveChainManifest,
@@ -28,6 +31,8 @@ export interface DriveVerificationResult {
   readonly failed_file_ids: string[];
   readonly index_issues: string[];
   readonly interrupted: boolean;
+  /** Damaged manifests outside the chain and damaged version index objects, by key (issue #631). */
+  readonly unreadable_keys?: string[] | undefined;
 }
 
 /** What a provider supplies to the shared verification flow. */
@@ -42,7 +47,7 @@ export interface DriveVerifyDeps<TManifest extends DriveChainManifest> {
   readonly list_indexes: (
     ctx: TenantContext,
     manifest: TManifest,
-  ) => Promise<readonly DriveFileVersionIndexView[]>;
+  ) => Promise<ReadableVersionIndexListing<DriveFileVersionIndexView>>;
 }
 
 /** Checks a snapshot's content blobs against manifest checksums, plus its per-file index rows. */
@@ -71,7 +76,7 @@ export async function verify_drive_snapshot<TManifest extends DriveChainManifest
     // The chain, not the single manifest: a snapshot inherits every file that last changed in an
     // earlier run, and verifying only the target would report those as checked when they were
     // never looked at (issue #173).
-    const { manifest, entries } = await load_drive_chain_entries(
+    const { manifest, entries, unreadable_keys } = await load_drive_chain_entries(
       deps.manifests,
       ctx,
       owner_id,
@@ -84,9 +89,11 @@ export async function verify_drive_snapshot<TManifest extends DriveChainManifest
     let processed = 0;
     // One read of the owning segment's merged version index instead of one lookup per entry: the
     // index is a handful of per-run objects since issue #161.
-    const indexes_by_file = new Map(
-      (await deps.list_indexes(ctx, manifest)).map((idx) => [idx.file_id, idx]),
-    );
+    const index_listing = await deps.list_indexes(ctx, manifest);
+    const indexes_by_file = new Map(index_listing.indexes.map((idx) => [idx.file_id, idx]));
+    for (const key of index_listing.unreadable_keys) {
+      index_issues.push(`version index ${key} could not be read; its rows are not checked`);
+    }
     emit_operation_progress(options, {
       operation: 'verify',
       workload,
@@ -101,7 +108,8 @@ export async function verify_drive_snapshot<TManifest extends DriveChainManifest
       // Against the snapshot that recorded the entry, not the one being verified: a carried-over
       // file has its index row under the older snapshot.
       const has_version = idx?.versions.some((v) => v.snapshot_id === source_snapshot);
-      if (!has_version) {
+      // Folder entries and sharing-only changes start no version row, so none is owed.
+      if (!has_version && records_file_content(entry)) {
         index_issues.push(
           `missing index version for file ${entry.file_id} snapshot ${source_snapshot}`,
         );
@@ -130,14 +138,17 @@ export async function verify_drive_snapshot<TManifest extends DriveChainManifest
       processed < entries.length,
     );
 
-    return {
-      snapshot_id,
-      total_checked,
-      passed: total_checked - failed_file_ids.length,
-      failed_file_ids,
-      index_issues,
-      interrupted,
-    };
+    return with_unreadable_keys(
+      {
+        snapshot_id,
+        total_checked,
+        passed: total_checked - failed_file_ids.length,
+        failed_file_ids,
+        index_issues,
+        interrupted,
+      },
+      [...unreadable_keys, ...index_listing.unreadable_keys],
+    );
   } finally {
     ctx.destroy();
   }
@@ -146,13 +157,14 @@ export async function verify_drive_snapshot<TManifest extends DriveChainManifest
 /**
  * Whether the entry claims a stored blob at all.
  *
- * A tombstone has nothing to verify. An entry that names a blob but records no checksum is a
+ * A tombstone has nothing to verify, and neither has a folder entry, which stores no content. An entry that names a blob but records no checksum is a
  * different thing: it is unverifiable, which used to exclude it from `total_checked` entirely, so
  * a snapshot full of them verified as clean without a single byte being read (issue #341).
  */
 function entry_claims_blob(entry: DriveManifestEntry): boolean {
   return (
     entry.change_type !== 'deleted' &&
+    is_file_entry(entry) &&
     entry.storage_key !== undefined &&
     entry.storage_key.length > 0
   );

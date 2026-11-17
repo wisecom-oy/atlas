@@ -1,14 +1,12 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
-export {
-  stream_decrypt_from_storage,
-  type StreamDecryptResult,
-} from '@wisecom/atlas-core/services/shared/stream-decrypt';
-
-/** Files above this size are decrypted as a stream rather than buffered whole. */
+/**
+ * Files above this size are restored through an upload session and saved as a streamed archive
+ * entry, so their plaintext is never held whole. Smaller ones are decrypted in one buffer.
+ */
 const STREAM_THRESHOLD_BYTES = 4 * 1024 * 1024;
 
-/** Checks whether a file should use stream-based restore. */
+/** Checks whether a file should be decrypted as a stream on restore and save. */
 export function should_stream_restore(entry: { size_bytes: number }): boolean {
   return entry.size_bytes > STREAM_THRESHOLD_BYTES;
 }

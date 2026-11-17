@@ -30,7 +30,7 @@ _GUID = re.compile(
 )
 _BEARER = re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/-]{20,}=*")
 # Signed SharePoint download token: a bearer credential with site, user and scope claims.
-_TEMPAUTH = re.compile(r"(?i)([?&](?:tempauth|access_token|guestaccesstoken)=)[^&\s]+")
+_TEMPAUTH = re.compile(r"(?i)([?&](?:tempauth|access_token|guestaccesstoken|authtoken)=)[^&\s]+")
 _EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 # Any tenant host, with or without a scheme: the CLI accepts `hostname:/sites/name`, and OneDrive
 # personal sites live on `<tenant>-my.sharepoint.com`. The hostname alone names the tenant.
@@ -42,6 +42,9 @@ _DRIVE_ID = re.compile(r"\bb![A-Za-z0-9_-]{20,}")
 # Base64url-encoded JSON (`{"` encodes to `eyJ`): JWTs and Atlas continuation tokens. A
 # `stats storage` token carries the tenant id and object keys, and neither is visible to the
 # literal or GUID rules once encoded.
+# `[*] Resolved <identifier> -> <object id> (Display Name)`: the CLI names the person it
+# resolved. A display name has no shape of its own, so the line it appears on is matched.
+_RESOLVED_NAME = re.compile(r"(?m)^(.*\bResolved\b.*->\s*\S+\s*)\([^)\n]*\)")
 _OPAQUE_TOKEN = re.compile(r"\beyJ[A-Za-z0-9_-]{16,}")
 
 
@@ -49,6 +52,8 @@ def scrub(text: str, settings: Settings) -> str:
     """Replaces secrets, their derived forms, and identifying shapes with stable placeholders."""
     for value, placeholder in _literals(settings):
         text = text.replace(value, placeholder)
+
+    text = _RESOLVED_NAME.sub(r"\1(<display-name>)", text)
 
     # Tokens first: a download URL is both a token carrier and a host match, and the token is the
     # part that must not survive even in fragments.
@@ -74,11 +79,13 @@ def _literals(settings: Settings) -> list[tuple[str, str]]:
         settings.s3_access_key: "<s3-access-key>",
         settings.sharepoint_site: "<sharepoint-site>",
         settings.mailbox: "<mailbox>",
+        settings.second_mailbox: "<second-mailbox>",
         settings.onedrive_owner: "<onedrive-owner>",
+        settings.team_id: "<team-id>",
         settings.tenant_id: "<tenant-id>",
         settings.client_id: "<client-id>",
     }
-    for address in (settings.mailbox, settings.onedrive_owner):
+    for address in (settings.mailbox, settings.second_mailbox, settings.onedrive_owner):
         if address:
             # `/personal/<upn with @ and . as _>` is how SharePoint spells a user's own drive.
             literals[address.replace("@", "_").replace(".", "_")] = "<personal-site>"

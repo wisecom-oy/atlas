@@ -38,7 +38,8 @@ export class OneDriveVerificationService implements OneDriveVerificationUseCase 
         workload: 'onedrive',
         tenant_factory: this._tenant_factory,
         manifests: onedrive_manifest_lookup(this._manifests),
-        list_indexes: (ctx, manifest) => this._indexes.list_by_owner(ctx, manifest.owner_id),
+        list_indexes: (ctx, manifest) =>
+          this._indexes.list_readable_by_owner(ctx, manifest.owner_id),
       },
       tenant_id,
       owner_id,

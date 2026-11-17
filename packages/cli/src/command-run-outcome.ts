@@ -47,6 +47,9 @@ export function report_run_outcome(outcome: RunOutcome, item_noun: string): void
   const incomplete =
     outcome.errors.length > 0 || integrity_failures.length > 0 || outcome.interrupted === true;
   if (!incomplete) return;
+  process.exitCode = EXIT_PARTIAL;
+  // An interrupt is already reported above. The summary is for item failures only.
+  if (outcome.errors.length === 0 && integrity_failures.length === 0) return;
 
   const suffix = outcome.interrupted === true ? ' (interrupted)' : '';
   const counts = [
@@ -54,7 +57,6 @@ export function report_run_outcome(outcome: RunOutcome, item_noun: string): void
     ...(integrity_failures.length > 0 ? [`${integrity_failures.length} integrity failure(s)`] : []),
   ].join(', ');
   logger.error(`Run incomplete: ${counts}${suffix} -- exit ${EXIT_PARTIAL}`);
-  process.exitCode = EXIT_PARTIAL;
 }
 
 /**
@@ -69,4 +71,34 @@ export function report_skipped_items(skipped: number, item_noun: string): void {
   if (skipped <= 0) return;
   logger.error(`${item_noun}s skipped: ${skipped} -- exit ${EXIT_PARTIAL}`);
   process.exitCode = EXIT_PARTIAL;
+}
+
+/**
+ * Names each `--file-filter` value that matched no file while other values did, and exits partial
+ * unless a stronger code is already set. A filter that matched nothing at all is a NotFoundError
+ * from the service instead (issue #707).
+ */
+export function report_unmatched_file_filters(unmatched: readonly string[] | undefined): void {
+  if (!unmatched || unmatched.length === 0) return;
+  for (const value of unmatched) {
+    logger.error(`  File filter "${value}" matched no file in the snapshot`);
+  }
+  logger.error(`File filters unmatched: ${unmatched.length} -- exit ${EXIT_PARTIAL}`);
+  if (!process.exitCode) process.exitCode = EXIT_PARTIAL;
+}
+
+/**
+ * Prints a drive backup's verdict line. A damaged stored object makes the run UNHEALTHY even when
+ * every item landed, as Teams does since #722: a HEALTHY line beside exit 9 hid the damage
+ * (issue #709). An unhealthy run exits partial. A run whose only finding is a damaged object keeps
+ * the exit 9 that `report_unreadable_keys` sets.
+ */
+export function report_backup_verdict(healthy: boolean, found_unreadable: boolean): void {
+  if (healthy && !found_unreadable) {
+    logger.success('Status: HEALTHY');
+    return;
+  }
+  logger.error('Status: UNHEALTHY');
+  // A ledger-only run has no error entry, so the verdict sets the exit code itself (#583).
+  if (!healthy) process.exitCode = EXIT_PARTIAL;
 }

@@ -30,17 +30,23 @@ interface KeyPlacement {
 }
 
 const OUTLOOK_PREFIXES = ['data', 'attachments', 'manifests'];
-const STAGING_PATTERN = /^(onedrive|sharepoint)\/staging\//;
+const STAGING_PATTERN = /^(onedrive|sharepoint|teams)\/staging\//;
 
 /**
  * Places a key in the layout of docs/operations/storage-layout.md. Outlook keeps owners at the
- * second segment (`data/{mailbox}/...`), the drives at the third (`onedrive/data/{owner}/...`).
+ * second segment (`data/{mailbox}/...`); drives, Teams, contacts, and calendar keep owners at the third.
  */
 export function place_storage_key(key: string): KeyPlacement {
   const segments = key.split('/');
   const [first = '', second = '', third = ''] = segments;
   const has_child = (index: number): boolean => segments.length > index + 1;
-  if (first === 'onedrive' || first === 'sharepoint') {
+  if (
+    first === 'onedrive' ||
+    first === 'sharepoint' ||
+    first === 'teams' ||
+    first === 'contacts' ||
+    first === 'calendar'
+  ) {
     return { workload: first, owner_id: has_child(2) ? third : '' };
   }
   if (first === '_meta') return { workload: 'meta', owner_id: '' };

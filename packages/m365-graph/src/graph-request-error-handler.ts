@@ -1,11 +1,30 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
+  get_active_abort_signal,
+  get_active_request_pacing,
   get_active_throttle,
   get_active_throttle_pool,
   get_active_throttle_scope,
 } from '@wisecom/atlas-core/services/shared/graph-request-context';
-import { parse_retry_after_ms } from '@/graph-retry-after';
-import { ThrottledError } from '@wisecom/atlas-types';
+import {
+  MAX_COOLDOWN_RELEASE_JITTER_MS,
+  cooldown_release_jitter_ms,
+} from '@wisecom/atlas-core/services/shared/cooldown-release-jitter';
+import {
+  MAX_RETRY_AFTER_MS,
+  extract_requested_retry_after_ms,
+  extract_retry_after_ms,
+} from '@/graph-retry-after';
+import { race_abort, run_attempt, sleep, throw_if_cancelled } from '@/graph-attempt-cancellation';
+import { is_network_error } from '@/graph-network-error';
+import { to_graph_unavailable_error } from '@/graph-unavailable-failure';
+import {
+  GraphTokenRequestError,
+  is_transient_token_request_error,
+  to_token_unavailable_error,
+  token_request_refusal,
+} from '@/graph-token-failure';
+import { GraphUnavailableError, ThrottledError } from '@wisecom/atlas-types';
 
 /**
  * Statuses Graph recovers from on its own, per Microsoft's throttling and
@@ -13,30 +32,31 @@ import { ThrottledError } from '@wisecom/atlas-types';
  * gateway gave up on one. 501 and every 4xx stay out -- repeating those
  * returns the same answer.
  *
- * ponytail: one set for reads and writes. A 500 on a create POST can retry a
- * request the backend already committed, which restore surfaces as a duplicate
- * item -- the same exposure 504 already carried. Thread an idempotency flag
- * through GraphRetryOptions and opt the restore writers out if duplicates ever
- * show up in practice.
+ * These apply to idempotent calls only. A 5xx or a timeout after a create POST
+ * can arrive after the backend committed it, so a call marked `idempotent: false`
+ * retries only on a throttle response (see `is_throttle_response`, issue #624).
  */
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
-const NETWORK_ERROR_CODES = new Set([
-  'ETIMEDOUT',
-  'ECONNRESET',
-  'ECONNREFUSED',
-  'ENOTFOUND',
-  'EPIPE',
-  'EAI_AGAIN',
-  'EHOSTUNREACH',
-  'UND_ERR_CONNECT_TIMEOUT',
-  'UND_ERR_SOCKET',
-]);
 const MAX_RETRIES = 12;
 const BASE_DELAY_MS = 1_000;
 const MAX_DELAY_MS = 300_000;
 const REQUEST_TIMEOUT_MS = 60_000;
 /** Cooldown applied to a 429 that arrives without a usable Retry-After. */
 const DEFAULT_THROTTLE_SECONDS = 30;
+
+/**
+ * Waiting after which one logical call starts no new wait: backoff delays, Retry-After waits and
+ * cooldown waits. A wait it does start runs in full, so a Retry-After or cooldown up to the 1-hour
+ * cap is honoured rather than failed (issue #641), and one call waits at most this budget plus one
+ * such wait. Time spent inside an attempt does not count, so a slow download keeps its retries.
+ * Sized just above the 12-retry exponential schedule (about 23.5 minutes at the 5-minute cap, plus
+ * jitter), so backoff alone always keeps every retry.
+ */
+const RETRY_BUDGET_MS = 24 * 60_000;
+/** The longest one cooldown wait may run: the Retry-After cap plus the release jitter. */
+const MAX_COOLDOWN_WAIT_MS = MAX_RETRY_AFTER_MS + MAX_COOLDOWN_RELEASE_JITTER_MS;
+/** Retry-After values below this are raised to it, so a zero value cannot spin the loop. */
+const MIN_RETRY_AFTER_MS = 1_000;
 
 export interface GraphRetryOptions {
   /**
@@ -49,6 +69,41 @@ export interface GraphRetryOptions {
    * converged on 1h default / 48h for large files against production tenants.
    */
   readonly timeout_ms?: number;
+  /**
+   * False for a write that would land twice if sent twice: a create POST, or a drive PUT whose
+   * conflict behaviour renames. Graph can commit such a request and still answer 500, 502 or 504,
+   * or answer too late for the timeout, so repeating it creates a duplicate. A non-idempotent call
+   * is retried only on a throttle response, which Graph sends instead of processing the request;
+   * any other failure is thrown on the first attempt. Defaults to true.
+   */
+  readonly idempotent?: boolean;
+  /**
+   * True for a write whose outcome must not become unknowable: once the request is sent, a
+   * cancelled run lets it finish (up to `timeout_ms`) instead of aborting it. Graph may already
+   * have committed an aborted write, so the caller would report as not written a file or message
+   * that exists. Waits before a send stay cancellable. Defaults to false (issue #682).
+   */
+  readonly complete_in_flight?: boolean;
+}
+
+/**
+ * Whether a failure is Graph refusing the request before processing it: a 429, or a 503 carrying
+ * Retry-After, the form SharePoint and OneDrive throttling also takes. Only these are safe to
+ * repeat for a write that is not idempotent.
+ */
+export function is_throttle_response(err: unknown): boolean {
+  const status = status_code_of(err);
+  if (status === 429) return true;
+  return status === 503 && extract_retry_after_ms(err) !== undefined;
+}
+
+/**
+ * Whether a failed attempt may be sent again, given whether the call is idempotent. A failed token
+ * request never sent the Graph request, so repeating it cannot duplicate a write.
+ */
+function is_retry_safe(err: unknown, idempotent: boolean): boolean {
+  if (is_transient_token_request_error(err)) return true;
+  return idempotent ? is_retryable_error(err) : is_throttle_response(err);
 }
 
 const INVALID_DELTA_CODES = ['syncstatenotfound', 'resyncrequired', 'syncstateinvalid'];
@@ -72,40 +127,18 @@ export function is_invalid_delta_error(err: unknown): boolean {
 
 /**
  * Returns true when the error carries a transient HTTP status (429, 500, 502, 503, 504), or is the
- * `ThrottledError` an exhausted 429 becomes, so an outer retry loop still sees a throttle.
+ * `ThrottledError` or `GraphUnavailableError` an exhausted retry becomes, so an outer retry loop
+ * still sees the transient failure it wraps.
  */
 export function is_transient_error(err: unknown): boolean {
-  if (err instanceof ThrottledError) return true;
+  if (err instanceof ThrottledError || err instanceof GraphUnavailableError) return true;
   const status = (err as Record<string, unknown>).statusCode;
   return typeof status === 'number' && RETRYABLE_STATUS_CODES.has(status);
 }
 
-/**
- * Returns true for network-level errors (socket timeout, DNS failure,
- * connection reset) that are worth retrying.
- */
-export function is_network_error(err: unknown): boolean {
-  const code = (err as Record<string, unknown>).code;
-  if (typeof code === 'string' && NETWORK_ERROR_CODES.has(code)) return true;
-
-  const message = err instanceof Error ? err.message : String(err);
-  const lower = message.toLowerCase();
-  return (
-    lower.includes('socket hang up') ||
-    lower.includes('network request failed') ||
-    lower.includes('econnreset') ||
-    lower.includes('etimedout') ||
-    lower.includes('fetch failed') ||
-    lower.includes('terminated') ||
-    lower.includes('aborted') ||
-    lower.includes('network error') ||
-    lower.includes('client network socket disconnected')
-  );
-}
-
-/** Returns true when an error is retryable (transient HTTP or network error). */
+/** Returns true when an error is retryable (transient HTTP, network error, or failed token request). */
 export function is_retryable_error(err: unknown): boolean {
-  return is_transient_error(err) || is_network_error(err);
+  return is_transient_error(err) || is_network_error(err) || is_transient_token_request_error(err);
 }
 
 /**
@@ -113,66 +146,203 @@ export function is_retryable_error(err: unknown): boolean {
  * transient HTTP errors (429, 500, 502, 503, 504) and network-level errors (ETIMEDOUT,
  * ECONNRESET, socket hang up, etc.).
  *
- * Retries up to 12 times with delays capped at 5 minutes, giving a total
- * retry budget of ~23 minutes to survive extended network outages.
- * Respects Retry-After on 429. Each retry is logged for observability.
+ * Retries up to 12 times with backoff delays capped at 5 minutes. A call starts no new wait once it
+ * has waited 24 minutes, counting waits and cooldowns. Honours Retry-After up to the 1-hour cap,
+ * plus a small positive jitter so callers throttled together do not retry together, and fails with
+ * ThrottledError naming the value when Retry-After exceeds that cap. Each retry is logged.
+ *
+ * `fn` receives a signal that fires when its attempt times out or the run is cancelled. A request
+ * that passes it to fetch (`.option('signal', signal)` on a Graph request) is torn down rather than
+ * left running beside the next attempt. A call marked `idempotent: false` is retried only on a
+ * throttle response.
  *
  * This function is designed to be reusable across backup, restore, save, and
  * any other operation that communicates over the network.
  */
 export async function with_graph_retry<T>(
-  fn: () => Promise<T>,
+  fn: (attempt_signal: AbortSignal) => Promise<T>,
   options: GraphRetryOptions = {},
 ): Promise<T> {
   const timeout_ms = options.timeout_ms ?? REQUEST_TIMEOUT_MS;
+  const idempotent = options.idempotent ?? true;
+  const abort_signal = get_active_abort_signal();
+  // What may cut off a request already sent; waits before a send always honour `abort_signal`.
+  const in_flight_signal = options.complete_in_flight === true ? undefined : abort_signal;
+  let waited_ms = 0;
+  const started_at = Date.now();
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    throw_if_cancelled(abort_signal);
     // Per attempt, not per call. A retry loop that started before the cooldown
     // began would otherwise keep firing into Graph for the whole of it.
-    await wait_out_throttle();
+    waited_ms += await wait_out_throttle(cooldown_wait_bound_ms(waited_ms), abort_signal);
+    // Pacing is charged to no budget: it spaces requests out, it is not a cooldown Graph imposed.
+    // A cooldown raised while this request waited for its slot is honoured before it is sent.
+    const pacing = get_active_request_pacing();
+    if (pacing) {
+      await pacing.before_attempt(abort_signal);
+      waited_ms += await wait_out_throttle(cooldown_wait_bound_ms(waited_ms), abort_signal);
+    }
     try {
-      return await race_timeout(fn(), timeout_ms);
+      return await run_attempt(fn, timeout_ms, in_flight_signal);
     } catch (err) {
-      if (!is_retryable_error(err)) throw err;
-      if (attempt === MAX_RETRIES) throw as_exhausted_failure(err);
+      throw_if_cancelled(abort_signal);
+      if (!is_retry_safe(err, idempotent)) throw as_final_failure(err);
 
-      const retry_after = extract_retry_after(err);
+      const retry_after = floor_retry_after_ms(extract_retry_after_ms(err));
       // Raise on the response that carried the 429, not after the budget is
       // spent, so every other owner backs off during this cooldown too.
       raise_throttle_on_429(err, retry_after);
-      const base = retry_after ?? BASE_DELAY_MS * 2 ** attempt;
-      const jitter = Math.random() * BASE_DELAY_MS;
-      const delay = Math.min(base + jitter, MAX_DELAY_MS);
+      if (status_code_of(err) === 429) get_active_request_pacing()?.on_throttled();
+      throw_if_retry_after_above_cap(err);
+      if (attempt === MAX_RETRIES || waited_ms >= RETRY_BUDGET_MS) {
+        throw as_exhausted_failure(err, attempt, Date.now() - started_at);
+      }
 
+      const delay = retry_delay_ms(attempt, retry_after);
       const reason = describe_graph_error(err);
       logger.debug(
         `Retry ${attempt + 1}/${MAX_RETRIES} in ${(delay / 1000).toFixed(1)}s -- ${reason}`,
       );
-
-      await sleep(delay);
+      waited_ms += await wait_before_retry(delay, retry_after ?? delay, abort_signal);
     }
   }
   throw new Error('with_graph_retry: unreachable');
 }
 
 /**
- * Turns a 429 that outlasted the retry budget into the documented `ThrottledError`, keeping the
- * Graph error as `cause`. Other exhausted failures are rethrown unchanged (issue #440).
+ * The error to throw for a failure that is not retried: the `AuthError` a refused token request
+ * carries through the Graph SDK (issue #786), otherwise the failure itself.
  */
-function as_exhausted_failure(err: unknown): unknown {
-  if ((err as Record<string, unknown>).statusCode !== 429) return err;
-  return new ThrottledError(
-    `Microsoft Graph kept throttling the request through ${MAX_RETRIES} retries: ` +
-      describe_graph_error(err),
-    extract_retry_after(err),
+function as_final_failure(err: unknown): unknown {
+  return token_request_refusal(err) ?? err;
+}
+
+/**
+ * Types a retryable failure that outlasted the retry budget, keeping the Graph error as `cause`:
+ * a 429 becomes `ThrottledError` (issue #440), and a 5xx, network error or timeout becomes
+ * `GraphUnavailableError` (issue #773). A Graph SDK error for a 5xx with an empty or non-JSON body
+ * has an empty `message`, so the message is built from `describe_graph_error`, never copied.
+ */
+function as_exhausted_failure(err: unknown, retries: number, elapsed_ms: number): unknown {
+  // An inner call already typed its exhausted failure; wrapping it again would hide a throttle.
+  if (err instanceof ThrottledError || err instanceof GraphUnavailableError) return err;
+  if (err instanceof GraphTokenRequestError) {
+    return to_token_unavailable_error(err, { retries, elapsed_ms });
+  }
+  const status = status_code_of(err);
+  if (status === 429) {
+    return new ThrottledError(
+      `Microsoft Graph kept throttling the request after ${retries} retries: ` +
+        describe_graph_error(err),
+      extract_retry_after_ms(err),
+      { cause: err },
+    );
+  }
+  return to_graph_unavailable_error(err, { retries, elapsed_ms }, describe_graph_error);
+}
+
+/** The HTTP status a Graph or network error carries, or undefined when it carries none. */
+function status_code_of(err: unknown): unknown {
+  return typeof err === 'object' && err !== null && 'statusCode' in err
+    ? err.statusCode
+    : undefined;
+}
+
+/**
+ * Fails the call with ThrottledError when Graph asked for a Retry-After longer than the 1-hour cap,
+ * naming the value it sent. Waiting it out would hold the run for longer than Atlas allows, and
+ * retrying early would ignore it. The cooldown is still raised for the capped hour.
+ */
+function throw_if_retry_after_above_cap(err: unknown): void {
+  const requested_ms = extract_requested_retry_after_ms(err);
+  if (requested_ms === undefined || requested_ms <= MAX_RETRY_AFTER_MS) return;
+  throw new ThrottledError(
+    `Microsoft Graph asked to wait ${Math.round(requested_ms / 1000)} s (Retry-After), longer ` +
+      `than the ${MAX_RETRY_AFTER_MS / 1000} s Atlas waits out: ${describe_graph_error(err)}`,
+    requested_ms,
     { cause: err },
   );
 }
 
-/** Waits out any cooldown the ambient coordinator holds for this request's pool. */
-async function wait_out_throttle(): Promise<void> {
+/** How long a cooldown wait may run: up to the cap while budget remains, otherwise not at all. */
+function cooldown_wait_bound_ms(waited_ms: number): number {
+  return waited_ms < RETRY_BUDGET_MS ? MAX_COOLDOWN_WAIT_MS : 0;
+}
+
+/**
+ * Waits out any cooldown the ambient coordinator holds for this request's pool, but no longer than
+ * `bound_ms`. A cooldown that outlasts it fails the call with the throttle instead of waiting past
+ * its bound. Rejects as soon as the run is cancelled, so a cancelled run does not sit out a cooldown
+ * of up to an hour. Resolves with the time waited.
+ */
+async function wait_out_throttle(
+  bound_ms: number,
+  abort_signal: AbortSignal | undefined,
+): Promise<number> {
   const throttle = get_active_throttle();
   const pool = get_active_throttle_pool();
-  if (throttle && pool) await throttle.coordinator.wait(pool, get_active_throttle_scope());
+  if (!throttle || !pool) return 0;
+  const started = Date.now();
+  await race_budget(
+    race_abort(throttle.coordinator.wait(pool, get_active_throttle_scope()), abort_signal),
+    bound_ms,
+  );
+  return Date.now() - started;
+}
+
+/**
+ * Waits before the next attempt and resolves with the time waited. The coordinator goes first: a
+ * 429 has just raised its cooldown, and it releases this call with the jitter it gives every other
+ * caller parked on it. A local sleep covers what it did not, so with no coordinator, or a host
+ * coordinator that failed open, the call still waits `delay_ms`. Never resumes before
+ * `min_wait_ms`, the Retry-After Graph asked for.
+ */
+async function wait_before_retry(
+  delay_ms: number,
+  min_wait_ms: number,
+  abort_signal: AbortSignal | undefined,
+): Promise<number> {
+  const started = Date.now();
+  const covered_ms = await wait_out_throttle(MAX_COOLDOWN_WAIT_MS, abort_signal);
+  if (covered_ms < min_wait_ms) await sleep(delay_ms - covered_ms, abort_signal);
+  return Date.now() - started;
+}
+
+/**
+ * Raises a Retry-After below MIN_RETRY_AFTER_MS to that floor, so a zero value still waits a moment
+ * and raises a real cooldown. Other values, and an absent one, pass through unchanged.
+ */
+function floor_retry_after_ms(retry_after_ms: number | undefined): number | undefined {
+  if (retry_after_ms === undefined || retry_after_ms >= MIN_RETRY_AFTER_MS) return retry_after_ms;
+  return MIN_RETRY_AFTER_MS;
+}
+
+/** Resolves with `promise`, or rejects with ThrottledError once `ms` elapses first. */
+function race_budget(promise: Promise<void>, ms: number): Promise<void> {
+  const { promise: expired, reject } = Promise.withResolvers<never>();
+  const timer = setTimeout(
+    () =>
+      reject(
+        new ThrottledError(
+          `Microsoft Graph cooldown outlasted the ${Math.round(ms / 1000)} s Atlas waits out`,
+        ),
+      ),
+    Math.max(ms, 0),
+  );
+  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * The wait before the next attempt. A Retry-After, already capped at one hour, is honoured plus a
+ * small positive jitter (`cooldown_release_jitter_ms`), so calls throttled together do not retry in
+ * the same instant and never retry before Graph asked. Without one, jittered exponential backoff
+ * capped at MAX_DELAY_MS.
+ */
+function retry_delay_ms(attempt: number, retry_after_ms: number | undefined): number {
+  if (retry_after_ms === undefined) {
+    return Math.min(BASE_DELAY_MS * 2 ** attempt + Math.random() * BASE_DELAY_MS, MAX_DELAY_MS);
+  }
+  return retry_after_ms + cooldown_release_jitter_ms(retry_after_ms);
 }
 
 /**
@@ -185,7 +355,7 @@ async function wait_out_throttle(): Promise<void> {
  * one extend it rather than stacking it.
  */
 function raise_throttle_on_429(err: unknown, retry_after_ms: number | undefined): void {
-  if ((err as Record<string, unknown>).statusCode !== 429) return;
+  if (status_code_of(err) !== 429) return;
 
   const throttle = get_active_throttle();
   const pool = get_active_throttle_pool();
@@ -196,23 +366,6 @@ function raise_throttle_on_429(err: unknown, retry_after_ms: number | undefined)
     retry_after_ms ?? DEFAULT_THROTTLE_SECONDS * 1000,
     get_active_throttle_scope(),
   );
-}
-
-/** Extracts the Retry-After header value (in ms) from a Graph error, if present. */
-function extract_retry_after(err: unknown): number | undefined {
-  const graph_err = err as Record<string, unknown>;
-  const headers_sources = [
-    graph_err.headers as Record<string, string> | undefined,
-    graph_err.responseHeaders as Record<string, string> | undefined,
-    (graph_err.response as Record<string, unknown> | undefined)?.headers as
-      Record<string, string> | undefined,
-  ];
-  for (const headers of headers_sources) {
-    if (!headers) continue;
-    const parsed = parse_retry_after_ms(headers['retry-after'] ?? headers['Retry-After']);
-    if (parsed !== undefined) return parsed;
-  }
-  return undefined;
 }
 
 /**
@@ -242,28 +395,16 @@ export function describe_graph_error(err: unknown): string {
  * HTTP 404/410: the content is gone for good (version purged by retention,
  * item hard-deleted). Distinct from a transient failure -- callers count these
  * as expected, not as backup errors.
+ *
+ * Only the numeric status decides. A caller records a match as permanently
+ * skipped, and the message text of any other failure (request ids, item ids,
+ * byte counts) can contain "404" or "Not Found" by chance (issue #618). A
+ * binary download's error carries the status and an empty message, which is
+ * enough.
  */
 export function is_content_gone_error(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const graph_err = err as Record<string, unknown>;
   const status = graph_err.statusCode ?? graph_err.status;
-  if (status === 404 || status === 410) return true;
-  const message = err instanceof Error ? err.message : String(err);
-  return message.includes('404') || message.includes('Not Found') || message.includes('410');
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Races a promise against a timeout; rejects with ETIMEDOUT on expiry. */
-function race_timeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(
-      () => reject(Object.assign(new Error('Request timed out'), { code: 'ETIMEDOUT' })),
-      ms,
-    );
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  return status === 404 || status === 410;
 }

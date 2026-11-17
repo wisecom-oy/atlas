@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import type { MailboxConnector } from '@wisecom/atlas-types/ports/mail/connector.port';
+import type { MailboxConnector } from '@wisecom/atlas-types/ports/outlook/connector.port';
 import type { GraphOperation } from '@wisecom/atlas-types';
 import { RateLimitedGraphConnector } from '@/rate-limited-graph-connector.adapter';
 import { InProcessThrottleCoordinator } from '@wisecom/atlas-core/services/shared/in-process-throttle-coordinator';

@@ -1,0 +1,8 @@
+src/
+tests/
+coverage/
+.turbo/
+tsconfig.json
+tsconfig.test.json
+vitest.config.ts
+*.tsbuildinfo

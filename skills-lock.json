@@ -1,11 +1,17 @@
 {
-  "version": 1,
+  "version": 2,
   "skills": {
     "msgraph": {
       "source": "merill/msgraph",
       "sourceType": "github",
       "skillPath": "skills/msgraph/SKILL.md",
       "computedHash": "caeade813a94167d062f0c31b8f014937ff278420b42e2d0dcfd41ce97daba2f"
+    },
+    "wisecom-coding": {
+      "source": "wisecom-oy/wisecom-code-skill",
+      "sourceType": "github",
+      "skillPath": "skills/wisecom-coding/SKILL.md",
+      "computedHash": "ee5c4e47e7737a896281ad5fb56f8d17539fa714b8808225561e6afe4d2ce053"
     }
   }
 }

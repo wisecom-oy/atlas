@@ -63,6 +63,38 @@ describe('record_item_failure', () => {
   });
 });
 
+// Issue #718: a file skipped because its download URL expired says nothing about the file, so it is
+// retried without spending one of the five attempts.
+describe('record_item_failure with consumes_attempt: false', () => {
+  it('records the item without counting an attempt', () => {
+    const ledger = record_item_failure({}, { ...FAILURE, consumes_attempt: false });
+
+    expect(ledger['item-1']).toMatchObject({ attempts: 0, reason: FAILURE.reason });
+    expect(is_retry_exhausted(ledger['item-1']!)).toBe(false);
+    expect(retryable_items(ledger, 'drive-a')).toHaveLength(1);
+  });
+
+  it('keeps the attempts an item already spent', () => {
+    const counted = fail_repeatedly(2);
+    const ledger = record_item_failure(counted, { ...FAILURE, consumes_attempt: false });
+
+    expect(ledger['item-1']?.attempts).toBe(2);
+  });
+
+  it('still counts a failure that does not say the URL expired', () => {
+    expect(
+      record_item_failure({}, { ...FAILURE, consumes_attempt: true })['item-1']?.attempts,
+    ).toBe(1);
+  });
+
+  it('describes an item with no counted attempt without a misleading "attempt 0"', () => {
+    const [line] = describe_failed_items(
+      record_item_failure({}, { ...FAILURE, consumes_attempt: false }),
+    );
+    expect(line).toContain('will retry (no attempt counted yet)');
+  });
+});
+
 describe('clear_item_failure', () => {
   it('drops the item once it backs up', () => {
     expect(clear_item_failure(record_item_failure({}, FAILURE), 'item-1')).toEqual({});

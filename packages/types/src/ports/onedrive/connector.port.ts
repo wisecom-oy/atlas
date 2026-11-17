@@ -1,4 +1,6 @@
-import type { DriveFileSystemInfo, DriveItemIdentity } from '@/domain/drive-item-metadata';
+import type { DriveFileSystemInfo, DriveItemIdentity } from '@/domain/drive/item-metadata';
+import type { DriveSharingConnector } from '@/ports/drive/drive-sharing.port';
+import type { DriveFolderColorConnector } from '@/ports/drive/folder-color.port';
 import type { LargeFileContent } from '@/ports/drive/large-file-content.port';
 export interface OneDriveDrive {
   readonly drive_id: string;
@@ -30,6 +32,14 @@ export interface OneDriveDeltaItem {
    */
   readonly quarantined?: boolean;
   readonly download_url?: string;
+  /** Graph's `root` facet: the drive root, which is never recorded as an entry. */
+  readonly is_root?: boolean;
+  /**
+   * Graph returned a `shared` facet. Under `Prefer: hierarchicalsharing` that happens only where
+   * sharing was set on the item itself, and as an empty facet where it was just removed, so it
+   * marks the items whose permissions are worth reading.
+   */
+  readonly sharing_facet?: boolean;
 }
 
 export interface OneDriveDeltaResult {
@@ -37,6 +47,12 @@ export interface OneDriveDeltaResult {
   readonly delta_link: string;
   readonly items: OneDriveDeltaItem[];
   readonly reset_detected: boolean;
+  /**
+   * The delta was a fresh enumeration of the whole drive although tracking stays valid, because
+   * the saved link predates the `shared` facet this version selects. Unchanged files are not downloaded
+   * again, but the re-crawl tombstones still run, since a fresh listing reports no deletions.
+   */
+  readonly full_enumeration?: boolean;
 }
 
 export interface OneDriveFileVersion {
@@ -47,7 +63,7 @@ export interface OneDriveFileVersion {
   readonly last_modified_by?: DriveItemIdentity;
 }
 
-export interface OneDriveConnector {
+export interface OneDriveConnector extends DriveSharingConnector, DriveFolderColorConnector {
   /** Lists all OneDrive drives for a user. */
   list_drives(tenant_id: string, owner_id: string): Promise<OneDriveDrive[]>;
 
@@ -70,8 +86,8 @@ export interface OneDriveConnector {
     item_id: string,
   ): Promise<OneDriveDeltaItem | undefined>;
 
-  /** Downloads full file content for small files. */
-  download_file_content(item: OneDriveDeltaItem): Promise<Buffer>;
+  /** Downloads full file content for small files; `abort_signal` ends the transfer. */
+  download_file_content(item: OneDriveDeltaItem, abort_signal?: AbortSignal): Promise<Buffer>;
 
   /** Resolves the temporary download URL for chunked download. */
   resolve_download_url(item: OneDriveDeltaItem): Promise<string | undefined>;
@@ -79,8 +95,16 @@ export interface OneDriveConnector {
   /** Lists version history for a file. */
   list_file_versions(drive_id: string, item_id: string): Promise<OneDriveFileVersion[]>;
 
-  /** Downloads a specific historical version of a file. */
-  download_file_version(drive_id: string, item_id: string, version_id: string): Promise<Buffer>;
+  /**
+   * Downloads a specific historical version of a file. `size_bytes` is the size Graph listed for
+   * the version and scales the drain timeout.
+   */
+  download_file_version(
+    drive_id: string,
+    item_id: string,
+    version_id: string,
+    size_bytes?: number,
+  ): Promise<Buffer>;
 
   /**
    * Opens a specific historical version as a stream, for versions too large to
@@ -119,9 +143,12 @@ export interface OneDriveConnector {
     content: Buffer,
     conflict_behavior?: string,
     file_system_info?: DriveFileSystemInfo,
-  ): Promise<void>;
+  ): Promise<string | undefined>;
 
-  /** Uploads a large file via resumable upload session, buffered or streamed. */
+  /**
+   * Uploads a large file via resumable upload session, buffered or streamed. Resolves the created
+   * item's id when Graph returned it, which a permission restore needs.
+   */
   upload_large_file(
     tenant_id: string,
     owner_id: string,
@@ -131,5 +158,5 @@ export interface OneDriveConnector {
     content: LargeFileContent,
     conflict_behavior?: string,
     file_system_info?: DriveFileSystemInfo,
-  ): Promise<void>;
+  ): Promise<string | undefined>;
 }

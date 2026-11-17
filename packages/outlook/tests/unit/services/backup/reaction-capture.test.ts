@@ -4,7 +4,7 @@ import type { MailboxConnector, MailMessage, TenantContext } from '@wisecom/atla
 import { AuthError } from '@wisecom/atlas-types';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import {
-  capture_page_reactions,
+  capture_page_extended_properties,
   store_single_message,
 } from '@/services/backup/message-payload-store';
 
@@ -36,7 +36,7 @@ function make_ctx(): TenantContext {
 }
 
 function connector_with(fetch: () => Promise<unknown>): MailboxConnector {
-  return { fetch_reaction_properties: vi.fn(fetch) } as unknown as MailboxConnector;
+  return { fetch_extended_properties: vi.fn(fetch) } as unknown as MailboxConnector;
 }
 
 describe('reaction capture on backup (issues #481, #513)', () => {
@@ -47,7 +47,7 @@ describe('reaction capture on backup (issues #481, #513)', () => {
       'owner',
       undefined,
       undefined,
-      REACTIONS,
+      { reaction_properties: REACTIONS, pin_properties: [] },
     );
     expect(manifest_entry.reaction_properties).toEqual(REACTIONS);
   });
@@ -59,7 +59,7 @@ describe('reaction capture on backup (issues #481, #513)', () => {
       'owner',
       undefined,
       undefined,
-      [],
+      { reaction_properties: [], pin_properties: [] },
     );
     expect(manifest_entry).not.toHaveProperty('reaction_properties');
   });
@@ -68,27 +68,27 @@ describe('reaction capture on backup (issues #481, #513)', () => {
     const connector = connector_with(
       async () =>
         new Map([
-          ['msg-1', REACTIONS],
-          ['msg-3', []],
+          ['msg-1', { reaction_properties: REACTIONS, pin_properties: [] }],
+          ['msg-3', { reaction_properties: [], pin_properties: [] }],
         ]),
     );
 
-    const result = await capture_page_reactions(connector, 't', 'owner', PAGE);
+    const result = await capture_page_extended_properties(connector, 't', 'owner', PAGE);
 
-    expect(connector.fetch_reaction_properties).toHaveBeenCalledOnce();
-    expect(connector.fetch_reaction_properties).toHaveBeenCalledWith('t', 'owner', [
+    expect(connector.fetch_extended_properties).toHaveBeenCalledOnce();
+    expect(connector.fetch_extended_properties).toHaveBeenCalledWith('t', 'owner', [
       'msg-1',
       'msg-2',
       'msg-3',
     ]);
-    expect(result.by_message.get('msg-1')).toEqual(REACTIONS);
+    expect(result.by_message.get('msg-1')?.reaction_properties).toEqual(REACTIONS);
     expect(result.failed).toBe(1);
   });
 
   it('counts every message on the page when the read fails, and keeps the messages', async () => {
     const connector = connector_with(() => Promise.reject(new Error('Graph 503')));
 
-    const result = await capture_page_reactions(connector, 't', 'owner', PAGE);
+    const result = await capture_page_extended_properties(connector, 't', 'owner', PAGE);
 
     expect(result.by_message.size).toBe(0);
     expect(result.failed).toBe(3);
@@ -97,15 +97,17 @@ describe('reaction capture on backup (issues #481, #513)', () => {
   it('counts nothing when the connector cannot read reactions at all', async () => {
     const connector = connector_with(async () => undefined);
 
-    await expect(capture_page_reactions(connector, 't', 'owner', PAGE)).resolves.toMatchObject({
+    await expect(
+      capture_page_extended_properties(connector, 't', 'owner', PAGE),
+    ).resolves.toMatchObject({
       failed: 0,
     });
   });
 
   it('propagates a permission failure instead of silently dropping reactions', async () => {
     const connector = connector_with(() => Promise.reject(new AuthError('denied')));
-    await expect(capture_page_reactions(connector, 't', 'owner', PAGE)).rejects.toBeInstanceOf(
-      AuthError,
-    );
+    await expect(
+      capture_page_extended_properties(connector, 't', 'owner', PAGE),
+    ).rejects.toBeInstanceOf(AuthError);
   });
 });

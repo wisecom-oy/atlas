@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { ThrottleFence } from '@/services/shared/throttle-fence';
 
 describe('ThrottleFence', () => {
@@ -62,19 +62,73 @@ describe('ThrottleFence', () => {
     expect(fence.is_raised).toBe(false);
   });
 
-  it('all blocked callers are released simultaneously', async () => {
-    fence = new ThrottleFence();
-    fence.raise(0.1);
+  /**
+   * Issue #641. Releasing every parked caller in one instant sent the whole pool back to Graph at
+   * once and drew the next 429. Each caller now resumes after its own delay, never before the
+   * cooldown ends, bounded by a tenth of the cooldown (here 6 minutes, so the 5 second ceiling).
+   */
+  it('releases blocked callers at spread times after the cooldown, never before it', async () => {
+    vi.useFakeTimers();
+    try {
+      fence = new ThrottleFence();
+      fence.raise(360);
+      const started = Date.now();
 
-    const results: number[] = [];
-    const p1 = fence.wait().then(() => results.push(Date.now()));
-    const p2 = fence.wait().then(() => results.push(Date.now()));
-    const p3 = fence.wait().then(() => results.push(Date.now()));
+      const released_at: number[] = [];
+      const waiters = Array.from({ length: 8 }, () =>
+        fence.wait().then(() => released_at.push(Date.now() - started)),
+      );
+      await vi.advanceTimersByTimeAsync(360_000 - 1);
+      expect(released_at).toEqual([]);
 
-    await Promise.all([p1, p2, p3]);
-    expect(results.length).toBe(3);
-    const spread = Math.max(...results) - Math.min(...results);
-    expect(spread).toBeLessThan(50);
+      await vi.advanceTimersByTimeAsync(5_001);
+      await Promise.all(waiters);
+      expect(released_at).toHaveLength(8);
+      expect(Math.min(...released_at)).toBeGreaterThanOrEqual(360_000);
+      expect(Math.max(...released_at)).toBeLessThanOrEqual(365_000);
+      expect(new Set(released_at).size).toBeGreaterThan(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('bounds the release jitter by the longest cooldown raised', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.999);
+    try {
+      fence = new ThrottleFence();
+      fence.raise(20);
+      fence.raise(1);
+      const started = Date.now();
+
+      const waiter = fence.wait().then(() => Date.now() - started);
+      await vi.advanceTimersByTimeAsync(25_000);
+
+      // A tenth of 20 seconds is 2 seconds; the shorter raise does not shrink it.
+      expect(await waiter).toBe(20_000 + Math.floor(0.999 * 2_000));
+    } finally {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    }
+  });
+
+  it('clear() releases blocked callers without the jitter', async () => {
+    vi.useFakeTimers();
+    try {
+      fence = new ThrottleFence();
+      fence.raise(360);
+      let released = false;
+      const waiter = fence.wait().then(() => {
+        released = true;
+      });
+
+      fence.clear();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(released).toBe(true);
+      await waiter;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   /**

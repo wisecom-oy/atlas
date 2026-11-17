@@ -19,6 +19,7 @@ import {
   is_version_already_captured,
   later_watermark,
 } from '@/versioning/version-watermark';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 export interface VersionSyncResult {
   new_versions_stored: number;
@@ -71,7 +72,7 @@ export function collect_run_versions(
 ): void {
   if (outcome.records.length > 0) {
     const rows = versions.rows.get(file_id);
-    if (rows) rows.push(...outcome.records);
+    if (rows) append_all(rows, outcome.records);
     else versions.rows.set(file_id, [...outcome.records]);
   }
   if (outcome.next_watermark !== undefined) {

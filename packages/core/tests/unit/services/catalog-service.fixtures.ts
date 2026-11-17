@@ -1,3 +1,4 @@
+import { outlook_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import { vi } from 'vitest';
 import { Container } from 'inversify';
 import { CatalogService } from '@/services/catalog/catalog.service';
@@ -13,6 +14,34 @@ import {
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import type { OutlookSnapshotSummary, ReadableSnapshotSummaries } from '@wisecom/atlas-types';
+import { build_outlook_aggregates } from '@/services/catalog/outlook-snapshot-aggregates';
+
+/**
+ * The summary listing the index would answer for these manifests: each row carries the aggregates
+ * the summary path reads, built from its manifest exactly as the writer builds them (#726).
+ */
+export function summary_listing(
+  manifests: readonly Manifest[],
+  unreadable_keys: string[] = [],
+): ReadableSnapshotSummaries<OutlookSnapshotSummary> {
+  const summaries: OutlookSnapshotSummary[] = manifests.map((manifest) => ({
+    snapshot_id: manifest.snapshot_id,
+    created_at: manifest.created_at,
+    manifest_key: `manifests/${manifest.owner_id}/${manifest.snapshot_id}.json`,
+    entry_count: manifest.entries.length,
+    total_size_bytes: manifest.total_size_bytes,
+    owner_id: manifest.owner_id,
+    owner_email: manifest.owner_email,
+    owner_display_name: manifest.owner_display_name,
+    mailbox_purpose: manifest.mailbox_purpose,
+    total_objects: manifest.total_objects,
+    removed_count: manifest.removed_object_ids?.length ?? 0,
+    aggregates: build_outlook_aggregates(manifest),
+  }));
+  return { summaries, unreadable_keys };
+}
 
 /** Builds a manifest with sensible defaults, overridable per test. */
 export function make_manifest(overrides: Partial<Manifest> = {}): Manifest {
@@ -87,11 +116,19 @@ export function build_catalog_harness(): CatalogTestHarness {
 
   const mock_manifests: ManifestRepository = {
     save: vi.fn(),
+    forget_snapshot_summary: vi.fn(),
     find_by_snapshot: vi.fn().mockResolvedValue(undefined),
     list_by_owner: vi.fn().mockResolvedValue([]),
-    find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
+    find_latest_readable: vi.fn().mockResolvedValue(latest_readable(undefined)),
     list_all_manifests: vi.fn().mockResolvedValue([]),
     list_owner_ids: vi.fn().mockResolvedValue([]),
+    list_readable_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
+    list_all_readable: vi.fn().mockResolvedValue(readable_manifests()),
+    list_all_snapshot_summaries: vi.fn().mockResolvedValue(summary_listing([])),
+    read_manifest_at: vi.fn(outlook_chain_reads(() => mock_manifests).read_manifest_at),
+    list_snapshot_summaries: vi.fn(
+      outlook_chain_reads(() => mock_manifests).list_snapshot_summaries,
+    ),
   };
 
   const mock_factory: TenantContextFactory = {

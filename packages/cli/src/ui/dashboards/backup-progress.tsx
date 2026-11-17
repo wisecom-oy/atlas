@@ -7,6 +7,7 @@ import type {
   BackupProgressStore,
   FolderRow,
 } from '@/ui/dashboards/backup-progress-store';
+import { LEVEL_COLORS, LEVEL_GLYPHS } from '@/ui/theme';
 
 /** Wording for rate, extra-counter, and row-noun suffixes; Outlook and OneDrive differ. */
 export interface BackupUnits {
@@ -122,7 +123,9 @@ export function BackupProgressView({
         <Text color="gray">{`[  ] ${pending_count} ${units.row_noun}(s) pending`}</Text>
       ) : undefined}
       <TotalRow state={state} units={units} />
-      {state.status_message === '' ? undefined : <Text color="yellow">{state.status_message}</Text>}
+      {state.status_message === '' ? undefined : (
+        <Text color={LEVEL_COLORS.warn}>{`${LEVEL_GLYPHS.warn} ${state.status_message}`}</Text>
+      )}
     </Box>
   );
 }

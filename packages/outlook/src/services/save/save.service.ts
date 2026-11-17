@@ -1,4 +1,5 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
@@ -11,13 +12,15 @@ import type {
   TransferProgressReporter,
 } from '@wisecom/atlas-types';
 import {
-  build_folder_map,
   group_entries_by_folder,
-  filter_entries_by_folder_name,
   count_unique_folders,
 } from '@/services/restore/folder-restore-planner';
-import { apply_recoverable_items_policy } from '@/services/restore/recoverable-items-filter';
-import { filter_manifests_by_date, merge_snapshot_entries } from '@wisecom/atlas-core';
+import { resolve_folder_paths } from '@/services/shared/recorded-folder-catalog';
+import { resolve_mailbox_entries } from '@/services/shared/mailbox-entry-resolver';
+import {
+  refuse_blank_message_ref,
+  refuse_message_ref_in_mailbox_mode,
+} from '@/services/shared/message-ref-guard';
 import { resolve_snapshot_entries } from '@/services/shared/snapshot-entry-resolver';
 import { backfill_missing_folder_ids } from '@/services/restore/restore-execution-orchestrator';
 import { NoopTransferProgressReporter } from '@/services/shared/noop-transfer-progress-reporter';
@@ -53,14 +56,29 @@ export class SaveService implements SaveUseCase {
     snapshot_id: string,
     options: SaveOptions = {},
   ): Promise<SaveResult> {
+    // Under the run's abort signal, so Ctrl+C also ends a Graph retry or throttle wait (#682).
+    return run_cancellable(
+      options,
+      () => this.save_snapshot_entries(tenant_id, snapshot_id, options),
+      () => this.finish_interrupted_result(snapshot_id, options),
+    );
+  }
+
+  /** Saves one snapshot, or the single message `message_ref` names, into the archive. */
+  private async save_snapshot_entries(
+    tenant_id: string,
+    snapshot_id: string,
+    options: SaveOptions,
+  ): Promise<SaveResult> {
     const { target, output_path } = resolve_save_target(options, build_default_output_path);
     try {
+      refuse_blank_message_ref(options.message_ref);
       if (begin_operation_progress(options, 'save', 'outlook')) {
         return await this.finish_empty_result(snapshot_id, options, target);
       }
-      const ctx = await this._tenant_factory.create(tenant_id);
+      const ctx = await this._tenant_factory.create_readonly(tenant_id);
       try {
-        const { owner_id, entries } = await resolve_snapshot_entries(
+        const { owner_id, entries, manifests } = await resolve_snapshot_entries(
           ctx,
           this._manifests,
           this._connector,
@@ -73,12 +91,13 @@ export class SaveService implements SaveUseCase {
           return await this.finish_empty_result(snapshot_id, options, target);
         }
 
-        return this.save_batch(
+        return await this.save_batch(
           ctx,
           tenant_id,
           owner_id,
           snapshot_id,
           entries,
+          manifests,
           options,
           target,
           output_path,
@@ -97,28 +116,44 @@ export class SaveService implements SaveUseCase {
     owner_id: string,
     options: SaveOptions = {},
   ): Promise<SaveResult> {
+    return run_cancellable(
+      options,
+      () => this.save_mailbox_entries(tenant_id, owner_id, options),
+      () => this.finish_interrupted_result('mailbox', options),
+    );
+  }
+
+  /** Saves the merged, filtered entries of every snapshot of a mailbox into the archive. */
+  private async save_mailbox_entries(
+    tenant_id: string,
+    owner_id: string,
+    options: SaveOptions,
+  ): Promise<SaveResult> {
     owner_id = normalize_owner_id(owner_id);
     const { target, output_path } = resolve_save_target(options, build_default_output_path);
     try {
+      refuse_message_ref_in_mailbox_mode(options.message_ref);
       if (begin_operation_progress(options, 'save', 'outlook')) {
         return await this.finish_empty_result('mailbox', options, target);
       }
-      const ctx = await this._tenant_factory.create(tenant_id);
+      const ctx = await this._tenant_factory.create_readonly(tenant_id);
       try {
-        const manifests = await this.load_mailbox_manifests(ctx, owner_id, options);
-
+        const {
+          manifests,
+          entries: filtered,
+          folder_manifests,
+        } = await resolve_mailbox_entries(
+          ctx,
+          this._manifests,
+          this._connector,
+          tenant_id,
+          owner_id,
+          options,
+        );
         if (manifests.length === 0) {
           logger.warn('No snapshots found for this mailbox in the given date range');
           return await this.finish_empty_result('mailbox', options, target);
         }
-
-        const entries = merge_snapshot_entries(manifests);
-
-        if (options.folder_name) {
-          await backfill_missing_folder_ids(ctx, entries);
-        }
-
-        const filtered = await this.apply_entry_filters(entries, owner_id, tenant_id, options);
         if (filtered.length === 0) {
           logger.warn('No entries to save after filtering');
           return await this.finish_empty_result('mailbox', options, target);
@@ -128,12 +163,13 @@ export class SaveService implements SaveUseCase {
           `Aggregated ${manifests.length} snapshots -- ${filtered.length} unique messages`,
         );
 
-        return this.save_batch(
+        return await this.save_batch(
           ctx,
           tenant_id,
           owner_id,
           'mailbox',
           filtered,
+          folder_manifests,
           options,
           target,
           output_path,
@@ -147,43 +183,23 @@ export class SaveService implements SaveUseCase {
     }
   }
 
-  private async load_mailbox_manifests(
-    ctx: TenantContext,
-    owner_id: string,
-    options: SaveOptions,
-  ): Promise<Manifest[]> {
-    const for_mailbox = (await this._manifests.list_by_owner(ctx, owner_id)).sort(
-      (a, b) => b.created_at.getTime() - a.created_at.getTime(),
-    );
-    return filter_manifests_by_date(for_mailbox, options.start_date, options.end_date);
-  }
-
-  private async apply_entry_filters(
-    entries: ManifestEntry[],
-    owner_id: string,
-    tenant_id: string,
-    options: SaveOptions,
-  ): Promise<ManifestEntry[]> {
-    const allowed = apply_recoverable_items_policy(entries, options.include_recoverable_items);
-    if (options.folder_name) {
-      const folder_map = await build_folder_map(this._connector, tenant_id, owner_id);
-      return filter_entries_by_folder_name(allowed, options.folder_name, folder_map);
-    }
-    return allowed;
-  }
-
   private async save_batch(
     ctx: TenantContext,
     tenant_id: string,
     owner_id: string,
     snapshot_id: string,
     entries: ManifestEntry[],
+    manifests: readonly Manifest[],
     options: SaveOptions,
     target: ArchiveTarget,
     output_path: string,
   ): Promise<SaveResult> {
-    const folder_map = await build_folder_map(this._connector, tenant_id, owner_id);
+    // Backfilled first, so the folder map knows every folder it must name.
     await backfill_missing_folder_ids(ctx, entries);
+    const folder_map = await resolve_folder_paths(
+      { connector: this._connector, tenant_id, owner_id, manifests },
+      entries,
+    );
 
     const groups = group_entries_by_folder(entries);
     const skip_integrity = options.skip_integrity_check ?? false;
@@ -228,43 +244,36 @@ export class SaveService implements SaveUseCase {
     dashboard: TransferProgressReporter,
     options: SaveOptions,
   ): Promise<SaveResult> {
-    let sigint_interrupted = false;
-    const on_sigint = (): void => {
-      sigint_interrupted = true;
-    };
+    // Interruption arrives only through the options. A SIGINT listener of its own suppressed
+    // Node's default exit, so a second Ctrl+C did nothing (issue #682).
     const is_interrupted = (): boolean =>
-      sigint_interrupted || options.should_interrupt?.() === true;
-    process.on('SIGINT', on_sigint);
+      options.should_interrupt?.() === true || options.abort_signal?.aborted === true;
 
-    try {
-      const result = await save_entries_to_archive(
-        ctx,
-        target,
-        output_path,
-        skip_integrity,
-        groups,
-        folder_map,
-        dashboard,
-        is_interrupted,
-        options,
-      );
+    const result = await save_entries_to_archive(
+      ctx,
+      target,
+      output_path,
+      skip_integrity,
+      groups,
+      folder_map,
+      dashboard,
+      is_interrupted,
+      options,
+    );
 
-      const { processed, ...save_result } = result;
-      const interrupted = result.interrupted || is_interrupted();
-      if (interrupted) dashboard.mark_all_pending_interrupted();
-      dashboard.finish();
-      emit_operation_progress(options, {
-        operation: 'save',
-        workload: 'outlook',
-        phase: interrupted ? 'interrupted' : 'completed',
-        processed,
-        total: [...groups.values()].reduce((sum, entries) => sum + entries.length, 0),
-      });
+    const { processed, ...save_result } = result;
+    const interrupted = result.interrupted || is_interrupted();
+    if (interrupted) dashboard.mark_all_pending_interrupted();
+    dashboard.finish();
+    emit_operation_progress(options, {
+      operation: 'save',
+      workload: 'outlook',
+      phase: interrupted ? 'interrupted' : 'completed',
+      processed,
+      total: [...groups.values()].reduce((sum, entries) => sum + entries.length, 0),
+    });
 
-      return { ...save_result, snapshot_id, interrupted };
-    } finally {
-      process.removeListener('SIGINT', on_sigint);
-    }
+    return { ...save_result, snapshot_id, interrupted };
   }
 
   private async finish_empty_result(
@@ -276,6 +285,12 @@ export class SaveService implements SaveUseCase {
     await settle_empty_save_target(target, interrupted);
     // No archive landed anywhere, so there is no path to report even when one was requested.
     return this.empty_result(snapshot_id, options.output_path ?? '', interrupted);
+  }
+
+  /** A run cancelled before its loop: the archive target was already settled as failed. */
+  private finish_interrupted_result(snapshot_id: string, options: SaveOptions): SaveResult {
+    finish_operation_progress(options, 'save', 'outlook', 0, 0, true);
+    return this.empty_result(snapshot_id, '', true);
   }
 
   private empty_result(snapshot_id: string, output_path: string, interrupted = false): SaveResult {

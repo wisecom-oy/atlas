@@ -1,4 +1,6 @@
+import { outlook_stub_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import { describe, expect, it, vi } from 'vitest';
+import { NotFoundError } from '@wisecom/atlas-types';
 import type {
   MailboxConnector,
   Manifest,
@@ -63,6 +65,7 @@ function make_repo(): ManifestRepository {
       all.filter((m) => m.owner_id === owner_id),
     ),
     list_all_manifests: vi.fn(async () => all),
+    ...outlook_stub_chain_reads(),
   } as unknown as ManifestRepository;
 }
 
@@ -74,7 +77,7 @@ async function resolve(
   const connector = {
     list_mail_folders: vi.fn(async () => [
       { folder_id: 'f1', display_name: 'Inbox', folder_path: 'Inbox' },
-      { folder_id: 'f2', display_name: 'Sent', folder_path: 'Sent' },
+      { folder_id: 'f2', display_name: 'Sent', folder_path: 'Sent', well_known_name: 'sentitems' },
     ]),
   } as unknown as MailboxConnector;
   const ctx = {} as TenantContext;
@@ -129,5 +132,45 @@ describe('resolve_snapshot_entries', () => {
     const ids = (await resolve('snap-2', { folder_name: 'Sent' })).map((e) => e.object_id);
 
     expect(ids).toEqual(['S']);
+  });
+
+  it('selects a folder by its well-known name, whatever its display name', async () => {
+    const ids = (await resolve('snap-2', { folder_name: 'sentitems' })).map((e) => e.object_id);
+
+    expect(ids).toEqual(['S']);
+  });
+
+  it('rejects a folder filter that names no folder instead of selecting nothing (#707)', async () => {
+    const run = resolve('snap-2', { folder_name: 'NoSuchFolder' });
+
+    await expect(run).rejects.toBeInstanceOf(NotFoundError);
+    await expect(run).rejects.toThrow('Folder "NoSuchFolder" not found. Available: Inbox, Sent');
+  });
+
+  it.each(['99', 'AAMkAG-no-such-id'])(
+    'rejects a message reference %j that names no message (#735)',
+    async (message_ref) => {
+      const run = resolve('snap-2', { message_ref });
+
+      await expect(run).rejects.toBeInstanceOf(NotFoundError);
+      await expect(run).rejects.toThrow(`No message matches "${message_ref}" in snapshot snap-2`);
+    },
+  );
+
+  it('rejects a message reference the chain records as removed (#735)', async () => {
+    const removed: Manifest = { ...manifest('snap-4', 4, []), removed_object_ids: ['A'] };
+    const all = [SNAP_1, SNAP_2, removed];
+    const repo = make_repo();
+    vi.mocked(repo.find_by_snapshot).mockImplementation(async (_c: TenantContext, id: string) =>
+      all.find((m) => m.snapshot_id === id),
+    );
+    vi.mocked(repo.list_by_owner).mockImplementation(async (_c: TenantContext, owner_id: string) =>
+      all.filter((m) => m.owner_id === owner_id),
+    );
+
+    const run = resolve('snap-4', { message_ref: 'A' }, repo);
+
+    await expect(run).rejects.toBeInstanceOf(NotFoundError);
+    await expect(run).rejects.toThrow('No message matches "A" in snapshot snap-4');
   });
 });

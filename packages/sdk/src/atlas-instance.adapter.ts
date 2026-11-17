@@ -7,7 +7,6 @@ import type {
   AtlasInstanceConfig,
   StorageCheckUseCase,
   StatsUseCase,
-  ReplicationUseCase,
   UserIdentityResolver,
   IdentityRegistryRepository,
   DekRewrapUseCase,
@@ -16,37 +15,42 @@ import type {
 import {
   STORAGE_CHECK_USE_CASE_TOKEN,
   STATS_USE_CASE_TOKEN,
-  REPLICATION_USE_CASE_TOKEN,
   USER_IDENTITY_RESOLVER_TOKEN,
   IDENTITY_REGISTRY_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
   DEK_REWRAP_USE_CASE_TOKEN,
   STORAGE_USAGE_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
-import type { TenantContextFactory } from '@wisecom/atlas-types';
+import { NotFoundError, type TenantContextFactory } from '@wisecom/atlas-types';
 import { create_outlook_api } from '@/outlook-api.factory';
 import { create_onedrive_api } from '@/onedrive-api.factory';
+import { create_contacts_api } from '@/contacts-api.factory';
+import { create_keys_api } from '@/keys-api.factory';
+import { create_calendar_api } from '@/calendar-api.factory';
 import { create_sharepoint_api } from '@/sharepoint-api.factory';
+import { create_teams_api } from '@/teams-api.factory';
 import { create_disposer } from '@/instance-disposal';
 import { resolve_log_sink, scope_api_logging } from '@/log-scope';
 import { normalize_config } from '@/instance-config';
 import { validate_instance } from '@/instance-validation';
-import { resolve_owner_object_id } from '@/owner-resolution';
+import { STORAGE_OBSERVER_TOKEN } from '@/target-tenant';
 
 /** Creates a tenant-bound Atlas SDK instance from explicit configuration values. */
 export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance {
   const atlas_config = normalize_config(config);
-  const container = create_container_from_config(atlas_config, config.throttleCoordinator);
+  const container = create_container_from_config(atlas_config, config.throttleCoordinator, {
+    tenant_pacing_share: config.teamsPacingShare,
+  });
   if (config.onStorageRequest) {
     const s3_client = container.get<S3Client>(S3_CLIENT_TOKEN);
-    observe_storage_requests(s3_client, config.onStorageRequest, 'primary');
+    observe_storage_requests(s3_client, config.onStorageRequest);
+    container.bind(STORAGE_OBSERVER_TOKEN).toConstantValue(config.onStorageRequest);
   }
   const tenant_id = atlas_config.tenant_id;
 
   const storage_check = container.get<StorageCheckUseCase>(STORAGE_CHECK_USE_CASE_TOKEN);
   const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
   const storage_usage = container.get<StorageUsageUseCase>(STORAGE_USAGE_USE_CASE_TOKEN);
-  const replication = container.get<ReplicationUseCase>(REPLICATION_USE_CASE_TOKEN);
   const identity_resolver = container.get<UserIdentityResolver>(USER_IDENTITY_RESOLVER_TOKEN);
   const identity_registry = container.get<IdentityRegistryRepository>(
     IDENTITY_REGISTRY_REPOSITORY_TOKEN,
@@ -63,6 +67,10 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
     outlook: scoped(create_outlook_api(tenant_id, container)),
     onedrive: scoped(create_onedrive_api(tenant_id, container)),
     sharepoint: scoped(create_sharepoint_api(tenant_id, container)),
+    teams: scoped(create_teams_api(tenant_id, container)),
+    contacts: scoped(create_contacts_api(tenant_id, container)),
+    calendar: scoped(create_calendar_api(tenant_id, container)),
+    keys: scoped(create_keys_api(tenant_id, atlas_config.encryption_passphrase, container)),
 
     async validate() {
       await validate_instance(container, tenant_id);
@@ -76,7 +84,6 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
     async getStorageUsage(options = {}) {
       return camelize(
         await storage_usage.measure_storage_usage(tenant_id, {
-          target: options.target,
           breakdown: options.breakdown,
           continuation_token: options.continuationToken,
           max_list_requests: options.maxListRequests,
@@ -88,35 +95,19 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
       return camelize(await identity_resolver.resolve_user(tenant_id, email));
     },
     async listUsers() {
-      const ctx = await tenant_factory.create(tenant_id);
+      let ctx;
+      try {
+        ctx = await tenant_factory.create_readonly(tenant_id);
+      } catch (err) {
+        // No bucket or data key yet: nothing is registered, and nothing is provisioned to say so.
+        if (err instanceof NotFoundError) return undefined;
+        throw err;
+      }
       try {
         return camelize(await identity_registry.load(ctx));
       } finally {
         ctx.destroy();
       }
-    },
-    async replicateSnapshot(snapshot_id, targets) {
-      return camelize(await replication.replicate_snapshot(tenant_id, snapshot_id, targets));
-    },
-    async replicateMailbox(mailbox, targets) {
-      const mailbox_id = await resolve_owner_object_id(identity_resolver, tenant_id, mailbox);
-      return camelize(await replication.replicate_mailbox(tenant_id, mailbox_id, targets));
-    },
-    async rehydrateSnapshot(snapshot_id, source) {
-      return camelize(await replication.rehydrate_snapshot(tenant_id, snapshot_id, source));
-    },
-    async rehydrateMailbox(mailbox, source) {
-      const mailbox_id = await resolve_owner_object_id(identity_resolver, tenant_id, mailbox);
-      return camelize(await replication.rehydrate_mailbox(tenant_id, mailbox_id, source));
-    },
-    async rehydrateTenant(source) {
-      return camelize(await replication.rehydrate_tenant(tenant_id, source));
-    },
-    async getReplicationStatus(snapshot_id) {
-      return camelize(await replication.get_replication_status(tenant_id, snapshot_id));
-    },
-    async getReplicationStatusByOwner(owner_id) {
-      return camelize(await replication.get_replication_status_by_owner(tenant_id, owner_id));
     },
     async rewrapDataKey(new_passphrase) {
       return camelize(await dek_rewrap.rewrap_tenant_dek(tenant_id, new_passphrase));

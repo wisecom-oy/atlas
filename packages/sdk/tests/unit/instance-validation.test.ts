@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { HeadBucketCommand } from '@aws-sdk/client-s3';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AuthError, NotFoundError, StorageError, WrongPassphraseError } from '@wisecom/atlas-types';
+import {
+  AuthError,
+  ConfigError,
+  NotFoundError,
+  StorageError,
+  WrongPassphraseError,
+} from '@wisecom/atlas-types';
+import type { AtlasConfig } from '@wisecom/atlas-core';
 import { createAtlasInstance } from '@/atlas-instance.adapter';
 
 const mocks = vi.hoisted(() => ({
@@ -13,29 +20,35 @@ const mocks = vi.hoisted(() => ({
   log: vi.fn(),
 }));
 
-vi.mock('@/container', () => ({
-  create_container_from_config: () => ({
-    get: (token: symbol) => {
-      switch (token.description) {
-        case 'S3Client':
-          return { send: mocks.send };
-        case 'GraphAuthProvider':
-          return { getAccessToken: mocks.get_access_token };
-        case 'TenantContextFactory':
-          return {
-            create: mocks.create_context,
-            create_readonly: mocks.create_readonly_context,
-          };
-        default:
-          return {};
-      }
-    },
-  }),
-}));
+vi.mock('@/container', async () => {
+  const s3 = await import('@wisecom/atlas-s3');
+  return {
+    create_container_from_config: (config: AtlasConfig) => ({
+      get: (token: symbol) => {
+        switch (token.description) {
+          case 'BucketNameResolver':
+            return new s3.ConfiguredBucketNameResolver(config.s3_bucket);
+          case 'S3Client':
+            return { send: mocks.send };
+          case 'GraphAuthProvider':
+            return { getAccessToken: mocks.get_access_token };
+          case 'TenantContextFactory':
+            return {
+              create: mocks.create_context,
+              create_readonly: mocks.create_readonly_context,
+            };
+          default:
+            return {};
+        }
+      },
+    }),
+  };
+});
 
-function create_instance() {
+function create_instance(tenant_id = 'tenant-example', s3_bucket?: string) {
   return createAtlasInstance({
-    tenantId: 'tenant-example',
+    ...(s3_bucket !== undefined ? { s3Bucket: s3_bucket } : {}),
+    tenantId: tenant_id,
     clientId: 'client-example',
     clientSecret: '<redacted>',
     s3Endpoint: 'https://storage.example.com',
@@ -131,6 +144,20 @@ describe('atlas.validate', () => {
     expect(mocks.log).not.toHaveBeenCalled();
   });
 
+  it('names the bucket rule when S3 refuses a tenant ID that cannot name a bucket', async () => {
+    const cause = Object.assign(new Error('Bad Request'), { name: 'InvalidBucketName' });
+    mocks.send.mockRejectedValue(cause);
+
+    const error = await create_instance('Contoso.onmicrosoft.com')
+      .validate()
+      .catch((error: unknown) => error);
+
+    expect(error).toBeInstanceOf(ConfigError);
+    expect(error).toMatchObject({ cause });
+    expect((error as Error).message).toMatch(/lowercase/);
+    expect(mocks.get_access_token).not.toHaveBeenCalled();
+  });
+
   it('does not provision a missing bucket', async () => {
     const cause = Object.assign(new Error(), {
       name: 'NotFound',
@@ -164,5 +191,25 @@ describe('atlas.validate', () => {
     expect(mocks.send).toHaveBeenCalledTimes(1);
     expect(mocks.create_context).not.toHaveBeenCalled();
     expect(mocks.log).not.toHaveBeenCalled();
+  });
+
+  it('sends HeadBucket to the s3Bucket override instead of the derived name (#768)', async () => {
+    await expect(
+      create_instance('tenant-example', 'tenant-copy').validate(),
+    ).resolves.toBeUndefined();
+
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+    expect(mocks.send.mock.calls[0]![0].input).toEqual({ Bucket: 'tenant-copy' });
+  });
+
+  it('names the override bucket when HeadBucket on it fails (#768)', async () => {
+    mocks.send.mockRejectedValue(Object.assign(new Error(), { name: 'NotFound' }));
+
+    const error = await create_instance('tenant-example', 'tenant-copy')
+      .validate()
+      .catch((error: unknown) => error);
+
+    expect(error).toBeInstanceOf(StorageError);
+    expect((error as Error).message).toContain('"tenant-copy"');
   });
 });

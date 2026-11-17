@@ -7,13 +7,25 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { OneDriveStatusService } from '@/services/status/status.service';
+import { latest_readable } from '@wisecom/atlas-types/testing/readable-listing';
+import {
+  LISTED_DRIVE_SNAPSHOT_ID,
+  list_one_drive_snapshot,
+} from '@wisecom/atlas-types/testing/stub-drive-snapshot-listing';
 
 const TENANT_ID = 'tenant-1';
 const OWNER_ID = '00000000-0000-0000-0000-000000000001';
 const DELTA_LINK = 'https://graph.microsoft.com/v1.0/delta?token=abc';
 
+/** A changed file as delta reports it; status counts only files, as backup does. */
+const file = (n: number) => ({ item_id: `file-${n}`, kind: 'file', deleted: false });
+
 function make_mocks() {
-  const ctx = { storage: {}, destroy: vi.fn() } as unknown as TenantContext;
+  // One stored snapshot, so a saved cursor is still resumable (issue #725).
+  const ctx = {
+    storage: { list: vi.fn(list_one_drive_snapshot()) },
+    destroy: vi.fn(),
+  } as unknown as TenantContext;
 
   const tenant_factory: TenantContextFactory = {
     create: vi.fn().mockResolvedValue(ctx),
@@ -27,7 +39,7 @@ function make_mocks() {
   } as unknown as OneDriveConnector;
 
   const manifests: OneDriveManifestRepository = {
-    find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
+    find_latest_readable: vi.fn().mockResolvedValue(latest_readable(undefined)),
   } as unknown as OneDriveManifestRepository;
 
   const cursors: OneDriveDeltaCursorRepository = {
@@ -81,10 +93,12 @@ describe('OneDriveStatusService', () => {
   });
 
   it('reports the previous backup from the newest manifest', async () => {
-    vi.mocked(mocks.manifests.find_latest_by_owner).mockResolvedValue({
-      snapshot_id: 'snap-7',
-      created_at: new Date('2026-03-02T00:00:00Z'),
-    } as never);
+    vi.mocked(mocks.manifests.find_latest_readable).mockResolvedValue(
+      latest_readable({
+        snapshot_id: 'snap-7',
+        created_at: new Date('2026-03-02T00:00:00Z'),
+      } as never),
+    );
     vi.mocked(mocks.cursors.load).mockResolvedValue(cursor_for('drive-1') as never);
 
     const result = await check();
@@ -101,8 +115,8 @@ describe('OneDriveStatusService', () => {
     ]);
     vi.mocked(mocks.cursors.load).mockResolvedValue(cursor_for('drive-1', 'drive-2') as never);
     vi.mocked(mocks.connector.fetch_delta)
-      .mockResolvedValueOnce({ items: [{}, {}], delta_link: 'a' } as never)
-      .mockResolvedValueOnce({ items: [{}, {}, {}], delta_link: 'b' } as never);
+      .mockResolvedValueOnce({ items: [file(1), file(2)], delta_link: 'a' } as never)
+      .mockResolvedValueOnce({ items: [file(3), file(4), file(5)], delta_link: 'b' } as never);
 
     const result = await check();
 
@@ -119,7 +133,7 @@ describe('OneDriveStatusService', () => {
     vi.mocked(mocks.cursors.load).mockResolvedValue(cursor_for('drive-1', 'drive-2') as never);
     vi.mocked(mocks.connector.fetch_delta)
       .mockResolvedValueOnce({ items: [], delta_link: 'a' } as never)
-      .mockResolvedValueOnce({ items: [{}], delta_link: 'b' } as never);
+      .mockResolvedValueOnce({ items: [file(1)], delta_link: 'b' } as never);
 
     const result = await check();
 
@@ -130,7 +144,7 @@ describe('OneDriveStatusService', () => {
   it('never writes the saved cursor while peeking', async () => {
     vi.mocked(mocks.cursors.load).mockResolvedValue(cursor_for('drive-1') as never);
     vi.mocked(mocks.connector.fetch_delta).mockResolvedValue({
-      items: [{}, {}],
+      items: [file(1), file(2)],
       delta_link: 'advanced-link',
     } as never);
 
@@ -208,7 +222,7 @@ describe('OneDriveStatusService', () => {
     vi.mocked(mocks.cursors.load).mockResolvedValue(cursor_for('drive-1', 'drive-2') as never);
     vi.mocked(mocks.connector.fetch_delta)
       .mockRejectedValueOnce(new Error('throttled'))
-      .mockResolvedValueOnce({ items: [{}], delta_link: 'b' } as never);
+      .mockResolvedValueOnce({ items: [file(1)], delta_link: 'b' } as never);
 
     const result = await check();
 
@@ -233,6 +247,49 @@ describe('OneDriveStatusService', () => {
     expect(result.total_drives).toBe(0);
     expect(result.drives).toEqual([]);
     // `every` on an empty list is true, so this is up to date by definition.
+    expect(result.is_up_to_date).toBe(true);
+  });
+
+  it('reports the newest readable snapshot and names a damaged manifest (issue #631)', async () => {
+    vi.mocked(mocks.manifests.find_latest_readable).mockResolvedValue({
+      manifest: { snapshot_id: 'snap-6', created_at: new Date('2026-03-01T00:00:00Z') } as never,
+      unreadable_keys: ['onedrive/manifests/owner/od-snap-9-abc.json'],
+    });
+    vi.mocked(mocks.cursors.load).mockResolvedValue(cursor_for('drive-1') as never);
+
+    const result = await check();
+
+    expect(result.last_snapshot_id).toBe('snap-6');
+    expect(result.unreadable_keys).toEqual(['onedrive/manifests/owner/od-snap-9-abc.json']);
+  });
+
+  it('reports every drive as not backed up when the cursor outlived its snapshot (issue #725)', async () => {
+    // The next backup reads in full instead of resuming this cursor, so a peek from its link
+    // would report "no pending changes" for a drive whose newest snapshot was deleted.
+    vi.mocked(mocks.cursors.load).mockResolvedValue({
+      ...cursor_for('drive-1'),
+      snapshot_id: 'od-snap-deleted',
+      failed_items: { 'file-9': { item_id: 'file-9', drive_id: 'drive-1' } },
+    } as never);
+
+    const result = await check();
+
+    expect(mocks.connector.fetch_delta).not.toHaveBeenCalled();
+    expect(result.drives[0]).toMatchObject({ has_backup: false, is_up_to_date: false });
+    expect(result.is_up_to_date).toBe(false);
+    // The ledger rides in the cursor the next backup discards, and that run reads every file.
+    expect(result.total_failed_items).toBe(0);
+  });
+
+  it('peeks from a cursor bound to a snapshot that is still stored', async () => {
+    vi.mocked(mocks.cursors.load).mockResolvedValue({
+      ...cursor_for('drive-1'),
+      snapshot_id: LISTED_DRIVE_SNAPSHOT_ID,
+    } as never);
+
+    const result = await check();
+
+    expect(mocks.connector.fetch_delta).toHaveBeenCalledTimes(1);
     expect(result.is_up_to_date).toBe(true);
   });
 });

@@ -1,9 +1,12 @@
+import { run_with_owner_lease_when_writable } from '@wisecom/atlas-core/services/lease/run-with-owner-lease';
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import {
   begin_operation_progress,
   emit_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
+import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
+import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import type {
   DriveFileSystemInfo,
@@ -12,9 +15,12 @@ import type {
   DriveVersionRestoreOptions,
   DriveVersionRestoreResult,
   LargeFileContent,
+  OwnerLeasePort,
+  ReadableVersionIndexListing,
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { UnreadableObjectsError } from '@wisecom/atlas-types';
 import type {
   DriveFileVersionIndexView,
   DriveFileVersionRecord,
@@ -22,6 +28,7 @@ import type {
 } from '@/drive-ports';
 import { select_versions_to_restore, type SelectedVersion } from '@/versioning/version-selection';
 import { build_restored_file_name, split_parent_path } from '@/versioning/version-placement';
+import type { RestoreContentRead } from '@/restore/restore-content-read';
 
 /** The upload surface of a drive connector; both provider connectors satisfy it structurally. */
 export interface DriveUploadConnector {
@@ -34,7 +41,7 @@ export interface DriveUploadConnector {
     content: Buffer,
     conflict_behavior?: string,
     file_system_info?: DriveFileSystemInfo,
-  ): Promise<void>;
+  ): Promise<string | undefined>;
   upload_large_file(
     tenant_id: string,
     owner_id: string,
@@ -44,23 +51,25 @@ export interface DriveUploadConnector {
     content: LargeFileContent,
     conflict_behavior?: string,
     file_system_info?: DriveFileSystemInfo,
-  ): Promise<void>;
+  ): Promise<string | undefined>;
 }
 
 /** What a provider supplies to the shared version restore flow. */
 export interface DriveVersionRestoreDeps {
   readonly workload: DriveWorkload;
   readonly tenant_factory: TenantContextFactory;
+  /** Takes the owner's lease for the restore. */
+  readonly leases: OwnerLeasePort;
   readonly connector: DriveUploadConnector;
   readonly list_indexes: (
     ctx: TenantContext,
     owner_id: string,
-  ) => Promise<readonly DriveFileVersionIndexView[]>;
-  /** Reads a stored version blob, verifying it, or returns undefined when it cannot be trusted. */
+  ) => Promise<ReadableVersionIndexListing<DriveFileVersionIndexView>>;
+  /** Reads a stored version blob, verifying it, or says why it cannot be restored. */
   readonly download_blob: (
     ctx: TenantContext,
     version: DriveFileVersionRecord,
-  ) => Promise<LargeFileContent | undefined>;
+  ) => Promise<RestoreContentRead>;
   /** Resolves or creates the folder chain the restored file goes into, within one drive. */
   readonly ensure_folder_path: (
     tenant_id: string,
@@ -85,92 +94,151 @@ export async function restore_drive_version(
   owner_id: string,
   options: DriveVersionRestoreOptions,
 ): Promise<DriveVersionRestoreResult> {
+  // Under the run's abort signal, so Ctrl+C also ends a Graph retry or throttle wait (#682).
+  // A run cancelled before it could build its own result restored nothing.
+  return run_cancellable(
+    options,
+    () => restore_selected_versions(deps, tenant_id, normalize_owner_id(owner_id), options),
+    () => {
+      finish_operation_progress(options, 'restore', deps.workload, 0, 0, true);
+      return nothing_restored(options);
+    },
+  );
+}
+
+/** The result of a run that stopped before restoring anything. */
+function nothing_restored(options: DriveVersionRestoreOptions): DriveVersionRestoreResult {
+  return {
+    files_restored: 0,
+    files_skipped: 0,
+    restored: [],
+    errors: [],
+    interrupted: true,
+    placement: options.placement ?? 'copy',
+  };
+}
+
+/** Selects the versions the options ask for and uploads each, stopping at an interrupt. */
+async function restore_selected_versions(
+  deps: DriveVersionRestoreDeps,
+  tenant_id: string,
+  owner_id: string,
+  options: DriveVersionRestoreOptions,
+): Promise<DriveVersionRestoreResult> {
   const { workload } = deps;
-  owner_id = normalize_owner_id(owner_id);
   const placement: DriveVersionPlacement = options.placement ?? 'copy';
 
   if (begin_operation_progress(options, 'restore', workload)) {
     finish_operation_progress(options, 'restore', workload, 0, 0);
-    return {
-      files_restored: 0,
-      files_skipped: 0,
-      restored: [],
-      errors: [],
-      interrupted: true,
-      placement,
-    };
+    return nothing_restored(options);
   }
 
-  const ctx = await deps.tenant_factory.create(tenant_id);
+  const tenant_ctx = await deps.tenant_factory.create_readonly(tenant_id);
   try {
-    const indexes = await deps.list_indexes(ctx, owner_id);
-    const selection = select_versions_to_restore(indexes, options);
+    const scope = { workload, owner_id, operation: 'restore' } as const;
+    return await run_with_owner_lease_when_writable(deps.leases, tenant_ctx, scope, (ctx) =>
+      restore_versions_leased(deps, ctx, tenant_id, owner_id, options, placement),
+    );
+  } finally {
+    tenant_ctx.destroy();
+  }
+}
 
-    // The version row records the drive it came from, so a version restore needs no drive lookup
-    // and stays correct for an owning segment with several drives, where "the first drive" would
-    // be a guess. One memo for all of them: `ensure_folder_path` keys it by `drive_id:path`, so
-    // two drives holding the same path cannot collide in it (issue #316).
-    const folder_ids = new Map<string, string>();
-    const restored: DriveRestoredVersion[] = [];
-    const errors: string[] = [...selection.skipped];
-    let files_skipped = selection.skipped.length;
+/** Restores the selected versions while holding the owner's lease. */
+async function restore_versions_leased(
+  deps: DriveVersionRestoreDeps,
+  ctx: TenantContext,
+  tenant_id: string,
+  owner_id: string,
+  options: DriveVersionRestoreOptions,
+  placement: DriveVersionPlacement,
+): Promise<DriveVersionRestoreResult> {
+  const { workload } = deps;
+  const indexes = readable_indexes_or_raise(await deps.list_indexes(ctx, owner_id));
+  const selection = select_versions_to_restore(indexes, options);
 
+  // The version row records the drive it came from, so a version restore needs no drive lookup
+  // and stays correct for an owning segment with several drives, where "the first drive" would
+  // be a guess. One memo for all of them: `ensure_folder_path` keys it by `drive_id:path`, so
+  // two drives holding the same path cannot collide in it (issue #316).
+  const folder_ids = new Map<string, string>();
+  const restored: DriveRestoredVersion[] = [];
+  const errors: string[] = [...selection.skipped];
+  let files_skipped = selection.skipped.length;
+
+  emit_operation_progress(options, {
+    operation: 'restore',
+    workload,
+    phase: 'processing',
+    processed: 0,
+    total: selection.selected.length,
+  });
+
+  for (const [index, candidate] of selection.selected.entries()) {
+    if (options.should_interrupt?.() === true || options.abort_signal?.aborted === true) break;
+    const outcome = await restore_one_version(
+      deps,
+      tenant_id,
+      owner_id,
+      ctx,
+      folder_ids,
+      candidate,
+      placement,
+    );
+    // Cut short by Ctrl+C: neither restored nor skipped, so the count reads as interrupted.
+    if (outcome.cancelled === true) break;
+    if (outcome.restored) restored.push(outcome.restored);
+    else {
+      files_skipped++;
+      if (outcome.error) errors.push(outcome.error);
+    }
     emit_operation_progress(options, {
       operation: 'restore',
       workload,
       phase: 'processing',
-      processed: 0,
+      processed: index + 1,
       total: selection.selected.length,
+      current: candidate.version.file_name,
     });
-
-    for (const [index, candidate] of selection.selected.entries()) {
-      if (options.should_interrupt?.() === true) break;
-      const outcome = await restore_one_version(
-        deps,
-        tenant_id,
-        owner_id,
-        ctx,
-        folder_ids,
-        candidate,
-        placement,
-      );
-      if (outcome.restored) restored.push(outcome.restored);
-      else {
-        files_skipped++;
-        if (outcome.error) errors.push(outcome.error);
-      }
-      emit_operation_progress(options, {
-        operation: 'restore',
-        workload,
-        phase: 'processing',
-        processed: index + 1,
-        total: selection.selected.length,
-        current: candidate.version.file_name,
-      });
-    }
-
-    const interrupted = finish_operation_progress(
-      options,
-      'restore',
-      workload,
-      restored.length + files_skipped,
-      selection.selected.length + selection.skipped.length,
-      // Against the same total reported above: `files_skipped` starts at the pre-skipped count,
-      // so comparing it with `selected.length` alone under-reports an early stop.
-      restored.length + files_skipped < selection.selected.length + selection.skipped.length,
-    );
-
-    return {
-      files_restored: restored.length,
-      files_skipped,
-      restored,
-      errors,
-      interrupted,
-      placement,
-    };
-  } finally {
-    ctx.destroy();
   }
+
+  const interrupted = finish_operation_progress(
+    options,
+    'restore',
+    workload,
+    restored.length + files_skipped,
+    selection.selected.length + selection.skipped.length,
+    // Against the same total reported above: `files_skipped` starts at the pre-skipped count,
+    // so comparing it with `selected.length` alone under-reports an early stop.
+    restored.length + files_skipped < selection.selected.length + selection.skipped.length,
+  );
+
+  return {
+    files_restored: restored.length,
+    files_skipped,
+    restored,
+    errors,
+    interrupted,
+    placement,
+  };
+}
+
+/**
+ * Returns the index rows when every index object was read, and refuses otherwise.
+ *
+ * Selection reads the whole history: a cutoff takes the newest version before it, and a path or
+ * name resolves only when no other file's rows match it. The newer version, or the rows that make
+ * a path ambiguous, can sit in the object that could not be read, so going on would roll a file
+ * back to older bytes, or to another file's, without saying so (issue #631).
+ */
+function readable_indexes_or_raise(
+  listing: ReadableVersionIndexListing<DriveFileVersionIndexView>,
+): readonly DriveFileVersionIndexView[] {
+  if (listing.unreadable_keys.length === 0) return listing.indexes;
+  throw new UnreadableObjectsError(
+    'Versions cannot be selected while version index objects are unreadable',
+    listing.unreadable_keys,
+  );
 }
 
 /** Fetches one stored version and uploads it, honouring the placement choice. */
@@ -182,14 +250,13 @@ async function restore_one_version(
   folder_ids: Map<string, string>,
   candidate: SelectedVersion,
   placement: DriveVersionPlacement,
-): Promise<{ restored?: DriveRestoredVersion; error?: string }> {
+): Promise<{ restored?: DriveRestoredVersion; error?: string; cancelled?: true }> {
   const { version, original_path } = candidate;
   const drive_id = version.drive_id;
   try {
-    const content = await deps.download_blob(ctx, version);
-    if (!content) {
-      return { error: `${original_path}: stored version could not be read or verified` };
-    }
+    const read = await deps.download_blob(ctx, version);
+    if (read.kind === 'unrestorable') return { error: `${original_path}: ${read.reason}` };
+    const content = read.content;
 
     const { parent_path } = split_parent_path(original_path);
     const parent_id = await deps.ensure_folder_path(
@@ -253,6 +320,8 @@ async function restore_one_version(
       },
     };
   } catch (err) {
+    // An upload cut short by Ctrl+C is the run stopping, not a failed version (issue #682).
+    if (is_active_run_cancelled()) return { cancelled: true };
     const msg = `${original_path}: ${err instanceof Error ? err.message : String(err)}`;
     logger.warn(`Skipped ${msg}`);
     return { error: msg };

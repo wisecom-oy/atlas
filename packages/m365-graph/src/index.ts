@@ -4,18 +4,27 @@ export {
   GRAPH_AUTH_PROVIDER_TOKEN,
 } from '@/graph-client.factory';
 export { parse_retry_after_ms } from './graph-retry-after';
+export { sleep as cancellable_sleep } from './graph-attempt-cancellation';
 export {
   is_invalid_delta_error,
   is_transient_error,
-  is_network_error,
   is_retryable_error,
   describe_graph_error,
   is_content_gone_error,
   with_graph_retry,
 } from './graph-request-error-handler';
+export { is_network_error } from './graph-network-error';
+export { is_exhausted_retry, rethrow_if_retry_exhausted } from './graph-exhausted-retry';
+export {
+  get_graph_binary_response,
+  get_graph_bytes,
+  get_graph_content_stream,
+} from '@/graph-binary-download';
+export type { GraphRetryOptions } from './graph-request-error-handler';
 export {
   no_onedrive_message,
   rethrow_if_access_denied,
+  rethrow_if_teams_access_denied,
   rethrow_if_mailbox_not_licensed,
   rethrow_if_no_onedrive,
 } from './graph-permission-errors';

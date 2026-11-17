@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
+import { create_restore_root } from '@/services/restore/folder-restore-planner';
 import type {
   MailboxConnector,
   ManifestEntry,
@@ -66,6 +67,8 @@ function make_ctx(): TenantContext {
 function make_restore_connector(): RestoreConnector {
   return {
     create_mail_folder: vi.fn().mockResolvedValue('folder-1'),
+    find_child_mail_folder: vi.fn().mockResolvedValue(undefined),
+    find_well_known_folder_role: vi.fn().mockResolvedValue(undefined),
     create_message: vi.fn().mockResolvedValue('new-msg-1'),
     add_attachment: vi.fn(),
     create_upload_session: vi.fn(),
@@ -130,6 +133,7 @@ describe('an attachment that fails to authenticate (issue #341)', () => {
       'user@test.com',
       'snap-1',
       make_entry(),
+      await create_restore_root(connector, 'tenant-1', 'user@test.com'),
     );
 
     expect(result.restored_count).toBe(1);

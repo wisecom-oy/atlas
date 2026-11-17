@@ -4,7 +4,7 @@ import { S3Client } from '@aws-sdk/client-s3';
 
 export interface FakeReply {
   readonly status: number;
-  readonly body?: string;
+  readonly body?: string | Buffer;
   readonly headers?: Record<string, string>;
   readonly delay_ms?: number;
 }

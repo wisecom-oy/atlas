@@ -1,3 +1,9 @@
+import {
+  stub_owner_leases,
+  type StubOwnerLeases,
+} from '@wisecom/atlas-types/testing/stub-owner-leases';
+import { OWNER_LEASE_TOKEN } from '@wisecom/atlas-types';
+import { outlook_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import { vi } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
@@ -21,6 +27,7 @@ import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/st
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 import { createHash } from 'node:crypto';
 import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 /** Builds a minimal Outlook manifest entry for restore service tests. */
 export function make_restore_entry(id: string, folder_id: string): ManifestEntry {
@@ -79,6 +86,8 @@ export interface RestoreHarness {
   readonly mock_manifests: ManifestRepository;
   readonly mock_connector: MailboxConnector;
   readonly mock_restore: RestoreConnector;
+  /** The owner-lease stub the service takes its lease from, for ordering assertions (#735). */
+  readonly owner_leases: StubOwnerLeases;
 }
 
 /** Builds a RestoreService wired to fresh port mocks; one per test. */
@@ -116,11 +125,19 @@ export function make_restore_harness(): RestoreHarness {
 
   const mock_manifests: ManifestRepository = {
     save: vi.fn(),
+    forget_snapshot_summary: vi.fn(),
     find_by_snapshot: vi.fn(),
-    find_latest_by_owner: vi.fn(),
+    find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
     list_by_owner: vi.fn().mockResolvedValue([]),
     list_all_manifests: vi.fn().mockResolvedValue([]),
     list_owner_ids: vi.fn().mockResolvedValue([]),
+    list_readable_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
+    list_all_readable: vi.fn().mockResolvedValue(readable_manifests()),
+    read_manifest_at: vi.fn(outlook_chain_reads(() => mock_manifests).read_manifest_at),
+    list_all_snapshot_summaries: vi.fn(),
+    list_snapshot_summaries: vi.fn(
+      outlook_chain_reads(() => mock_manifests).list_snapshot_summaries,
+    ),
   };
 
   const folders: MailFolder[] = [
@@ -144,6 +161,8 @@ export function make_restore_harness(): RestoreHarness {
       folder_path: 'Restore-2026-03-08',
       total_item_count: 0,
     }),
+    find_child_mail_folder: vi.fn().mockResolvedValue(undefined),
+    find_well_known_folder_role: vi.fn().mockResolvedValue(undefined),
     create_message: vi.fn().mockResolvedValue('new-msg-id'),
     add_attachment: vi.fn(),
     create_upload_session: vi.fn(),
@@ -158,6 +177,8 @@ export function make_restore_harness(): RestoreHarness {
     create_readonly: vi.fn().mockResolvedValue(mock_context),
     create_storage_only: vi.fn().mockResolvedValue(mock_context),
   } as unknown as TenantContextFactory);
+  const owner_leases = stub_owner_leases();
+  container.bind(OWNER_LEASE_TOKEN).toConstantValue(owner_leases.leases);
   container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(mock_manifests);
   container.bind(MAILBOX_CONNECTOR_TOKEN).toConstantValue(mock_connector);
   container.bind(RESTORE_CONNECTOR_TOKEN).toConstantValue(mock_restore);
@@ -169,5 +190,6 @@ export function make_restore_harness(): RestoreHarness {
     mock_manifests,
     mock_connector,
     mock_restore,
+    owner_leases,
   };
 }

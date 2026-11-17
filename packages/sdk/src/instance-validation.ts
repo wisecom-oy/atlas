@@ -1,16 +1,17 @@
 import { HeadBucketCommand, type S3Client } from '@aws-sdk/client-s3';
-import type { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js';
+import type { AuthenticationProvider } from '@microsoft/microsoft-graph-client';
 import type { Container } from 'inversify';
 import { GRAPH_AUTH_PROVIDER_TOKEN } from '@wisecom/atlas-m365-graph';
-import { S3_CLIENT_TOKEN, tenant_bucket_name } from '@wisecom/atlas-s3';
+import { invalid_bucket_name_error, S3_CLIENT_TOKEN } from '@wisecom/atlas-s3';
 import {
   AtlasError,
   AuthError,
+  BUCKET_NAME_RESOLVER_TOKEN,
   NotFoundError,
   StorageError,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
-import type { TenantContextFactory } from '@wisecom/atlas-types';
+import type { BucketNameResolver, TenantContextFactory } from '@wisecom/atlas-types';
 
 /** Checks bucket access, the existing wrapped key when present, then Graph token issuance. */
 export async function validate_instance(container: Container, tenant_id: string): Promise<void> {
@@ -19,15 +20,21 @@ export async function validate_instance(container: Container, tenant_id: string)
   await validate_graph_token(container);
 }
 
+/** Sends HeadBucket to the tenant's bucket: the configured override, or `atlas-<tenantId>`. */
 async function validate_bucket_access(container: Container, tenant_id: string): Promise<void> {
+  const bucket = container.get<BucketNameResolver>(BUCKET_NAME_RESOLVER_TOKEN).resolve(tenant_id);
   try {
     const client = container.get<S3Client>(S3_CLIENT_TOKEN);
-    await client.send(new HeadBucketCommand({ Bucket: tenant_bucket_name(tenant_id) }));
+    await client.send(new HeadBucketCommand({ Bucket: bucket.name }));
   } catch (cause) {
-    throw new StorageError(
-      'S3 validation failed. Check the endpoint, region, credentials and tenant-bucket access. ' +
-        'If the tenant bucket does not exist, provision it before validating.',
-      { cause },
+    throw (
+      invalid_bucket_name_error(bucket.name, cause) ??
+      new StorageError(
+        `S3 validation of bucket "${bucket.name}" failed. Check the endpoint, region, ` +
+          'credentials and tenant-bucket access. If the tenant bucket does not exist, provision ' +
+          'it before validating.',
+        { cause },
+      )
     );
   }
 }
@@ -58,10 +65,10 @@ async function validate_existing_passphrase(
   }
 }
 
-async function validate_graph_token(container: Container): Promise<void> {
+/** Requests a Graph token through the container's auth provider; throws `AuthError` on refusal. */
+export async function validate_graph_token(container: Container): Promise<void> {
   try {
-    const auth_provider =
-      container.get<TokenCredentialAuthenticationProvider>(GRAPH_AUTH_PROVIDER_TOKEN);
+    const auth_provider = container.get<AuthenticationProvider>(GRAPH_AUTH_PROVIDER_TOKEN);
     await auth_provider.getAccessToken();
   } catch (cause) {
     throw new AuthError(

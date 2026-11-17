@@ -118,7 +118,7 @@ describe('Outlook manifest absence versus damage (issue #341)', () => {
     });
 
     await expect(repo.find_by_snapshot(ctx, 'snap-1')).rejects.toThrow(
-      /Could not read the manifest at manifests\/user@test.com\/snap-1.json/,
+      /The Outlook manifest does not decrypt or parse: manifests\/user@test.com\/snap-1.json/,
     );
   });
 });

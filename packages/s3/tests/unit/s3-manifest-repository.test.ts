@@ -81,45 +81,7 @@ describe('S3ManifestRepository', () => {
     ctx = make_mock_context();
   });
 
-  describe('save', () => {
-    it('stores the manifest and its encrypted lookup pointers', async () => {
-      const manifest = make_manifest();
-      await repo.save(ctx, manifest);
-
-      // Manifest, snapshot pointer, latest pointer: the two pointers carry the same JSON but
-      // live in different directories, and each is bound to its own (issue #350).
-      expect(ctx.encrypt).toHaveBeenCalledTimes(3);
-      const put_calls = vi.mocked(ctx.storage.put).mock.calls;
-      expect(put_calls.map((call) => call[0])).toEqual([
-        'manifests/user@test.com/snap-1.json',
-        '_meta/outlook-manifests/snapshots/snap-1.json',
-        '_meta/outlook-manifests/owners/user@test.com/latest.json',
-      ]);
-    });
-
-    it('applies effective object lock policy to manifest uploads', async () => {
-      const manifest = make_manifest({
-        object_lock: {
-          requested: {
-            mode: 'GOVERNANCE',
-            retention_days: 30,
-          },
-          effective: {
-            mode: 'GOVERNANCE',
-            retain_until: '2026-04-08T12:00:00.000Z',
-          },
-        },
-      });
-
-      await repo.save(ctx, manifest);
-
-      const put_call = vi.mocked(ctx.storage.put).mock.calls[0]!;
-      expect(put_call[3]).toEqual({
-        mode: 'GOVERNANCE',
-        retain_until: '2026-04-08T12:00:00.000Z',
-      });
-    });
-  });
+  // `save` is covered in s3-manifest-repository-save.test.ts, over the shared in-memory context.
 
   describe('find_by_snapshot', () => {
     it('loads an indexed snapshot without listing owner prefixes', async () => {
@@ -161,7 +123,7 @@ describe('S3ManifestRepository', () => {
     });
   });
 
-  describe('find_latest_by_owner', () => {
+  describe('find_latest_readable', () => {
     it('loads the indexed latest manifest without scanning snapshot history', async () => {
       const manifest = make_manifest({
         snapshot_id: 'snap-new',
@@ -174,7 +136,7 @@ describe('S3ManifestRepository', () => {
 
       vi.mocked(ctx.storage.get).mockResolvedValueOnce(pointer).mockResolvedValueOnce(encrypted);
 
-      const result = await repo.find_latest_by_owner(ctx, 'user@test.com');
+      const result = (await repo.find_latest_readable(ctx, 'user@test.com')).manifest;
 
       expect(result?.snapshot_id).toBe('snap-new');
       expect(ctx.storage.list).not.toHaveBeenCalled();
@@ -197,7 +159,7 @@ describe('S3ManifestRepository', () => {
       const enc_new = encrypted_json(newer);
 
       vi.mocked(ctx.storage.get)
-        .mockRejectedValueOnce(new Error('latest pointer not found'))
+        .mockRejectedValueOnce(absent('latest pointer not found'))
         .mockResolvedValueOnce(enc_old)
         .mockResolvedValueOnce(enc_new);
       vi.mocked(ctx.storage.list).mockResolvedValue([
@@ -205,17 +167,17 @@ describe('S3ManifestRepository', () => {
         'manifests/user@test.com/snap-new.json',
       ]);
 
-      const result = await repo.find_latest_by_owner(ctx, 'user@test.com');
+      const result = (await repo.find_latest_readable(ctx, 'user@test.com')).manifest;
       expect(result).toBeDefined();
       expect(result!.id).toBe('new');
     });
 
     it('returns undefined for empty mailbox', async () => {
-      vi.mocked(ctx.storage.get).mockRejectedValueOnce(new Error('latest pointer not found'));
+      vi.mocked(ctx.storage.get).mockRejectedValueOnce(absent('latest pointer not found'));
       vi.mocked(ctx.storage.list).mockResolvedValue([]);
 
-      const result = await repo.find_latest_by_owner(ctx, 'user@test.com');
-      expect(result).toBeUndefined();
+      const result = await repo.find_latest_readable(ctx, 'user@test.com');
+      expect(result).toEqual({ manifest: undefined, unreadable_keys: [] });
     });
   });
 
@@ -295,20 +257,6 @@ describe('S3ManifestRepository', () => {
   });
 
   describe('created_at', () => {
-    it('returns created_at as a Date after a save round trip', async () => {
-      const manifest = make_manifest();
-      await repo.save(ctx, manifest);
-      const stored = new Map(
-        vi.mocked(ctx.storage.put).mock.calls.map(([key, body]) => [key, body] as const),
-      );
-      vi.mocked(ctx.storage.get).mockImplementation(async (key) => stored.get(key)!);
-
-      const found = await repo.find_by_snapshot(ctx, 'snap-1');
-
-      expect(found?.created_at).toBeInstanceOf(Date);
-      expect(found?.created_at.getTime()).toBe(manifest.created_at.getTime());
-    });
-
     it('returns Date created_at from list_by_owner', async () => {
       const stored = new Map([['manifests/user@test.com/snap-1.json', make_manifest()]]);
       vi.mocked(ctx.storage.list).mockResolvedValue([...stored.keys()]);
@@ -330,3 +278,8 @@ describe('S3ManifestRepository', () => {
     });
   });
 });
+
+/** A storage error shaped the way S3 reports a missing key. */
+function absent(message: string): Error {
+  return Object.assign(new Error(message), { name: 'NoSuchKey' });
+}

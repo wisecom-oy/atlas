@@ -10,7 +10,7 @@ import logging
 import sys
 from collections.abc import Callable
 
-from atlas_e2e import cleanup, config, drive, marker
+from atlas_e2e import cleanup, config, drive, marker, people
 from atlas_e2e.atlas import Cli
 from atlas_e2e.graph import Graph
 
@@ -37,6 +37,12 @@ def main() -> int:
         log.info("Removed %d mailbox folder(s)", len(removed))
     except Exception as err:  # noqa: BLE001 - a failed sweep must not fail the job after the tests
         log.warning("Mailbox sweep failed: %s", err)
+
+    try:
+        removed = people.sweep(graph, settings.mailbox, tag)
+        log.info("Removed %d contact folder(s) and calendar(s)", len(removed))
+    except Exception as err:  # noqa: BLE001 - same rule as above
+        log.warning("Contacts and calendar sweep failed: %s", err)
 
     survivors: list[str] = []
     resolvers: tuple[tuple[str, Callable[[], str]], ...] = (

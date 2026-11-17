@@ -1,9 +1,11 @@
 import type { Container } from 'inversify';
+import type { QuarantineUseCase } from '@wisecom/atlas-types';
+import { SHAREPOINT_QUARANTINE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import { with_camelized_partial_result } from '@/partial-listing';
 import type {
   SharePointApi,
   SharePointSiteTreeBackupUseCase,
   SharePointCatalogUseCase,
-  SharePointReplicationUseCase,
   SharePointRestoreUseCase,
   SharePointVersionRestoreUseCase,
   SharePointSaveUseCase,
@@ -16,7 +18,6 @@ import type {
 import {
   SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
   SHAREPOINT_CATALOG_USE_CASE_TOKEN,
-  SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,
   SHAREPOINT_VERSION_RESTORE_USE_CASE_TOKEN,
   SHAREPOINT_SAVE_USE_CASE_TOKEN,
@@ -29,22 +30,20 @@ import {
 import { camelize } from '@wisecom/atlas-types/public/case-convert';
 import { adapt_operation_options, adapt_required_operation_options } from '@/operation-options';
 import { canonical_site_id } from '@wisecom/atlas-sharepoint';
+import { split_target_tenant, with_restore_side } from '@/target-tenant';
 
 /** Builds the SharePointApi sub-namespace from the DI container. */
 export function create_sharepoint_api(tenant_id: string, container: Container): SharePointApi {
+  const quarantine = container.get<QuarantineUseCase>(SHAREPOINT_QUARANTINE_USE_CASE_TOKEN);
   const backup = container.get<SharePointSiteTreeBackupUseCase>(
     SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
   );
   const verification = container.get<SharePointVerificationUseCase>(
     SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
   );
-  const replication = container.get<SharePointReplicationUseCase>(
-    SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
-  );
   const version_restore = container.get<SharePointVersionRestoreUseCase>(
     SHAREPOINT_VERSION_RESTORE_USE_CASE_TOKEN,
   );
-  const restore = container.get<SharePointRestoreUseCase>(SHAREPOINT_RESTORE_USE_CASE_TOKEN);
   const save = container.get<SharePointSaveUseCase>(SHAREPOINT_SAVE_USE_CASE_TOKEN);
   const catalog = container.get<SharePointCatalogUseCase>(SHAREPOINT_CATALOG_USE_CASE_TOKEN);
   const deletion = container.get<SharePointDeletionUseCase>(SHAREPOINT_DELETION_USE_CASE_TOKEN);
@@ -80,11 +79,20 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
     },
     async restore(site_input, options) {
       const site_id = await resolve_site_id(site_input);
+      const [target_tenant, own] = split_target_tenant(options);
+      const adapted = adapt_required_operation_options(own, 'sharepoint.restore()');
       return camelize(
-        await restore.restore_sharepoint(
-          tenant_id,
-          site_id,
-          adapt_required_operation_options(options, 'sharepoint.restore()'),
+        await with_restore_side(
+          container,
+          target_tenant,
+          own?.targetSiteId,
+          'sharepoint.restore()',
+          (side) => {
+            const use_case = side.container.get<SharePointRestoreUseCase>(
+              SHAREPOINT_RESTORE_USE_CASE_TOKEN,
+            );
+            return use_case.restore_sharepoint(tenant_id, site_id, adapted);
+          },
         ),
       );
     },
@@ -109,13 +117,32 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
       );
     },
     async listSnapshots(site_input) {
+      const resolved_id = await resolve_site_id(site_input);
       return camelize(
-        await catalog.list_sharepoint_snapshots(tenant_id, await resolve_site_id(site_input)),
+        await with_camelized_partial_result(() =>
+          catalog.list_sharepoint_snapshots(tenant_id, resolved_id),
+        ),
+      );
+    },
+    async listSnapshotSummaries(site_input) {
+      const resolved_id = await resolve_site_id(site_input);
+      return camelize(
+        await with_camelized_partial_result(() =>
+          catalog.list_sharepoint_snapshot_summaries(tenant_id, resolved_id),
+        ),
       );
     },
     async listFileVersions(site_input, file_ref) {
       const site_id = await resolve_site_id(site_input);
-      return camelize(await catalog.list_sharepoint_file_versions(tenant_id, site_id, file_ref));
+      return camelize(
+        await with_camelized_partial_result(() =>
+          catalog.list_sharepoint_file_versions(tenant_id, site_id, file_ref),
+        ),
+      );
+    },
+    async listPermissions(site_input, snapshot_id) {
+      const site_id = await resolve_site_id(site_input);
+      return camelize(await catalog.list_sharepoint_permissions(tenant_id, site_id, snapshot_id));
     },
     async listSites() {
       return camelize(await connector.list_sites(tenant_id));
@@ -132,24 +159,6 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
       const site_id = await resolve_site_id(site_input);
       return camelize(await deletion.delete_snapshot(tenant_id, site_id, snapshot_id));
     },
-    async replicateSnapshot(site_input, snapshot_id, targets) {
-      const site_id = await resolve_site_id(site_input);
-      return camelize(await replication.replicate_site(tenant_id, site_id, snapshot_id, targets));
-    },
-    async replicateAll(site_input, targets) {
-      const site_id = await resolve_site_id(site_input);
-      return camelize(await replication.replicate_all_site_snapshots(tenant_id, site_id, targets));
-    },
-    async rehydrateSnapshot(site_input, snapshot_id, source) {
-      const site_id = await resolve_site_id(site_input);
-      return camelize(
-        await replication.rehydrate_site_snapshot(tenant_id, site_id, snapshot_id, source),
-      );
-    },
-    async rehydrateSite(site_input, source) {
-      const site_id = await resolve_site_id(site_input);
-      return camelize(await replication.rehydrate_site(tenant_id, site_id, source));
-    },
     async checkStatus(site_input) {
       return camelize(
         await status.check_sharepoint_status(tenant_id, await resolve_site_id(site_input)),
@@ -158,6 +167,9 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
     async getStats(site_input) {
       const site_id = site_input === undefined ? undefined : await resolve_site_id(site_input);
       return camelize(await stats.get_sharepoint_stats(tenant_id, site_id));
+    },
+    async quarantine(storage_key) {
+      return camelize(await quarantine.quarantine_unreadable_object(tenant_id, storage_key));
     },
   };
 }

@@ -16,6 +16,7 @@ import type { OperationControlOptions, TransferProgressReporter } from '@wisecom
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /**
  * Processes all grouped entries into a zip archive, updating the dashboard.
@@ -191,7 +192,7 @@ async function process_folder_entries(
       folder_att += result.attachment_count;
       integrity_ok += result.integrity_ok;
       integrity_fail += result.integrity_fail;
-      counters.integrity_failures.push(...result.integrity_failures);
+      append_all(counters.integrity_failures, result.integrity_failures);
     } catch (err) {
       // A destination that is gone fails the run rather than every remaining message one at a
       // time: each would be downloaded and decrypted only to be dropped (issue #344).

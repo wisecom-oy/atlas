@@ -2,6 +2,7 @@ import type { TenantContext } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { AttachmentEntry, AttachmentKindCounts } from '@wisecom/atlas-types';
 import type { MimeAttachment } from '@/services/shared/mime-message-parser';
+import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { assert_restored_content_matches } from '@wisecom/atlas-core/services/shared/restored-content-verifier';
 
@@ -31,7 +32,7 @@ export async function restore_entry_attachments(
   let skipped = 0;
   const errors: string[] = [];
 
-  for (const att of attachments) {
+  for (const [index, att] of attachments.entries()) {
     if (!att.storage_key) {
       logger.warn(`Attachment "${att.name}" was not backed up (too large) -- skipping restore`);
       skipped++;
@@ -52,6 +53,10 @@ export async function restore_entry_attachments(
       restored++;
       if (att.is_inline) inline++;
     } catch (err) {
+      if (is_active_run_cancelled()) {
+        errors.push(interrupted_attachments(attachments.length - index));
+        break;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`${att.name}: ${msg}`);
     }
@@ -76,7 +81,7 @@ export async function restore_parsed_attachments(
   let inline = 0;
   const errors: string[] = [];
 
-  for (const att of attachments) {
+  for (const [index, att] of attachments.entries()) {
     try {
       await restore_connector.add_attachment(tenant_id, owner_id, new_message_id, {
         name: att.name,
@@ -88,11 +93,23 @@ export async function restore_parsed_attachments(
       restored++;
       if (att.is_inline) inline++;
     } catch (err) {
+      if (is_active_run_cancelled()) {
+        errors.push(interrupted_attachments(attachments.length - index));
+        break;
+      }
       errors.push(`${att.name}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
   return { restored, uploaded: { file: restored - inline, inline }, skipped: 0, errors };
+}
+
+/**
+ * One line for the attachments a cancelled run did not upload. The message already exists, so it is
+ * reported as missing content, once, rather than as a failure per remaining attachment (#682).
+ */
+function interrupted_attachments(remaining: number): string {
+  return `${remaining} attachment(s) not uploaded: the run was interrupted`;
 }
 
 /**

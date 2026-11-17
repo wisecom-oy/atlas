@@ -1,21 +1,65 @@
 export { logger } from './logger';
-export type { AtlasConfig, GraphConfig, S3Config, CryptoConfig } from './config';
+export type {
+  AtlasConfig,
+  GraphConfig,
+  S3Config,
+  CryptoConfig,
+  LoadConfigOptions,
+  StringConfig,
+  StringConfigField,
+} from './config';
 export {
   load_config,
+  load_tenant_profile,
   try_load_config_file,
+  find_config_file,
   read_env_overrides,
   ATLAS_CONFIG_TOKEN,
 } from './config';
 export {
+  DEFAULT_PROFILE,
+  PROFILE_NAME_RE,
+  find_profile,
+  list_profiles,
+  normalize_stored_config,
+  profile_names,
+  select_profile_name,
+  unknown_profile_message,
+} from './tenant-profiles';
+export type { StoredConfig, TenantProfile } from './tenant-profiles';
+export {
+  BUCKET_ENV_VAR,
+  assert_no_shared_bucket,
+  assert_valid_bucket_name,
+  build_bucket_selection,
+  is_same_tenant,
+  is_valid_bucket_name,
+  read_env_bucket,
+} from './bucket-override';
+export type {
+  BucketBinding,
+  BucketSelection,
+  BucketSelectionInput,
+  RunBucketBinding,
+} from './bucket-override';
+export {
+  GRAPH_ENV_VARS,
+  assert_override_keeps_one_identity,
+  find_graph_env_overrides,
+  find_overridden_fields,
+  warn_graph_env_overrides,
+} from './graph-env-overrides';
+export {
   read_secure_config,
-  write_secure_config,
+  update_secure_config,
   secure_config_dir,
   detect_keyring_backend,
 } from './secure-config-store';
 export type { SecureStoreOptions, KeyringBackend } from './secure-config-store';
-export { CONFIG_KEYS, find_config_key, mask_secret } from './config-keys';
+export { CONFIG_KEYS, TENANT_KEYS, find_config_key, mask_secret } from './config-keys';
 export type { ConfigKeySpec } from './config-keys';
 export { html_to_text } from './html-to-text';
+export { append_all } from './append-all';
 export { is_gcm_auth_failure } from './gcm-auth';
 export {
   run_with_log_scope,

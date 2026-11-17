@@ -8,7 +8,7 @@ import type {
   SyncResult,
   VerificationResult,
   StorageCheckResult,
-  StorageTarget,
+  TeamsBackupResult,
 } from '@wisecom/atlas-types';
 
 const TENANT_ID = 'test-tenant-id';
@@ -43,15 +43,6 @@ const mock_storage_check = { check_storage: vi.fn() };
 const mock_save = { save_snapshot: vi.fn(), save_mailbox: vi.fn() };
 const mock_stats = { get_bucket_stats: vi.fn(), get_mailbox_stats: vi.fn() };
 const mock_status = { check_mailbox_status: vi.fn() };
-const mock_replication = {
-  replicate_snapshot: vi.fn(),
-  replicate_mailbox: vi.fn(),
-  rehydrate_snapshot: vi.fn(),
-  rehydrate_mailbox: vi.fn(),
-  rehydrate_tenant: vi.fn(),
-  get_replication_status: vi.fn(),
-  get_replication_status_by_owner: vi.fn(),
-};
 const mock_onedrive_backup = { backup_onedrive: vi.fn() };
 const mock_onedrive_verification = { verify_onedrive_snapshot: vi.fn() };
 const mock_onedrive_catalog = {
@@ -63,12 +54,6 @@ const mock_sharepoint_site_tree_backup = { backup_site_tree: vi.fn() };
 const mock_sharepoint_verification = { verify_sharepoint_snapshot: vi.fn() };
 const mock_onedrive_save = { save_snapshot: vi.fn() };
 const mock_onedrive_deletion = { delete_owner_data: vi.fn(), delete_snapshot: vi.fn() };
-const mock_onedrive_replication = {
-  replicate_owner: vi.fn(),
-  replicate_all_owner_snapshots: vi.fn(),
-  rehydrate_owner_snapshot: vi.fn(),
-  rehydrate_owner: vi.fn(),
-};
 const mock_onedrive_status = { check_onedrive_status: vi.fn() };
 const mock_sharepoint_catalog = {
   list_sharepoint_snapshots: vi.fn(),
@@ -76,12 +61,6 @@ const mock_sharepoint_catalog = {
 };
 const mock_sharepoint_restore = { restore_sharepoint: vi.fn() };
 const mock_sharepoint_save = { save_snapshot: vi.fn() };
-const mock_sharepoint_replication = {
-  replicate_site: vi.fn(),
-  replicate_all_site_snapshots: vi.fn(),
-  rehydrate_site_snapshot: vi.fn(),
-  rehydrate_site: vi.fn(),
-};
 const mock_sharepoint_deletion = { delete_site_data: vi.fn(), delete_snapshot: vi.fn() };
 const mock_sharepoint_status = { check_sharepoint_status: vi.fn() };
 const mock_sharepoint_connector = { list_sites: vi.fn(), resolve_site: vi.fn() };
@@ -89,6 +68,11 @@ const mock_discovery = { list_tenant_mailboxes: vi.fn() };
 const mock_identity_resolver = { resolve_user: vi.fn() };
 const mock_identity_registry = { load: vi.fn() };
 const mock_tenant_factory = { create: vi.fn() };
+const mock_teams_backup = { backup_team: vi.fn() };
+const mock_teams_verification = { verify_teams_snapshot: vi.fn() };
+const mock_teams_catalog = { list_teams: vi.fn(), list_teams_snapshots: vi.fn() };
+const mock_teams_status = { check_teams_status: vi.fn() };
+const mock_teams_deletion = { delete_team_data: vi.fn(), delete_snapshot: vi.fn() };
 
 vi.mock('@/container', () => ({
   create_container_from_config: vi.fn(() => ({
@@ -103,21 +87,18 @@ vi.mock('@/container', () => ({
         SaveUseCase: mock_save,
         StatsUseCase: mock_stats,
         StatusUseCase: mock_status,
-        ReplicationUseCase: mock_replication,
         OneDriveBackupUseCase: mock_onedrive_backup,
         OneDriveVerificationUseCase: mock_onedrive_verification,
         OneDriveCatalogUseCase: mock_onedrive_catalog,
         OneDriveRestoreUseCase: mock_onedrive_restore,
         OneDriveSaveUseCase: mock_onedrive_save,
         OneDriveDeletionUseCase: mock_onedrive_deletion,
-        OneDriveReplicationUseCase: mock_onedrive_replication,
         OneDriveStatusUseCase: mock_onedrive_status,
         SharePointSiteTreeBackupUseCase: mock_sharepoint_site_tree_backup,
         SharePointVerificationUseCase: mock_sharepoint_verification,
         SharePointCatalogUseCase: mock_sharepoint_catalog,
         SharePointRestoreUseCase: mock_sharepoint_restore,
         SharePointSaveUseCase: mock_sharepoint_save,
-        SharePointReplicationUseCase: mock_sharepoint_replication,
         SharePointDeletionUseCase: mock_sharepoint_deletion,
         SharePointStatusUseCase: mock_sharepoint_status,
         SharePointSiteConnector: mock_sharepoint_connector,
@@ -125,6 +106,11 @@ vi.mock('@/container', () => ({
         UserIdentityResolver: mock_identity_resolver,
         IdentityRegistryRepository: mock_identity_registry,
         TenantContextFactory: mock_tenant_factory,
+        TeamsBackupUseCase: mock_teams_backup,
+        TeamsVerificationUseCase: mock_teams_verification,
+        TeamsCatalogUseCase: mock_teams_catalog,
+        TeamsStatusUseCase: mock_teams_status,
+        TeamsDeletionUseCase: mock_teams_deletion,
       };
       return map[token.description!];
     }),
@@ -256,6 +242,21 @@ describe('createAtlasInstance', () => {
     });
   });
 
+  describe('teams', () => {
+    it('backup returns graphCost alongside the team result', async () => {
+      vi.mocked(mock_teams_backup.backup_team).mockResolvedValue({
+        team_id: 'team-1',
+        interrupted: false,
+        summary: { healthy: true },
+      } as unknown as TeamsBackupResult);
+
+      const result = await atlas.teams.backup('team-1');
+
+      expect(result).toHaveProperty('graphCost');
+      expect(result).toMatchObject({ teamId: 'team-1', interrupted: false });
+    });
+  });
+
   describe('cross-cutting methods', () => {
     it('checkStorage delegates to StorageCheckUseCase with bound tenant_id', async () => {
       const check_result: StorageCheckResult = {
@@ -264,6 +265,7 @@ describe('createAtlasInstance', () => {
         versioning_enabled: true,
         object_lock_enabled: true,
         mode_supported: true,
+        conditional_writes: { support: 'supported' },
       };
       vi.mocked(mock_storage_check.check_storage).mockResolvedValue(check_result);
 
@@ -282,28 +284,6 @@ describe('createAtlasInstance', () => {
 
       expect(await atlas.getBucketStats()).toEqual(camelize(stats_result));
       expect(mock_stats.get_bucket_stats).toHaveBeenCalledWith(TENANT_ID);
-    });
-
-    it('replicateSnapshot delegates to ReplicationUseCase with bound tenant_id', async () => {
-      const targets: StorageTarget[] = [
-        {
-          target_id: 'replica',
-          endpoint: 'http://replica:9000',
-          create_context: vi.fn().mockResolvedValue(undefined),
-          open_inventory: vi.fn(),
-        },
-      ];
-      const replication_result = [{ snapshot_id: 'snap-1', status: 'completed' }];
-      vi.mocked(mock_replication.replicate_snapshot).mockResolvedValue(replication_result);
-
-      expect(await atlas.replicateSnapshot('snap-1', targets)).toEqual(
-        camelize(replication_result),
-      );
-      expect(mock_replication.replicate_snapshot).toHaveBeenCalledWith(
-        TENANT_ID,
-        'snap-1',
-        targets,
-      );
     });
   });
 });

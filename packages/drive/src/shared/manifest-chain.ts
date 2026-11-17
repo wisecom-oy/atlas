@@ -1,27 +1,14 @@
-import {
-  fold_drive_snapshot_chain,
-  select_drive_manifest_chain,
-} from '@wisecom/atlas-core/services/shared/drive-snapshot-chain';
+import { fold_drive_snapshot_chain } from '@wisecom/atlas-core/services/shared/drive-snapshot-chain';
 import type { DriveChainEntry } from '@wisecom/atlas-core/services/shared/drive-snapshot-chain';
+import {
+  load_drive_manifest_chain,
+  type DriveManifestLookup,
+} from '@wisecom/atlas-core/services/shared/drive-manifest-chain-loader';
 import type { TenantContext } from '@wisecom/atlas-types';
-import { NotFoundError } from '@wisecom/atlas-types';
-import type { DriveManifestEntry, DriveSnapshotManifest } from '@/drive-ports';
+import type { DriveManifestEntry } from '@/drive-ports';
+import { is_file_entry } from '@/shared/entry-kind';
 
-/**
- * Manifest lookups for one owning segment. The two providers name the listing after what they own
- * (`list_snapshots_by_owner`, `list_snapshots_by_site`), so the caller passes the pair rather than
- * the repository.
- */
-export interface DriveManifestLookup<TManifest> {
-  /** Workload name for operator-facing errors: the message has always named it. */
-  readonly workload: string;
-  readonly find_by_snapshot: (
-    ctx: TenantContext,
-    owner_id: string,
-    snapshot_id: string,
-  ) => Promise<TManifest | undefined>;
-  readonly list_snapshots: (ctx: TenantContext, owner_id: string) => Promise<TManifest[]>;
-}
+export type { DriveManifestLookup };
 
 /** What the fold needs from a manifest, which is all either provider's manifest has to supply. */
 export interface DriveChainManifest {
@@ -32,32 +19,55 @@ export interface DriveChainManifest {
 
 export type DriveChainEntryRow = DriveChainEntry<DriveManifestEntry>;
 
+/** A resolved snapshot: its manifest, the folded entries, and damaged manifests it did not need. */
+export interface DriveChainResolution<TManifest> {
+  readonly manifest: TManifest;
+  readonly entries: DriveChainEntryRow[];
+  /** Damaged manifests newer than the target, which its chain never reads (issue #631). */
+  readonly unreadable_keys: string[];
+}
+
 /**
  * Resolves a snapshot to the newest state of every file the owner had at that point.
  *
  * A drive manifest holds one delta, so reading it alone loses every file that last changed in an
- * earlier run (issue #173). This loads the target manifest plus every older manifest for the same
- * owner and folds them newest-first.
+ * earlier run (issue #173). The chain loader returns the target plus every older manifest of the
+ * owner, refusing when one it needs is damaged (issue #631), and this folds it newest-first.
  */
 export async function load_drive_chain_entries<TManifest extends DriveChainManifest>(
   manifests: DriveManifestLookup<TManifest>,
   ctx: TenantContext,
   owner_id: string,
   snapshot_id: string,
-): Promise<{ manifest: TManifest; entries: DriveChainEntryRow[] }> {
-  const target = await manifests.find_by_snapshot(ctx, owner_id, snapshot_id);
-  if (!target) {
-    throw new NotFoundError(`No ${manifests.workload} manifest found for snapshot ${snapshot_id}`);
-  }
-
-  const all = await manifests.list_snapshots(ctx, owner_id);
-  const chain = select_drive_manifest_chain(all, target);
-  return { manifest: target, entries: fold_drive_snapshot_chain(chain) };
+): Promise<DriveChainResolution<TManifest>> {
+  const chain = await load_drive_manifest_chain(manifests, ctx, owner_id, snapshot_id);
+  return {
+    manifest: chain.target,
+    entries: fold_drive_snapshot_chain(chain.manifests),
+    unreadable_keys: chain.unreadable_keys,
+  };
 }
 
-/** Drops tombstones and entries with no stored blob: what a restore or export can actually write. */
+/**
+ * The files a restore or export can write: drops tombstones, folder entries and files with no
+ * stored blob.
+ */
 export function restorable_entries(entries: readonly DriveChainEntryRow[]): DriveManifestEntry[] {
   return entries
-    .filter(({ entry }) => entry.change_type !== 'deleted' && entry.storage_key)
+    .filter(
+      ({ entry }) => entry.change_type !== 'deleted' && is_file_entry(entry) && entry.storage_key,
+    )
+    .map(({ entry }) => entry);
+}
+
+/**
+ * The live folder entries: what a restore applies besides file content. A folder entry exists
+ * only while the folder carried metadata of its own, such as non-inherited permissions.
+ */
+export function restorable_item_metadata_entries(
+  entries: readonly DriveChainEntryRow[],
+): DriveManifestEntry[] {
+  return entries
+    .filter(({ entry }) => entry.change_type !== 'deleted' && !is_file_entry(entry))
     .map(({ entry }) => entry);
 }

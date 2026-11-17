@@ -1,8 +1,14 @@
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
+import type {
+  DriveSharingRestoreOptions,
+  DriveSharingRestoreSummary,
+} from '@/ports/drive/sharing-restore.port';
+import type { DriveFolderColorRestoreSummary } from '@/ports/drive/folder-color.port';
 
 export type SharePointRestoreConflictBehavior = 'replace' | 'rename' | 'fail';
 
-export interface SharePointRestoreOptions extends OperationControlOptions {
+export interface SharePointRestoreOptions
+  extends OperationControlOptions, DriveSharingRestoreOptions {
   readonly snapshot_id: string;
   /** Optional target site ID to restore to (defaults to original site). */
   readonly target_site_id?: string;
@@ -20,17 +26,35 @@ export interface SharePointRestoreOptions extends OperationControlOptions {
   readonly rename_to?: string;
 }
 
-export interface SharePointRestoreResult {
+/**
+ * Permission and folder colour outcomes are reported in the {@link DriveSharingRestoreSummary} and
+ * {@link DriveFolderColorRestoreSummary} fields, never in `errors`.
+ */
+export interface SharePointRestoreResult
+  extends DriveSharingRestoreSummary, DriveFolderColorRestoreSummary {
   readonly snapshot_id: string;
   readonly files_restored: number;
   readonly folders_created: number;
   readonly files_skipped: number;
   readonly errors: string[];
   readonly interrupted: boolean;
+  /** Damaged manifests outside the snapshot's chain, by key: reported, not needed (issue #631). */
+  readonly unreadable_keys?: string[] | undefined;
+  /**
+   * File filter values that matched no file while other values did. The run is partial, and the
+   * CLI exits 2 (issue #707). A filter that matched no file at all rejects with NotFoundError.
+   */
+  readonly unmatched_file_filters?: string[] | undefined;
 }
 
 export interface SharePointRestoreUseCase {
-  /** Restores files from a SharePoint snapshot back to the site's document libraries. */
+  /**
+   * Restores files from a SharePoint snapshot back to the site's document libraries.
+   *
+   * Rejects with WrongPassphraseError when the data key does not unwrap, before anything is
+   * written. A stored object that is missing, fails AES-GCM authentication, or mismatches its
+   * checksum is one damaged file: it is listed in `errors` and the rest are restored.
+   */
   restore_sharepoint(
     tenant_id: string,
     site_id: string,

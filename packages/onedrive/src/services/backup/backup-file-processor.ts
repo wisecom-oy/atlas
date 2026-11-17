@@ -21,6 +21,8 @@ export async function process_backup_file(
     item,
     owner_id,
     ctx,
+    (current) =>
+      connector.fetch_item_by_id(ctx.tenant_id, owner_id, current.drive_id, current.item_id),
     abort_signal,
   );
 }

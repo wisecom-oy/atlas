@@ -1,3 +1,4 @@
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type {
@@ -11,10 +12,11 @@ import { SharePointBackupService } from '@/services/backup/backup.service';
 import { SharePointRestoreService } from '@/services/restore/restore.service';
 import { SharePointSaveService } from '@/services/save/save.service';
 import { SharePointVerificationService } from '@/services/verification/verification.service';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 vi.mock('@wisecom/atlas-drive/restore/streaming-restore', () => ({
   should_stream_restore: vi.fn().mockReturnValue(false),
-  stream_decrypt_from_storage: vi.fn(),
   verify_streaming_checksum: vi.fn().mockReturnValue(true),
 }));
 
@@ -36,7 +38,10 @@ function make_entry(file_id: string): SharePointManifestEntry {
 
 describe('SharePoint restore cancellation', () => {
   it('does no remote work when every operation starts interrupted', async () => {
-    const factory = { create: vi.fn() } as unknown as TenantContextFactory;
+    const factory = {
+      create: vi.fn(),
+      create_readonly: vi.fn(),
+    } as unknown as TenantContextFactory;
     const callbacks = Array.from({ length: 4 }, () => vi.fn());
     const should_interrupt = (): boolean => true;
     const backup = new SharePointBackupService(
@@ -45,8 +50,14 @@ describe('SharePoint restore cancellation', () => {
       {} as never,
       {} as never,
       {} as never,
+      stub_owner_leases().leases,
     );
-    const restore = new SharePointRestoreService(factory, {} as never, {} as never);
+    const restore = new SharePointRestoreService(
+      factory,
+      {} as never,
+      {} as never,
+      stub_owner_leases().leases,
+    );
     const save = new SharePointSaveService(factory, {} as never);
     const verify = new SharePointVerificationService(factory, {} as never, {} as never);
 
@@ -72,6 +83,7 @@ describe('SharePoint restore cancellation', () => {
     ]);
 
     expect(factory.create).not.toHaveBeenCalled();
+    expect(factory.create_readonly).not.toHaveBeenCalled();
     expect(results.every((result) => result.interrupted)).toBe(true);
     for (const callback of callbacks) {
       // Pre-aborted runs never claim discovery: finalizing + terminal only.
@@ -106,9 +118,15 @@ describe('SharePoint restore cancellation', () => {
         total_files: 2,
         entries: [make_entry('f1'), make_entry('f2')],
       }),
-      list_snapshots_by_site: vi.fn().mockResolvedValue([]),
+      list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests([])),
+      ...drive_chain_reads('sharepoint'),
     } as unknown as SharePointManifestRepository;
-    const service = new SharePointRestoreService(factory, connector, manifests);
+    const service = new SharePointRestoreService(
+      factory,
+      connector,
+      manifests,
+      stub_owner_leases().leases,
+    );
     const on_progress = vi.fn((event: { phase: string; processed: number }) => {
       if (event.phase === 'processing' && event.processed === 1) interrupted = true;
     });

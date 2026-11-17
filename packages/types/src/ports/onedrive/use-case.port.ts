@@ -1,13 +1,15 @@
 import type {
   OneDriveFileVersionRecord,
   OneDriveSnapshotManifest,
-} from '../../domain/onedrive-manifest';
+} from '../../domain/onedrive/manifest';
+import type { OneDriveSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type {
   BackupProgressReporter,
   NoSnapshotReason,
   ObjectLockRequest,
 } from '../backup/use-case.port';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
+import type { DrivePermissionListing } from '@/ports/drive/permission-listing.port';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';
 import type {
   DriveVersionRestoreOptions,
@@ -33,6 +35,11 @@ export interface OneDriveBackupSummary {
   readonly errors: string[];
   readonly warnings: string[];
   readonly healthy: boolean;
+  /**
+   * Earlier manifests a re-crawl could not read while placing tombstones, by key. The run still
+   * completed; only those manifests' files went uncompared (issue #631).
+   */
+  readonly unreadable_keys?: string[] | undefined;
 }
 
 export interface OneDriveBackupResult {
@@ -72,12 +79,30 @@ export interface OneDriveCatalogUseCase {
   /** Lists all OneDrive snapshots for an owner. */
   list_onedrive_snapshots(tenant_id: string, owner_id: string): Promise<OneDriveSnapshotManifest[]>;
 
+  /** Lists an owner's OneDrive snapshots from its summary index, newest first, without entries. */
+  list_onedrive_snapshot_summaries(
+    tenant_id: string,
+    owner_id: string,
+  ): Promise<OneDriveSnapshotSummary[]>;
+
   /** Lists all version records for a specific file. */
   list_onedrive_file_versions(
     tenant_id: string,
     owner_id: string,
     file_ref: string,
   ): Promise<OneDriveFileVersionRecord[]>;
+
+  /**
+   * Lists the non-inherited permissions captured for each item at a snapshot, the newest one when
+   * `snapshot_id` is absent.
+   *
+   * @throws NotFoundError when the owner has no snapshot, or not the one named.
+   */
+  list_onedrive_permissions(
+    tenant_id: string,
+    owner_id: string,
+    snapshot_id?: string,
+  ): Promise<DrivePermissionListing>;
 }
 
 export interface OneDriveVersionRestoreUseCase {
@@ -112,6 +137,8 @@ export interface OneDriveVerificationResult {
   readonly failed_file_ids: string[];
   readonly index_issues: string[];
   readonly interrupted: boolean;
+  /** Damaged manifests outside the snapshot's chain, and damaged version indexes, by key (issue #631). */
+  readonly unreadable_keys?: string[] | undefined;
 }
 
 export interface OneDriveVerificationUseCase {

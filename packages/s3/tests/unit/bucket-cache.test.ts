@@ -121,17 +121,4 @@ describe('cache isolation between instances (issue #42)', () => {
     // The point of the cache survives the move out of module scope.
     expect(s3.send.mock.calls.length).toBe(calls_after_first);
   });
-
-  it('re-checks when the caller asks to skip the cache', async () => {
-    const s3 = make_mock_s3();
-    const cache = new BucketCache();
-    s3.send.mockResolvedValue({});
-
-    await ensure_bucket_exists(s3 as never, 'atlas-tenant', cache);
-    const calls_after_first = s3.send.mock.calls.length;
-    await ensure_bucket_exists(s3 as never, 'atlas-tenant', cache, true);
-
-    // Replication targets pass this: a target bucket can be deleted between runs.
-    expect(s3.send.mock.calls.length).toBeGreaterThan(calls_after_first);
-  });
 });

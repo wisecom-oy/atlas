@@ -1,12 +1,12 @@
 ---
 layout: home
 title: Atlas
-description: Atlas is an open-source Microsoft 365 backup engine that encrypts and deduplicates Exchange Online, OneDrive, and SharePoint backups to S3-compatible storage.
+description: Atlas is an open-source Microsoft 365 backup engine that encrypts and deduplicates mail, contacts, calendars, OneDrive, SharePoint, and Teams backups to S3-compatible storage.
 titleTemplate: Microsoft 365 backup engine by Wisecom
 hero:
   name: Atlas
   text: Microsoft 365 backup<br>you can read.
-  tagline: The open-source engine behind Wisecom Continuity. Encrypted, deduplicated backups of Exchange Online, OneDrive and SharePoint to S3‑compatible storage, as a CLI or a Node.js SDK.
+  tagline: The open-source engine behind Wisecom Continuity. Encrypted, deduplicated backups of Exchange Online, OneDrive, SharePoint and Teams to S3‑compatible storage, as a CLI or a Node.js SDK.
   actions:
     - theme: brand
       text: Get started
@@ -20,19 +20,19 @@ hero:
 
 features:
   - title: Encrypted per tenant
-    details: Each tenant gets its own AES‑256‑GCM data key, wrapped by a key derived from your passphrase. Storage never sees plaintext content.
+    details: Each tenant has its own AES‑256‑GCM data key, locked by a key derived from your passphrase. Storage never sees plaintext.
     link: /security
   - title: Stored once
-    details: Messages, attachments and files are addressed by a keyed hash of their content, so unchanged data is never written twice and object names reveal nothing without your key.
+    details: Each unique message, attachment, and file is stored once, named by a keyed hash of its content. Object names reveal nothing without your key.
     link: /concepts
   - title: Immutable by storage
-    details: With <code>--retention-days</code> on an Object Lock-enabled bucket, the bucket itself enforces retention, not Atlas metadata an attacker could edit.
+    details: With <code>--retention-days</code> on an Object Lock bucket, the bucket itself enforces retention. Atlas metadata an attacker could edit plays no part.
     link: /operations/immutability
   - title: Incremental by default
-    details: Microsoft Graph delta queries fetch only what changed. An interrupted run resumes from its saved delta links, and Atlas enumerates a folder in full only in specific cases, such as an invalid delta token.
+    details: After the first run, Atlas fetches only what changed in Microsoft 365. An interrupted run resumes from its last sync checkpoint, and a full read happens only in specific cases, such as a rejected checkpoint.
     link: /operations/delta-sync
-  - title: Three workloads
-    details: Outlook mail, OneDrive files and SharePoint document libraries under one encryption and storage model.
+  - title: Six workloads
+    details: Outlook mail, contacts, and calendars, OneDrive files, SharePoint document libraries, and Teams channel messages, under one encryption and storage model.
     link: /onedrive-backup
   - title: CLI and SDK
     details: 'The CLI fits scripts and cron jobs. The SDK embeds the same engine in Node.js with a typed API.'

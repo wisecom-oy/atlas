@@ -8,9 +8,9 @@ import type {
   TenantContext,
 } from '@wisecom/atlas-types';
 import type { FailedItemLedger } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
+import { retry_failed_items } from '@/services/backup/library-item-retry';
 import {
   process_item_guarded,
-  retry_failed_items,
   type FileTrackingState,
   type LibraryProcessingState,
   type ProcessedItemRef,
@@ -25,6 +25,11 @@ import {
   completed_recrawl,
   type DriveRecrawl,
 } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
+import { permission_digests } from '@wisecom/atlas-drive/backup/sharing-capture';
+import {
+  create_item_metadata_capture,
+  type DriveItemMetadataCapture,
+} from '@wisecom/atlas-drive/backup/item-metadata-capture';
 
 export interface LibraryProcessingResult {
   entries: SharePointManifestEntry[];
@@ -58,7 +63,9 @@ export function clear_file_tracking_on_reset(
   tracking: FileTrackingState,
   reset_item_ids: Iterable<string>,
 ): void {
+  const digests = permission_digests(tracking);
   for (const fid of reset_item_ids) {
+    delete digests[fid];
     if (tracking.previous_kind_by_file_id[fid] === 'file') {
       delete tracking.previous_path_by_file_id[fid];
       delete tracking.previous_name_by_file_id[fid];
@@ -93,6 +100,7 @@ export async function process_single_library(
   version_stats: VersionStatsState,
   failed_items: FailedItemLedger,
   on_item_processed?: (item: ProcessedItemRef) => void,
+  capture: DriveItemMetadataCapture = create_item_metadata_capture(connector),
 ): Promise<LibraryProcessingResult> {
   const prev_delta =
     options.force_full === true
@@ -136,8 +144,11 @@ export async function process_single_library(
     options.should_interrupt,
     on_item_processed,
     options.abort_signal,
+    capture,
   );
 
+  // `$batch` reads of 20 shared items or folders, ahead of the loop that would read them one by one.
+  await capture.prefetch(library.drive_id, delta.items, tracking);
   let processed_delta_items = 0;
   for (const item of delta.items) {
     if (options.should_interrupt?.() === true) {
@@ -156,6 +167,7 @@ export async function process_single_library(
         versions,
         version_stats,
         options.abort_signal,
+        capture,
       );
     } catch (err) {
       // The guard records a failed item and carries on, except for a cancelled transfer, which it

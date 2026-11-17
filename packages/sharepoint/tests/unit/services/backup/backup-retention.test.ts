@@ -2,6 +2,7 @@ import { describe, it, expect, vi, type Mock } from 'vitest';
 import { ObjectLockingStorage } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { SharePointBackupService } from '@/services/backup/backup.service';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 // SharePoint backups lock what they write with a per-object policy carried by the run's own
 // context (#551). Bucket default retention was shared by every concurrent run on the tenant, so
@@ -44,6 +45,7 @@ function make_harness(validate_error?: Error): {
     {} as never,
     {} as never,
     cursors as never,
+    stub_owner_leases().leases,
   );
   return { service, validate, put, destroy, run_ctx: () => seen };
 }

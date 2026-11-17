@@ -4,14 +4,20 @@ import type { Client } from '@microsoft/microsoft-graph-client';
 import {
   list_drive_item_versions,
   GRAPH_CLIENT_TOKEN,
+  get_graph_content_stream,
   is_invalid_delta_error,
   no_onedrive_message,
   rethrow_if_no_onedrive,
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
 import type {
+  DriveAccessGrantRequest,
+  DriveFolderColor,
   DriveFileSystemInfo,
-  DriveItemIdentity,
+  DriveLinkRequest,
+  DrivePermission,
+  DriveSharingConnector,
+  DriveSharingWriteOutcome,
   LargeFileContent,
   OneDriveConnector,
   OneDriveDeltaItem,
@@ -20,26 +26,24 @@ import type {
   OneDriveFileVersion,
 } from '@wisecom/atlas-types';
 import { NotFoundError } from '@wisecom/atlas-types';
-import { compute_chunk_timeout_ms } from '@/adapters/graph-onedrive-chunked-download';
-import { stream_to_buffer } from '@/adapters/graph-onedrive-connector-stream';
+import { compute_chunk_timeout_ms } from '@wisecom/atlas-drive/backup/cdn-chunk-request';
+import { stream_to_buffer } from '@wisecom/atlas-drive/backup/stream-drain';
 import {
   graph_onedrive_create_folder,
   graph_onedrive_upload_large_file,
   graph_onedrive_upload_small_file,
 } from '@/adapters/graph-onedrive-restore.adapter';
-import {
-  download_with_fallback,
-  resolve_download_url,
-  rethrow_if_access_denied,
-} from '@/adapters/graph-onedrive-download-executor';
-import { DRIVE_DELTA_SELECT_FIELDS, map_delta_item } from '@/adapters/graph-onedrive-delta-mapper';
+import { ONEDRIVE_DOWNLOAD_EXECUTOR } from '@/adapters/graph-onedrive-download-executor';
+import { execute_onedrive_delta } from '@/adapters/graph-onedrive-delta-fetch';
+import { create_graph_drive_sharing } from '@wisecom/atlas-drive/permissions/graph-drive-sharing';
+import { fetch_drive_folder_colors } from '@wisecom/atlas-drive/graph/graph-folder-color-fetch';
 import { graph_onedrive_fetch_item_by_id } from '@/adapters/graph-onedrive-item-fetch';
-import { logger } from '@wisecom/atlas-core/utils/logger';
+
+/** Floor for draining one buffered version, whatever its listed size. */
+const VERSION_DRAIN_TIMEOUT_MS = 120_000;
 
 interface GraphCollectionResponse<T> {
   value?: T[];
-  '@odata.nextLink'?: string;
-  '@odata.deltaLink'?: string;
 }
 
 interface GraphDriveRecord {
@@ -47,21 +51,14 @@ interface GraphDriveRecord {
   name?: string;
 }
 
-interface GraphDeltaDriveItem {
-  id?: string;
-  name?: string;
-  size?: number;
-  parentReference?: { path?: string };
-  file?: Record<string, unknown>;
-  folder?: Record<string, unknown>;
-  '@removed'?: { reason: string };
-  '@microsoft.graph.downloadUrl'?: string;
-}
-
-/** Microsoft Graph adapter for OneDrive delta sync and file download. */
+/** Microsoft Graph adapter for OneDrive delta sync, file download, restore and sharing. */
 @injectable()
 export class GraphOneDriveConnector implements OneDriveConnector {
-  constructor(@inject(GRAPH_CLIENT_TOKEN) private readonly _client: Client) {}
+  private readonly _sharing: DriveSharingConnector;
+
+  constructor(@inject(GRAPH_CLIENT_TOKEN) private readonly _client: Client) {
+    this._sharing = create_graph_drive_sharing(_client);
+  }
 
   /** Lists all OneDrive drives for a user (falls back to default drive). */
   async list_drives(_tenant_id: string, owner_id: string): Promise<OneDriveDrive[]> {
@@ -78,7 +75,10 @@ export class GraphOneDriveConnector implements OneDriveConnector {
       if (drives.length > 0) return drives;
       return await this.fallback_default_drive(owner_id);
     } catch (err) {
-      rethrow_if_access_denied(err);
+      await ONEDRIVE_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(this._client, err, {
+        label: `owner ${owner_id}`,
+        owner_id,
+      });
       rethrow_if_no_onedrive(err, owner_id);
       throw err;
     }
@@ -91,13 +91,18 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     drive_id: string,
     prev_delta_link?: string,
   ): Promise<OneDriveDeltaResult> {
+    const drive = { label: `drive ${drive_id} of owner ${owner_id}`, owner_id, drive_id };
     try {
-      return await this.execute_delta(owner_id, drive_id, prev_delta_link, false);
+      return await execute_onedrive_delta(this._client, owner_id, drive_id, prev_delta_link, false);
     } catch (err) {
-      rethrow_if_access_denied(err);
-      if (is_invalid_delta_error(err)) {
-        return await this.execute_delta(owner_id, drive_id, undefined, true);
-      }
+      await ONEDRIVE_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(this._client, err, drive);
+      if (!is_invalid_delta_error(err)) throw err;
+    }
+    // The full read after an expired cursor classifies a 403 the same way.
+    try {
+      return await execute_onedrive_delta(this._client, owner_id, drive_id, undefined, true);
+    } catch (err) {
+      await ONEDRIVE_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(this._client, err, drive);
       throw err;
     }
   }
@@ -113,16 +118,18 @@ export class GraphOneDriveConnector implements OneDriveConnector {
   }
 
   /** Downloads full file content with URL refresh and Graph content fallback. */
-  async download_file_content(item: OneDriveDeltaItem): Promise<Buffer> {
-    return download_with_fallback(this._client, item);
+  async download_file_content(
+    item: OneDriveDeltaItem,
+    abort_signal?: AbortSignal,
+  ): Promise<Buffer> {
+    return ONEDRIVE_DOWNLOAD_EXECUTOR.download_with_fallback(this._client, item, abort_signal);
   }
 
   /** Resolves the temporary pre-authenticated download URL for a file. */
   async resolve_download_url(item: OneDriveDeltaItem): Promise<string | undefined> {
-    return resolve_download_url(this._client, item);
+    return ONEDRIVE_DOWNLOAD_EXECUTOR.resolve_download_url(this._client, item);
   }
 
-  /** Lists historical versions of a file, following pagination. */
   /** Lists historical versions of a file, following pagination. */
   async list_file_versions(drive_id: string, item_id: string): Promise<OneDriveFileVersion[]> {
     return await list_drive_item_versions(this._client, drive_id, item_id);
@@ -136,7 +143,11 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     size_bytes?: number,
   ): Promise<Buffer> {
     const stream = await this.open_version_stream(drive_id, item_id, version_id);
-    const timeout_ms = size_bytes ? compute_chunk_timeout_ms(size_bytes) : 120_000;
+    // Never below the 120 s floor: the size only ever lengthens the drain timeout.
+    const timeout_ms = Math.max(
+      VERSION_DRAIN_TIMEOUT_MS,
+      compute_chunk_timeout_ms(size_bytes ?? 0),
+    );
     return await stream_to_buffer(stream, timeout_ms);
   }
 
@@ -155,12 +166,9 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     item_id: string,
     version_id: string,
   ): Promise<NodeJS.ReadableStream> {
-    return await with_graph_retry(
-      () =>
-        this._client
-          .api(`/drives/${drive_id}/items/${item_id}/versions/${version_id}/content`)
-          .getStream() as Promise<NodeJS.ReadableStream>,
-    );
+    const url = `/drives/${drive_id}/items/${item_id}/versions/${version_id}/content`;
+    const stream = await with_graph_retry(() => get_graph_content_stream(this._client.api(url)));
+    return stream as unknown as NodeJS.ReadableStream;
   }
 
   async create_folder(
@@ -182,8 +190,8 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     content: Buffer,
     conflict_behavior?: string,
     file_system_info?: DriveFileSystemInfo,
-  ): Promise<void> {
-    await graph_onedrive_upload_small_file(
+  ): Promise<string | undefined> {
+    return graph_onedrive_upload_small_file(
       this._client,
       owner_id,
       drive_id,
@@ -204,8 +212,8 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     content: LargeFileContent,
     conflict_behavior?: string,
     file_system_info?: DriveFileSystemInfo,
-  ): Promise<void> {
-    await graph_onedrive_upload_large_file(
+  ): Promise<string | undefined> {
+    return graph_onedrive_upload_large_file(
       this._client,
       owner_id,
       drive_id,
@@ -215,6 +223,40 @@ export class GraphOneDriveConnector implements OneDriveConnector {
       conflict_behavior,
       file_system_info,
     );
+  }
+
+  /** Reads non-inherited permissions for many items, 20 per `$batch` request. */
+  async fetch_item_permissions(
+    drive_id: string,
+    item_ids: readonly string[],
+  ): Promise<Map<string, DrivePermission[]>> {
+    return this._sharing.fetch_item_permissions(drive_id, item_ids);
+  }
+
+  /** Reads folder colours from each folder's list item, 20 per `$batch` request. */
+  async fetch_folder_colors(
+    drive_id: string,
+    item_ids: readonly string[],
+  ): Promise<Map<string, DriveFolderColor>> {
+    return fetch_drive_folder_colors(this._client, drive_id, item_ids);
+  }
+
+  /** Grants direct access without an invitation email. */
+  async grant_item_access(
+    drive_id: string,
+    item_id: string,
+    request: DriveAccessGrantRequest,
+  ): Promise<DriveSharingWriteOutcome> {
+    return this._sharing.grant_item_access(drive_id, item_id, request);
+  }
+
+  /** Creates a sharing link of the stored type and scope. */
+  async create_item_link(
+    drive_id: string,
+    item_id: string,
+    request: DriveLinkRequest,
+  ): Promise<DriveSharingWriteOutcome> {
+    return this._sharing.create_item_link(drive_id, item_id, request);
   }
 
   private async fallback_default_drive(owner_id: string): Promise<OneDriveDrive[]> {
@@ -234,72 +276,5 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     }
     if (!default_drive.id) throw new NotFoundError(no_onedrive_message(owner_id));
     return [{ drive_id: default_drive.id, drive_name: default_drive.name ?? 'default' }];
-  }
-
-  private async fetch_initial_delta_page(
-    owner_id: string,
-    drive_id: string,
-    prev_delta_link: string | undefined,
-  ): Promise<{ page: GraphCollectionResponse<GraphDeltaDriveItem>; stale_cursor: boolean }> {
-    const stale_cursor = Boolean(prev_delta_link && !prev_delta_link.includes('package'));
-    if (stale_cursor) {
-      logger.warn(
-        `Delta cursor for drive ${drive_id} predates package-facet selection — performing fresh delta`,
-      );
-    }
-
-    if (prev_delta_link && !stale_cursor) {
-      const page = await with_graph_retry(
-        () =>
-          this._client.api(prev_delta_link).get() as Promise<
-            GraphCollectionResponse<GraphDeltaDriveItem>
-          >,
-      );
-      return { page, stale_cursor };
-    }
-
-    const page = await with_graph_retry(
-      () =>
-        this._client
-          .api(`/users/${owner_id}/drives/${drive_id}/root/delta`)
-          .select(DRIVE_DELTA_SELECT_FIELDS)
-          .get() as Promise<GraphCollectionResponse<GraphDeltaDriveItem>>,
-    );
-    return { page, stale_cursor };
-  }
-
-  private async execute_delta(
-    owner_id: string,
-    drive_id: string,
-    prev_delta_link: string | undefined,
-    reset_detected: boolean,
-  ): Promise<OneDriveDeltaResult> {
-    const items: OneDriveDeltaItem[] = [];
-    let delta_link = '';
-
-    const { page: initial_page, stale_cursor } = await this.fetch_initial_delta_page(
-      owner_id,
-      drive_id,
-      prev_delta_link,
-    );
-    let page = initial_page;
-
-    while (true) {
-      for (const raw of page.value ?? []) {
-        if (!raw.id) continue;
-        items.push(map_delta_item(raw, drive_id));
-      }
-
-      const next = page['@odata.nextLink'];
-      if (!next) {
-        if (page['@odata.deltaLink']) delta_link = page['@odata.deltaLink'];
-        break;
-      }
-      page = await with_graph_retry(
-        () => this._client.api(next).get() as Promise<GraphCollectionResponse<GraphDeltaDriveItem>>,
-      );
-    }
-
-    return { drive_id, delta_link, items, reset_detected: reset_detected || Boolean(stale_cursor) };
   }
 }

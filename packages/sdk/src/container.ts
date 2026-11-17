@@ -8,15 +8,19 @@ import { bind_graph_client } from '@wisecom/atlas-m365-graph';
 import { bind_s3_storage } from '@wisecom/atlas-s3';
 import { bind_outlook } from '@wisecom/atlas-outlook';
 import { bind_onedrive } from '@wisecom/atlas-onedrive';
+import { bind_contacts } from '@wisecom/atlas-contacts';
+import { bind_calendar } from '@wisecom/atlas-calendar';
 import { bind_sharepoint } from '@wisecom/atlas-sharepoint';
+import { bind_teams, type TeamsBindingOptions } from '@wisecom/atlas-teams';
 
 /**
  * Builds the SDK container exclusively from explicit configuration. `throttle` replaces the
- * in-memory Graph throttle coordinator.
+ * in-memory Graph throttle coordinator; `teams` tunes the Teams bindings.
  */
 export function create_container_from_config(
   config: AtlasConfig,
   throttle?: ThrottleCoordinator,
+  teams: TeamsBindingOptions = {},
 ): Container {
   const container = new Container();
   container.bind<AtlasConfig>(ATLAS_CONFIG_TOKEN).toConstantValue(config);
@@ -26,6 +30,9 @@ export function create_container_from_config(
   container.bind(USER_IDENTITY_RESOLVER_TOKEN).to(CachingIdentityResolver).inSingletonScope();
   bind_outlook(container);
   bind_onedrive(container);
+  bind_contacts(container);
+  bind_calendar(container);
   bind_sharepoint(container);
+  bind_teams(container, teams);
   return container;
 }

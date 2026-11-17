@@ -1,6 +1,7 @@
 import type { TenantContext } from '@wisecom/atlas-types';
 import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
 import { stream_to_content_addressed_storage } from '@wisecom/atlas-core/services/shared/stream-encrypt-upload';
+import { assert_transferred_size, size_checked_chunks } from '@/backup/download-integrity';
 import { LARGE_FILE_THRESHOLD } from '@/backup/large-file-threshold';
 import type { DriveContentConnector, DriveDeltaItem, DriveFileVersion } from '@/drive-ports';
 import type { DriveStorageKeys } from '@/shared/storage-keys';
@@ -33,7 +34,12 @@ export class VersionDownloadError extends Error {
  * its own, so without the streamed path a large file's history is the easiest way to exhaust the
  * heap.
  *
- * @throws VersionDownloadError when the bytes could not be read from Graph.
+ * Both paths check the transferred byte count against the size Graph listed for the version before
+ * anything is committed, so a truncated download is never stored as a complete version
+ * (issue #616).
+ *
+ * @throws VersionDownloadError when the bytes could not be read from Graph, or did not add up to
+ * the version's size (a `DownloadIntegrityError` source).
  */
 export async function store_version_content(
   keys: DriveStorageKeys,
@@ -63,7 +69,10 @@ async function store_streamed(
 
   const result = await stream_to_content_addressed_storage(
     ctx,
-    tag_source_errors(chunks, abort_signal),
+    tag_source_errors(
+      size_checked_chunks(chunks, version_label(item, version), version.size_bytes),
+      abort_signal,
+    ),
     {
       staging_key: keys.staging_key(owner_id, item.item_id),
       build_data_key: (content_name) => keys.data_key(owner_id, content_name),
@@ -92,7 +101,9 @@ async function store_buffered(
       item.drive_id,
       item.item_id,
       version.version_id,
+      version.size_bytes,
     );
+    assert_transferred_size(version_label(item, version), content.length, version.size_bytes);
   } catch (err) {
     throw new VersionDownloadError(err);
   }
@@ -103,6 +114,11 @@ async function store_buffered(
   if (!deduplicated) await ctx.storage.put(storage_key, ctx.encrypt(content, storage_key));
 
   return { checksum, storage_key, deduplicated };
+}
+
+/** Names one version in an integrity error, so the log says which version came up short. */
+function version_label(item: DriveDeltaItem, version: DriveFileVersion): string {
+  return `${item.item_id} version ${version.version_id}`;
 }
 
 async function open_version_stream(

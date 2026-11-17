@@ -1,84 +1,172 @@
 ---
-description: Set up Atlas replication to secondary S3-compatible stores, configure targets, and build a 3-2-1 backup layout with one copy kept off site.
+description: Set up a replica of your Atlas backups with MinIO replication, AWS S3 replication, Backblaze B2 Cloud Replication, rclone, or mc mirror.
 ---
 
-# Replication setup
+# Replica setup
 
-Atlas can copy completed snapshots to one or more secondary S3-compatible stores. Keeping a second copy in another location gives you a 3-2-1 layout: three copies, on two kinds of media, with one copy off site.
+A replica is a second copy of the tenant bucket in another location, kept by your storage provider or a copy tool. With the primary and a replica on different media you have a 3-2-1 layout: three copies, two kinds of media, one off site.
 
-This page covers deployment patterns and scheduling. For safety rules, status tracking, and disaster recovery, see [Replication](/operations/replication).
-
-## Target configuration
-
-A replication target is a JSON file. The three S3 fields are required. `target_id` and `s3_region` are optional:
-
-```json
-{
-  "target_id": "offsite-minio",
-  "s3_endpoint": "https://offsite.example.com:9000",
-  "s3_access_key": "<access-key>",
-  "s3_secret_key": "<secret-key>",
-  "s3_region": "us-east-1"
-}
-```
-
-Store the file with `chmod 600`, since it holds the secret key. Replication uses the encryption passphrase from your Atlas configuration, so the target stores ciphertext that only your passphrase can open. The target must use the same passphrase as the primary. Use `https://` for any endpoint that is not on loopback.
-
-## Deployment patterns
-
-### Local MinIO primary, offsite MinIO replica
-
-Run MinIO on your backup server and a second MinIO at another site, such as a colocation facility, another office, or a VPS. After each backup, replicate to the offsite target:
+Atlas does not copy the data itself. This page sets each option up. Restoring from and verifying a replica is in [Replicas](/operations/replication).
 
 ```bash
-atlas outlook backup -m user@company.com
-atlas replicate -m user@company.com --target-config ./offsite.json
-
-atlas onedrive backup -o user@company.com
-atlas replicate -o user@company.com --target-config ./offsite.json
-
-atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
-atlas replicate --site https://contoso.sharepoint.com/sites/Engineering --target-config ./offsite.json
+# MinIO primary to MinIO at another site: versions and existing objects, no deletes
+mc replicate add primary/atlas-<tenant-id> \
+  --remote-bucket 'https://<key>:<secret>@replica.example.com/atlas-<tenant-id>' \
+  --replicate "existing-objects,metadata-sync"
 ```
 
-### Local MinIO primary, cloud S3 replica
+## Choose a method
 
-Keep fast local backups on MinIO, then replicate to AWS S3, Backblaze B2, Wasabi, or another S3-compatible cloud store for geographic separation. Only the endpoint, keys, and region in the target file change.
+| Method | Keeps versions | Continuous | Same bucket name possible | How Atlas opens it |
+| --- | --- | --- | --- | --- |
+| MinIO bucket or site replication to another deployment | Yes | Yes | Yes | Endpoint only |
+| `rclone copy` or `mc mirror` to another provider | No, current objects only | No, scheduled | Yes | Endpoint only |
+| AWS S3 Same-Region or Cross-Region Replication | Yes | Yes | No | Endpoint and [bucket override](/configuration#bucket-override) |
+| Backblaze B2 Cloud Replication | Yes | Yes | No | Endpoint and [bucket override](/configuration#bucket-override) |
 
-```json
-{
-  "target_id": "aws-us-east",
-  "s3_endpoint": "https://s3.us-east-1.amazonaws.com",
-  "s3_access_key": "<access-key>",
-  "s3_secret_key": "<secret-key>",
-  "s3_region": "us-east-1"
-}
+Atlas reads the bucket `atlas-<tenant-id>` on whatever endpoint it is given, unless `ATLAS_S3_BUCKET` or a profile's `--bucket` names another. AWS S3 and Backblaze B2 bucket names are unique across each provider, so a replica there always has a different name.
+
+## Rules for every method
+
+- **Create the replica bucket with Object Lock.** Some providers cannot add it to an existing bucket, and a lock on the primary does not carry to a bucket without one. See [Immutability](/operations/immutability).
+- **Keep deletes off.** A replicated delete or delete marker turns an `atlas delete`, a purge, or a stolen primary key into data loss on both sides.
+- **Give the replica its own credentials.** The Atlas host needs read-only keys for it. The primary's keys must not be able to delete there.
+- **Use `https://`** for any endpoint that is not on loopback.
+- **Copy every object under its own path**, including `_meta/dek.enc`. What a replica needs to be readable is in [What a replica needs](/operations/replication#what-a-replica-needs).
+
+## MinIO replication
+
+MinIO replicates a versioned bucket to a bucket on another deployment continuously, with versions and Object Lock retention. Both buckets need versioning, and the target needs Object Lock if you want it there.
+
+1. Create the replica bucket with Object Lock:
+
+   ```bash
+   mc mb --with-lock replica/atlas-<tenant-id>
+   ```
+
+2. Add the replication rule on the primary. Leave `delete` and `delete-marker` out of `--replicate`. `existing-objects` copies what the bucket already holds:
+
+   ```bash
+   mc replicate add primary/atlas-<tenant-id> \
+     --remote-bucket 'https://<key>:<secret>@replica.example.com/atlas-<tenant-id>' \
+     --replicate "existing-objects,metadata-sync"
+   ```
+
+3. Check the status:
+
+   ```bash
+   mc replicate status primary/atlas-<tenant-id>
+   ```
+
+Check flag names against your `mc` release with `mc replicate add --help`. Site replication between whole deployments works too, but it replicates deletes, so prefer bucket replication for a backup replica.
+
+## AWS S3 replication
+
+S3 Same-Region and Cross-Region Replication copy every new version to a destination bucket, with Object Lock retention when the destination has Object Lock.
+
+1. Create the destination bucket with Object Lock, and turn on versioning on both buckets.
+2. Add a replication rule on the source:
+
+   | Setting | Value |
+   | --- | --- |
+   | Scope | The whole bucket |
+   | Delete marker replication | Disabled |
+   | Replica modification sync | Disabled |
+   | Replication Time Control | Optional; bounds lag to 15 minutes for a fee |
+   | Existing objects | Run S3 Batch Replication once for objects written before the rule |
+
+3. Set lifecycle rules on the destination. Lifecycle expirations on the source are not replicated. S3 never replicates a delete that names a version.
+4. Grant the Atlas host a read-only policy on the destination:
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": ["s3:ListBucket", "s3:ListBucketVersions", "s3:GetObject", "s3:GetObjectVersion"],
+         "Resource": ["arn:aws:s3:::<replica-bucket>", "arn:aws:s3:::<replica-bucket>/*"]
+       }
+     ]
+   }
+   ```
+
+5. Open the destination with the bucket override and check it:
+
+   ```bash
+   export ATLAS_S3_ENDPOINT=https://s3.<replica-region>.amazonaws.com
+   export ATLAS_S3_REGION=<replica-region>
+   export ATLAS_S3_ACCESS_KEY=<replica-read-only-key>
+   export ATLAS_S3_SECRET_KEY=<replica-read-only-secret>
+   export ATLAS_S3_BUCKET=<replica-bucket>
+
+   atlas config validate                                     # HeadBucket on <replica-bucket>
+   atlas outlook verify -m user@example.com -s <snapshot-id> --fast
+   ```
+
+`HeadBucket` needs `s3:ListBucket` on the bucket, which the policy grants. It does not need `s3:ListAllMyBuckets`.
+
+## Backblaze B2 Cloud Replication
+
+B2 Cloud Replication copies new files from a source bucket to a destination bucket in the same or another region or account.
+
+1. Create the destination bucket with Object Lock.
+2. In the B2 web console under **Cloud Replication**, add the rule with existing files included.
+3. Check in the rule whether hide markers (B2's equivalent of delete markers) are replicated. Protect the destination with Object Lock retention either way, so they cannot remove data.
+4. Create a B2 application key restricted to the destination, with read-only capabilities: `listBuckets`, `listFiles`, `readFiles`.
+5. Open the destination through B2's S3-compatible endpoint with the bucket override, and check it:
+
+   ```bash
+   export ATLAS_S3_ENDPOINT=https://s3.<b2-region>.backblazeb2.com
+   export ATLAS_S3_REGION=<b2-region>
+   export ATLAS_S3_ACCESS_KEY=<b2-key-id>
+   export ATLAS_S3_SECRET_KEY=<b2-application-key>
+   export ATLAS_S3_BUCKET=<replica-bucket>
+
+   atlas config validate
+   atlas onedrive verify -o user@example.com -s <snapshot-id> --fast
+   ```
+
+## rclone or mc mirror
+
+A scheduled copy works with any S3-compatible provider and keeps the bucket name. It copies current objects only, not older versions.
+
+```bash
+rclone copy primary:atlas-<tenant-id> offsite:atlas-<tenant-id> --checksum
+# or
+mc mirror --overwrite primary/atlas-<tenant-id> offsite/atlas-<tenant-id>
 ```
 
-## Schedule replication
+::: danger Never use rclone sync or mc mirror --remove
+Both delete on the replica whatever is gone from the primary, so a deletion or a compromised primary empties the replica too.
+:::
 
-Schedule replication after the backup it copies. This crontab backs up at 2 AM and replicates at 4 AM:
+1. Create the replica bucket with Object Lock on the other provider.
+2. Create `~/atlas-logs` for the service account, as in [Scheduling and bandwidth](/self-hosting/scheduling).
+3. Schedule the copy after the backups finish, so it does not catch a manifest before its objects:
 
-```cron
-# Nightly Outlook backup at 2 AM
-0 2 * * * /usr/bin/atlas outlook backup -m user@company.com >> $HOME/atlas-logs/outlook-backup.log 2>&1
+   ```cron
+   # Backups at 2 AM, copy to the replica at 5 AM
+   0 5 * * * /usr/bin/rclone copy primary:atlas-<tenant-id> offsite:atlas-<tenant-id> --checksum >> $HOME/atlas-logs/replica-copy.log 2>&1
+   ```
 
-# Replicate the same mailbox at 4 AM
-0 4 * * * /usr/bin/atlas replicate -m user@company.com --target-config /etc/atlas/offsite.json >> $HOME/atlas-logs/replicate.log 2>&1
-```
-
-Leave a gap longer than your longest backup. Two hours is a reasonable start. Adjust it to the durations you observe in the logs.
-
-Create `~/atlas-logs` for the service account first, as in [Scheduling](/self-hosting/scheduling).
+4. Check the replica after each copy with `verify --fast`, as in [Replicas](/operations/replication#consistency).
 
 ## Bandwidth
 
-Replication sends encrypted objects over the network. The first replication of a mailbox, OneDrive owner, or SharePoint site copies all of its history, which is about the same volume as the first backup. Later replications send only new snapshots, because unchanged content is never copied twice.
+The first copy moves the whole bucket, about the volume of the first full backups. Later copies move only new objects, because Atlas never rewrites a content object. For example, 50 GB over a 10 Mbps upload link takes about 11 hours.
 
-Estimate the first transfer from your upload speed. For example, 50 GB over a 10 Mbps upload link takes about 11 hours.
+| Method | Where the traffic goes |
+| --- | --- |
+| Provider replication | Inside the provider's network, no egress from the Atlas host. Most providers bill cross-region replication as inter-region transfer |
+| `rclone`, `mc mirror` | Every object streams through the host that runs the copy, so both its download and its upload count |
+
+## Next steps
+
+Point Atlas at the replica and verify it on a schedule. [Replicas](/operations/replication) covers read-only access, restoring from a replica, consistency checks, and key rotation.
 
 ## See also
 
-- [Replication](/operations/replication): ordering, safety rules, replica status, and rehydration
+- [Replicas](/operations/replication): restoring from and verifying a replica
 - [Storage setup](/self-hosting/storage)
 - [Scheduling and bandwidth](/self-hosting/scheduling)

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
+import { create_restore_root } from '@/services/restore/folder-restore-planner';
 import type {
   MailboxConnector,
   ManifestEntry,
@@ -88,6 +89,7 @@ async function restore(ctx: TenantContext, entry: ManifestEntry, rc: RestoreConn
     'dst@example.com',
     's',
     entry,
+    await create_restore_root(rc, 't', 'dst@example.com'),
   );
 }
 

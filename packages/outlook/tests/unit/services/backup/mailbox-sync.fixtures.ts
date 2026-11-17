@@ -1,3 +1,4 @@
+import { outlook_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import 'reflect-metadata';
 import { vi } from 'vitest';
 import { Container } from 'inversify';
@@ -5,6 +6,7 @@ import { MailboxSyncService } from '@/services/backup/mailbox-sync.service';
 import {
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
   MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
 } from '@wisecom/atlas-types';
@@ -15,6 +17,11 @@ import type { ObjectStorage } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import {
+  stub_owner_leases,
+  type StubOwnerLeases,
+} from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 export function make_message(id: string, body: string, has_attachments = false): MailMessage {
   const raw = Buffer.from(body);
@@ -86,6 +93,8 @@ export interface MailboxSyncHarness {
   readonly mock_context: TenantContext;
   readonly mock_manifests: ManifestRepository;
   readonly mock_cursors: MailboxDeltaCursorRepository;
+  /** The mailbox lease the service takes, for asserting when it is taken, checked and released. */
+  readonly leases: StubOwnerLeases;
 }
 
 export function create_mailbox_sync_harness(): MailboxSyncHarness {
@@ -108,11 +117,19 @@ export function create_mailbox_sync_harness(): MailboxSyncHarness {
 
   const mock_manifests: ManifestRepository = {
     save: vi.fn(),
+    forget_snapshot_summary: vi.fn(),
     find_by_snapshot: vi.fn().mockResolvedValue(undefined),
     list_by_owner: vi.fn().mockResolvedValue([]),
-    find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
+    find_latest_readable: vi.fn().mockResolvedValue(latest_readable(undefined)),
     list_all_manifests: vi.fn().mockResolvedValue([]),
     list_owner_ids: vi.fn().mockResolvedValue([]),
+    list_readable_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
+    list_all_readable: vi.fn().mockResolvedValue(readable_manifests()),
+    read_manifest_at: vi.fn(outlook_chain_reads(() => mock_manifests).read_manifest_at),
+    list_all_snapshot_summaries: vi.fn(),
+    list_snapshot_summaries: vi.fn(
+      outlook_chain_reads(() => mock_manifests).list_snapshot_summaries,
+    ),
   };
 
   const mock_factory: TenantContextFactory = {
@@ -131,6 +148,8 @@ export function create_mailbox_sync_harness(): MailboxSyncHarness {
   container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(mock_manifests);
   container.bind(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN).toConstantValue(mock_cursors);
   container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(mock_factory);
+  const leases = stub_owner_leases();
+  container.bind(OWNER_LEASE_TOKEN).toConstantValue(leases.leases);
   container.bind(MailboxSyncService).toSelf();
 
   return {
@@ -139,5 +158,6 @@ export function create_mailbox_sync_harness(): MailboxSyncHarness {
     mock_context,
     mock_manifests,
     mock_cursors,
+    leases,
   };
 }

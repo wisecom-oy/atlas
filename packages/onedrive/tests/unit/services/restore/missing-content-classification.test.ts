@@ -3,6 +3,8 @@
  * skip on OneDrive and a recorded error on SharePoint, so the identical event exited 2 on one
  * provider and 1 on the other, with no per-file reason printed on OneDrive.
  */
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type {
@@ -14,6 +16,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { OneDriveRestoreService } from '@/services/restore/restore.service';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 const CONTENT = Buffer.from('file-content');
 const CHECKSUM = createHash('sha256').update(CONTENT).digest('hex');
@@ -73,10 +76,11 @@ function make_service(missing: ReadonlySet<string>): OneDriveRestoreService {
 
   const manifests = {
     find_by_snapshot: vi.fn().mockResolvedValue(manifest),
-    list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
+    list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
+    ...drive_chain_reads('onedrive'),
   } as unknown as OneDriveManifestRepository;
 
-  return new OneDriveRestoreService(factory, connector, manifests);
+  return new OneDriveRestoreService(factory, connector, manifests, stub_owner_leases().leases);
 }
 
 describe('OneDrive restore with content missing from storage', () => {

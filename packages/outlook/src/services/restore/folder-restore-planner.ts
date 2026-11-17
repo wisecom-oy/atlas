@@ -1,29 +1,16 @@
 import type { RestoreConnector } from '@wisecom/atlas-types';
-import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
+import type { MailFolder } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
+import { NotFoundError } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { FOLDER_PATH_SEPARATOR } from '@/adapters/graph-folder-tree-enumerator';
-import { folder_matches_selector } from '@/services/shared/folder-selector';
+import {
+  describe_unmatched_folder_selector,
+  select_folders,
+  type SelectableFolder,
+} from '@/services/shared/folder-selector';
 
 const UNKNOWN_FOLDER_NAME = 'Unknown';
-
-/**
- * Builds a mapping from Graph folder_id to the folder's root-relative path
- * (e.g. `Inbox/Projects/2026`), so nested folders stay distinguishable in
- * restore targets, save archives, and folder filters.
- */
-export async function build_folder_map(
-  connector: MailboxConnector,
-  tenant_id: string,
-  owner_id: string,
-): Promise<Map<string, string>> {
-  const folders = await connector.list_mail_folders(tenant_id, owner_id);
-  const map = new Map<string, string>();
-  for (const f of folders) {
-    map.set(f.folder_id, f.folder_path);
-  }
-  return map;
-}
 
 /** Creates the `Restore-{timestamp}` root folder in the target mailbox. */
 export async function create_restore_root(
@@ -99,23 +86,19 @@ export function group_entries_by_folder(entries: ManifestEntry[]): Map<string, M
 }
 
 /**
- * Filters entries to a folder selected by path (`Inbox/Projects`) or bare name
- * (`Projects`), including everything nested beneath the match.
+ * Filters entries to a folder selected by path (`Inbox/Projects`), bare name
+ * (`Projects`) or well-known name (`inbox`), including everything nested beneath
+ * the match. Throws `NotFoundError` when the selector names no known folder, so a
+ * mistyped `--folder` fails instead of restoring or saving nothing (issue #707).
  */
 export function filter_entries_by_folder_name(
   entries: ManifestEntry[],
   folder_name: string,
-  folder_map: Map<string, string>,
+  folders: readonly SelectableFolder[],
 ): ManifestEntry[] {
-  const target_ids = new Set<string>();
-  for (const [fid, path] of folder_map) {
-    if (folder_matches_selector(path, folder_name)) target_ids.add(fid);
-  }
-
+  const target_ids = new Set(select_folders(folders, folder_name).map((f) => f.folder_id));
   if (target_ids.size === 0) {
-    const available = [...folder_map.values()].join(', ');
-    logger.warn(`Folder "${folder_name}" not found. Available: ${available}`);
-    return [];
+    throw new NotFoundError(describe_unmatched_folder_selector(folder_name, folders));
   }
 
   return entries.filter((e) => e.folder_id !== undefined && target_ids.has(e.folder_id));

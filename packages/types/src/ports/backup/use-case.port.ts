@@ -1,8 +1,8 @@
-import type { Manifest } from '@/domain/manifest';
-import type { Snapshot } from '@/domain/snapshot';
-import type { OperationCost } from '@/domain/graph-cost';
+import type { Manifest } from '@/domain/outlook/manifest';
+import type { Snapshot } from '@/domain/shared/snapshot';
+import type { OperationCost } from '@/domain/graph/cost';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
-import type { ExcludedFolder } from '@/ports/mail/connector.port';
+import type { ExcludedFolder } from '@/ports/outlook/connector.port';
 
 export type BackupSyncMode = 'full' | 'incremental' | 'initial';
 export type ObjectLockMode = 'GOVERNANCE' | 'COMPLIANCE';
@@ -102,6 +102,11 @@ export interface BackupSyncSummary {
    * reactions are read again only when the message changes.
    */
   readonly reactions_not_captured: number;
+  /**
+   * Manifests of this mailbox that could not be read, by storage key. The run built on the newest
+   * readable manifest instead; present only when one was skipped (issue #631).
+   */
+  readonly unreadable_keys?: string[] | undefined;
 }
 
 export interface SyncResult {
@@ -110,6 +115,11 @@ export interface SyncResult {
   readonly mode: BackupSyncMode;
   readonly summary: BackupSyncSummary;
   readonly interrupted: boolean;
+  /**
+   * False when the run was cancelled before it read any folder. `snapshot` and `manifest` are then
+   * placeholders that were never stored, `mode` is not meaningful, and no delta link moved.
+   */
+  readonly snapshot_stored?: boolean;
   /** Graph API cost for this operation. Present when called via the SDK; absent via CLI. */
   readonly graph_cost?: OperationCost;
 }

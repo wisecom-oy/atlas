@@ -7,16 +7,20 @@
  */
 
 /** Which surface a command acts on: a workload, or the tenant as a whole. */
-export type BannerScope = 'outlook' | 'onedrive' | 'sharepoint' | 'tenant';
+export type BannerScope =
+  'outlook' | 'onedrive' | 'sharepoint' | 'teams' | 'contacts' | 'calendar' | 'tenant';
 
 const SCOPE_LABELS: Record<BannerScope, string> = {
   outlook: 'Outlook',
   onedrive: 'OneDrive',
   sharepoint: 'SharePoint',
+  teams: 'Teams',
+  contacts: 'Contacts',
+  calendar: 'Calendar',
   tenant: '',
 };
 
-/** Builds a banner title: `Atlas · OneDrive Backup`, or `Atlas · Replicate` for tenant scope. */
+/** Builds a banner title: `Atlas · OneDrive Backup`, or `Atlas · Delete` for tenant scope. */
 export function banner_title(scope: BannerScope, verb: string): string {
   const label = SCOPE_LABELS[scope];
   return label === '' ? `Atlas · ${verb}` : `Atlas · ${label} ${verb}`;

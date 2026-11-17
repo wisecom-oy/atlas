@@ -18,6 +18,7 @@ import {
   make_manifests,
   make_service,
 } from './backup-determinism.fixtures';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 function stored_entry(file_id: string, drive_id = 'drive-1'): SharePointManifestEntry {
   return {
@@ -48,6 +49,8 @@ const CURSOR: SharePointDeltaCursor = {
   previous_etag_by_file_id: {},
   previous_kind_by_file_id: {},
   updated_at: '2026-09-01T00:00:00Z',
+  // Saved while the site had no snapshot, and none is stored, so the run resumes it (#725).
+  snapshot_id: null,
 } as unknown as SharePointDeltaCursor;
 
 interface Libraries {
@@ -84,7 +87,9 @@ function two_libraries(
 
 async function tombstoned_after(libraries: Libraries, force_full: boolean): Promise<string[]> {
   const manifests = make_manifests();
-  vi.mocked(manifests.list_snapshots_by_site).mockResolvedValue([PREVIOUS]);
+  vi.mocked(manifests.list_readable_snapshots_by_site).mockResolvedValue(
+    readable_manifests([PREVIOUS]),
+  );
   const result = await make_service({
     connector: libraries.connector,
     manifests,

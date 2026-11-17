@@ -1,4 +1,7 @@
 import type { Container } from 'inversify';
+import type { QuarantineUseCase } from '@wisecom/atlas-types';
+import { ONEDRIVE_QUARANTINE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import { with_camelized_partial_result } from '@/partial-listing';
 import type {
   OneDriveApi,
   OneDriveBackupUseCase,
@@ -8,7 +11,6 @@ import type {
   OneDriveVersionRestoreUseCase,
   OneDriveSaveUseCase,
   OneDriveDeletionUseCase,
-  OneDriveReplicationUseCase,
   OneDriveStatusUseCase,
   UserIdentityResolver,
   StatsUseCase,
@@ -21,7 +23,6 @@ import {
   ONEDRIVE_VERSION_RESTORE_USE_CASE_TOKEN,
   ONEDRIVE_SAVE_USE_CASE_TOKEN,
   ONEDRIVE_DELETION_USE_CASE_TOKEN,
-  ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
   ONEDRIVE_STATUS_USE_CASE_TOKEN,
   USER_IDENTITY_RESOLVER_TOKEN,
   STATS_USE_CASE_TOKEN,
@@ -29,9 +30,11 @@ import {
 import { camelize } from '@wisecom/atlas-types/public/case-convert';
 import { adapt_operation_options, adapt_required_operation_options } from '@/operation-options';
 import { resolve_owner_identity, resolve_owner_object_id } from '@/owner-resolution';
+import { split_target_tenant, with_restore_side } from '@/target-tenant';
 
 /** Builds the OneDriveApi sub-namespace from the DI container. */
 export function create_onedrive_api(tenant_id: string, container: Container): OneDriveApi {
+  const quarantine = container.get<QuarantineUseCase>(ONEDRIVE_QUARANTINE_USE_CASE_TOKEN);
   const backup = container.get<OneDriveBackupUseCase>(ONEDRIVE_BACKUP_USE_CASE_TOKEN);
   const verification = container.get<OneDriveVerificationUseCase>(
     ONEDRIVE_VERIFICATION_USE_CASE_TOKEN,
@@ -40,12 +43,8 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
   const version_restore = container.get<OneDriveVersionRestoreUseCase>(
     ONEDRIVE_VERSION_RESTORE_USE_CASE_TOKEN,
   );
-  const restore = container.get<OneDriveRestoreUseCase>(ONEDRIVE_RESTORE_USE_CASE_TOKEN);
   const save = container.get<OneDriveSaveUseCase>(ONEDRIVE_SAVE_USE_CASE_TOKEN);
   const deletion = container.get<OneDriveDeletionUseCase>(ONEDRIVE_DELETION_USE_CASE_TOKEN);
-  const replication = container.get<OneDriveReplicationUseCase>(
-    ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
-  );
   const status = container.get<OneDriveStatusUseCase>(ONEDRIVE_STATUS_USE_CASE_TOKEN);
   const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
 
@@ -78,11 +77,20 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
     },
     async restore(owner_input, options) {
       const owner_id = await resolve_owner_id(owner_input);
+      const [target_tenant, own] = split_target_tenant(options);
+      const adapted = adapt_required_operation_options(own, 'onedrive.restore()');
       return camelize(
-        await restore.restore_onedrive(
-          tenant_id,
-          owner_id,
-          adapt_required_operation_options(options, 'onedrive.restore()'),
+        await with_restore_side(
+          container,
+          target_tenant,
+          own?.targetOwnerId,
+          'onedrive.restore()',
+          (side) => {
+            const use_case = side.container.get<OneDriveRestoreUseCase>(
+              ONEDRIVE_RESTORE_USE_CASE_TOKEN,
+            );
+            return use_case.restore_onedrive(tenant_id, owner_id, adapted);
+          },
         ),
       );
     },
@@ -107,13 +115,32 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
       );
     },
     async listSnapshots(owner_input) {
+      const resolved_id = await resolve_owner_id(owner_input);
       return camelize(
-        await catalog.list_onedrive_snapshots(tenant_id, await resolve_owner_id(owner_input)),
+        await with_camelized_partial_result(() =>
+          catalog.list_onedrive_snapshots(tenant_id, resolved_id),
+        ),
+      );
+    },
+    async listSnapshotSummaries(owner_input) {
+      const resolved_id = await resolve_owner_id(owner_input);
+      return camelize(
+        await with_camelized_partial_result(() =>
+          catalog.list_onedrive_snapshot_summaries(tenant_id, resolved_id),
+        ),
       );
     },
     async listFileVersions(owner_input, file_ref) {
       const owner_id = await resolve_owner_id(owner_input);
-      return camelize(await catalog.list_onedrive_file_versions(tenant_id, owner_id, file_ref));
+      return camelize(
+        await with_camelized_partial_result(() =>
+          catalog.list_onedrive_file_versions(tenant_id, owner_id, file_ref),
+        ),
+      );
+    },
+    async listPermissions(owner_input, snapshot_id) {
+      const owner_id = await resolve_owner_id(owner_input);
+      return camelize(await catalog.list_onedrive_permissions(tenant_id, owner_id, snapshot_id));
     },
     async deleteOwnerData(owner_input) {
       return camelize(
@@ -124,26 +151,6 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
       const owner_id = await resolve_owner_id(owner_input);
       return camelize(await deletion.delete_snapshot(tenant_id, owner_id, snapshot_id));
     },
-    async replicateSnapshot(owner_input, snapshot_id, targets) {
-      const owner_id = await resolve_owner_id(owner_input);
-      return camelize(await replication.replicate_owner(tenant_id, owner_id, snapshot_id, targets));
-    },
-    async replicateAll(owner_input, targets) {
-      const owner_id = await resolve_owner_id(owner_input);
-      return camelize(
-        await replication.replicate_all_owner_snapshots(tenant_id, owner_id, targets),
-      );
-    },
-    async rehydrateSnapshot(owner_input, snapshot_id, source) {
-      const owner_id = await resolve_owner_id(owner_input);
-      return camelize(
-        await replication.rehydrate_owner_snapshot(tenant_id, owner_id, snapshot_id, source),
-      );
-    },
-    async rehydrateOwner(owner_input, source) {
-      const owner_id = await resolve_owner_id(owner_input);
-      return camelize(await replication.rehydrate_owner(tenant_id, owner_id, source));
-    },
     async checkStatus(owner_input) {
       return camelize(
         await status.check_onedrive_status(tenant_id, await resolve_owner_id(owner_input)),
@@ -152,6 +159,9 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
     async getStats(owner_input) {
       const owner_id = owner_input === undefined ? undefined : await resolve_owner_id(owner_input);
       return camelize(await stats.get_onedrive_stats(tenant_id, owner_id));
+    },
+    async quarantine(storage_key) {
+      return camelize(await quarantine.quarantine_unreadable_object(tenant_id, storage_key));
     },
   };
 }

@@ -1,6 +1,6 @@
 {
   "name": "@wisecom/atlas-cli",
-  "version": "6.2.0",
+  "version": "7.0.0",
   "description": "CLI for Atlas: secure Microsoft 365 backup and restore to S3-compatible storage.",
   "license": "Apache-2.0",
   "author": "Wisecom Oy <https://wisecom.fi>",
@@ -9,7 +9,7 @@
     "url": "https://github.com/wisecom-oy/atlas.git",
     "directory": "packages/cli"
   },
-  "homepage": "https://wisecom-oy.github.io/atlas/reference/cli",
+  "homepage": "https://docs.atlas.wisecom.fi/reference/cli",
   "bugs": {
     "url": "https://github.com/wisecom-oy/atlas/issues"
   },
@@ -60,12 +60,15 @@
   },
   "devDependencies": {
     "@types/react": "^19.2.18",
+    "@wisecom/atlas-calendar": "workspace:*",
     "@wisecom/atlas-core": "workspace:*",
+    "@wisecom/atlas-contacts": "workspace:*",
     "@wisecom/atlas-m365-graph": "workspace:*",
     "@wisecom/atlas-onedrive": "workspace:*",
     "@wisecom/atlas-outlook": "workspace:*",
     "@wisecom/atlas-s3": "workspace:*",
     "@wisecom/atlas-sharepoint": "workspace:*",
+    "@wisecom/atlas-teams": "workspace:*",
     "@wisecom/atlas-types": "workspace:*",
     "ink-testing-library": "^4.0.0"
   },

@@ -1,5 +1,7 @@
+import { NotFoundError } from '@wisecom/atlas-types';
 import type {
   MailboxConnector,
+  Manifest,
   ManifestEntry,
   ManifestRepository,
   TenantContext,
@@ -9,11 +11,9 @@ import {
   load_snapshot_chain,
   resolve_message_ref,
 } from '@wisecom/atlas-core/services/shared/manifest-chain';
-import {
-  build_folder_map,
-  filter_entries_by_folder_name,
-} from '@/services/restore/folder-restore-planner';
+import { filter_entries_by_folder_name } from '@/services/restore/folder-restore-planner';
 import { apply_recoverable_items_policy } from '@/services/restore/recoverable-items-filter';
+import { list_selectable_folders } from '@/services/shared/recorded-folder-catalog';
 import { backfill_missing_folder_ids } from '@/services/restore/restore-execution-orchestrator';
 
 /** Entry filters shared by `restore -s` and `save -s`. */
@@ -27,11 +27,13 @@ export interface SnapshotEntryFilter {
 export interface ResolvedSnapshotEntries {
   readonly owner_id: string;
   readonly entries: ManifestEntry[];
+  /** The snapshot's delta chain, newest first, whose recorded folders name the entries' folders. */
+  readonly manifests: readonly Manifest[];
 }
 
 /**
  * Selects a snapshot's entries from its whole delta chain, newest version per `object_id`, then
- * applies the Recoverable Items policy and the folder or message filter (issue #432).
+ * applies the folder or message filter (issue #432) and the Recoverable Items policy.
  */
 export async function resolve_snapshot_entries(
   ctx: TenantContext,
@@ -44,21 +46,45 @@ export async function resolve_snapshot_entries(
   const chain = await load_snapshot_chain(manifests, ctx, snapshot_id);
   const target = chain[0]!;
   const merged = merge_snapshot_entries(chain);
-  const allowed = apply_recoverable_items_policy(merged, filter.include_recoverable_items);
+  // The policy runs on the selection, so its skip count names only what was asked for (#701).
+  const selected = await select_requested_entries(ctx, connector, tenant_id, chain, merged, filter);
+  const entries = apply_recoverable_items_policy(selected, filter.include_recoverable_items);
+  return { owner_id: target.owner_id, entries, manifests: chain };
+}
 
+/**
+ * Narrows the merged chain to the message or folder the filter names, or keeps it whole. `chain`
+ * is newest first: its head resolves a message index and its recorded folders name the folders.
+ * Throws `NotFoundError` when the message reference names no message, so a mistyped `--message`
+ * fails before any restore folder or archive is created (issue #735).
+ */
+async function select_requested_entries(
+  ctx: TenantContext,
+  connector: MailboxConnector,
+  tenant_id: string,
+  chain: readonly Manifest[],
+  merged: ManifestEntry[],
+  filter: SnapshotEntryFilter,
+): Promise<ManifestEntry[]> {
+  const target = chain[0]!;
   if (filter.message_ref) {
-    // Resolve before the policy, or `-r 5` would silently mean a different message once anything
-    // is filtered out.
+    // Resolved against the unfiltered chain, so `-r 5` names the same message with or without
+    // `--include-recoverable-items`.
     const entry = resolve_message_ref(target, merged, filter.message_ref);
-    return { owner_id: target.owner_id, entries: entry && allowed.includes(entry) ? [entry] : [] };
+    if (!entry) {
+      throw new NotFoundError(
+        `No message matches "${filter.message_ref}" in snapshot ${target.snapshot_id}`,
+      );
+    }
+    return [entry];
   }
 
   if (filter.folder_name) {
-    await backfill_missing_folder_ids(ctx, allowed);
-    const folder_map = await build_folder_map(connector, tenant_id, target.owner_id);
-    const entries = filter_entries_by_folder_name(allowed, filter.folder_name, folder_map);
-    return { owner_id: target.owner_id, entries };
+    await backfill_missing_folder_ids(ctx, merged);
+    const source = { connector, tenant_id, owner_id: target.owner_id, manifests: chain };
+    const folders = await list_selectable_folders(source, merged, filter.folder_name);
+    return filter_entries_by_folder_name(merged, filter.folder_name, folders);
   }
 
-  return { owner_id: target.owner_id, entries: allowed };
+  return merged;
 }

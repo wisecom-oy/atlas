@@ -1,3 +1,4 @@
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type {
@@ -14,6 +15,8 @@ import { OneDriveBackupService } from '@/services/backup/backup.service';
 import { OneDriveRestoreService } from '@/services/restore/restore.service';
 import { OneDriveSaveService } from '@/services/save/save.service';
 import { OneDriveVerificationService } from '@/services/verification/verification.service';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const CONTENT = Buffer.from('file-content');
 const CHECKSUM = createHash('sha256').update(CONTENT).digest('hex');
@@ -62,13 +65,17 @@ function make_context(storage: TenantContext['storage']): TenantContext {
 function make_manifest_repository(manifest: OneDriveSnapshotManifest): OneDriveManifestRepository {
   return {
     find_by_snapshot: vi.fn().mockResolvedValue(manifest),
-    list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
+    list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
+    ...drive_chain_reads('onedrive'),
   } as unknown as OneDriveManifestRepository;
 }
 
 describe('OneDrive operation cancellation', () => {
   it('does no remote work when every operation starts interrupted', async () => {
-    const factory = { create: vi.fn() } as unknown as TenantContextFactory;
+    const factory = {
+      create: vi.fn(),
+      create_readonly: vi.fn(),
+    } as unknown as TenantContextFactory;
     const callbacks = Array.from({ length: 4 }, () => vi.fn());
     const should_interrupt = (): boolean => true;
     const backup = new OneDriveBackupService(
@@ -77,8 +84,14 @@ describe('OneDrive operation cancellation', () => {
       {} as never,
       {} as never,
       {} as never,
+      stub_owner_leases().leases,
     );
-    const restore = new OneDriveRestoreService(factory, {} as never, {} as never);
+    const restore = new OneDriveRestoreService(
+      factory,
+      {} as never,
+      {} as never,
+      stub_owner_leases().leases,
+    );
     const save = new OneDriveSaveService(factory, {} as never);
     const verify = new OneDriveVerificationService(factory, {} as never, {} as never);
 
@@ -104,6 +117,7 @@ describe('OneDrive operation cancellation', () => {
     ]);
 
     expect(factory.create).not.toHaveBeenCalled();
+    expect(factory.create_readonly).not.toHaveBeenCalled();
     expect(results.every((result) => result.interrupted)).toBe(true);
     for (const callback of callbacks) {
       // Pre-aborted runs never claim discovery: finalizing + terminal only.
@@ -137,6 +151,7 @@ describe('OneDrive operation cancellation', () => {
       factory,
       connector,
       make_manifest_repository(make_manifest()),
+      stub_owner_leases().leases,
     );
 
     const result = await service.restore_onedrive('tenant-1', 'owner-1', {
@@ -170,7 +185,9 @@ describe('OneDrive operation cancellation', () => {
       create: vi.fn().mockResolvedValue(context),
       create_readonly: vi.fn().mockResolvedValue(context),
     } as unknown as TenantContextFactory;
-    const indexes = { list_by_owner: vi.fn() } as unknown as OneDriveFileVersionIndexRepository;
+    const indexes = {
+      list_readable_by_owner: vi.fn(),
+    } as unknown as OneDriveFileVersionIndexRepository;
     const on_progress = vi.fn();
     const service = new OneDriveVerificationService(
       factory,
@@ -184,7 +201,7 @@ describe('OneDrive operation cancellation', () => {
     });
 
     expect(factory.create).not.toHaveBeenCalled();
-    expect(indexes.list_by_owner).not.toHaveBeenCalled();
+    expect(indexes.list_readable_by_owner).not.toHaveBeenCalled();
     expect(storage.exists).not.toHaveBeenCalled();
     expect(result.total_checked).toBe(0);
     expect(result.interrupted).toBe(true);

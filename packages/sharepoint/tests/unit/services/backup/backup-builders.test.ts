@@ -186,7 +186,7 @@ describe('build_snapshot_manifest', () => {
 
 describe('build_empty_result', () => {
   it('produces a result with snapshot undefined and given counters', () => {
-    const result = build_empty_result('site-1', 2, 5, 3, 1, 4, 2, [], [], true, false);
+    const result = build_empty_result('site-1', 2, 5, 3, 1, 4, 2, [], [], true, false, true);
 
     expect(result.site_id).toBe('site-1');
     expect(result.snapshot).toBeUndefined();
@@ -204,10 +204,29 @@ describe('build_empty_result', () => {
   });
 
   it('marks unhealthy when errors are present', () => {
-    const result = build_empty_result('site-1', 1, 0, 0, 0, 0, 0, ['timeout'], [], false, false);
+    const result = build_empty_result(
+      'site-1',
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      ['timeout'],
+      [],
+      false,
+      false,
+      true,
+    );
 
     expect(result.summary.healthy).toBe(false);
     expect(result.summary.errors).toEqual(['timeout']);
+  });
+
+  it('reports the cursor as not updated when the run saved none (issue #693)', () => {
+    const result = build_empty_result('site-1', 0, 0, 0, 0, 0, 0, [], [], false, true, false);
+
+    expect(result.summary.cursor_updated).toBe(false);
   });
 });
 

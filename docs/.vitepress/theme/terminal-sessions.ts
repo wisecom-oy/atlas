@@ -39,13 +39,18 @@ export const OUTLOOK_BACKUP: TerminalSession = {
   ],
 };
 
-const CONFIG_VALIDATE: TerminalSession = {
-  command: 'atlas config validate',
+const TENANTS_VALIDATE: TerminalSession = {
+  command: 'atlas tenants validate --all',
   lines: [
     {
-      text: '[+] Microsoft Graph: token acquired (tenant and credentials valid)',
+      text: '[+] Microsoft Graph [contoso]: token acquired (tenant and credentials valid)',
       cls: 'ok',
       delay: 900,
+    },
+    {
+      text: '[+] Microsoft Graph [fabrikam]: token acquired (tenant and credentials valid)',
+      cls: 'ok',
+      delay: 500,
     },
     { text: '[+] S3: endpoint reachable and credentials accepted', cls: 'ok', delay: 500 },
   ],
@@ -106,7 +111,7 @@ const STORAGE_CHECK: TerminalSession = {
 
 /** Getting started: the commands in the order the guide runs them. */
 export const GETTING_STARTED: TerminalSession[] = [
-  CONFIG_VALIDATE,
+  TENANTS_VALIDATE,
   OUTLOOK_BACKUP,
   OUTLOOK_LIST,
   OUTLOOK_VERIFY,

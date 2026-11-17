@@ -1,5 +1,6 @@
 /** Which part of the bucket layout a request touched; `bucket` for bucket-level commands. */
-export type StorageRequestWorkload = 'outlook' | 'onedrive' | 'sharepoint' | 'shared' | 'bucket';
+export type StorageRequestWorkload =
+  'outlook' | 'onedrive' | 'sharepoint' | 'teams' | 'contacts' | 'calendar' | 'shared' | 'bucket';
 
 /** The kind of object a request touched, read from the key's leading path segments. */
 export type StorageKeyClass =
@@ -20,8 +21,6 @@ export interface StorageRequestEvent {
   readonly operation?: string;
   readonly workload: StorageRequestWorkload;
   readonly keyClass: StorageKeyClass;
-  /** `primary`, or the `targetId` of the replication target that sent the request. */
-  readonly target: string;
   /** When the request started, in epoch milliseconds. */
   readonly startTime: number;
   /** The whole logical request in milliseconds, including SDK retries and backoff. */

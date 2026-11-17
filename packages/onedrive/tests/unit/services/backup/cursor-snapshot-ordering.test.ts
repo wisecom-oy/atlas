@@ -7,6 +7,9 @@ import type {
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { list_one_drive_snapshot } from '@wisecom/atlas-types/testing/stub-drive-snapshot-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 // Issue #339: change tracking must never be committed ahead of the snapshot
 // that makes the scanned content reachable. A manifest write that fails after
@@ -69,7 +72,7 @@ function make_harness(options: {
     storage: {
       exists: vi.fn().mockResolvedValue(false),
       put: vi.fn().mockResolvedValue(undefined),
-      list: vi.fn().mockResolvedValue([]),
+      list: vi.fn(list_one_drive_snapshot()),
       delete: vi.fn().mockResolvedValue(undefined),
       list_stale: vi.fn(async () => []),
       abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
@@ -94,8 +97,8 @@ function make_harness(options: {
     }),
   };
   const manifests = {
-    find_latest_by_owner: vi.fn(),
-    list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
+    find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
+    list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
     save: vi.fn(() => {
       save_order.push('manifest');
       return options.manifest_error
@@ -116,6 +119,7 @@ function make_harness(options: {
       }),
     } as never,
     cursors as never,
+    stub_owner_leases().leases,
   );
   return { service, save_order, saved_cursors };
 }

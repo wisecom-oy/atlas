@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { OneDriveConnector, OneDriveDeltaItem, TenantContext } from '@wisecom/atlas-types';
+import { stub_drive_version_download } from '@wisecom/atlas-types/testing/stub-drive-version-download';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { sync_file_versions } from '@/services/versioning/version-sync';
 
@@ -77,7 +78,7 @@ describe('sync_file_versions', () => {
     ];
     connector = make_connector({
       list_file_versions: vi.fn().mockResolvedValue(versions),
-      download_file_version: vi.fn().mockResolvedValue(Buffer.from('content')),
+      download_file_version: vi.fn().mockImplementation(stub_drive_version_download('content')),
     });
 
     const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, undefined);
@@ -104,7 +105,7 @@ describe('sync_file_versions', () => {
     ];
     connector = make_connector({
       list_file_versions: vi.fn().mockResolvedValue(versions),
-      download_file_version: vi.fn().mockResolvedValue(Buffer.from('content')),
+      download_file_version: vi.fn().mockImplementation(stub_drive_version_download('content')),
     });
 
     const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, {
@@ -127,7 +128,7 @@ describe('sync_file_versions', () => {
     ];
     connector = make_connector({
       list_file_versions: vi.fn().mockResolvedValue(versions),
-      download_file_version: vi.fn().mockResolvedValue(Buffer.from('content')),
+      download_file_version: vi.fn().mockImplementation(stub_drive_version_download('content')),
     });
 
     const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, {
@@ -140,6 +141,7 @@ describe('sync_file_versions', () => {
       item.drive_id,
       item.item_id,
       'v3.0',
+      600,
     );
     expect(result.next_watermark).toEqual({
       last_modified_at: '2024-01-01T00:00:00Z',
@@ -154,7 +156,7 @@ describe('sync_file_versions', () => {
     ];
     connector = make_connector({
       list_file_versions: vi.fn().mockResolvedValue(versions),
-      download_file_version: vi.fn().mockResolvedValue(Buffer.from('content')),
+      download_file_version: vi.fn().mockImplementation(stub_drive_version_download('content')),
     });
 
     const result = await sync_file_versions(
@@ -177,7 +179,7 @@ describe('sync_file_versions', () => {
     const versions = [{ version_id: 'v2.0', last_modified_at: '2024-01-01', size_bytes: 500 }];
     connector = make_connector({
       list_file_versions: vi.fn().mockResolvedValue(versions),
-      download_file_version: vi.fn().mockResolvedValue(Buffer.from('duplicate')),
+      download_file_version: vi.fn().mockImplementation(stub_drive_version_download('duplicate')),
     });
     (ctx.storage.exists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
 
@@ -259,7 +261,7 @@ describe('sync_file_versions', () => {
       list_file_versions: vi.fn().mockResolvedValue(versions),
       download_file_version: vi
         .fn()
-        .mockResolvedValueOnce(Buffer.from('v2-content'))
+        .mockImplementationOnce(stub_drive_version_download('v2-content'))
         .mockRejectedValueOnce(error_404)
         .mockRejectedValueOnce(error_500),
     });
@@ -286,7 +288,7 @@ describe('sync_file_versions', () => {
     ];
     connector = make_connector({
       list_file_versions: vi.fn().mockResolvedValue(versions),
-      download_file_version: vi.fn().mockResolvedValue(Buffer.from('content')),
+      download_file_version: vi.fn().mockImplementation(stub_drive_version_download('content')),
     });
 
     const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, undefined);
@@ -308,7 +310,7 @@ describe('sync_file_versions', () => {
       download_file_version: vi
         .fn()
         .mockRejectedValueOnce(Object.assign(new Error('Server Error'), { statusCode: 500 }))
-        .mockResolvedValueOnce(Buffer.from('v3-content')),
+        .mockImplementationOnce(stub_drive_version_download('v3-content')),
     });
 
     const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, undefined);
@@ -322,7 +324,7 @@ describe('sync_file_versions', () => {
     const versions = [{ version_id: 'v2.0', last_modified_at: '', size_bytes: 100 }];
     connector = make_connector({
       list_file_versions: vi.fn().mockResolvedValue(versions),
-      download_file_version: vi.fn().mockResolvedValue(Buffer.from('content')),
+      download_file_version: vi.fn().mockImplementation(stub_drive_version_download('content')),
     });
 
     const result = await sync_file_versions(

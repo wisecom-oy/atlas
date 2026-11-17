@@ -1,27 +1,20 @@
 # MinIO for the E2E run. Thrown away with the runner, so the credentials are not secrets.
 #
-# Four drives per container, not one: Object Lock requires bucket versioning, and MinIO's support
+# Four drives, not one: Object Lock requires bucket versioning, and MinIO's support
 # for versioning on a single-drive backend depends on the release. `server /data{1...4}` is the
 # configuration that works on every version, so an image bump cannot silently disable the
 # immutability suite. `test_00_preflight` asserts `storage-check` still reports `lock-capable`.
 #
-# Two endpoints, not two buckets: Atlas derives the bucket name from the tenant id, so a
-# replication target has to be a different endpoint.
-#
-# `cgr.dev/chainguard`, not Docker Hub or quay.io: both now deny anonymous pulls of
-# `minio/minio` (Docker Hub from 2026-09-12, quay.io from 2026-09-24), which killed the nightly
-# at this step, before the first Graph call (issues #406 and #429). Chainguard rebuilds upstream
-# MinIO and serves it anonymously; the image ships `mc`, so the healthchecks below are unchanged.
-#
-# A digest, not `latest`: Chainguard publishes only a moving `latest` tag, so pinning by digest
-# is what keeps the storage backend under the immutability assertions from changing between two
-# runs with no commit to point at. Bumping the digest is a reviewable diff; the comment records
-# which MinIO release the digest resolves to, and `test_00_preflight` proves a bumped image is
-# still `lock-capable`.
-# Digest `sha256:bd014394…` = MinIO RELEASE.2026-09-22T19-25-18Z.
+# Built from MinIO's source by `docker/minio/Dockerfile`, the same image `docker/docker-compose.yml`
+# gives operators, so the immutability suite runs against what self-hosters run. No prebuilt
+# community image pulls anonymously any more: Docker Hub removed `minio/minio` (2026-09-12) and
+# quay.io refuses it (2026-09-24), which killed the nightly at this step (issues #406, #429, #800).
+# The Dockerfile pins MinIO by commit, so the backend changes only with a reviewable diff, and
+# `test_00_preflight` proves a bumped commit is still `lock-capable`.
 services:
   minio-primary:
-    image: cgr.dev/chainguard/minio@sha256:bd014394a80898e68c149f2311fdf8d5a2c2f3bb2c33b9327ae6d02b4b065ae1
+    build: ../docker/minio
+    image: atlas-minio:7aac2a2c5b7c
     container_name: atlas-e2e-minio-primary
     # `/data/{1...4}`: the four drives must exist, so they live under one mounted volume.
     command: server /data/{1...4} --console-address ":9001"
@@ -39,23 +32,5 @@ services:
       timeout: 5s
       retries: 20
 
-  minio-replica:
-    image: cgr.dev/chainguard/minio@sha256:bd014394a80898e68c149f2311fdf8d5a2c2f3bb2c33b9327ae6d02b4b065ae1
-    container_name: atlas-e2e-minio-replica
-    command: server /data/{1...4} --console-address ":9001"
-    ports:
-      - '${E2E_S3_REPLICA_PORT:-9002}:9000'
-    environment:
-      MINIO_ROOT_USER: ${E2E_S3_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${E2E_S3_SECRET_KEY:-minioadmin}
-    volumes:
-      - e2e_replica:/data
-    healthcheck:
-      test: ['CMD', 'mc', 'ready', 'local']
-      interval: 3s
-      timeout: 5s
-      retries: 20
-
 volumes:
   e2e_primary:
-  e2e_replica:

@@ -1,7 +1,7 @@
-import type { ExtendedProperty, TenantContext } from '@wisecom/atlas-types';
+import type { MessageExtendedProperties, TenantContext } from '@wisecom/atlas-types';
 import {
   capture_mime_payload,
-  capture_page_reactions,
+  capture_page_extended_properties,
   store_single_message,
 } from '@/services/backup/message-payload-store';
 import type { MailboxConnector, MailMessage } from '@wisecom/atlas-types';
@@ -23,22 +23,27 @@ export interface FolderSyncResult {
   delta_link: string;
   /** Message IDs the delta reported as deleted or moved out of this folder. */
   removed_ids: string[];
-  /** True only when every page of the folder was fully processed; the delta link MUST NOT be persisted otherwise. */
+  /**
+   * True only when every page of the folder was fully processed and every message in it was
+   * captured in full; the delta link MUST NOT be persisted otherwise.
+   */
   complete: boolean;
   stored: number;
   deduplicated: number;
   attachments_stored: number;
   /**
-   * Messages whose attachments could not be fetched, one line each.
+   * Messages stored without their original MIME or their attachments, one line each. Any line
+   * leaves the folder incomplete, so its delta link is withheld and the next run presents those
+   * messages again (issues #614, #615).
    *
    * A folder-level error would discard the folder's other entries, and their blobs are already
    * in storage, so they would be orphans until a later run deduplicated them (issue #366).
    */
-  attachment_errors: string[];
+  message_errors: string[];
   folder_processed: number;
   /** Per-folder problems that lost data but no message, e.g. reactions not read (issue #513). */
   warnings: string[];
-  /** Messages stored without their reactions; also summarised in `warnings`. */
+  /** Messages stored without their reactions and pin; also summarised in `warnings`. */
   reactions_not_captured: number;
 }
 
@@ -66,7 +71,8 @@ export interface FolderSyncParams {
 /**
  * Processes a single message: capture MIME, dedup check, encrypt, store.
  * MIME embeds its attachments, so only a JSON fallback queues a separate
- * attachment fetch. Reactions were read for the whole page beforehand (issue #513).
+ * attachment fetch. Reactions and pin were read for the whole page beforehand (issue #513).
+ * A MIME capture that failed for now is recorded in `message_errors` (issue #614).
  */
 async function process_message(
   ctx: TenantContext,
@@ -74,20 +80,26 @@ async function process_message(
   tenant_id: string,
   owner_id: string,
   message: MailMessage,
-  reactions: ExtendedProperty[],
+  properties: MessageExtendedProperties | undefined,
   entries: ManifestEntry[],
   stats: { stored: number; deduplicated: number; att_stored: number },
   pending_attachments: PendingAttachment[],
+  message_errors: string[],
   object_lock_policy?: ObjectLockPolicy,
 ): Promise<void> {
-  const mime = await capture_mime_payload(connector, tenant_id, owner_id, message);
+  const { mime, failure } = await capture_mime_payload(connector, tenant_id, owner_id, message);
+  if (failure !== undefined) {
+    message_errors.push(
+      `message ${message.message_id}: original MIME not captured, stored from the JSON payload (${failure})`,
+    );
+  }
   const entry = await store_single_message(
     ctx,
     message,
     owner_id,
     object_lock_policy,
     mime,
-    reactions,
+    properties,
   );
   if (entry.was_new) stats.stored++;
   else stats.deduplicated++;
@@ -126,7 +138,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
   const entries: ManifestEntry[] = [];
   const stats = { stored: 0, deduplicated: 0, att_stored: 0, reactions_failed: 0 };
   const pending_attachments: PendingAttachment[] = [];
-  const attachment_errors: string[] = [];
+  const message_errors: string[] = [];
   let folder_processed = 0;
   let streamed = false;
   // Set whenever any page or message is skipped; blocks delta-link persistence (issue #23).
@@ -156,10 +168,15 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       return false;
     }
 
-    // Read for the page, not per message: reactions belong to the manifest entry, so a message
+    // Read for the page, not per message: reactions and pin belong to the manifest entry, so a message
     // whose content dedups still needs them, and the batch costs one round trip per 20.
-    const reactions = await capture_page_reactions(connector, tenant_id, owner_id, page_messages);
-    stats.reactions_failed += reactions.failed;
+    const properties = await capture_page_extended_properties(
+      connector,
+      tenant_id,
+      owner_id,
+      page_messages,
+    );
+    stats.reactions_failed += properties.failed;
     for (const message of page_messages) {
       if (is_interrupted()) {
         aborted = true;
@@ -171,10 +188,11 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
         tenant_id,
         owner_id,
         message,
-        reactions.by_message.get(message.message_id) ?? [],
+        properties.by_message.get(message.message_id),
         entries,
         stats,
         pending_attachments,
+        message_errors,
         object_lock_policy,
       );
       folder_processed++;
@@ -202,7 +220,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       entries,
       stats,
       pending_attachments,
-      attachment_errors,
+      message_errors,
       is_interrupted,
       object_lock_policy,
     );
@@ -238,8 +256,13 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
   }
 
   if (!streamed) {
-    const reactions = await capture_page_reactions(connector, tenant_id, owner_id, delta.messages);
-    stats.reactions_failed += reactions.failed;
+    const properties = await capture_page_extended_properties(
+      connector,
+      tenant_id,
+      owner_id,
+      delta.messages,
+    );
+    stats.reactions_failed += properties.failed;
     for (const message of delta.messages) {
       if (is_interrupted()) {
         aborted = true;
@@ -251,10 +274,11 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
         tenant_id,
         owner_id,
         message,
-        reactions.by_message.get(message.message_id) ?? [],
+        properties.by_message.get(message.message_id),
         entries,
         stats,
         pending_attachments,
+        message_errors,
         object_lock_policy,
       );
       folder_processed++;
@@ -282,7 +306,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       entries,
       stats,
       pending_attachments,
-      attachment_errors,
+      message_errors,
       is_interrupted,
       object_lock_policy,
     );
@@ -293,16 +317,18 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
     entries,
     delta_link: delta.delta_link,
     removed_ids: delta.removed_ids,
-    complete: !aborted,
+    // A message stored without its MIME or attachments is not presented again by a delta link
+    // that moved past it, so a failure holds the link back like an interrupt does.
+    complete: !aborted && message_errors.length === 0,
     stored: stats.stored,
     deduplicated: stats.deduplicated,
     attachments_stored: stats.att_stored,
-    attachment_errors,
+    message_errors,
     folder_processed,
     warnings:
       stats.reactions_failed > 0
         ? [
-            `reactions not captured for ${stats.reactions_failed} message(s); they are read again only when the message changes`,
+            `reactions and pin not captured for ${stats.reactions_failed} message(s); they are read again only when the message changes`,
           ]
         : [],
     reactions_not_captured: stats.reactions_failed,

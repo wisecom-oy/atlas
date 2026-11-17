@@ -2,7 +2,8 @@ import { logger } from '@wisecom/atlas-core/utils/logger';
 import { stream_to_content_addressed_storage } from '@wisecom/atlas-core/services/shared/stream-encrypt-upload';
 import type { StorageObjectLockPolicy, TenantContext } from '@wisecom/atlas-types';
 import type { DriveDeltaItem } from '@/drive-ports';
-import { assert_transferred_size } from '@/backup/download-integrity';
+import { size_checked_chunks } from '@/backup/download-integrity';
+import { stream_chunks_with_url_refresh } from '@/backup/large-file-url-refresh';
 import { format_bytes } from '@/shared/format-bytes';
 import type { DriveStorageKeys } from '@/shared/storage-keys';
 
@@ -25,11 +26,13 @@ export interface DriveDownloadUrlResolver {
  */
 export interface DriveLargeFileDeps {
   readonly keys: DriveStorageKeys;
+  /** Yields the file's chunks from `start_offset`, so a download resumes after a URL refresh. */
   readonly fetch_chunks: (
     download_url: string,
     total_bytes: number,
     item_id: string,
     abort_signal?: AbortSignal,
+    start_offset?: number,
   ) => AsyncIterable<Buffer>;
 }
 
@@ -37,6 +40,10 @@ export interface DriveLargeFileDeps {
  * Single-download, zero-disk pipeline for files at or above the large-file threshold. Streams
  * encrypted parts to an S3 staging key, then either aborts (dedup) or copies to the canonical
  * content-addressed key.
+ *
+ * The URL is resolved when the download starts, not taken from the delta listing: a large file can
+ * be reached long after its listing, and a URL that expired before its first byte costs a whole
+ * extra round trip per file. Mid-transfer expiry is handled by the chunk stream itself.
  */
 export async function process_large_drive_file(
   deps: DriveLargeFileDeps,
@@ -47,7 +54,7 @@ export async function process_large_drive_file(
   object_lock_policy?: StorageObjectLockPolicy,
   abort_signal?: AbortSignal,
 ): Promise<LargeFileResult> {
-  const download_url = item.download_url ?? (await connector.resolve_download_url(item));
+  const download_url = await connector.resolve_download_url(item);
   if (!download_url) {
     throw new Error(`Could not resolve download URL for large file ${item.item_id}`);
   }
@@ -60,9 +67,16 @@ export async function process_large_drive_file(
 
   const result = await stream_to_content_addressed_storage(
     ctx,
-    counted_chunks(
-      deps.fetch_chunks(download_url, item.size_bytes, item.item_id, abort_signal),
-      item,
+    size_checked_chunks(
+      stream_chunks_with_url_refresh(
+        deps.fetch_chunks,
+        connector,
+        item,
+        download_url,
+        abort_signal,
+      ),
+      item.item_id,
+      item.size_bytes,
     ),
     {
       staging_key,
@@ -79,26 +93,6 @@ export async function process_large_drive_file(
   }
 
   return result;
-}
-
-/**
- * Passes chunks straight through, then fails the item if they did not add up to its reported size.
- *
- * The last point where a truncated, duplicated or restarted transfer can still be caught: past it
- * the bytes have a checksum and an auth tag of their own, and nothing downstream knows how many
- * there should have been (issue #338). Throwing here aborts the staged multipart upload, so no
- * canonical object is promoted and no manifest entry is written.
- */
-async function* counted_chunks(
-  chunks: AsyncIterable<Buffer>,
-  item: DriveDeltaItem,
-): AsyncGenerator<Buffer> {
-  let transferred = 0;
-  for await (const chunk of chunks) {
-    transferred += chunk.length;
-    yield chunk;
-  }
-  assert_transferred_size(item.item_id, transferred, item.size_bytes);
 }
 
 /**

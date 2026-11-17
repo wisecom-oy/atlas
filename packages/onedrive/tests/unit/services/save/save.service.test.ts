@@ -1,3 +1,4 @@
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import type { Writable } from 'node:stream';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { apply_overrides, type Overrides } from '@wisecom/atlas-types/testing/apply-overrides';
@@ -19,6 +20,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', async (import_original) => {
   const actual =
@@ -44,7 +46,6 @@ vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', async (impor
 });
 vi.mock('@wisecom/atlas-drive/restore/streaming-restore', () => ({
   should_stream_restore: vi.fn().mockReturnValue(false),
-  stream_decrypt_from_storage: vi.fn(),
   verify_streaming_checksum: vi.fn().mockReturnValue(true),
 }));
 
@@ -91,6 +92,8 @@ describe('OneDriveSaveService', () => {
   let container: Container;
   let mock_context: TenantContext;
   let mock_manifests: OneDriveManifestRepository;
+  // The owner's readable snapshots, which the chain is folded from.
+  let owner_snapshots: OneDriveSnapshotManifest[];
   let service: OneDriveSaveService;
 
   beforeEach(() => {
@@ -114,9 +117,11 @@ describe('OneDriveSaveService', () => {
       create_storage_only: vi.fn().mockResolvedValue(mock_context),
     };
 
+    owner_snapshots = [];
     mock_manifests = {
       find_by_snapshot: vi.fn(),
-      list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
+      list_readable_snapshots_by_owner: vi.fn(async () => readable_manifests(owner_snapshots)),
+      ...drive_chain_reads('onedrive'),
       list_manifests: vi.fn().mockResolvedValue([]),
       save_manifest: vi.fn(),
     } as unknown as OneDriveManifestRepository;
@@ -174,7 +179,7 @@ describe('OneDriveSaveService', () => {
       });
       const older = make_manifest([make_entry({ file_id: 'file-2', file_name: 'budget.xlsx' })]);
       vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(newest);
-      vi.mocked(mock_manifests.list_snapshots_by_owner).mockResolvedValue([newest, older]);
+      owner_snapshots = [newest, older];
 
       const result = await service.save_snapshot('test-tenant', 'owner-1', {
         snapshot_id: 'od-snap-2',
@@ -191,7 +196,7 @@ describe('OneDriveSaveService', () => {
       );
       const older = make_manifest([make_entry({ file_id: 'file-2', file_name: 'budget.xlsx' })]);
       vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(newest);
-      vi.mocked(mock_manifests.list_snapshots_by_owner).mockResolvedValue([newest, older]);
+      owner_snapshots = [newest, older];
 
       const result = await service.save_snapshot('test-tenant', 'owner-1', {
         snapshot_id: 'od-snap-2',
@@ -208,7 +213,7 @@ describe('OneDriveSaveService', () => {
         created_at: new Date('2025-04-01T10:00:00Z'),
       });
       vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(target);
-      vi.mocked(mock_manifests.list_snapshots_by_owner).mockResolvedValue([newer, target]);
+      owner_snapshots = [newer, target];
 
       const result = await service.save_snapshot('test-tenant', 'owner-1', {
         snapshot_id: 'od-snap-1',

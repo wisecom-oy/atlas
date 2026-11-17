@@ -1,3 +1,4 @@
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { apply_overrides, type Overrides } from '@wisecom/atlas-types/testing/apply-overrides';
 import { Container } from 'inversify';
@@ -14,6 +15,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', async (import_original) => {
   const actual =
     await import_original<
@@ -39,7 +41,6 @@ vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', async (impor
 
 vi.mock('@wisecom/atlas-drive/restore/streaming-restore', () => ({
   should_stream_restore: vi.fn().mockReturnValue(false),
-  stream_decrypt_from_storage: vi.fn(),
   verify_streaming_checksum: vi.fn().mockReturnValue(true),
 }));
 
@@ -104,7 +105,8 @@ describe('SharePointSaveService', () => {
 
     mock_manifests = {
       find_by_snapshot: vi.fn(),
-      list_snapshots_by_site: vi.fn().mockResolvedValue([]),
+      list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests([])),
+      ...drive_chain_reads('sharepoint'),
       list_manifests: vi.fn().mockResolvedValue([]),
       save_manifest: vi.fn(),
     } as unknown as SharePointManifestRepository;
@@ -146,7 +148,9 @@ describe('SharePointSaveService', () => {
       });
       const older = make_manifest([make_entry({ file_id: 'sp-file-2', file_name: 'report.docx' })]);
       vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(newest);
-      vi.mocked(mock_manifests.list_snapshots_by_site).mockResolvedValue([newest, older]);
+      vi.mocked(mock_manifests.list_readable_snapshots_by_site).mockResolvedValue(
+        readable_manifests([newest, older]),
+      );
 
       const result = await service.save_snapshot('test-tenant', 'site-1', {
         snapshot_id: 'sp-snap-2',
@@ -163,7 +167,9 @@ describe('SharePointSaveService', () => {
       );
       const older = make_manifest([make_entry({ file_id: 'sp-file-2', file_name: 'report.docx' })]);
       vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(newest);
-      vi.mocked(mock_manifests.list_snapshots_by_site).mockResolvedValue([newest, older]);
+      vi.mocked(mock_manifests.list_readable_snapshots_by_site).mockResolvedValue(
+        readable_manifests([newest, older]),
+      );
 
       const result = await service.save_snapshot('test-tenant', 'site-1', {
         snapshot_id: 'sp-snap-2',

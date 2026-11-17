@@ -1,14 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { graph_error, stub_graph_client } from '@wisecom/atlas-types/testing/stub-graph-client';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import { GraphSharePointConnector } from '@/adapters/graph-sharepoint-connector.adapter';
 
 const SITE = 'contoso.sharepoint.com,site-guid,web-guid';
 const DRIVE = 'drive-1';
 const ROOT_DELTA = `/drives/${DRIVE}/root/delta`;
-/** A cursor issued after the `package` facet joined the selection, so it is reused as-is. */
-const CURRENT_CURSOR = `https://graph.microsoft.com/v1.0/drives/${DRIVE}/root/delta?$select=id,package&token=t1`;
+/** A cursor issued after `package` and `shared` joined the selection, so it is reused as-is. */
+const CURRENT_CURSOR = `https://graph.microsoft.com/v1.0/drives/${DRIVE}/root/delta?$select=id,package,shared&token=t1`;
 const PAGE_2 = `https://graph.microsoft.com/v1.0/drives/${DRIVE}/root/delta?token=p2`;
-const NEXT_CURSOR = `https://graph.microsoft.com/v1.0/drives/${DRIVE}/root/delta?$select=id,package&token=t2`;
+const NEXT_CURSOR = `https://graph.microsoft.com/v1.0/drives/${DRIVE}/root/delta?$select=id,package,shared&token=t2`;
 
 /** What Graph answers a delta token it no longer honours: HTTP 410 with code and prose differing. */
 const RESYNC_REQUIRED = graph_error(
@@ -43,6 +44,23 @@ describe('GraphSharePointConnector.fetch_delta', () => {
     expect(result.items.map((item) => item.item_id)).toEqual(['a', 'b']);
     expect(result.delta_link).toBe(NEXT_CURSOR);
     expect(result.reset_detected).toBe(false);
+  });
+
+  it('skips items Graph returns without a usable id, and warns how many', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const { connector } = connector_over(({ url }) =>
+      url === CURRENT_CURSOR
+        ? { value: [{ name: 'no id' }, file('a', 'a.txt')], '@odata.nextLink': PAGE_2 }
+        : { value: [{ ...file('', 'empty id') }], '@odata.deltaLink': NEXT_CURSOR },
+    );
+
+    const result = await connector.fetch_delta('tenant', SITE, DRIVE, CURRENT_CURSOR);
+
+    expect(result.items.map((item) => item.item_id)).toEqual(['a']);
+    expect(warn).toHaveBeenCalledWith(
+      `Skipped 2 item(s) in drive ${DRIVE} that Graph returned without an id`,
+    );
+    warn.mockRestore();
   });
 
   it('enumerates from the library root with the field selection when there is no cursor', async () => {
@@ -85,7 +103,7 @@ describe('GraphSharePointConnector.fetch_delta', () => {
     expect(result.reset_detected).toBe(true);
   });
 
-  it('reports a 403 as the missing permission, without re-enumerating', async () => {
+  it('reports a 403 as the missing permission when the root site is refused too, without re-enumerating', async () => {
     const { connector, calls } = connector_over(() => {
       throw graph_error(403, 'accessDenied', 'Access denied');
     });
@@ -94,8 +112,43 @@ describe('GraphSharePointConnector.fetch_delta', () => {
       connector.fetch_delta('tenant', SITE, DRIVE, CURRENT_CURSOR),
     ).rejects.toMatchObject({
       name: 'MissingGraphPermissionsError',
+      code: 'ATLAS_AUTH_DENIED',
     });
-    expect(calls).toHaveLength(1);
+    expect(calls.map((call) => call.url)).toEqual([CURRENT_CURSOR, '/sites/root?$select=id']);
+  });
+
+  it('reports a 403 as a refused site when the root site is readable (issue #772)', async () => {
+    const { connector } = connector_over(({ url }) => {
+      if (url === '/sites/root?$select=id') return { id: 'root' };
+      throw graph_error(403, 'accessDenied', 'Access denied');
+    });
+
+    await expect(
+      connector.fetch_delta('tenant', SITE, DRIVE, CURRENT_CURSOR),
+    ).rejects.toMatchObject({
+      name: 'GraphAccessRefusedError',
+      code: 'ATLAS_ACCESS_REFUSED',
+      site_id: SITE,
+      drive_id: DRIVE,
+      reason: 'access_refused',
+    });
+  });
+
+  it('classifies a 403 on the full read after an expired cursor the same way', async () => {
+    const { connector, calls } = connector_over(({ url }) => {
+      if (url === CURRENT_CURSOR) throw RESYNC_REQUIRED;
+      if (url === '/sites/root?$select=id') return { id: 'root' };
+      throw graph_error(403, 'accessDenied', 'Access denied');
+    });
+
+    await expect(
+      connector.fetch_delta('tenant', SITE, DRIVE, CURRENT_CURSOR),
+    ).rejects.toMatchObject({ name: 'GraphAccessRefusedError', site_id: SITE, drive_id: DRIVE });
+    expect(calls.map((call) => call.url)).toEqual([
+      CURRENT_CURSOR,
+      ROOT_DELTA,
+      '/sites/root?$select=id',
+    ]);
   });
 
   it('propagates an unrelated failure instead of treating it as a reset', async () => {
@@ -132,6 +185,7 @@ describe('GraphSharePointConnector.resolve_site', () => {
       site_id: 'site-guid,web-guid',
       site_url: 'https://contoso.sharepoint.com/sites/Example',
       display_name: 'Example',
+      kind: 'site',
     });
   });
 

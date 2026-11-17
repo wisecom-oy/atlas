@@ -14,6 +14,8 @@ import type {
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core';
 import type { BucketCache } from '@/adapters/bucket-cache';
+import { invalid_bucket_name_error } from '@/adapters/tenant-bucket-name';
+import { names_object_lock } from '@/adapters/s3-error-classifier';
 
 /**
  * Ensures a bucket exists, creating it if necessary.
@@ -31,12 +33,15 @@ export async function ensure_bucket_exists(
   client: S3Client,
   bucket: string,
   cache: BucketCache,
-  skip_cache = false,
 ): Promise<void> {
-  if (!skip_cache && cache.is_bucket_checked(bucket)) return;
+  if (cache.is_bucket_checked(bucket)) return;
 
-  const exists = await bucket_exists(client, bucket);
+  const exists = await bucket_exists(client, bucket).catch((err: unknown) => {
+    throw invalid_bucket_name_error(bucket, err) ?? err;
+  });
   if (!exists) {
+    const invalid_name = invalid_bucket_name_error(bucket);
+    if (invalid_name) throw invalid_name;
     await create_lock_capable_bucket(client, bucket);
     // Applied whether or not this run's CreateBucket won. The put is a full replace and
     // best-effort, and the other party may not be a concurrent run at all: an SDK retry of a
@@ -97,16 +102,18 @@ async function create_unless_already_ours(
   }
 }
 
-/** True when the error signals the backend cannot honour ObjectLockEnabledForBucket. */
+/**
+ * True when the backend cannot honour ObjectLockEnabledForBucket: NotImplemented, or a rejection
+ * that names Object Lock. Any other failure (InvalidArgument, MalformedXML, AccessDenied) is
+ * unrelated to the lock and must abort creation rather than yield an unlocked bucket (issue #640).
+ */
 function is_lock_flag_rejection(err: unknown): boolean {
-  const name = (err as { name?: string }).name ?? '';
-  // ponytail: name list covers AWS-compatible backends seen in the wild;
-  // extend if a new backend rejects the flag with a different code.
-  return ['NotImplemented', 'InvalidArgument', 'InvalidRequest', 'MalformedXML'].includes(name);
+  if (err instanceof Error && err.name === 'NotImplemented') return true;
+  return names_object_lock(err);
 }
 
 /** Probes whether a bucket already exists and is accessible. */
-async function bucket_exists(client: S3Client, bucket: string): Promise<boolean> {
+export async function bucket_exists(client: S3Client, bucket: string): Promise<boolean> {
   try {
     await client.send(new HeadBucketCommand({ Bucket: bucket }));
     return true;
@@ -200,7 +207,7 @@ export async function probe_bucket_immutability(
       cache.set_immutability_probe(bucket, request.mode, result);
       return result;
     }
-    throw err;
+    throw invalid_bucket_name_error(bucket, err) ?? err;
   }
 
   const versioning = await client.send(new GetBucketVersioningCommand({ Bucket: bucket }));

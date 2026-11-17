@@ -4,7 +4,7 @@
  * The site id keys every SharePoint storage prefix, and the hostname is the one part that
  * changes when a tenant renames its SharePoint domain, which would otherwise start a second
  * backup history for every site. Graph accepts `siteGuid,webGuid` wherever it takes a site id.
- * Pure string work, so `rehydrate` still resolves a site with Graph unreachable. Ids that are
+ * Pure string work, so `list`, `verify` and `delete --site` still resolve a site with Graph unreachable. Ids that are
  * already canonical pass through unchanged.
  */
 export function canonical_site_id(site_id: string): string {

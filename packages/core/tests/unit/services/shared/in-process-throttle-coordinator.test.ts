@@ -19,17 +19,19 @@ describe('InProcessThrottleCoordinator', () => {
     expect(coordinator.is_cooling('sharepoint_onedrive')).toBe(false);
   });
 
-  it('holds waiters on a pool until its cooldown ends', async () => {
+  it('holds waiters on a pool until its cooldown ends, then releases them within the jitter', async () => {
     coordinator.raise('sharepoint_onedrive', 10_000);
     let released = false;
     void coordinator.wait('sharepoint_onedrive').then(() => (released = true));
 
-    await vi.advanceTimersByTimeAsync(9_000);
+    await vi.advanceTimersByTimeAsync(9_999);
     expect(released).toBe(false);
 
+    await vi.advanceTimersByTimeAsync(1);
+    expect(coordinator.is_cooling('sharepoint_onedrive')).toBe(false);
+    // A 10 second cooldown releases each waiter within 1 second of its end (issue #641).
     await vi.advanceTimersByTimeAsync(1_000);
     expect(released).toBe(true);
-    expect(coordinator.is_cooling('sharepoint_onedrive')).toBe(false);
   });
 
   it('keeps pools independent, so a drive 429 does not pause Outlook', async () => {
@@ -70,7 +72,8 @@ describe('InProcessThrottleCoordinator', () => {
     void coordinator.wait('outlook', { ownerId: 'mailbox-a' }).then(() => (released = true));
     await vi.advanceTimersByTimeAsync(59_000);
     expect(released).toBe(false);
-    await vi.advanceTimersByTimeAsync(1_000);
+    // Released within the 5 second jitter a 60 second cooldown carries (issue #641).
+    await vi.advanceTimersByTimeAsync(6_000);
     expect(released).toBe(true);
   });
 
@@ -93,7 +96,8 @@ describe('InProcessThrottleCoordinator', () => {
 
     await vi.advanceTimersByTimeAsync(10_000);
     expect(released).toBe(false);
-    await vi.advanceTimersByTimeAsync(50_000);
+    // The pool cooldown ends at 65 seconds; its release jitter is at most 5 seconds (issue #641).
+    await vi.advanceTimersByTimeAsync(55_000);
     expect(released).toBe(true);
   });
 

@@ -56,6 +56,21 @@ describe('is_content_gone_error', () => {
     expect(is_content_gone_error({ statusCode: 429 })).toBe(false);
   });
 
+  it('treats a status-only GraphError, as a binary download raises it, as gone', () => {
+    // A `$value` or `/content` download throws a GraphError with the status and an empty message.
+    const binary_404 = Object.assign(new Error(''), { statusCode: 404, code: null, body: null });
+    expect(is_content_gone_error(binary_404)).toBe(true);
+  });
+
+  it.each([
+    ['a 500 whose message mentions 404', { statusCode: 500 }, 'Upstream 404 Not Found, retry'],
+    ['a 400 whose message mentions 410', { statusCode: 400 }, 'request 410a-404b failed'],
+    ['a network failure', { code: 'ECONNRESET' }, 'request 1404 Not Found: socket reset'],
+    ['a short transfer of 404 bytes', {}, 'Download of x produced 404 bytes, expected 2048'],
+  ])('does not treat %s as gone (issue #618)', (_label, fields, message) => {
+    expect(is_content_gone_error(Object.assign(new Error(message), fields))).toBe(false);
+  });
+
   it('ignores non-object errors', () => {
     expect(is_content_gone_error('boom')).toBe(false);
     expect(is_content_gone_error(undefined)).toBe(false);

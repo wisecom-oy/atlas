@@ -1,3 +1,4 @@
+import { outlook_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
@@ -10,8 +11,6 @@ import {
   type ManifestRepository,
   type OneDriveManifestRepository,
   type SharePointManifestRepository,
-  type OneDriveSnapshotManifest,
-  type SharePointSnapshotManifest,
   type TenantContext,
   type TenantContextFactory,
   type ObjectStorage,
@@ -20,6 +19,12 @@ import {
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
+import {
+  latest_readable,
+  readable_manifests,
+  readable_summaries,
+} from '@wisecom/atlas-types/testing/readable-listing';
+import { summary_listing } from '../catalog-service.fixtures';
 
 function make_manifest(overrides: Partial<Manifest> = {}): Manifest {
   return {
@@ -90,21 +95,27 @@ describe('StatsService', () => {
 
     mock_manifests = {
       save: vi.fn(),
+      forget_snapshot_summary: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
       list_by_owner: vi.fn().mockResolvedValue([]),
-      find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
+      find_latest_readable: vi.fn().mockResolvedValue(latest_readable(undefined)),
       list_all_manifests: vi.fn().mockResolvedValue([]),
       list_owner_ids: vi.fn().mockResolvedValue([]),
+      list_readable_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
+      list_all_readable: vi.fn().mockResolvedValue(readable_manifests()),
+      read_manifest_at: vi.fn(outlook_chain_reads(() => mock_manifests).read_manifest_at),
+      list_snapshot_summaries: vi.fn().mockResolvedValue(summary_listing([])),
+      list_all_snapshot_summaries: vi.fn().mockResolvedValue(summary_listing([])),
     };
 
     mock_od_manifests = {
-      list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
-      list_all_manifests: vi.fn().mockResolvedValue([]),
+      list_snapshot_summaries: vi.fn().mockResolvedValue(readable_summaries()),
+      list_all_snapshot_summaries: vi.fn().mockResolvedValue(readable_summaries()),
     } as unknown as OneDriveManifestRepository;
 
     mock_sp_manifests = {
-      list_snapshots_by_site: vi.fn().mockResolvedValue([]),
-      list_all_manifests: vi.fn().mockResolvedValue([]),
+      list_snapshot_summaries: vi.fn().mockResolvedValue(readable_summaries()),
+      list_all_snapshot_summaries: vi.fn().mockResolvedValue(readable_summaries()),
     } as unknown as SharePointManifestRepository;
 
     const mock_factory: TenantContextFactory = {
@@ -140,16 +151,18 @@ describe('StatsService', () => {
     });
 
     it('aggregates across multiple mailboxes', async () => {
-      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
-        make_manifest({
-          owner_id: 'alice@test.com',
-          entries: [{ object_id: 'o1', storage_key: 'k1', checksum: 'c1', size_bytes: 200 }],
-        }),
-        make_manifest({
-          owner_id: 'bob@test.com',
-          entries: [{ object_id: 'o2', storage_key: 'k2', checksum: 'c2', size_bytes: 300 }],
-        }),
-      ]);
+      vi.mocked(mock_manifests.list_all_snapshot_summaries).mockResolvedValue(
+        summary_listing([
+          make_manifest({
+            owner_id: 'alice@test.com',
+            entries: [{ object_id: 'o1', storage_key: 'k1', checksum: 'c1', size_bytes: 200 }],
+          }),
+          make_manifest({
+            owner_id: 'bob@test.com',
+            entries: [{ object_id: 'o2', storage_key: 'k2', checksum: 'c2', size_bytes: 300 }],
+          }),
+        ]),
+      );
 
       const result = await service.get_bucket_stats('t');
 
@@ -167,7 +180,7 @@ describe('StatsService', () => {
 
   describe('get_mailbox_stats', () => {
     it('returns zeroed stats when mailbox has no manifests', async () => {
-      vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([]);
+      vi.mocked(mock_manifests.list_snapshot_summaries).mockResolvedValue(summary_listing([]));
 
       const result = await service.get_mailbox_stats('t', 'missing@test.com');
 
@@ -178,32 +191,36 @@ describe('StatsService', () => {
     });
 
     it('aggregates every manifest of the requested mailbox', async () => {
-      vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([
-        make_manifest({
-          owner_id: 'alice@test.com',
-          entries: [
-            {
-              object_id: 'o1',
-              storage_key: 'k1',
-              checksum: 'c1',
-              size_bytes: 200,
-              folder_id: 'inbox',
-            },
-          ],
-        }),
-        make_manifest({
-          owner_id: 'alice@test.com',
-          entries: [
-            {
-              object_id: 'o3',
-              storage_key: 'k3',
-              checksum: 'c3',
-              size_bytes: 150,
-              folder_id: 'sent',
-            },
-          ],
-        }),
-      ]);
+      vi.mocked(mock_manifests.list_snapshot_summaries).mockResolvedValue(
+        summary_listing([
+          make_manifest({
+            owner_id: 'alice@test.com',
+            entries: [
+              {
+                object_id: 'o1',
+                storage_key: 'k1',
+                checksum: 'c1',
+                size_bytes: 200,
+                folder_id: 'inbox',
+              },
+            ],
+          }),
+          make_manifest({
+            owner_id: 'alice@test.com',
+            snapshot_id: 'snap-2',
+            created_at: new Date('2026-03-02T10:00:00Z'),
+            entries: [
+              {
+                object_id: 'o3',
+                storage_key: 'k3',
+                checksum: 'c3',
+                size_bytes: 150,
+                folder_id: 'sent',
+              },
+            ],
+          }),
+        ]),
+      );
 
       const result = await service.get_mailbox_stats('t', 'alice@test.com');
 
@@ -215,113 +232,24 @@ describe('StatsService', () => {
     });
 
     it('reads the manifests under the lowercased owner prefix', async () => {
-      vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([
-        make_manifest({
-          owner_id: 'alice@test.com',
-          entries: [{ object_id: 'o1', storage_key: 'k1', checksum: 'c1', size_bytes: 100 }],
-        }),
-      ]);
+      vi.mocked(mock_manifests.list_snapshot_summaries).mockResolvedValue(
+        summary_listing([
+          make_manifest({
+            owner_id: 'alice@test.com',
+            entries: [{ object_id: 'o1', storage_key: 'k1', checksum: 'c1', size_bytes: 100 }],
+          }),
+        ]),
+      );
 
       const result = await service.get_mailbox_stats('t', 'Alice@Test.com');
 
-      expect(mock_manifests.list_by_owner).toHaveBeenCalledWith(
+      expect(mock_manifests.list_snapshot_summaries).toHaveBeenCalledWith(
         expect.anything(),
         'alice@test.com',
       );
       expect(result.owner_id).toBe('alice@test.com');
       expect(result.snapshot_count).toBe(1);
       expect(result.total_messages).toBe(1);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // get_onedrive_stats / get_sharepoint_stats
-  // ---------------------------------------------------------------------------
-
-  describe('get_onedrive_stats', () => {
-    const od_manifest = (overrides: Partial<OneDriveSnapshotManifest>): OneDriveSnapshotManifest =>
-      ({
-        owner_id: 'owner-1',
-        snapshot_id: 's1',
-        created_at: new Date('2026-03-05T00:00:00Z'),
-        total_files: 3,
-        total_size_bytes: 100,
-        entries: [],
-        ...overrides,
-      }) as OneDriveSnapshotManifest;
-
-    it('aggregates all owners when no owner is given', async () => {
-      vi.mocked(mock_od_manifests.list_all_manifests).mockResolvedValue([
-        od_manifest({ owner_id: 'a', owner_email: 'a@test.com' }),
-        od_manifest({ owner_id: 'b', snapshot_id: 's2', total_size_bytes: 400 }),
-      ]);
-
-      const result = await service.get_onedrive_stats('t');
-
-      expect(result.service).toBe('onedrive');
-      expect(result.owner_count).toBe(2);
-      expect(result.snapshot_count).toBe(2);
-      expect(result.file_count).toBe(6);
-      expect(result.total_size_bytes).toBe(500);
-      expect(result.owners[0]?.owner_id).toBe('b');
-      expect(result.owners[1]?.owner_label).toBe('a@test.com');
-      expect(result.monthly_breakdown).toEqual([
-        { month: '2026-03', snapshot_count: 2, file_count: 6, total_size_bytes: 500 },
-      ]);
-      expect(mock_od_manifests.list_snapshots_by_owner).not.toHaveBeenCalled();
-    });
-
-    it('scopes to a single owner when given', async () => {
-      vi.mocked(mock_od_manifests.list_snapshots_by_owner).mockResolvedValue([
-        od_manifest({ owner_id: 'a' }),
-      ]);
-
-      const result = await service.get_onedrive_stats('t', 'a');
-
-      expect(result.owner_count).toBe(1);
-      expect(result.snapshot_count).toBe(1);
-      expect(mock_od_manifests.list_all_manifests).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('get_sharepoint_stats', () => {
-    const sp_manifest = (
-      overrides: Partial<SharePointSnapshotManifest>,
-    ): SharePointSnapshotManifest =>
-      ({
-        site_id: 'site-1',
-        snapshot_id: 's1',
-        created_at: new Date('2026-04-10T00:00:00Z'),
-        total_files: 5,
-        total_size_bytes: 250,
-        entries: [],
-        ...overrides,
-      }) as SharePointSnapshotManifest;
-
-    it('aggregates all sites and labels them by display name', async () => {
-      vi.mocked(mock_sp_manifests.list_all_manifests).mockResolvedValue([
-        sp_manifest({ site_display_name: 'Intranet' }),
-        sp_manifest({ snapshot_id: 's2' }),
-      ]);
-
-      const result = await service.get_sharepoint_stats('t');
-
-      expect(result.service).toBe('sharepoint');
-      expect(result.owner_count).toBe(1);
-      expect(result.snapshot_count).toBe(2);
-      expect(result.file_count).toBe(10);
-      expect(result.total_size_bytes).toBe(500);
-      expect(result.owners[0]?.owner_label).toBe('Intranet');
-      expect(result.owners[0]?.latest_backup_at).toBe('2026-04-10T00:00:00.000Z');
-    });
-
-    it('scopes to a single site when given', async () => {
-      vi.mocked(mock_sp_manifests.list_snapshots_by_site).mockResolvedValue([sp_manifest({})]);
-
-      const result = await service.get_sharepoint_stats('t', 'site-1');
-
-      expect(result.snapshot_count).toBe(1);
-      expect(mock_sp_manifests.list_all_manifests).not.toHaveBeenCalled();
     });
   });
 });

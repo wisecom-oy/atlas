@@ -78,9 +78,10 @@ export interface TenantContextFactory {
   create_readonly(tenant_id: string): Promise<TenantContext>;
 
   /**
-   * Ensures the tenant bucket exists and returns raw storage only (no DEK load).
+   * Opens an existing tenant bucket as raw storage only (no DEK load), without creating it.
    * Use for operations that delete or list ciphertext by key without decrypting,
    * e.g. `atlas delete --purge` when `_meta/dek.enc` is missing or unreadable.
+   * Rejects with `NotFoundError` when the tenant has no bucket.
    */
   create_storage_only(tenant_id: string): Promise<TenantStorageContext>;
 }

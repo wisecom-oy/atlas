@@ -2,13 +2,15 @@ import type { GraphServicePool, ThrottleCoordinator } from '@wisecom/atlas-types
 import { run_with_throttle_coordinator } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 
-/** How a scoped connector finds the mailbox a call targets. */
+/** How a scoped connector finds the owner a call targets. */
 export interface ThrottleScopeOptions {
   /**
-   * Index of the argument that carries the mailbox owner id. Outlook requests are then throttled
-   * per mailbox; omit it for connectors whose requests are not owner-scoped.
+   * Index of the argument that carries the owner id. Outlook requests are then throttled per
+   * mailbox; omit it for connectors whose requests are not owner-scoped.
    */
   readonly owner_argument?: number;
+  /** Reads the owner id from the call's arguments when a fixed index cannot, e.g. in a locator. */
+  readonly owner_of?: (args: readonly unknown[]) => unknown;
 }
 
 /**
@@ -36,7 +38,8 @@ export function scope_connector_throttling<T extends object>(
       if (typeof value !== 'function') return value;
       return (...args: unknown[]) => {
         const owner: unknown =
-          options.owner_argument === undefined ? undefined : args[options.owner_argument];
+          options.owner_of?.(args) ??
+          (options.owner_argument === undefined ? undefined : args[options.owner_argument]);
         const scope =
           typeof owner === 'string' ? { ownerId: normalize_owner_id(owner) } : undefined;
         return run_with_throttle_coordinator(

@@ -1,0 +1,23 @@
+{
+  "name": "@wisecom/atlas-teams-scale-rig",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Scale rig for Teams backup: fake Graph server, seeded tenant, and scenario runner.",
+  "bin": {
+    "teams-scale-rig": "./src/cli.mjs"
+  },
+  "scripts": {
+    "selfcheck": "node src/selfcheck.mjs",
+    "run": "node src/cli.mjs"
+  },
+  "dependencies": {
+    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@wisecom/atlas-core": "workspace:*",
+    "@wisecom/atlas-m365-graph": "workspace:*",
+    "@wisecom/atlas-teams": "workspace:*",
+    "@wisecom/atlas-types": "workspace:*",
+    "inversify": "^8.2.3",
+    "reflect-metadata": "^0.2.2"
+  }
+}

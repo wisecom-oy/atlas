@@ -20,8 +20,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
-    name: Build, Lint & Test
+  changes:
+    name: Detect docs-only changes
+    runs-on: ubuntu-latest
+    outputs:
+      docs-only: ${{ steps.diff.outputs.docs-only }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Compare the entire PR, not just its latest commit. Disabling rename detection
+      # checks both paths, so moving source into docs cannot bypass CI.
+      - name: Classify changed paths
+        id: diff
+        shell: python
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          import os
+          import subprocess
+          from pathlib import PurePosixPath
+
+          diff = subprocess.check_output([
+              "git", "diff", "--name-only", "--no-renames", "-z",
+              f"{os.environ['BASE_SHA']}...{os.environ['HEAD_SHA']}", "--",
+          ])
+          paths = [os.fsdecode(path) for path in diff.split(b"\0") if path]
+
+          def is_documentation(path):
+              parts = PurePosixPath(path).parts
+              return path in {"README.md", "CONTRIBUTING.md"} or (
+                  parts[0] == "docs" and path.endswith(".md")
+                  and not any(part.startswith(".") for part in parts)
+              )
+
+          # Unknown paths and empty diffs run all checks. Config, workflow, lockfile,
+          # Python, and source changes must never enter the documentation fast path.
+          docs_only = bool(paths) and all(is_documentation(path) for path in paths)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"docs-only={str(docs_only).lower()}\n")
+          print(f"Documentation only: {docs_only} ({len(paths)} changed paths)")
+
+  build-test:
+    name: Build & Coverage
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -43,15 +89,6 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      - name: Typecheck
-        run: pnpm run typecheck
-
-      - name: Lint
-        run: pnpm run lint
-
-      - name: Format check
-        run: pnpm run format:check
-
       # One Vitest run over every package's project, so each source file is measured against every
       # test that reaches it. A per-package run undercounts shared code (issue #445).
       - name: Test with coverage
@@ -66,10 +103,47 @@ jobs:
             coverage/
           retention-days: 30
 
+  static:
+    name: Typecheck, Lint & Format
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Type-aware lint resolves workspace declarations from dist. Build locally
+      # instead of waiting for the coverage job or transferring its artifacts.
+      - name: Build
+        run: pnpm run build
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Format check
+        run: pnpm run format:check
+
   e2e-python:
     name: E2E suite lint, format & types
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
-    # Separate job, not a step in `quality`: this needs uv and Python rather than the
+    # Separate job, not a step in `build-test`: this needs uv and Python rather than the
     # Node toolchain, and it runs in parallel instead of lengthening that job. It gates
     # the Python that drives the shipped CLI, held to the same standard as the
     # TypeScript it drives (issue #160).
@@ -124,3 +198,35 @@ jobs:
             exit 1
           fi
           echo "v$VERSION is unreleased -- merging this PR will tag and publish it."
+
+  quality:
+    # Keep the existing check name as the single aggregate result on every PR,
+    # including docs-only changes. Never accept a failed or unexpectedly skipped job.
+    name: Build, Lint & Test
+    needs: [changes, build-test, static, e2e-python, release-guard]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all required jobs
+        shell: python
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          import json
+          import os
+
+          needs = json.loads(os.environ["NEEDS"])
+          docs_only = needs["changes"]["outputs"].get("docs-only")
+          if needs["changes"]["result"] != "success" or docs_only not in {"true", "false"}:
+              raise SystemExit("Change detection did not succeed")
+          expected = "skipped" if docs_only == "true" else "success"
+          for job in ("build-test", "static", "e2e-python"):
+              if needs[job]["result"] != expected:
+                  raise SystemExit(f"{job}: expected {expected}, got {needs[job]['result']}")
+          release = os.environ["HEAD_REF"].startswith(("release/", "hotfix/"))
+          expected_guard = "success" if release else "skipped"
+          if needs["release-guard"]["result"] != expected_guard:
+              raise SystemExit("Release version guard did not complete as expected")
+          print("Documentation-only PR: checks intentionally skipped" if docs_only == "true"
+                else "All checks passed")

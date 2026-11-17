@@ -1,14 +1,30 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { SharePointSite } from '@wisecom/atlas-types';
+import {
+  AuthError,
+  GraphUnavailableError,
+  ThrottledError,
+  type SharePointSite,
+} from '@wisecom/atlas-types';
+import { run_with_abort_signal } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { enumerate_subsite_tree } from '@/adapters/graph-subsite-enumerator';
 
 function site(id: string): SharePointSite {
-  return { site_id: id, site_url: `https://contoso.sharepoint.com/sites/${id}`, display_name: id };
+  return {
+    site_id: id,
+    site_url: `https://contoso.sharepoint.com/sites/${id}`,
+    display_name: id,
+    kind: 'site',
+  };
 }
 
 /** Fake Graph traversal: maps a site id to its direct subsites. */
 function fetcher(tree: Record<string, SharePointSite[]>) {
   return vi.fn(async (site_id: string) => tree[site_id] ?? []);
+}
+
+/** A failed Graph call as the SDK surfaces it: an error carrying the HTTP status. */
+function graph_error(status: number, message: string): Error {
+  return Object.assign(new Error(message), { statusCode: status });
 }
 
 describe('enumerate_subsite_tree', () => {
@@ -17,6 +33,7 @@ describe('enumerate_subsite_tree', () => {
 
     expect(result.sites).toEqual([]);
     expect(result.warnings).toEqual([]);
+    expect(result.errors).toEqual([]);
   });
 
   it('collects subsites at every level', async () => {
@@ -31,9 +48,10 @@ describe('enumerate_subsite_tree', () => {
 
     expect(result.sites.map((s) => s.site_id).sort()).toEqual(['a', 'a1', 'a1x', 'b']);
     expect(result.warnings).toEqual([]);
+    expect(result.errors).toEqual([]);
   });
 
-  it('reports an inaccessible subtree instead of treating it as empty', async () => {
+  it('records a failed listing as an error naming the parent, not as a warning', async () => {
     const fetch_direct = vi.fn(async (site_id: string) => {
       if (site_id === 'root') return [site('locked'), site('open')];
       if (site_id === 'locked') throw new Error('Access is denied');
@@ -43,9 +61,75 @@ describe('enumerate_subsite_tree', () => {
     const result = await enumerate_subsite_tree('root', fetch_direct);
 
     expect(result.sites.map((s) => s.site_id)).toEqual(['locked', 'open']);
-    expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toContain('Access is denied');
-    expect(result.warnings[0]).toContain('NOT covered');
+    expect(result.warnings).toEqual([]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toContain('locked');
+    expect(result.errors[0]).toContain('Access is denied');
+    expect(result.errors[0]).toContain('NOT covered');
+  });
+
+  it('records a 403 on the listing as an error and keeps the run going', async () => {
+    const fetch_direct = vi.fn(async (site_id: string) => {
+      if (site_id === 'root') return [site('locked'), site('open')];
+      if (site_id === 'locked') throw graph_error(403, 'Access denied');
+      if (site_id === 'open') return [site('open-child')];
+      return [];
+    });
+
+    const result = await enumerate_subsite_tree('root', fetch_direct);
+
+    expect(result.sites.map((s) => s.site_id)).toEqual(['locked', 'open', 'open-child']);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toContain('locked');
+    expect(result.errors[0]).toContain('Access denied');
+  });
+
+  // Issue #773: recording it let the library listing spend a second full budget on the same outage.
+  it.each([
+    ['a 429', new ThrottledError('Graph throttled the request after 12 retries')],
+    [
+      'a 5xx',
+      new GraphUnavailableError('Microsoft Graph was unavailable after 12 retries: HTTP 503', {
+        retries: 12,
+        elapsed_ms: 1_400_000,
+      }),
+    ],
+  ])('ends the walk on %s that exhausted its retries instead of recording it', async (_, err) => {
+    const fetch_direct = vi.fn(async (site_id: string) => {
+      if (site_id === 'root') return [site('busy'), site('other')];
+      throw err;
+    });
+
+    await expect(enumerate_subsite_tree('root', fetch_direct)).rejects.toBe(err);
+    // The walk stopped at the first exhausted listing, so `other` was never asked.
+    expect(fetch_direct).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects with an AuthError when Graph refuses the token on the listing', async () => {
+    const fetch_direct = vi.fn(async (site_id: string) => {
+      if (site_id === 'root') return [site('a')];
+      throw graph_error(401, 'InvalidAuthenticationToken');
+    });
+
+    await expect(enumerate_subsite_tree('root', fetch_direct)).rejects.toBeInstanceOf(AuthError);
+  });
+
+  it('rethrows a cancellation raised inside the listing instead of recording it', async () => {
+    const controller = new AbortController();
+    const reason = new Error('operator cancelled');
+    const fetch_direct = vi.fn(async (site_id: string) => {
+      if (site_id === 'root') {
+        controller.abort(reason);
+        throw reason;
+      }
+      return [];
+    });
+
+    const walk = run_with_abort_signal(controller.signal, () =>
+      enumerate_subsite_tree('root', fetch_direct),
+    );
+
+    await expect(walk).rejects.toBe(reason);
   });
 
   it('keeps walking siblings after one subtree fails', async () => {

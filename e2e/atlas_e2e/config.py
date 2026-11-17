@@ -21,7 +21,6 @@ _SECRETS = (
 # MinIO runs in the runner and is thrown away with it, so its credentials are not secrets.
 _DEFAULTS = {
     "E2E_S3_ENDPOINT": "http://127.0.0.1:9000",
-    "E2E_S3_REPLICA_ENDPOINT": "http://127.0.0.1:9002",
     "E2E_S3_ACCESS_KEY": "minioadmin",
     "E2E_S3_SECRET_KEY": "minioadmin",
     "E2E_S3_REGION": "us-east-1",
@@ -46,13 +45,14 @@ class Settings:
     passphrase: str = field(repr=False)
     mailbox: str = field(repr=False)
     s3_endpoint: str
-    s3_replica_endpoint: str
     s3_access_key: str = field(repr=False)
     s3_secret_key: str = field(repr=False)
     s3_region: str
     cli: Path
     onedrive_owner: str = field(repr=False)
     sharepoint_site: str = field(repr=False)
+    team_id: str = field(repr=False, default="")
+    second_mailbox: str = field(repr=False, default="")
 
     @property
     def bucket(self) -> str:
@@ -64,7 +64,7 @@ class Settings:
         """Workloads this run actually backs up, in storage-prefix terms.
 
         A workload whose identifier is unset is skipped by its own suite, so no later suite may
-        demand its objects. Shared so replication, per-workload deletion and the tenant purge all
+        demand its objects. Shared so per-workload deletion and the tenant purge
         assert against the same set instead of each hardcoding one prefix (issue #210).
         """
         workloads = ["outlook"]
@@ -74,15 +74,19 @@ class Settings:
             workloads.append("sharepoint")
         return workloads
 
-    def cli_env(self) -> dict[str, str]:
+    def cli_env(self, *, graph: bool = True) -> dict[str, str]:
         """ATLAS_* variables for a CLI subprocess.
 
-        Env wins over the secure store, so no config file is needed.
+        Env wins over the secure store, so no config file is needed. `graph=False` leaves out the
+        three Graph identity variables, for runs that must take them from a tenant profile.
         """
-        return {
+        identity = {
             "ATLAS_TENANT_ID": self.tenant_id,
             "ATLAS_CLIENT_ID": self.client_id,
             "ATLAS_CLIENT_SECRET": self.client_secret,
+        }
+        return {
+            **(identity if graph else {}),
             "ATLAS_ENCRYPTION_PASSPHRASE": self.passphrase,
             "ATLAS_S3_ENDPOINT": self.s3_endpoint,
             "ATLAS_S3_ACCESS_KEY": self.s3_access_key,
@@ -114,7 +118,6 @@ def load() -> Settings:
         passphrase=os.environ["E2E_ENCRYPTION_PASSPHRASE"],
         mailbox=os.environ["E2E_MAILBOX"],
         s3_endpoint=value("E2E_S3_ENDPOINT"),
-        s3_replica_endpoint=value("E2E_S3_REPLICA_ENDPOINT"),
         s3_access_key=value("E2E_S3_ACCESS_KEY"),
         s3_secret_key=value("E2E_S3_SECRET_KEY"),
         s3_region=value("E2E_S3_REGION"),
@@ -122,4 +125,9 @@ def load() -> Settings:
         # Phase 2 workloads: absent until their fixtures exist, so the Outlook suite can run alone.
         onedrive_owner=os.environ.get("E2E_ONEDRIVE_OWNER", ""),
         sharepoint_site=os.environ.get("E2E_SHAREPOINT_SITE", ""),
+        # Teams channel messages cannot be seeded with application permissions, so the suite backs
+        # up a team that already holds some. Unset skips the Teams suite.
+        team_id=os.environ.get("E2E_TEAM_ID", ""),
+        # A second licensed mailbox, for the cross-mailbox restore. Unset skips that test.
+        second_mailbox=os.environ.get("E2E_SECOND_MAILBOX", ""),
     )

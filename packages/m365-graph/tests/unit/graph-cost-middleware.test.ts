@@ -144,10 +144,14 @@ describe('GraphCostMiddleware', () => {
     ['https://graph.microsoft.com/v1.0/users/u/mailFolders', 'outlook'],
     ['https://graph.microsoft.com/v1.0/users/u/messages/1/attachments', 'outlook'],
     ['https://graph.microsoft.com/v1.0/users/u/mailboxSettings', 'outlook'],
+    ['https://graph.microsoft.com/v1.0/users/u/contactFolders/f/contacts', 'outlook'],
+    ['https://graph.microsoft.com/v1.0/users/u/calendars/c/events/delta', 'outlook'],
     ['https://graph.microsoft.com/v1.0/sites/s/drives', 'sharepoint_onedrive'],
     ['https://graph.microsoft.com/v1.0/drives/d/root/delta', 'sharepoint_onedrive'],
     ['https://graph.microsoft.com/v1.0/users/u/drive/root/delta', 'sharepoint_onedrive'],
     ['https://graph.microsoft.com/v1.0/users', 'identity'],
+    ['https://graph.microsoft.com/v1.0/teams/t/channels/c/messages/delta', 'teams'],
+    ['https://graph.microsoft.com/beta/teams/t/channels/c/messages', 'teams'],
   ])('attributes an unlabelled %s to the %s pool', async (url, pool) => {
     const { middleware } = make_chain();
 
@@ -211,7 +215,7 @@ describe('GraphCostMiddleware', () => {
 
     const [, cost] = await run_with_cost_tracking(() =>
       run_with_graph_operation(
-        { pool: 'outlook', request_type: 'fetch_reaction_properties' },
+        { pool: 'outlook', request_type: 'fetch_extended_properties' },
         async () => {
           await middleware.execute(batch_of(20));
           await middleware.execute(batch_of(20));
@@ -219,7 +223,7 @@ describe('GraphCostMiddleware', () => {
       ),
     );
 
-    expect(cost.requests_by_type['fetch_reaction_properties']).toBe(40);
+    expect(cost.requests_by_type['fetch_extended_properties']).toBe(40);
     expect(cost.by_service.outlook?.requests).toBe(40);
     expect(cost.by_service.outlook?.resource_units).toBe(40);
   });

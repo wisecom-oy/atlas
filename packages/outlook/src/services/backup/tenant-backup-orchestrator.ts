@@ -22,6 +22,7 @@ import type {
 import {
   MAILBOX_DISCOVERY_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
+  NotFoundError,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { BACKUP_USE_CASE_TOKEN } from '@wisecom/atlas-types';
@@ -149,8 +150,7 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
     excluded: TenantMailbox[],
   ): Promise<MailboxBackupOutcome[]> {
     if (excluded.length === 0) return [];
-    const ctx = await this._tenant_factory.create_storage_only(tenant_id);
-    const with_history = new Set(await this._manifests.list_owner_ids(ctx));
+    const with_history = new Set(await this.list_backed_up_owner_ids(tenant_id));
     return excluded
       .filter(
         (m) =>
@@ -162,6 +162,18 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
         logger.error(`Mailbox ${m.mail} ${error}`);
         return { owner_id: m.user_id, owner_email: m.mail, error };
       });
+  }
+
+  /** Owner IDs with stored manifests; none when the tenant has no bucket yet. */
+  private async list_backed_up_owner_ids(tenant_id: string): Promise<string[]> {
+    try {
+      return await this._manifests.list_owner_ids(
+        await this._tenant_factory.create_storage_only(tenant_id),
+      );
+    } catch (err) {
+      if (err instanceof NotFoundError) return [];
+      throw err;
+    }
   }
 }
 

@@ -1,6 +1,7 @@
 import { inspect } from 'node:util';
 import { logger } from '@wisecom/atlas-core';
-import { AtlasError, type AtlasErrorCode } from '@wisecom/atlas-types';
+import { AtlasError, UnreadableObjectsError, type AtlasErrorCode } from '@wisecom/atlas-types';
+import { log_quarantine_hint } from '@/command-unreadable-objects';
 
 const ATLAS_EXIT_CODES = {
   ATLAS_AUTH_DENIED: 4,
@@ -14,6 +15,27 @@ const ATLAS_EXIT_CODES = {
   // script should stop re-running it and reach for `save` instead (issue #411).
   ATLAS_CONTENT_UNREADABLE: 9,
   ATLAS_CONFIG_INVALID: 6,
+  // Written by a newer Atlas: rerunning cannot help, upgrading does. Same category as unreadable.
+  ATLAS_FORMAT_UNSUPPORTED: 9,
+  // Exit 10 belonged to ATLAS_KEY_CONFLICT, which only `rehydrate` raised and which went with it
+  // (#769). It stays unassigned: the codes after it keep their numbers, and a script that branched
+  // on 10 never matches a different failure.
+  // Newer snapshots depend on the one asked for. Rerunning is refused the same way until they are
+  // deleted first, so it is an operator decision, not a retry (issue #704).
+  ATLAS_SNAPSHOT_NOT_NEWEST: 11,
+  // Atlas refused to store a metadata object it built wrongly. Nothing was written, so the run
+  // failed like any other and a rerun starts from the previous cursor: the general failure code.
+  ATLAS_WRITE_REFUSED: 1,
+  // Another operation holds the mailbox, drive owner, site or team. Nothing was committed, and a
+  // rerun succeeds once that operation ends or its lease expires, so a scheduler can tell "try
+  // again later" from a failure (issue #623).
+  ATLAS_OWNER_BUSY: 12,
+  // Graph refused one site, drive or owner, not for a missing grant. Rerunning returns the same answer,
+  // so it is an operator decision like a missing grant, not a retry (issue #772).
+  ATLAS_ACCESS_REFUSED: 4,
+  // Graph kept failing with 5xx, network errors or timeouts through the whole retry budget: the
+  // same transient category as an exhausted throttle (issue #773).
+  ATLAS_GRAPH_UNAVAILABLE: 3,
 } satisfies Record<AtlasErrorCode, number>;
 
 const NETWORK_CODES: Readonly<Record<string, true>> = {
@@ -121,6 +143,7 @@ function log_transport_details(error: ErrorFields): void {
 }
 
 function log_remediation(error: AtlasError): void {
+  if (error instanceof UnreadableObjectsError) log_quarantine_hint(error.unreadable_keys);
   if (error.code === 'ATLAS_WRONG_PASSPHRASE') {
     logger.error(
       'Use the original encryption passphrase for this tenant. Do not replace or pad it, or ' +

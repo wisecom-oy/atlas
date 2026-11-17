@@ -6,7 +6,7 @@ import {
   resolve_sync_mode,
 } from '@/services/backup/snapshot-manifest-builder';
 
-/** Builds a zero-work result when backup is cancelled before discovery. */
+/** Builds a zero-work result for a backup cancelled before it read any folder; nothing is stored. */
 export function build_interrupted_result(
   tenant_id: string,
   owner_id: string,
@@ -31,6 +31,7 @@ export function build_interrupted_result(
     ),
     mode: resolve_sync_mode(options.force_full, {}),
     interrupted: true,
+    snapshot_stored: false,
     summary: {
       stored: 0,
       deduplicated: 0,

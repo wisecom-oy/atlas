@@ -1,24 +1,32 @@
+import { run_with_owner_lease_when_writable } from '@wisecom/atlas-core/services/lease/run-with-owner-lease';
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
-import type { MailboxConnector } from '@wisecom/atlas-types';
+import type { MailboxConnector, OwnerLeasePort } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
 import {
-  build_folder_map,
-  create_restore_root,
+  open_restore_root,
+  parse_restore_destination,
+} from '@/services/restore/restore-destination';
+import {
   group_entries_by_folder,
-  filter_entries_by_folder_name,
   count_unique_folders,
 } from '@/services/restore/folder-restore-planner';
-import { apply_recoverable_items_policy } from '@/services/restore/recoverable-items-filter';
-import { filter_manifests_by_date, merge_snapshot_entries } from '@wisecom/atlas-core';
-import { resolve_snapshot_entries } from '@/services/shared/snapshot-entry-resolver';
+import { resolve_folder_paths } from '@/services/shared/recorded-folder-catalog';
+import { resolve_mailbox_entries } from '@/services/shared/mailbox-entry-resolver';
 import {
-  restore_single_message,
-  backfill_missing_folder_ids,
-} from '@/services/restore/restore-execution-orchestrator';
+  refuse_blank_message_ref,
+  refuse_message_ref_in_mailbox_mode,
+} from '@/services/shared/message-ref-guard';
+import { resolve_snapshot_entries } from '@/services/shared/snapshot-entry-resolver';
+import { backfill_missing_folder_ids } from '@/services/restore/restore-execution-orchestrator';
+import {
+  empty_restore_result,
+  restore_message_run,
+} from '@/services/restore/single-message-restore-run';
 import { execute_restore_loop } from '@/services/restore/restore-loop-executor';
 import { NoopTransferProgressReporter } from '@/services/shared/noop-transfer-progress-reporter';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -29,10 +37,10 @@ import {
   MANIFEST_REPOSITORY_TOKEN,
   MAILBOX_CONNECTOR_TOKEN,
   RESTORE_CONNECTOR_TOKEN,
+  OWNER_LEASE_TOKEN,
 } from '@wisecom/atlas-types';
 import {
   begin_operation_progress,
-  emit_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 
@@ -43,6 +51,7 @@ export class RestoreService implements RestoreUseCase {
     @inject(MANIFEST_REPOSITORY_TOKEN) private readonly _manifests: ManifestRepository,
     @inject(MAILBOX_CONNECTOR_TOKEN) private readonly _connector: MailboxConnector,
     @inject(RESTORE_CONNECTOR_TOKEN) private readonly _restore_connector: RestoreConnector,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
   ) {}
 
   /**
@@ -54,12 +63,34 @@ export class RestoreService implements RestoreUseCase {
     snapshot_id: string,
     options: RestoreOptions = {},
   ): Promise<RestoreResult> {
+    // Under the run's abort signal, so Ctrl+C also ends a Graph retry or throttle wait (#682),
+    // including the destination folder lookups and creates.
+    return run_cancellable(
+      options,
+      () => this.restore_snapshot_entries(tenant_id, snapshot_id, options),
+      () => this.finish_interrupted_result(snapshot_id, options),
+    );
+  }
+
+  /** Restores one snapshot, or the single message `message_ref` names. */
+  private async restore_snapshot_entries(
+    tenant_id: string,
+    snapshot_id: string,
+    options: RestoreOptions,
+  ): Promise<RestoreResult> {
+    // A blank selector or a malformed destination is refused before any storage or Graph call.
+    refuse_blank_message_ref(options.message_ref);
+    parse_restore_destination(options.destination);
     if (begin_operation_progress(options, 'restore', 'outlook')) {
       return this.finish_empty_result(snapshot_id, options);
     }
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const { owner_id: source_mailbox, entries } = await resolve_snapshot_entries(
+      const {
+        owner_id: source_mailbox,
+        entries,
+        manifests,
+      } = await resolve_snapshot_entries(
         ctx,
         this._manifests,
         this._connector,
@@ -67,61 +98,71 @@ export class RestoreService implements RestoreUseCase {
         snapshot_id,
         options,
       );
-      const target_mailbox = options.target_mailbox?.toLowerCase() ?? source_mailbox;
-
-      await assert_mailbox_exists(this._connector, tenant_id, target_mailbox);
-
-      if (entries.length === 0) {
-        logger.warn('No entries to restore');
-        return this.finish_empty_result(snapshot_id, options);
-      }
-
-      if (options.message_ref) {
-        if (options.should_interrupt?.() === true) {
-          const result = this.empty_result(snapshot_id, true);
-          emit_operation_progress(options, {
-            operation: 'restore',
-            workload: 'outlook',
-            phase: 'interrupted',
-            processed: 0,
-            total: 1,
-          });
-          return result;
-        }
-        emit_operation_progress(options, {
-          operation: 'restore',
-          workload: 'outlook',
-          phase: 'processing',
-          processed: 0,
-          total: 1,
-          current: entries[0]!.subject ?? entries[0]!.object_id,
-        });
-        const result = await restore_single_message(
-          ctx,
-          this._connector,
-          this._restore_connector,
+      const scope = {
+        workload: 'outlook',
+        owner_id: source_mailbox,
+        operation: 'restore',
+      } as const;
+      return await run_with_owner_lease_when_writable(this._leases, ctx, scope, (leased) =>
+        this.restore_resolved_snapshot(
+          leased,
           tenant_id,
-          source_mailbox,
-          target_mailbox,
           snapshot_id,
-          entries[0]!,
-        );
-        const interrupted = finish_operation_progress(options, 'restore', 'outlook', 1, 1);
-        return { ...result, interrupted };
-      }
-
-      return this.restore_batch(
-        ctx,
-        tenant_id,
-        source_mailbox,
-        target_mailbox,
-        snapshot_id,
-        entries,
-        options,
+          source_mailbox,
+          entries,
+          manifests,
+          options,
+        ),
       );
     } finally {
       ctx.destroy();
     }
+  }
+
+  /** Restores a resolved snapshot while holding the source mailbox's lease. */
+  private async restore_resolved_snapshot(
+    ctx: TenantContext,
+    tenant_id: string,
+    snapshot_id: string,
+    source_mailbox: string,
+    entries: ManifestEntry[],
+    manifests: readonly Manifest[],
+    options: RestoreOptions,
+  ): Promise<RestoreResult> {
+    const target_mailbox = options.target_mailbox?.toLowerCase() ?? source_mailbox;
+
+    await assert_mailbox_exists(this._connector, tenant_id, target_mailbox);
+
+    if (entries.length === 0) {
+      logger.warn('No entries to restore');
+      return this.finish_empty_result(snapshot_id, options);
+    }
+
+    if (options.message_ref) {
+      return restore_message_run({
+        ctx,
+        connector: this._connector,
+        restore_connector: this._restore_connector,
+        tenant_id,
+        source_mailbox,
+        target_mailbox,
+        snapshot_id,
+        entry: entries[0]!,
+        manifests,
+        options,
+      });
+    }
+
+    return this.restore_batch(
+      ctx,
+      tenant_id,
+      source_mailbox,
+      target_mailbox,
+      snapshot_id,
+      entries,
+      manifests,
+      options,
+    );
   }
 
   /**
@@ -133,69 +174,81 @@ export class RestoreService implements RestoreUseCase {
     owner_id: string,
     options: RestoreOptions = {},
   ): Promise<RestoreResult> {
+    return run_cancellable(
+      options,
+      () => this.restore_mailbox_entries(tenant_id, owner_id, options),
+      () => this.finish_interrupted_result('mailbox', options),
+    );
+  }
+
+  /** Restores the merged, filtered entries of every snapshot of a mailbox. */
+  private async restore_mailbox_entries(
+    tenant_id: string,
+    owner_id: string,
+    options: RestoreOptions,
+  ): Promise<RestoreResult> {
     owner_id = normalize_owner_id(owner_id);
+    refuse_message_ref_in_mailbox_mode(options.message_ref);
+    parse_restore_destination(options.destination);
     if (begin_operation_progress(options, 'restore', 'outlook')) {
       return this.finish_empty_result('mailbox', options);
     }
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const tenant_ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const target = options.target_mailbox?.toLowerCase() ?? owner_id;
-
-      await assert_mailbox_exists(this._connector, tenant_id, target);
-
-      const manifests = await this.load_mailbox_manifests(ctx, owner_id, options);
-      if (manifests.length === 0) {
-        logger.warn('No snapshots found for this mailbox in the given date range');
-        return this.finish_empty_result('mailbox', options);
-      }
-
-      const entries = merge_snapshot_entries(manifests);
-
-      if (options.folder_name) {
-        await backfill_missing_folder_ids(ctx, entries);
-      }
-
-      const filtered = await this.apply_entry_filters(entries, owner_id, tenant_id, options);
-
-      if (filtered.length === 0) {
-        logger.warn('No entries to restore after filtering');
-        return this.finish_empty_result('mailbox', options);
-      }
-
-      logger.info(`Aggregated ${manifests.length} snapshots -- ${filtered.length} unique messages`);
-
-      return this.restore_batch(ctx, tenant_id, owner_id, target, 'mailbox', filtered, options);
+      const scope = { workload: 'outlook', owner_id, operation: 'restore' } as const;
+      return await run_with_owner_lease_when_writable(this._leases, tenant_ctx, scope, (ctx) =>
+        this.restore_leased_mailbox(ctx, tenant_id, owner_id, options),
+      );
     } finally {
-      ctx.destroy();
+      tenant_ctx.destroy();
     }
   }
 
-  /** Loads all manifests for a mailbox, sorted newest-first and date-filtered. */
-  private async load_mailbox_manifests(
+  /** Restores a mailbox's merged entries while holding its lease. */
+  private async restore_leased_mailbox(
     ctx: TenantContext,
-    owner_id: string,
-    options: RestoreOptions,
-  ): Promise<Manifest[]> {
-    const for_mailbox = (await this._manifests.list_by_owner(ctx, owner_id)).sort(
-      (a, b) => b.created_at.getTime() - a.created_at.getTime(),
-    );
-
-    return filter_manifests_by_date(for_mailbox, options.start_date, options.end_date);
-  }
-
-  /** Applies folder filter to a set of entries. */
-  private async apply_entry_filters(
-    entries: ManifestEntry[],
-    owner_id: string,
     tenant_id: string,
+    owner_id: string,
     options: RestoreOptions,
-  ): Promise<ManifestEntry[]> {
-    const allowed = apply_recoverable_items_policy(entries, options.include_recoverable_items);
-    if (options.folder_name) {
-      const folder_map = await build_folder_map(this._connector, tenant_id, owner_id);
-      return filter_entries_by_folder_name(allowed, options.folder_name, folder_map);
+  ): Promise<RestoreResult> {
+    const target = options.target_mailbox?.toLowerCase() ?? owner_id;
+
+    await assert_mailbox_exists(this._connector, tenant_id, target);
+
+    const {
+      manifests,
+      entries: filtered,
+      folder_manifests,
+    } = await resolve_mailbox_entries(
+      ctx,
+      this._manifests,
+      this._connector,
+      tenant_id,
+      owner_id,
+      options,
+    );
+    if (manifests.length === 0) {
+      logger.warn('No snapshots found for this mailbox in the given date range');
+      return this.finish_empty_result('mailbox', options);
     }
-    return allowed;
+
+    if (filtered.length === 0) {
+      logger.warn('No entries to restore after filtering');
+      return this.finish_empty_result('mailbox', options);
+    }
+
+    logger.info(`Aggregated ${manifests.length} snapshots -- ${filtered.length} unique messages`);
+
+    return this.restore_batch(
+      ctx,
+      tenant_id,
+      owner_id,
+      target,
+      'mailbox',
+      filtered,
+      folder_manifests,
+      options,
+    );
   }
 
   /** Restores a batch of messages with dashboard progress. */
@@ -206,18 +259,28 @@ export class RestoreService implements RestoreUseCase {
     target_mailbox: string,
     snapshot_id: string,
     entries: ManifestEntry[],
+    manifests: readonly Manifest[],
     options: RestoreOptions,
   ): Promise<RestoreResult> {
-    const folder_map = await build_folder_map(this._connector, tenant_id, source_mailbox);
+    // Backfilled first, so the folder map knows every folder it must name.
     await backfill_missing_folder_ids(ctx, entries);
+    const folder_map = await resolve_folder_paths(
+      { connector: this._connector, tenant_id, owner_id: source_mailbox, manifests },
+      entries,
+    );
 
     const groups = group_entries_by_folder(entries);
-    const root = await create_restore_root(this._restore_connector, tenant_id, target_mailbox);
+    const root = await open_restore_root(
+      this._restore_connector,
+      tenant_id,
+      target_mailbox,
+      options.destination,
+    );
     const created_folders = new Map<string, string>();
 
     logger.info(
       `Restoring ${entries.length} messages across ` +
-        `${count_unique_folders(entries)} folders into ${root.display_name}`,
+        `${count_unique_folders(entries)} folders into ${root.folder.display_name}`,
     );
 
     const folder_summaries = [...groups.entries()].map(([fid, items]) => ({
@@ -229,11 +292,11 @@ export class RestoreService implements RestoreUseCase {
 
     return execute_restore_loop(
       ctx,
-      this._restore_connector,
+      root.connector,
       tenant_id,
       target_mailbox,
       snapshot_id,
-      root,
+      root.folder,
       groups,
       folder_map,
       created_folders,
@@ -244,21 +307,12 @@ export class RestoreService implements RestoreUseCase {
 
   private finish_empty_result(snapshot_id: string, options: RestoreOptions): RestoreResult {
     const interrupted = finish_operation_progress(options, 'restore', 'outlook', 0, 0);
-    return this.empty_result(snapshot_id, interrupted);
+    return empty_restore_result(snapshot_id, interrupted);
   }
 
-  private empty_result(snapshot_id: string, interrupted = false): RestoreResult {
-    return {
-      snapshot_id,
-      restored_count: 0,
-      attachment_count: 0,
-      error_count: 0,
-      attachment_error_count: 0,
-      errors: [],
-      verification_warnings: [],
-      messages: [],
-      restore_folder_name: '',
-      interrupted,
-    };
+  /** The result of a run cancelled before it could build its own: nothing was restored. */
+  private finish_interrupted_result(snapshot_id: string, options: RestoreOptions): RestoreResult {
+    finish_operation_progress(options, 'restore', 'outlook', 0, 0, true);
+    return empty_restore_result(snapshot_id, true);
   }
 }

@@ -16,6 +16,7 @@ docs/.vitepress/cache/
 .turbo/
 .perf-output/
 .graph-tap/
+.outagesoft-365/
 tools/perf/dist/
 
 # e2e (Python) artifacts

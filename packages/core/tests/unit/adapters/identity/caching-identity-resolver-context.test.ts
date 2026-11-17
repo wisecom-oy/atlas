@@ -41,7 +41,10 @@ function build_resolver(overrides: { registry_repo?: Partial<IdentityRegistryRep
     ...overrides.registry_repo,
   };
   const { factory, destroys } = make_counting_ctx_factory();
-  return { resolver: new CachingIdentityResolver(graph, registry_repo, factory), destroys };
+  const resolver = new CachingIdentityResolver(graph, registry_repo, factory, {
+    tenant_id: TENANT,
+  });
+  return { resolver, destroys };
 }
 
 describe('CachingIdentityResolver context lifecycle (issue #436)', () => {
@@ -60,7 +63,8 @@ describe('CachingIdentityResolver context lifecycle (issue #436)', () => {
       registry_repo: { update: vi.fn().mockRejectedValue(new Error('update failed')) },
     });
 
-    await expect(resolver.resolve_user(TENANT, IDENTITY.email)).rejects.toThrow('update failed');
+    // A failed registry write no longer fails the lookup (issue #768), but still frees its context.
+    await expect(resolver.resolve_user(TENANT, IDENTITY.email)).resolves.toEqual(IDENTITY);
 
     expect(destroys).toHaveLength(2);
     for (const destroy of destroys) expect(destroy).toHaveBeenCalledTimes(1);

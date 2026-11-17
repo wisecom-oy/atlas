@@ -3,6 +3,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { render } from 'ink-testing-library';
 import { BackupProgressStore } from '@/ui/dashboards/backup-progress-store';
 import { BackupProgressView } from '@/ui/dashboards/backup-progress';
+import { OUTLOOK_INTERRUPT_MESSAGE } from '@/adapters/backup-operation.adapter';
 
 const FOLDERS = [
   { name: 'Inbox', total_items: 100 },
@@ -66,13 +67,24 @@ describe('BackupProgressView', () => {
     const store = new BackupProgressStore(FOLDERS);
     const { lastFrame } = mount(store);
     store.mark_active(0);
-    store.set_status('[!] Stopping -- finishing page fetch');
+    store.set_status('Stopping; finishing page fetch');
     store.mark_all_pending_interrupted();
     await sleep(0);
     const frame = lastFrame()!;
     expect(frame).toMatch(/\[~~\] Inbox\s+-- interrupted/);
     expect(frame).toMatch(/\[~~\] Drafts\s+-- interrupted/);
     expect(frame).toContain('[!] Stopping');
+  });
+
+  it('marks the Outlook stopping line as a warning exactly once (issue #692)', async () => {
+    const store = new BackupProgressStore(FOLDERS);
+    const { lastFrame } = mount(store);
+    store.set_status(OUTLOOK_INTERRUPT_MESSAGE);
+    await sleep(0);
+    const status_line = lastFrame()!
+      .split('\n')
+      .find((line) => line.includes('Stopping'));
+    expect(status_line).toBe(`[!] ${OUTLOOK_INTERRUPT_MESSAGE}`);
   });
 
   it('renders folder errors', async () => {

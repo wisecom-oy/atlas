@@ -9,19 +9,21 @@ import type {
   MessageAttachment,
   DeltaSyncResult,
   DeltaPageCallback,
-  ExtendedProperty,
+  MessageExtendedProperties,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { map_attachments, resolve_downloaded_attachment } from '@/adapters/graph-attachment-mapper';
 import {
+  describe_graph_error,
   GRAPH_CLIENT_TOKEN,
   is_invalid_delta_error,
   rethrow_if_access_denied,
   rethrow_if_mailbox_not_licensed,
+  rethrow_if_retry_exhausted,
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
 import { fetch_message_mime } from '@/adapters/graph-message-mime-fetcher';
-import { fetch_message_reaction_properties } from '@/adapters/graph-message-reaction-fetcher';
+import { fetch_message_extended_properties } from '@/adapters/graph-message-extended-property-fetcher';
 import { fetch_attachment_content } from '@/adapters/graph-attachment-content-fetcher';
 import {
   extract_user_ids,
@@ -31,17 +33,15 @@ import {
   type GraphAttachmentRecord,
 } from '@/adapters/graph-mailbox-response-mappers';
 import { create_folder_reader, list_mail_folder_tree } from '@/adapters/graph-mail-folder-listing';
-import type { GraphPageResponse, GraphDeltaMessage } from '@/adapters/graph-delta-message-mapper';
+import type { GraphDeltaMessage } from '@/adapters/graph-delta-message-mapper';
+import { graph_message_to_mail_message } from '@/adapters/graph-delta-message-mapper';
 import {
-  DELTA_SELECT_FIELDS,
-  extract_page_messages,
-  graph_message_to_mail_message,
-} from '@/adapters/graph-delta-message-mapper';
-
-// Graph's default message/folder IDs change on every folder move; immutable
-// IDs do not. Must be sent on EVERY request that produces or consumes an ID —
-// mixing formats corrupts correlation (issue #48).
-const IMMUTABLE_ID_PREFER = 'IdType="ImmutableId"';
+  IMMUTABLE_ID_PREFER,
+  create_delta_handover,
+  fetch_mail_continuation_page,
+  run_mail_delta_pass,
+} from '@/adapters/graph-mail-delta-sync';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 @injectable()
 export class GraphMailboxConnector implements MailboxConnector {
@@ -74,7 +74,11 @@ export class GraphMailboxConnector implements MailboxConnector {
     }
   }
 
-  /** Resolves userPurpose from mailboxSettings; returns undefined on any error (metadata must never fail a backup). */
+  /**
+   * Resolves userPurpose from mailboxSettings; undefined when the lookup fails, since metadata must
+   * never fail a backup. An exhausted retry budget is rethrown: the folder listing that follows
+   * would otherwise spend a second budget on the same outage (issue #773).
+   */
   async get_mailbox_purpose(
     _tenant_id: string,
     owner_id: string,
@@ -86,8 +90,9 @@ export class GraphMailboxConnector implements MailboxConnector {
         ),
       );
     } catch (err) {
-      // ponytail: swallow-all — 403/404 on some shared/resource mailboxes is a known Graph quirk
-      logger.debug(`mailboxSettings lookup failed for ${owner_id}: ${(err as Error).message}`);
+      rethrow_if_retry_exhausted(err);
+      // 403/404 on some shared/resource mailboxes is a known Graph quirk.
+      logger.debug(`mailboxSettings lookup failed for ${owner_id}: ${describe_graph_error(err)}`);
       return undefined;
     }
   }
@@ -122,7 +127,9 @@ export class GraphMailboxConnector implements MailboxConnector {
   /**
    * Fetches messages changed since the previous delta link for one folder.
    * If prev_delta_link is provided, resumes from that point.
-   * Falls back to full enumeration when Graph reports an invalid delta state.
+   * Falls back to full enumeration when Graph reports an invalid delta state, even mid-paging:
+   * messages already handed to on_page are not handed over again, and removals already read are
+   * kept (issue #642).
    */
   async fetch_delta(
     _tenant_id: string,
@@ -137,23 +144,28 @@ export class GraphMailboxConnector implements MailboxConnector {
         ? `fetch_delta: resuming from saved delta link`
         : `fetch_delta: starting initial full sync`,
     );
-    const ps = page_size ?? 10;
+    const pass = { owner_id, folder_id, page_size: page_size ?? 10, on_page };
+    const handover = create_delta_handover();
 
     try {
-      return await this.execute_delta_sync(
-        owner_id,
-        folder_id,
-        prev_delta_link,
-        false,
-        on_page,
-        ps,
+      return await run_mail_delta_pass(
+        this._client,
+        { ...pass, prev_delta_link, delta_reset: false },
+        handover,
       );
     } catch (err) {
       rethrow_if_mailbox_not_licensed(err);
       rethrow_if_access_denied(err);
       if (is_invalid_delta_error(err)) {
-        logger.debug('fetch_delta: invalid delta token, falling back to full sync');
-        return await this.execute_delta_sync(owner_id, folder_id, undefined, true, on_page, ps);
+        logger.debug(
+          `fetch_delta: invalid delta token, falling back to full sync ` +
+            `(${handover.handed_over_ids.size} message(s) already handed over)`,
+        );
+        return await run_mail_delta_pass(
+          this._client,
+          { ...pass, prev_delta_link: undefined, delta_reset: true },
+          handover,
+        );
       }
       throw err;
     }
@@ -191,13 +203,13 @@ export class GraphMailboxConnector implements MailboxConnector {
     return fetch_message_mime(this._client, owner_id, message_id, IMMUTABLE_ID_PREFER);
   }
 
-  /** Reads reaction properties for a page of messages, 20 per `$batch` (issues #481, #513). */
-  async fetch_reaction_properties(
+  /** Reads reaction and pin properties for a page of messages, 20 per `$batch` (issue #579). */
+  async fetch_extended_properties(
     _tenant_id: string,
     owner_id: string,
     message_ids: readonly string[],
-  ): Promise<Map<string, ExtendedProperty[]>> {
-    return fetch_message_reaction_properties(
+  ): Promise<Map<string, MessageExtendedProperties>> {
+    return fetch_message_extended_properties(
       this._client,
       owner_id,
       message_ids,
@@ -246,132 +258,12 @@ export class GraphMailboxConnector implements MailboxConnector {
   }
 
   // ---------------------------------------------------------------------------
-  // Delta sync internals
-  // ---------------------------------------------------------------------------
-
-  /** Returns the delta endpoint path for a mailbox folder (no query params). */
-  private delta_path(owner_id: string, folder_id: string): string {
-    return `/users/${owner_id}/mailFolders/${folder_id}/messages/delta`;
-  }
-
-  /**
-   * Fetches the first page of an initial delta request using the SDK fluent API.
-   * Uses Prefer: odata.maxpagesize to request larger pages and reduce round-trips.
-   * The server may return fewer items; $top is intentionally avoided as it caps
-   * total results across pages for delta queries.
-   */
-  private async fetch_initial_delta_page(
-    owner_id: string,
-    folder_id: string,
-    page_size: number,
-  ): Promise<GraphPageResponse> {
-    return with_graph_retry(
-      () =>
-        this._client
-          .api(this.delta_path(owner_id, folder_id))
-          .header('Prefer', `odata.maxpagesize=${page_size}, ${IMMUTABLE_ID_PREFER}`)
-          .select(DELTA_SELECT_FIELDS)
-          .get() as Promise<GraphPageResponse>,
-    );
-  }
-
-  /**
-   * Fetches a page using a full @odata.nextLink or @odata.deltaLink URL.
-   * The Prefer headers are re-sent on each request (page size + immutable IDs);
-   * Graph requires the IdType preference on every request that handles IDs.
-   */
-  private async fetch_continuation_page(
-    full_url: string,
-    page_size: number,
-  ): Promise<GraphPageResponse> {
-    return with_graph_retry(
-      () =>
-        this._client
-          .api(full_url)
-          .header('Prefer', `odata.maxpagesize=${page_size}, ${IMMUTABLE_ID_PREFER}`)
-          .get() as Promise<GraphPageResponse>,
-    );
-  }
-
-  /**
-   * Runs a complete delta sync for a folder. Pages through all results,
-   * directly converting each message to a MailMessage (body included in
-   * the delta response, so no per-message fetches are needed).
-   */
-  private async execute_delta_sync(
-    owner_id: string,
-    folder_id: string,
-    prev_delta_link: string | undefined,
-    delta_reset: boolean,
-    on_page?: DeltaPageCallback,
-    page_size = 10,
-  ): Promise<DeltaSyncResult> {
-    const is_initial = !prev_delta_link;
-    const messages: MailMessage[] = [];
-    const removed_ids: string[] = [];
-    let delta_link = '';
-    let page_count = 0;
-    let total_streamed = 0;
-
-    let page: GraphPageResponse = is_initial
-      ? await this.fetch_initial_delta_page(owner_id, folder_id, page_size)
-      : await this.fetch_continuation_page(prev_delta_link, page_size);
-
-    while (true) {
-      page_count++;
-      const items = (page.value ?? []) as GraphDeltaMessage[];
-      const page_messages = extract_page_messages(items, removed_ids);
-
-      const callback_result = await this.handle_page_callback(
-        on_page,
-        page_count,
-        total_streamed,
-        page_messages,
-        messages,
-      );
-      total_streamed = callback_result.new_total_streamed;
-
-      if (page['@odata.deltaLink']) {
-        delta_link = page['@odata.deltaLink'];
-      }
-
-      if (callback_result.should_continue === false) break;
-
-      const next_url = page['@odata.nextLink'];
-      if (!next_url) break;
-
-      page = await this.fetch_continuation_page(next_url, page_size);
-    }
-
-    return { messages, removed_ids, delta_link, delta_reset };
-  }
-
-  /** Invokes the page callback or accumulates messages; returns continuation flag. */
-  private async handle_page_callback(
-    on_page: DeltaPageCallback | undefined,
-    page_count: number,
-    total_streamed: number,
-    page_messages: MailMessage[],
-    messages: MailMessage[],
-  ): Promise<{ should_continue: boolean | void; new_total_streamed: number }> {
-    if (!on_page) {
-      messages.push(...page_messages);
-      return { should_continue: true, new_total_streamed: total_streamed };
-    }
-
-    const new_total_streamed = total_streamed + page_messages.length;
-    const cb_result = on_page(page_count, new_total_streamed, page_messages);
-    const should_continue = cb_result instanceof Promise ? await cb_result : cb_result;
-    return { should_continue, new_total_streamed };
-  }
-
-  // ---------------------------------------------------------------------------
   // Pagination helpers
   // ---------------------------------------------------------------------------
 
   /**
    * Generic paginator that follows @odata.nextLink and collects all items.
-   * Retry/timeout lives INSIDE the loop (fetch_continuation_page wraps each
+   * Retry/timeout lives INSIDE the loop (fetch_mail_continuation_page wraps each
    * page in with_graph_retry), so a failed page resumes from the current
    * nextLink. NEVER wrap calls to this in with_graph_retry: the outer 60s
    * timeout races the whole enumeration and restarts it from page 1 --
@@ -382,9 +274,9 @@ export class GraphMailboxConnector implements MailboxConnector {
     let current_url: string | undefined = start_url;
 
     while (current_url) {
-      const page = await this.fetch_continuation_page(current_url, 100);
+      const page = await fetch_mail_continuation_page(this._client, current_url, 100);
       if (page.value) {
-        all_items.push(...(page.value as T[]));
+        append_all(all_items, page.value as T[]);
       }
       current_url = page['@odata.nextLink'];
     }
