@@ -1,6 +1,8 @@
 services:
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # Built from MinIO's source; see minio/Dockerfile.
+    build: minio
+    image: atlas-minio:7aac2a2c5b7c
     container_name: atlas-minio
     ports:
       - "${MINIO_API_PORT:-9000}:9000"
@@ -18,7 +20,8 @@ services:
       retries: 5
 
   minio-secondary:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    build: minio
+    image: atlas-minio:7aac2a2c5b7c
     container_name: atlas-minio-secondary
     ports:
       - "9004:9000"
