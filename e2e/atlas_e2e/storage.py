@@ -15,6 +15,9 @@ MANIFEST_PREFIXES = {
     "outlook": "manifests/",
     "onedrive": "onedrive/manifests/",
     "sharepoint": "sharepoint/manifests/",
+    "contacts": "contacts/manifests/",
+    "calendar": "calendar/manifests/",
+    "teams": "teams/manifests/",
 }
 DATA_PREFIXES = {
     "outlook": "data/",
@@ -77,6 +80,24 @@ def snapshot_ids(s3: Any, bucket: str, owner_id: str, workload: str = "outlook")
     return [
         k[len(prefix) : -len(".json")] for k in list_keys(s3, bucket, prefix) if k.endswith(".json")
     ]
+
+
+def owner_segments(s3: Any, bucket: str, workload: str) -> list[str]:
+    """Owner, site or team segments that hold a manifest for a workload, read from the key names.
+
+    The segment is whatever Atlas derived from the identifier it was given, so the suite reads it
+    back instead of repeating the normalisation.
+    """
+    prefix = MANIFEST_PREFIXES[workload]
+    return sorted({key[len(prefix) :].split("/")[0] for key in list_keys(s3, bucket, prefix)})
+
+
+def object_version_ids(s3: Any, bucket: str, key: str) -> list[str]:
+    """Version ids of one key, current and noncurrent, delete markers excluded."""
+    ids: list[str] = []
+    for page in s3.get_paginator("list_object_versions").paginate(Bucket=bucket, Prefix=key):
+        ids.extend(v["VersionId"] for v in page.get("Versions", []) if v["Key"] == key)
+    return ids
 
 
 def retention(s3: Any, bucket: str, key: str) -> dict[str, Any] | None:

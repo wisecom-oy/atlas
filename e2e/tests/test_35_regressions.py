@@ -129,7 +129,9 @@ def test_02_corrupt_ciphertext_is_reported_as_tampering(
             f"restore of tampered ciphertext reported success\n{result.describe()}"
         )
         lower = result.out.lower()
-        assert "authentication failed" in lower, result.describe()
+        assert "failed aes-gcm authentication" in lower, result.describe()
+        # A damaged object fails its own file and the run is partial, not a crash.
+        assert result.code == 2, result.describe()
         # The distinction that matters to an operator: this must not read as a transient or
         # missing-object problem, because the honest diagnosis is wrong key or altered bytes.
         assert "missing or unreadable" not in lower, result.describe()

@@ -204,6 +204,41 @@ def file_sha256(graph: Graph, drive_id: str, path: str) -> str | None:
     return hashlib.sha256(content).hexdigest() if content is not None else None
 
 
+def create_organization_link(graph: Graph, drive_id: str, item_id: str) -> None:
+    """Shares an item with a view-only link scoped to the organization.
+
+    The one kind of sharing a single test account can create: it names no second person, and an
+    organization link is never reachable from outside the tenant.
+    """
+    graph.post(
+        f"/drives/{drive_id}/items/{item_id}/createLink", {"type": "view", "scope": "organization"}
+    )
+
+
+def sharing_links(graph: Graph, drive_id: str, path: str) -> list[dict[str, Any]]:
+    """The `link` facet of each sharing link on an item, or nothing when the item is absent.
+
+    Only the type and scope are returned to the caller's assertions. The URL stays out of every
+    message: it is a working address for the tenant's content.
+    """
+    try:
+        permissions = list(graph.paged(f"/drives/{drive_id}/root:{path}:/permissions"))
+    except GraphError as err:
+        log.info("Permissions of %s unavailable: %s", path, err)
+        return []
+    return [
+        {"type": p["link"].get("type"), "scope": p["link"].get("scope")}
+        for p in permissions
+        if isinstance(p.get("link"), dict)
+    ]
+
+
+def modified_at(graph: Graph, drive_id: str, item_id: str) -> str:
+    """An item's `lastModifiedDateTime`, which is the time its current version was written."""
+    item = graph.get(f"/drives/{drive_id}/items/{item_id}", **{"$select": "lastModifiedDateTime"})
+    return str(item["lastModifiedDateTime"])
+
+
 def delete_item(graph: Graph, drive_id: str, item_id: str) -> None:
     """Removes a drive item so a restore has something to prove."""
     graph.delete(f"/drives/{drive_id}/items/{item_id}")

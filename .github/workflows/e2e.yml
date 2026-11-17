@@ -104,6 +104,8 @@ jobs:
           E2E_MAILBOX: ${{ secrets.E2E_MAILBOX }}
           E2E_ONEDRIVE_OWNER: ${{ secrets.E2E_ONEDRIVE_OWNER }}
           E2E_SHAREPOINT_SITE: ${{ secrets.E2E_SHAREPOINT_SITE }}
+          E2E_TEAM_ID: ${{ secrets.E2E_TEAM_ID }}
+          E2E_SECOND_MAILBOX: ${{ secrets.E2E_SECOND_MAILBOX }}
         run: uv run pytest ${SUITE:+-k "$SUITE"}
 
       # Status is readable from the run page itself, so a red badge can be triaged without
@@ -132,6 +134,8 @@ jobs:
           E2E_MAILBOX: ${{ secrets.E2E_MAILBOX }}
           E2E_ONEDRIVE_OWNER: ${{ secrets.E2E_ONEDRIVE_OWNER }}
           E2E_SHAREPOINT_SITE: ${{ secrets.E2E_SHAREPOINT_SITE }}
+          E2E_TEAM_ID: ${{ secrets.E2E_TEAM_ID }}
+          E2E_SECOND_MAILBOX: ${{ secrets.E2E_SECOND_MAILBOX }}
         run: uv run python -m atlas_e2e.sweep
 
       # Artifacts are public downloads: GitHub's log masking does not apply to a file in a zip. The
@@ -147,6 +151,8 @@ jobs:
           E2E_MAILBOX: ${{ secrets.E2E_MAILBOX }}
           E2E_ONEDRIVE_OWNER: ${{ secrets.E2E_ONEDRIVE_OWNER }}
           E2E_SHAREPOINT_SITE: ${{ secrets.E2E_SHAREPOINT_SITE }}
+          E2E_TEAM_ID: ${{ secrets.E2E_TEAM_ID }}
+          E2E_SECOND_MAILBOX: ${{ secrets.E2E_SECOND_MAILBOX }}
           E2E_CLIENT_ID: ${{ secrets.E2E_CLIENT_ID }}
           E2E_CLIENT_SECRET: ${{ secrets.E2E_CLIENT_SECRET }}
           E2E_ENCRYPTION_PASSPHRASE: ${{ secrets.E2E_ENCRYPTION_PASSPHRASE }}
@@ -155,7 +161,7 @@ jobs:
           strip() { tr -d '[:space:]'; }
           flat="$(mktemp)"
           find e2e/report.xml e2e/logs -type f 2>/dev/null -exec cat {} + | strip > "$flat"
-          for name in E2E_TENANT_ID E2E_MAILBOX E2E_ONEDRIVE_OWNER E2E_SHAREPOINT_SITE \
+          for name in E2E_TENANT_ID E2E_MAILBOX E2E_ONEDRIVE_OWNER E2E_SHAREPOINT_SITE E2E_TEAM_ID E2E_SECOND_MAILBOX \
                       E2E_CLIENT_ID E2E_CLIENT_SECRET E2E_ENCRYPTION_PASSPHRASE; do
             value="${!name}"
             [ -z "$value" ] && continue
