@@ -28,5 +28,6 @@ export type {
   CalendarSdkVerificationOptions,
   CalendarSdkVerificationResult,
   CalendarSdkSnapshotManifest,
+  CalendarSdkSnapshotSummary,
   CalendarSdkDeletionResult,
 } from './api.port';

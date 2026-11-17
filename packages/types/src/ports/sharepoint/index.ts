@@ -13,6 +13,7 @@ export type {
   SharePointSdkSnapshotManifest,
   SharePointSdkSnapshotSummary,
   SharePointSdkFileVersion,
+  SharePointSdkPermissionListing,
   SharePointSdkDeletionResult,
   SharePointSdkStatusResult,
   SharePointSdkSite,

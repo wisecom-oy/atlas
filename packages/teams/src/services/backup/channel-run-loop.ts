@@ -180,7 +180,7 @@ function report_channel_finished(run: PoolRun, channel: TeamsGraphResource): voi
     processed: run.finished,
     total,
     current: channel.displayName ?? channel.id,
-    eta_ms: Math.round((elapsed / run.finished) * (total - run.finished)),
+    etaMs: Math.round((elapsed / run.finished) * (total - run.finished)),
   });
 }
 

@@ -26,5 +26,6 @@ export type {
   ContactsSdkVerificationOptions,
   ContactsSdkVerificationResult,
   ContactsSdkSnapshotManifest,
+  ContactsSdkSnapshotSummary,
   ContactsSdkDeletionResult,
 } from './api.port';

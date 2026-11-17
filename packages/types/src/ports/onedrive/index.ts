@@ -13,6 +13,7 @@ export type {
   OneDriveSdkSnapshotManifest,
   OneDriveSdkSnapshotSummary,
   OneDriveSdkFileVersion,
+  OneDriveSdkPermissionListing,
   OneDriveSdkDeletionResult,
   OneDriveSdkStatusResult,
   OneDriveSdkStats,

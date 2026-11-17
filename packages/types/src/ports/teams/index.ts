@@ -41,6 +41,8 @@ export type {
   TeamsSdkBackupResult,
   TeamsSdkVerificationOptions,
   TeamsSdkVerificationResult,
+  TeamsSdkSaveOptions,
+  TeamsSdkSaveResult,
   TeamsSdkSnapshotIndex,
   TeamsSdkSnapshotListing,
   TeamsSdkTeamStatus,
