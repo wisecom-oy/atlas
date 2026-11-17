@@ -18,6 +18,12 @@ import {
 import { race_abort, run_attempt, sleep, throw_if_cancelled } from '@/graph-attempt-cancellation';
 import { is_network_error } from '@/graph-network-error';
 import { to_graph_unavailable_error } from '@/graph-unavailable-failure';
+import {
+  GraphTokenRequestError,
+  is_transient_token_request_error,
+  to_token_unavailable_error,
+  token_request_refusal,
+} from '@/graph-token-failure';
 import { GraphUnavailableError, ThrottledError } from '@wisecom/atlas-types';
 
 /**
@@ -91,8 +97,12 @@ export function is_throttle_response(err: unknown): boolean {
   return status === 503 && extract_retry_after_ms(err) !== undefined;
 }
 
-/** Whether a failed attempt may be sent again, given whether the call is idempotent. */
+/**
+ * Whether a failed attempt may be sent again, given whether the call is idempotent. A failed token
+ * request never sent the Graph request, so repeating it cannot duplicate a write.
+ */
 function is_retry_safe(err: unknown, idempotent: boolean): boolean {
+  if (is_transient_token_request_error(err)) return true;
   return idempotent ? is_retryable_error(err) : is_throttle_response(err);
 }
 
@@ -126,9 +136,9 @@ export function is_transient_error(err: unknown): boolean {
   return typeof status === 'number' && RETRYABLE_STATUS_CODES.has(status);
 }
 
-/** Returns true when an error is retryable (transient HTTP or network error). */
+/** Returns true when an error is retryable (transient HTTP, network error, or failed token request). */
 export function is_retryable_error(err: unknown): boolean {
-  return is_transient_error(err) || is_network_error(err);
+  return is_transient_error(err) || is_network_error(err) || is_transient_token_request_error(err);
 }
 
 /**
@@ -176,7 +186,7 @@ export async function with_graph_retry<T>(
       return await run_attempt(fn, timeout_ms, in_flight_signal);
     } catch (err) {
       throw_if_cancelled(abort_signal);
-      if (!is_retry_safe(err, idempotent)) throw err;
+      if (!is_retry_safe(err, idempotent)) throw as_final_failure(err);
 
       const retry_after = floor_retry_after_ms(extract_retry_after_ms(err));
       // Raise on the response that carried the 429, not after the budget is
@@ -200,6 +210,14 @@ export async function with_graph_retry<T>(
 }
 
 /**
+ * The error to throw for a failure that is not retried: the `AuthError` a refused token request
+ * carries through the Graph SDK (issue #786), otherwise the failure itself.
+ */
+function as_final_failure(err: unknown): unknown {
+  return token_request_refusal(err) ?? err;
+}
+
+/**
  * Types a retryable failure that outlasted the retry budget, keeping the Graph error as `cause`:
  * a 429 becomes `ThrottledError` (issue #440), and a 5xx, network error or timeout becomes
  * `GraphUnavailableError` (issue #773). A Graph SDK error for a 5xx with an empty or non-JSON body
@@ -208,6 +226,9 @@ export async function with_graph_retry<T>(
 function as_exhausted_failure(err: unknown, retries: number, elapsed_ms: number): unknown {
   // An inner call already typed its exhausted failure; wrapping it again would hide a throttle.
   if (err instanceof ThrottledError || err instanceof GraphUnavailableError) return err;
+  if (err instanceof GraphTokenRequestError) {
+    return to_token_unavailable_error(err, { retries, elapsed_ms });
+  }
   const status = status_code_of(err);
   if (status === 429) {
     return new ThrottledError(

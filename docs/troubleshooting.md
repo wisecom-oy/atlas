@@ -19,11 +19,16 @@ Before you open an issue, run `./tools/diagnostics.sh` from the repository root 
 
 These occur before any backup work starts. Atlas signs in to Microsoft Graph with the OAuth 2.0 client credentials flow, so a failure here is a credential or tenant configuration problem, not a network or storage problem.
 
+When Microsoft Entra ID refuses the token request, the command exits `4` with `Atlas code: ATLAS_AUTH_DENIED` and prints Entra's answer as the cause, for example `Cause: invalid_client: Error(s): 7000215`. Atlas does not retry a refusal, because Entra gives the same answer until the credentials change. A token request that gets no answer, or a `5xx` from Entra, is retried and ends in exit `3`.
+
+`atlas tenants validate` and `atlas tenants add` are the exception. They request one token, print Entra's answer, and exit `1` for any failure, refused or unanswered, without retrying.
+
 ### AADSTS error codes
 
 | Error code | Meaning | Fix |
 | --- | --- | --- |
 | `AADSTS50020` | Wrong tenant ID | Set the profile's tenant ID to the **Directory (tenant) ID** shown in **Microsoft Entra ID → Overview** |
+| `AADSTS90002` | Tenant not found | Set the profile's tenant ID to the **Directory (tenant) ID** of a tenant that exists, or its `*.onmicrosoft.com` domain |
 | `AADSTS700016` | Wrong client ID, or app not found | Set the profile's client ID to the **Application (client) ID** from **App registrations**. The app must exist in the profile's tenant |
 | `AADSTS7000215` | Expired or incorrect client secret | Check the expiry date in **Certificates & secrets**. If it expired, follow the [rotation procedure](/azure-ad-setup#client-secret-rotation). If not, confirm you copied the secret **Value**, not the **Secret ID** |
 | `AADSTS65001` | Admin consent not granted | Open **API permissions** for the app registration and select **Grant admin consent for \<tenant\>** |
