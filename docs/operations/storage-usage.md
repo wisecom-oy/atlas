@@ -80,7 +80,7 @@ atlas stats storage --max-requests 1000 --continue "$(jq -r .continuation_token 
 If a request fails after the SDK's own retries, such as a `503 SlowDown` or a dropped connection, the run stops and keeps its progress. The CLI prints the continuation token to stderr. In the SDK, `getStorageUsageToken(err)` returns it. Resuming repeats only the failed page.
 
 ::: warning Continuation tokens are sensitive
-A token is valid only for the tenant, target, and breakdown it was issued for. It is base64url-encoded JSON, not encrypted. It contains the tenant ID, the counts so far, and a listing position that embeds a mailbox, owner, or site ID. Treat it like the report itself, and keep it out of shared logs and tickets.
+A token is valid only for the tenant, the S3 endpoint, region, and bucket, and the breakdown it was issued for. Resume with the same storage settings. It is base64url-encoded JSON, not encrypted. It contains the tenant ID, the counts so far, and a listing position that embeds a mailbox, owner, or site ID. Treat it like the report itself, and keep it out of shared logs and tickets.
 :::
 
 ## Permissions

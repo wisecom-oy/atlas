@@ -57,6 +57,7 @@ export type {
   OneDriveSdkSnapshotManifest,
   OneDriveSdkSnapshotSummary,
   OneDriveSdkFileVersion,
+  OneDriveSdkPermissionListing,
   OneDriveSdkDeletionResult,
   OneDriveSdkStatusResult,
   OneDriveSdkStats,
@@ -71,6 +72,7 @@ export type {
   ContactsSdkRestoreOptions,
   ContactsSdkRestoreResult,
   ContactsSdkSnapshotManifest,
+  ContactsSdkSnapshotSummary,
   ContactsSdkDeletionResult,
 } from '@wisecom/atlas-types';
 
@@ -83,6 +85,7 @@ export type {
   CalendarSdkRestoreOptions,
   CalendarSdkRestoreResult,
   CalendarSdkSnapshotManifest,
+  CalendarSdkSnapshotSummary,
   CalendarSdkDeletionResult,
 } from '@wisecom/atlas-types';
 
@@ -101,6 +104,7 @@ export type {
   SharePointSdkSnapshotManifest,
   SharePointSdkSnapshotSummary,
   SharePointSdkFileVersion,
+  SharePointSdkPermissionListing,
   SharePointSdkDeletionResult,
   SharePointSdkStatusResult,
   SharePointSdkSite,
@@ -113,12 +117,16 @@ export type {
   TeamsSdkBackupResult,
   TeamsSdkVerificationOptions,
   TeamsSdkVerificationResult,
+  TeamsSdkSaveOptions,
+  TeamsSdkSaveResult,
   TeamsSdkSnapshotIndex,
   TeamsSdkSnapshotListing,
   TeamsSdkTeamStatus,
   TeamsSdkTeam,
   TeamsSdkDeletionResult,
 } from '@wisecom/atlas-types';
+
+export type { KeysApi, KeysRewrapOptions, KeysPurgeOptions } from '@wisecom/atlas-types';
 
 export type {
   SdkOperationOptions,

@@ -964,7 +964,7 @@ while (!part.complete) {
 | `versionsVisible`, `incompleteUploadsVisible` | `false` when the credentials cannot list versions or multipart uploads. Those figures are then incomplete      |
 | `complete`, `continuationToken`               | Whether the run finished, and the token that resumes it when it did not                                        |
 | `listRequests`                                | S3 requests made so far, across resumed calls                                                                  |
-| `target`, `startedAt`, `measuredAt`           | `primary` or the target's `targetId`. When the first call started, and when this call finished                 |
+| `startedAt`, `measuredAt`                     | When the first call started, and when this call finished                                                       |
 
 A run that stops early returns rather than throws, so a scheduler can store the token and continue on its next tick. A run that fails on an S3 error throws, and the error carries a token for the last page counted:
 
@@ -1803,7 +1803,8 @@ try {
 - **Tenant handles:** `AtlasTenant`, `AtlasTenantConfig`
 - **Instance types:** `AtlasInstance`, `AtlasInstanceConfig`, `LogSink`, `LogFields`, `ThrottleCoordinator`, `ThrottleScope`
 - **Sub-API types:** `OutlookApi`, `OneDriveApi`, `SharePointApi`, `TeamsApi`, `ContactsApi`, `CalendarApi`
-- **Workload options and results:** the `Outlook*`, `OneDriveSdk*`, `SharePointSdk*`, `TeamsSdk*`, `ContactsSdk*`, and `CalendarSdk*` types each API uses
+- **Key management:** `KeysApi`, `KeysRewrapOptions`, `KeysPurgeOptions`
+- **Workload options and results:** the `Outlook*`, `OneDriveSdk*`, `SharePointSdk*`, `TeamsSdk*`, `ContactsSdk*`, and `CalendarSdk*` types each API uses. Every named type in a method's options or result is exported
 - **Operation control:** `SdkOperationOptions`, `OperationProgressEvent`, `OperationProgressCallback`, `OperationProgressPhase`
 - **Storage usage:** `StorageUsage`, `StorageUsageTotals`, `StorageOwnerUsage`, `StorageUsageOptions`, `StorageUsageBreakdown`, `StorageUsageWorkload`, `LogicalWorkload`
 - **Storage request events:** `StorageRequestEvent`, `StorageRequestObserver`, `StorageRequestWorkload`, `StorageKeyClass`

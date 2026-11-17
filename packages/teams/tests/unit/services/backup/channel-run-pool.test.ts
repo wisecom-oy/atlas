@@ -205,6 +205,6 @@ describe('process_channels worker pool', () => {
 
     const events = on_progress.mock.calls.map((call) => call[0]);
     expect(events.filter((event) => event.phase === 'processing')).toHaveLength(3);
-    expect(events.at(-1)).toMatchObject({ processed: 3, total: 3, eta_ms: 0 });
+    expect(events.at(-1)).toMatchObject({ processed: 3, total: 3, etaMs: 0 });
   });
 });
