@@ -82,7 +82,7 @@ What each code covers:
 - **`7`** includes an unwrapped HTTP `404`, and a `--folder`, `--file-filter`, or `--message` selection that matched nothing.
 - **`8`**: repeating the same deletion cannot bypass retention or legal hold.
 - **`9`** means the stored bytes cannot be parsed back, or were written by a newer Atlas format. Repeating the command will not help. For a newer format, upgrade Atlas. For a named manifest or version index, see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes). Otherwise extract the raw content with `save`.
-- **`10`** was `ATLAS_KEY_CONFLICT`, raised only by `rehydrate`, which Atlas 7 removed. It stays free so the codes after it keep their numbers.
+- **`10`** is reserved and not returned.
 - **`11`**: `outlook delete -s`, `onedrive delete -s`, or `sharepoint delete -s` named a snapshot that newer snapshots of the same mailbox, owner, or site are built on. Delete the newer snapshots first, newest first, or delete the whole backup of that mailbox, owner, or site by leaving out `-s`.
 - **`12`**: another backup, restore, deletion, or quarantine holds the lease on the same mailbox, drive owner, site, or team, a purge or key re-wrap holds the tenant, or this run lost its lease before it could commit. Nothing was committed. If the other process was killed, its lease expires 5 minutes after its last renewal, and the message names that time. See [Another operation holds the owner](/troubleshooting#another-operation-holds-the-owner).
 
