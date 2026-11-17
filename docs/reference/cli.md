@@ -80,7 +80,7 @@ What each code covers:
 - **`5`**: never pad the passphrase or delete the wrapped key. If the passphrase is correct, investigate possible corruption.
 - **`6`** includes failure to load the CLI configuration, and a partial `ATLAS_*` Graph override that changes the selected profile's tenant or client ID.
 - **`7`** includes an unwrapped HTTP `404`, and a `--folder`, `--file-filter`, or `--message` selection that matched nothing.
-- **`8`** comes only from the `quarantine` commands, when retention or a legal hold refuses removal of the original. A `delete` that meets retained objects reports them as retained and exits `1`.
+- **`8`** means storage refused to remove an object because of retention or a legal hold. The `quarantine` commands return it when the original cannot be removed, and a Teams `backup` returns it when the backend refuses to delete a finished channel checkpoint. A `delete` that meets retained objects reports them as retained and exits `1`.
 - **`9`** means the stored bytes cannot be parsed back, or were written by a newer Atlas format. Repeating the command will not help. For a newer format, upgrade Atlas. For a named manifest or version index, see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes). Otherwise extract the raw content with `save`.
 - **`10`** was `ATLAS_KEY_CONFLICT`, raised only by `rehydrate`, which Atlas 7 removed. It stays free so the codes after it keep their numbers.
 - **`11`**: `outlook delete -s`, `onedrive delete -s`, or `sharepoint delete -s` named a snapshot that newer snapshots of the same mailbox, owner, or site are built on. Delete the newer snapshots first, newest first, or delete the whole backup of that mailbox, owner, or site by leaving out `-s`.
