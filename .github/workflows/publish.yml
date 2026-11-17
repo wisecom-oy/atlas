@@ -164,8 +164,12 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
+      # One Vitest process over every package's project, as CI runs it. `pnpm run test` goes
+      # through turbo, which starts a separate Vitest worker pool per package at the same time;
+      # with 13 packages the runner is oversubscribed and CPU-bound tests (scrypt key wrapping)
+      # time out. That failed the v7.0.0 publish three times on tests that pass in CI.
       - name: Test
-        run: pnpm run test
+        run: pnpm exec vitest run
 
       - name: Publish SDK to npm
         env:
