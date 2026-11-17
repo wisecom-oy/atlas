@@ -165,13 +165,8 @@ def test_07_a_wrong_client_secret_fails_a_graph_command(
     assert storage.version_listing(s3, settings.bucket) == before
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="The Graph SDK wraps the token failure in a GraphError with status -1 and no cause, "
-    "so nothing classifies it as ATLAS_AUTH_DENIED and the run exits 1",
-)
 def test_07b_a_wrong_client_secret_exits_4() -> None:
-    """The documented category for bad credentials is 4. Strict, so a fix turns this red."""
+    """Microsoft Entra ID refuses the token request, which the CLI reports as ATLAS_AUTH_DENIED."""
     assert "wrong_secret" in STATE, "test_07 did not run"
     assert STATE["wrong_secret"].code == exits.EXIT_AUTH_DENIED, STATE["wrong_secret"].describe()
 
