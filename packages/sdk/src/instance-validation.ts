@@ -1,5 +1,5 @@
 import { HeadBucketCommand, type S3Client } from '@aws-sdk/client-s3';
-import type { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js';
+import type { AuthenticationProvider } from '@microsoft/microsoft-graph-client';
 import type { Container } from 'inversify';
 import { GRAPH_AUTH_PROVIDER_TOKEN } from '@wisecom/atlas-m365-graph';
 import { invalid_bucket_name_error, S3_CLIENT_TOKEN } from '@wisecom/atlas-s3';
@@ -68,8 +68,7 @@ async function validate_existing_passphrase(
 /** Requests a Graph token through the container's auth provider; throws `AuthError` on refusal. */
 export async function validate_graph_token(container: Container): Promise<void> {
   try {
-    const auth_provider =
-      container.get<TokenCredentialAuthenticationProvider>(GRAPH_AUTH_PROVIDER_TOKEN);
+    const auth_provider = container.get<AuthenticationProvider>(GRAPH_AUTH_PROVIDER_TOKEN);
     await auth_provider.getAccessToken();
   } catch (cause) {
     throw new AuthError(
