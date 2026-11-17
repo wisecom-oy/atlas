@@ -1,6 +1,10 @@
 services:
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # Built from MinIO's source on first `up`: no prebuilt community image pulls anonymously any
+    # more. See minio/Dockerfile for the pinned commits. The tag is the short server commit, so
+    # bumping MINIO_COMMIT and the tag together makes the next `up` rebuild.
+    build: minio
+    image: atlas-minio:7aac2a2c5b7c
     container_name: atlas-minio
     # Loopback only by default: root on this bucket can delete every backup, and Docker's port
     # rules bypass host firewalls. Set MINIO_BIND_ADDRESS in .env to publish on a network.

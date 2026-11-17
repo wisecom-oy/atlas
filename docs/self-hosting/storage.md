@@ -131,12 +131,15 @@ The repository's `docker/docker-compose.yml` starts MinIO with a named volume.
    docker compose up -d
    ```
 
+   The first `up` builds the MinIO image from source, which takes about a minute and needs outbound HTTPS to Docker Hub and `proxy.golang.org`. Later starts reuse the local image.
+
 The compose file:
 
 ```yaml
 services:
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    build: minio
+    image: atlas-minio:7aac2a2c5b7c
     container_name: atlas-minio
     ports:
       - '${MINIO_BIND_ADDRESS:-127.0.0.1}:${MINIO_API_PORT:-9000}:9000'
@@ -168,8 +171,11 @@ required variable MINIO_ROOT_PASSWORD is missing a value: Set MINIO_ROOT_PASSWOR
 
 About the image:
 
-- It comes from `quay.io`. Docker Hub refuses anonymous pulls of `minio/minio`, which makes `docker compose up` fail with `pull access denied`.
-- The tag is pinned to a release rather than `latest`, because Object Lock and versioning behaviour differs between MinIO releases and immutable backups depend on both. Bump the tag deliberately, then run `atlas storage-check` to confirm the bucket still reports `lock-capable`.
+- MinIO publishes no community image any more. It stopped shipping community binaries and images in October 2025 and has since archived the `minio/minio` repository. Docker Hub removed `minio/minio`, and `quay.io` refuses anonymous pulls of it, so a compose file that pins either fails with `unauthorized` or `pull access denied`.
+- `docker/minio/Dockerfile` therefore compiles the server and the `mc` client from MinIO's own source, the method MinIO's README now gives for the community edition. `go install` fetches the code through `proxy.golang.org` and checks every module against the Go checksum database, so a tampered download fails the build. The Go and Alpine base images are Docker Official Images pinned by digest.
+- The server is pinned to commit `7aac2a2c5b7c`, the final head of the archived repository. It includes every fix in the last release, `RELEASE.2025-10-15T17-29-55Z`, which closed a privilege escalation through session policies ([GHSA-jjjj-jwhf-8rgr](https://github.com/minio/minio/security/advisories/GHSA-jjjj-jwhf-8rgr)) that the previously pinned `RELEASE.2025-09-07T16-13-09Z` still has. `minio --version` reports `DEVELOPMENT.2026-02-12T20-18-48Z` with that commit ID.
+- The pin is a commit rather than a moving branch, because Object Lock and versioning behaviour differs between MinIO builds and immutable backups depend on both. To bump it, change `MINIO_COMMIT` in the Dockerfile and the `image:` tag in the compose file together, run `docker compose up -d --build`, then run `atlas storage-check` to confirm the bucket still reports `lock-capable`.
+- The archived source receives no further security fixes. The build keeps the bundled setup working on a pinned, reviewable version, but for storage reachable from a network, weigh that against a maintained S3 backend that supports Object Lock. See [Choose a storage backend](#choose-a-storage-backend).
 
 ### Store data on your own disk {#bind-mount-to-external-storage}
 
@@ -178,7 +184,8 @@ A named volume is fine for development. For production, replace it with a bind m
 ```yaml
 services:
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    build: minio
+    image: atlas-minio:7aac2a2c5b7c
     container_name: atlas-minio
     ports:
       - '${MINIO_BIND_ADDRESS:-127.0.0.1}:9000:9000'
@@ -191,14 +198,13 @@ services:
     command: server /data --console-address ":9001"
 ```
 
-Create the directory and give the MinIO container user ownership:
+Create the directory:
 
 ```bash
 sudo mkdir -p /mnt/backup-drive/atlas-data
-sudo chown -R 1000:1000 /mnt/backup-drive/atlas-data
 ```
 
-UID `1000` is the default MinIO container user. If your image uses a different UID, check it with `docker exec atlas-minio id`.
+The bundled image runs MinIO as root, like the image MinIO used to publish, so existing volumes keep working and the directory needs no ownership change. If you run MinIO under another user, give that UID ownership of the directory. `docker exec atlas-minio id` shows the UID.
 
 ## Secure access {#credentials-and-access}
 

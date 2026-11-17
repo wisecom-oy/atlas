@@ -92,7 +92,7 @@ Steps:
 | Item | Location | Notes |
 | --- | --- | --- |
 | Repository | `~/atlas-lab` | Fresh clone. Tracked files stay unchanged unless the agent reports why |
-| MinIO | `127.0.0.1:9000` (S3), `127.0.0.1:9001` (console) | `docker/docker-compose.yml`, pinned release, ports bound to loopback |
+| MinIO | `127.0.0.1:9000` (S3), `127.0.0.1:9001` (console) | `docker/docker-compose.yml`, built from MinIO source at a pinned commit, ports bound to loopback |
 | MinIO credentials | `~/atlas-lab/docker/.env` | Random root password, mode 600 |
 | Atlas CLI | `packages/cli/dist/cli.mjs`, linked as `atlas` | Built from the cloned source, so it matches the cloned docs |
 | Atlas configuration | `~/atlas-lab/.env` | Mode 600. The CLI loads it from the working directory |

@@ -36,7 +36,7 @@ openssl rand -hex 32    # set the output as MINIO_ROOT_PASSWORD in .env
 docker compose up -d
 ```
 
-Compose refuses to start until `MINIO_ROOT_PASSWORD` is set. MinIO listens on `127.0.0.1` only: port **9000** for the S3 API and port **9001** for the web console. Use `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` as the S3 access key and secret key below. For production storage, see the [self-hosting guide](./self-hosting/).
+Compose refuses to start until `MINIO_ROOT_PASSWORD` is set. The first `up` builds the MinIO image from source, which takes about a minute, because MinIO no longer publishes a community image. MinIO listens on `127.0.0.1` only: port **9000** for the S3 API and port **9001** for the web console. Use `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` as the S3 access key and secret key below. For production storage, see the [self-hosting guide](./self-hosting/).
 
 ## Configure credentials
 
