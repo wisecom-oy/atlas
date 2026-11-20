@@ -596,7 +596,7 @@ Before MIME storage, Atlas kept only `fileAttachment` on the JSON path and disca
 | Follow-up flag | Not in the MIME, which carries at most `X-Message-Flag`. Status (`flagged` or `complete`) with start, due and completed dates, recorded from the item's `flag` during incremental backup |
 | Pin | Not in the MIME. The renew times `SystemTime 0x0F02` and `0x0F01`, captured with the reactions and written back unchanged |
 | Attachments, inline or regular | The body parts. Inline means `Content-Disposition: inline`, or no disposition with a matching `Content-ID`. The calendar data of a meeting message is not an attachment, see [Meeting messages](#meeting-messages) |
-| Meeting response class | The `text/calendar` part of a reply. Requests and cancellations restore as ordinary messages, see [Meeting messages](#meeting-messages) |
+| Meeting response class, time, and location | The `text/calendar` part of a reply. Requests and cancellations restore as ordinary messages, see [Meeting messages](#meeting-messages) |
 | Read state | Always set to read, so a restore does not leave thousands of unread items |
 
 Outlook on the web and new Outlook pin a message by setting both renew times (PidTagReceivedOrRenewTime `0x0F02` and PidTagRenewTime `0x0F01`) to 4500-09-01, which keeps it at the top of a list sorted by date. An unpinned message has no `0x0F01`, and Exchange sets its `0x0F02` to the delivery time a restore writes, so only messages carrying `0x0F01` record anything.
@@ -615,14 +615,27 @@ A meeting request, response, or cancellation is a message that Exchange built a 
 
 | Source item | Restored as |
 | --- | --- |
-| Meeting response (accepted, declined, tentative, or a new time proposal) | A meeting response. Atlas sets the message class (`String 0x001A`) to `IPM.Schedule.Meeting.Resp.Pos`, `.Neg`, or `.Tent`, and Microsoft Graph returns the item as `eventMessageResponse` |
+| Meeting response (accepted, declined, tentative, or a new time proposal) | A meeting response with its meeting time and location. Atlas sets the message class (`String 0x001A`) to `IPM.Schedule.Meeting.Resp.Pos`, `.Neg`, or `.Tent`, and Microsoft Graph returns the item as `eventMessageResponse` |
 | Meeting request or cancellation | An ordinary message. Microsoft Graph answers `500 ErrorItemSavePropertyError` when a message is created with, or changed to, `IPM.Schedule.Meeting.Request` or `IPM.Schedule.Meeting.Canceled` |
 
 Atlas reads the answer of a response from its calendar part the way Exchange does: the participation status (`PARTSTAT`) of the first attendee of a `REPLY` decides between accepted and declined, any other status is tentative, and a `COUNTER` is tentative.
 
+A restored response also says which meeting it answers. Atlas reads the start, the end, and the location from the same calendar part and writes them as appointment properties, which Microsoft Graph returns as `startDateTime`, `endDateTime`, `isAllDay`, and `location`.
+
+| Time in the calendar part | Restored |
+| --- | --- |
+| UTC (`DTSTART:20250310T090000Z`) | As written |
+| Local time with a `TZID`, and that zone's `VTIMEZONE` block in the same part | Converted with the block's own daylight saving rules. Exchange and Outlook write this form, under Windows zone names such as `W. Europe Standard Time` |
+| All-day date (`DTSTART;VALUE=DATE:20250310`) | Midnight in the zone of the part's only `VTIMEZONE` block, or midnight UTC when the part has no block or several. This is where Exchange places it |
+| Local time with a `TZID` and no block, local time with no zone, a `DURATION` in place of `DTEND`, or a zone rule other than a yearly nth weekday of a month | Not restored. The response keeps its class and location |
+
+Atlas uses the zone rules the sender wrote into the message, not a time zone database, and leaves a time out when it cannot be certain of it. A wrong time on a restored item is worse than none. Exchange resolves some of the forms in the last row by looking the zone name up or by assuming UTC. Atlas does not guess along.
+
 What a restored meeting message does not carry:
 
-- **Meeting time, location, and the link to the calendar event.** Atlas writes the class, not the other meeting properties. A restored response shows who answered and how, and the body text. It carries no global object ID, the property that ties a meeting message to a calendar event, so it points at no meeting.
+- **The link to the calendar event.** Atlas does not write the global object ID, the property that ties a meeting message to a calendar event. A restored response points at no meeting, so it cannot change attendee tracking on a live one.
+- **Recurrence.** A response to a recurring meeting restores with the time of the calendar part and reads back as a single instance.
+- **Meeting details after a second backup.** Exchange writes the time and location into the MIME of a meeting message only when it has a global object ID. A backup of a restored response therefore captures the class without the time, and a restore from that backup brings back a response with no meeting time.
 - **The calendar part.** Atlas leaves out a `text/calendar` part that has no `Content-Disposition: attachment` when it is a child of `multipart/alternative`, or when it has no file name and is the part the meeting was built from, or an exact copy of it. Uploading such a part would add a file named `attachment` that the source message never showed.
 
 What still restores as an attachment:

@@ -4,6 +4,8 @@ import { UnreadableContentError } from '@wisecom/atlas-types';
 import { separate_meeting_calendar_parts } from '@/services/shared/meeting-calendar-parts';
 import { read_meeting_response } from '@/services/shared/meeting-response-reader';
 import type { MeetingResponse } from '@/services/shared/meeting-response-reader';
+import { read_meeting_schedule } from '@/services/shared/meeting-schedule-reader';
+import type { MeetingSchedule } from '@/services/shared/meeting-schedule-reader';
 
 export interface MimeAddress {
   readonly name: string;
@@ -38,6 +40,8 @@ export interface ParsedMimeMessage {
   readonly attachments: MimeAttachment[];
   /** The answer of a meeting response, absent on every other message (issue #817). */
   readonly meeting_response?: MeetingResponse;
+  /** The time and location of the meeting a meeting message is about (issue #819). */
+  readonly meeting_schedule?: MeetingSchedule;
 }
 
 /** Parses RFC 5322 MIME bytes into the fields Atlas needs for restore and display. */
@@ -50,6 +54,7 @@ export async function parse_mime_message(mime: Buffer): Promise<ParsedMimeMessag
   const referenced_cids = new Set([...(html ?? '').matchAll(CID_LINK)].map((m) => m[1]!));
   const calendar = await separate_meeting_calendar_parts(mime, parsed);
   const meeting_response = calendar.meeting_part && read_meeting_response(calendar.meeting_part);
+  const meeting_schedule = calendar.meeting_part && read_meeting_schedule(calendar.meeting_part);
 
   return {
     subject: parsed.subject ?? '',
@@ -65,6 +70,7 @@ export async function parse_mime_message(mime: Buffer): Promise<ParsedMimeMessag
     headers: flatten_header_lines(parsed),
     attachments: calendar.attachments.map((a) => normalize_attachment(a, referenced_cids)),
     ...(meeting_response ? { meeting_response } : {}),
+    ...(meeting_schedule ? { meeting_schedule } : {}),
   };
 }
 
