@@ -26,6 +26,11 @@ const PID_LID_APPOINTMENT_SUB_TYPE = `Boolean ${APPOINTMENT_PROPERTY_SET} Id 0x8
  * left out on purpose, so the restored response cannot be matched to a live calendar event and
  * change its tracking.
  *
+ * Extended properties are the only way in. Graph documents no operation that creates an
+ * `eventMessage`, and its update takes five message fields and none of the meeting ones, while
+ * setting extended properties on a new message is a documented operation. What is not documented
+ * is which MAPI properties Exchange accepts there: the set below was established by live probes.
+ *
  * Only responses get any of this. Graph answers `500 ErrorItemSavePropertyError` to the request
  * and cancellation classes on create and on update alike, and appointment properties on an
  * ordinary message would mean nothing.
