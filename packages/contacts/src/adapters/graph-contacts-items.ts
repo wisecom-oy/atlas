@@ -20,6 +20,21 @@ const MATCH_QUERY =
   '$select=displayName,emailAddresses,businessPhones,homePhones,mobilePhone,companyName' +
   `&$top=100&$expand=${extended_properties_expand([SOURCE_CONTACT_PROPERTY_ID])}`;
 
+/**
+ * PidTagHasAttachments. Exchange computes it from a contact's attachment table, and a contact
+ * photo is stored as an attachment, so every contact with a photo carries it as true. The
+ * client-set PidLidHasPicture flag is not relied on because nothing forces a client to set it.
+ */
+const HAS_ATTACHMENTS_PROPERTY_ID = 'Boolean 0x0E1B';
+
+/** Ids only, filtered on the server to contacts that carry an attachment. */
+const WITH_ATTACHMENTS_QUERY =
+  '$select=id&$top=1000&$filter=' +
+  encodeURIComponent(
+    `singleValueExtendedProperties/Any(ep: ep/id eq '${HAS_ATTACHMENTS_PROPERTY_ID}'` +
+      ' and cast(ep/value, Edm.Boolean) eq true)',
+  );
+
 function folder_contacts_url(mailbox_id: string, folder_id: string): string {
   return `${mailbox_url(mailbox_id)}/contactFolders/${encodeURIComponent(folder_id)}/contacts`;
 }
@@ -43,6 +58,28 @@ export async function list_folder_contacts(
     CONTACTS_READ,
     IMMUTABLE_ID_PREFER,
   );
+}
+
+/**
+ * Lists the immutable ids of a folder's contacts that carry any attachment. A contact outside
+ * this set has no photo; one inside it may have one.
+ */
+export async function list_contact_ids_with_attachments(
+  client: Client,
+  mailbox_id: string,
+  folder_id: string,
+): Promise<Set<string>> {
+  const contacts = await collect_pages<{ readonly id?: unknown }>(
+    client,
+    `${folder_contacts_url(mailbox_id, folder_id)}?${WITH_ATTACHMENTS_QUERY}`,
+    CONTACTS_READ,
+    IMMUTABLE_ID_PREFER,
+  );
+  const ids = new Set<string>();
+  for (const contact of contacts) {
+    if (typeof contact.id === 'string') ids.add(contact.id);
+  }
+  return ids;
 }
 
 /** Reads a contact's photo bytes; a 404 means the contact has no photo. */
