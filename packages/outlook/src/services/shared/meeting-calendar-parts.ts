@@ -14,6 +14,9 @@ const MEETING_METHODS = new Set(['REQUEST', 'REPLY', 'CANCEL', 'COUNTER']);
 export interface MeetingCalendarPart {
   /** The `method` parameter of the part's Content-Type, in upper case. */
   readonly method: string;
+  /** The `charset` parameter of the part's Content-Type, in lower case. */
+  readonly charset?: string;
+  /** The document as sent, transfer encoding undone and charset untouched. */
   readonly icalendar: Buffer;
 }
 
@@ -76,12 +79,18 @@ export async function separate_meeting_calendar_parts(
       : [],
   );
   return {
-    ...(meeting_part
-      ? {
-          meeting_part: { method: meeting_part.method, icalendar: meeting_part.attachment.content },
-        }
-      : {}),
+    ...(meeting_part ? { meeting_part: to_meeting_calendar_part(meeting_part) } : {}),
     attachments: parsed.attachments.filter((attachment) => !meeting_content.has(attachment)),
+  };
+}
+
+/** Keeps what the readers of a meeting part need: its method, charset and document. */
+function to_meeting_calendar_part(part: CalendarPart & { method: string }): MeetingCalendarPart {
+  const charset = read_content_type(part.attachment)?.params['charset']?.trim().toLowerCase();
+  return {
+    method: part.method,
+    ...(charset ? { charset } : {}),
+    icalendar: part.attachment.content,
   };
 }
 

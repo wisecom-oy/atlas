@@ -38,8 +38,11 @@ const MEETING_RESPONSE_ENTRY = build_mime_entry(MEETING_RESPONSE_MIME);
 
 const PR_MESSAGE_CLASS = 'String 0x001A';
 
-/** Restores the stored MIME and returns the message class the create payload sets, if any. */
-async function restore_and_read_message_class(mime: Buffer): Promise<string | undefined> {
+const APPOINTMENT_SET = '{00062002-0000-0000-C000-000000000046}';
+const MEETING_SET = '{6ED8DA90-450B-101B-98DA-00AA003F1305}';
+
+/** Restores the stored MIME and returns the extended properties of the create payload by id. */
+async function restore_and_read_properties(mime: Buffer): Promise<Map<string, string>> {
   const { ctx } = stub_tenant_context({ [STORAGE_KEY]: mime });
   const restore_connector = make_restore_connector();
 
@@ -54,7 +57,12 @@ async function restore_and_read_message_class(mime: Buffer): Promise<string | un
 
   const payload = vi.mocked(restore_connector.create_message).mock.calls[0]![3];
   const properties = payload['singleValueExtendedProperties'] as { id: string; value: string }[];
-  return properties.find((property) => property.id === PR_MESSAGE_CLASS)?.value;
+  return new Map(properties.map((property) => [property.id, property.value]));
+}
+
+/** Restores the stored MIME and returns the message class the create payload sets, if any. */
+async function restore_and_read_message_class(mime: Buffer): Promise<string | undefined> {
+  return (await restore_and_read_properties(mime)).get(PR_MESSAGE_CLASS);
 }
 
 function make_restore_connector(): RestoreConnector {
@@ -144,5 +152,43 @@ describe('restore of a meeting response captured as MIME', () => {
     const mime = build_mixed_meeting_mime([PLAIN_BODY_PART, HTML_BODY_PART], [INVITE_ICS_PART]);
 
     expect(await restore_and_read_message_class(mime)).toBeUndefined();
+  });
+
+  // Without these a restored response says who answered and how, but not which meeting the
+  // answer was about (issue #819).
+  it('creates a response with the time of its meeting, and no all-day flag set', async () => {
+    const properties = await restore_and_read_properties(MEETING_RESPONSE_MIME);
+
+    expect(properties.get(`SystemTime ${APPOINTMENT_SET} Id 0x820D`)).toBe(
+      '2025-03-10T09:00:00.000Z',
+    );
+    expect(properties.get(`SystemTime ${APPOINTMENT_SET} Id 0x820E`)).toBe(
+      '2025-03-10T09:30:00.000Z',
+    );
+    expect(properties.get(`Boolean ${APPOINTMENT_SET} Id 0x8215`)).toBe('false');
+  });
+
+  it('creates a response with the global object ID of its meeting', async () => {
+    const properties = await restore_and_read_properties(MEETING_RESPONSE_MIME);
+
+    const id = properties.get(`Binary ${MEETING_SET} Id 0x3`);
+    expect(Buffer.from(id ?? '', 'base64').toString('latin1')).toContain(
+      'vCal-Uid\u0001\u0000\u0000\u0000meeting-4c1f@partner.example',
+    );
+    expect(properties.get(`Binary ${MEETING_SET} Id 0x23`)).toBe(id);
+  });
+
+  it('writes no appointment property on a request, which restores as ordinary mail', async () => {
+    const request = build_mixed_meeting_mime(
+      [PLAIN_BODY_PART, HTML_BODY_PART, calendar_part('REQUEST')],
+      [],
+    );
+
+    const properties = await restore_and_read_properties(request);
+
+    const meeting_properties = [...properties.keys()].filter(
+      (id) => id.includes(APPOINTMENT_SET) || id.includes(MEETING_SET),
+    );
+    expect(meeting_properties).toEqual([]);
   });
 });

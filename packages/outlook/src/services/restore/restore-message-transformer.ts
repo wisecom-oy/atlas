@@ -8,7 +8,7 @@ import type {
   MimeHeader,
   ParsedMimeMessage,
 } from '@/services/shared/mime-message-parser';
-import type { MeetingResponse } from '@/services/shared/meeting-response-reader';
+import { build_meeting_response_properties } from '@/services/restore/meeting-response-properties';
 
 /**
  * Read-only fields that Graph returns on GET but rejects on POST.
@@ -193,7 +193,8 @@ export function extract_folder_id_from_json(message_json: Record<string, unknown
  * mailbox restore would land as thousands of drafts. Parsing the MIME and
  * feeding the normal JSON create path keeps the existing restore quality.
  * The MIME has no flag status, dates or pin, so those come from the entry (issue #579).
- * A meeting response keeps its message class, read from its calendar part (issue #817).
+ * A meeting response keeps its class, time and location, read from its calendar part (issues
+ * #817, #819).
  */
 export function build_restore_payload_from_mime(
   parsed: ParsedMimeMessage,
@@ -212,7 +213,7 @@ export function build_restore_payload_from_mime(
     singleValueExtendedProperties: [
       ...build_mapi_overrides({ is_read: true, received_at: parsed.date, sent_at: parsed.date }),
       ...build_threading_properties(parsed.headers),
-      ...build_meeting_response_class(parsed.meeting_response),
+      ...build_meeting_response_properties(parsed.meeting_response, parsed.meeting_schedule),
       ...recorded_extended_properties(recorded),
     ],
   };
@@ -249,26 +250,6 @@ function build_threading_properties(
     const value = find_header(headers, header)?.trim();
     return value ? [{ id, value }] : [];
   });
-}
-
-const PR_MESSAGE_CLASS = 'String 0x001A';
-
-const MEETING_RESPONSE_CLASSES: Record<MeetingResponse, string> = {
-  accepted: 'IPM.Schedule.Meeting.Resp.Pos',
-  declined: 'IPM.Schedule.Meeting.Resp.Neg',
-  tentative: 'IPM.Schedule.Meeting.Resp.Tent',
-};
-
-/**
- * Sets the message class of a meeting response, so it restores as one and not as ordinary mail
- * (issue #817). Requests and cancellations get no class: Graph answers
- * `500 ErrorItemSavePropertyError` to `IPM.Schedule.Meeting.Request` and
- * `IPM.Schedule.Meeting.Canceled` on create and on update alike.
- */
-function build_meeting_response_class(
-  response: MeetingResponse | undefined,
-): Array<{ id: string; value: string }> {
-  return response ? [{ id: PR_MESSAGE_CLASS, value: MEETING_RESPONSE_CLASSES[response] }] : [];
 }
 
 /** Returns the value of the first header with this name, compared case-insensitively. */
