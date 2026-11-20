@@ -160,6 +160,9 @@ describe('convert_zone_local_time_to_utc', () => {
     ['a two-year interval', 'FREQ=YEARLY;INTERVAL=2;BYMONTH=10;BYDAY=-1SU'],
     ['a day of the month', 'FREQ=YEARLY;BYMONTH=10;BYMONTHDAY=27'],
     ['a weekday with no ordinal', 'FREQ=YEARLY;BYMONTH=10;BYDAY=SU'],
+    // Not every October has a fifth Sunday, so this rule skips years.
+    ['a fifth weekday', 'FREQ=YEARLY;BYMONTH=10;BYDAY=5SU'],
+    ['a fifth-last weekday', 'FREQ=YEARLY;BYMONTH=10;BYDAY=-5SU'],
     ['a monthly frequency', 'FREQ=MONTHLY;BYMONTH=10;BYDAY=-1SU'],
     ['no month', 'FREQ=YEARLY;BYDAY=-1SU'],
   ])('refuses a rule with %s', (_label, rrule) => {

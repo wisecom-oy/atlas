@@ -72,6 +72,21 @@ describe('build_global_object_ids', () => {
     expect(to_hex(ids?.clean_global_object_id)).toBe(OUTLOOK_UID);
   });
 
+  // Exchange does the same with both: a date in the UID alone is dropped, and a RECURRENCE-ID
+  // decides the date whatever the UID carries.
+  it('takes the occurrence date from the message, not from a date the UID carries', () => {
+    const uid_with_date = PREFIX + '07E9030A' + CREATION_TIME + RESERVED + SIXTEEN_BYTES + DATA;
+
+    const ids = build_global_object_ids({
+      uid: uid_with_date,
+      occurrence_date: { year: 2025, month: 3, day: 17 },
+    });
+
+    const with_occurrence = PREFIX + '07E90311' + CREATION_TIME + RESERVED + SIXTEEN_BYTES + DATA;
+    expect(to_hex(ids?.global_object_id)).toBe(with_occurrence);
+    expect(to_hex(ids?.clean_global_object_id)).toBe(OUTLOOK_UID);
+  });
+
   it('writes the occurrence date into a wrapped UID as well', () => {
     const ids = build_global_object_ids({
       uid: 'meeting-4c1f@partner.example',

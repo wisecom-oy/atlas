@@ -13,7 +13,7 @@ interface YearlyRule {
   readonly month: number;
   /** 0 for Sunday to 6 for Saturday. */
   readonly weekday: number;
-  /** 1 to 5 from the start of the month, -1 to -5 from its end. */
+  /** 1 to 4 from the start of the month, -1 to -4 from its end. */
   readonly ordinal: number;
 }
 
@@ -209,6 +209,10 @@ function parse_utc_offset(value: string | undefined): number | undefined {
 /**
  * Parses `FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU`, with an optional `INTERVAL=1`. Any other part,
  * such as `UNTIL` or `COUNT`, makes the rule one this module does not model.
+ *
+ * So does a fifth weekday (`5SU`, `-5SU`). Not every month has one, so such a rule skips years,
+ * and the onset in effect can lie further back than the years the conversion looks at. Every
+ * month has a first to fourth and a last to fourth-last of each weekday.
  */
 function parse_yearly_rule(value: string): YearlyRule | undefined {
   const parts = new Map<string, string>();
@@ -218,7 +222,7 @@ function parse_yearly_rule(value: string): YearlyRule | undefined {
     parts.set(part.slice(0, separator).toUpperCase(), part.slice(separator + 1).toUpperCase());
   }
 
-  const by_day = /^([+-]?[1-5])(SU|MO|TU|WE|TH|FR|SA)$/.exec(parts.get('BYDAY') ?? '');
+  const by_day = /^([+-]?[1-4])(SU|MO|TU|WE|TH|FR|SA)$/.exec(parts.get('BYDAY') ?? '');
   const month = Number(parts.get('BYMONTH'));
   const is_modelled =
     parts.get('FREQ') === 'YEARLY' &&

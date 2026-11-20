@@ -1,5 +1,6 @@
 import { find_property } from '@/services/shared/icalendar-document';
 import type { IcalendarComponent } from '@/services/shared/icalendar-document';
+import { parse_local_date_time } from '@/services/shared/icalendar-time-zone';
 
 /** A calendar date with no time and no zone. */
 export interface CalendarDate {
@@ -36,12 +37,14 @@ export function read_meeting_identity(event: IcalendarComponent): MeetingIdentit
   const recurrence_id = find_property(event, 'RECURRENCE-ID');
   if (recurrence_id === undefined) return { uid };
 
-  const local = /^(\d{4})(\d{2})(\d{2})T\d{6}$/.exec(recurrence_id.value.trim());
-  if (!local || !recurrence_id.parameters.has('TZID')) return undefined;
+  // The whole value must be a date-time that exists, so that no 30 February reaches the ID.
+  const local_ms = parse_local_date_time(recurrence_id.value);
+  if (local_ms === undefined || !recurrence_id.parameters.has('TZID')) return undefined;
+  const local = new Date(local_ms);
   const occurrence_date = {
-    year: Number(local[1]),
-    month: Number(local[2]),
-    day: Number(local[3]),
+    year: local.getUTCFullYear(),
+    month: local.getUTCMonth() + 1,
+    day: local.getUTCDate(),
   };
   return { uid, occurrence_date };
 }

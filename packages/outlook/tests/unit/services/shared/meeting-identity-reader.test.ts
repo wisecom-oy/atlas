@@ -43,6 +43,7 @@ describe('read_meeting_identity', () => {
     ['as a date', 'RECURRENCE-ID;VALUE=DATE:20250310'],
     ['as a local time with no zone', 'RECURRENCE-ID:20250310T090000'],
     ['that is not a time', 'RECURRENCE-ID;TZID=W. Europe Standard Time:someday'],
+    ['on a date that does not exist', 'RECURRENCE-ID;TZID=W. Europe Standard Time:20250230T090000'],
   ])('returns nothing for a RECURRENCE-ID %s', (_label, recurrence_line) => {
     expect(read_identity([UID_LINE, recurrence_line])).toBeUndefined();
   });
