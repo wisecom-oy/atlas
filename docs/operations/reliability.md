@@ -53,7 +53,7 @@ Every Microsoft Graph call goes through one retry loop. The Graph SDK's own retr
 | Waiting budget per call | 24 minutes of backoff, `Retry-After`, and cooldown waits. A wait already started runs in full |
 | Per-attempt timeout | 60 s by default. A timed-out request is aborted before the next attempt is sent |
 
-`500` and `502` are retried because Microsoft Graph returns them for load and gateway faults that clear on their own. `501` and every other `4xx` are not retried: the same request returns the same answer. Atlas decides from the HTTP status and structured error codes only, never from message text, which carries request IDs and item IDs whose digits could pass for a status.
+`500` and `502` are retried because Microsoft Graph returns them for load and gateway faults that clear on their own. `501` and every other `4xx` are not retried: the same request returns the same answer. A `500` carrying `ErrorMimeContentConversionFailed` is not retried either, because Exchange returns it for an item it can never convert (see [When a message cannot be stored as MIME](/operations/delta-sync#when-a-message-cannot-be-stored-as-mime)). Atlas decides from the HTTP status and structured error codes only, never from message text, which carries request IDs and item IDs whose digits could pass for a status.
 
 The 24-minute budget sits just above the full exponential schedule (1 + 2 + 4 + ... capped at 5 minutes comes to about 23.5 minutes), so backoff alone always gets all 12 retries. Time spent inside a request does not count, so a slow download keeps its retries. One call therefore waits at most about 24 minutes plus one cooldown.
 

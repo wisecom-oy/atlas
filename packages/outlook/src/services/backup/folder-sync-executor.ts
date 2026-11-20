@@ -1,9 +1,6 @@
-import type { MessageExtendedProperties, TenantContext } from '@wisecom/atlas-types';
-import {
-  capture_mime_payload,
-  capture_page_extended_properties,
-  store_single_message,
-} from '@/services/backup/message-payload-store';
+import type { TenantContext } from '@wisecom/atlas-types';
+import { capture_page_extended_properties } from '@/services/backup/message-payload-store';
+import { process_message } from '@/services/backup/folder-message-processor';
 import type { MailboxConnector, MailMessage } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
 import {
@@ -41,7 +38,10 @@ export interface FolderSyncResult {
    */
   message_errors: string[];
   folder_processed: number;
-  /** Per-folder problems that lost data but no message, e.g. reactions not read (issue #513). */
+  /**
+   * Per-folder problems that lost data but no message, e.g. reactions not read (issue #513) or MIME
+   * Exchange will never produce (issue #812). None of them withholds the delta link.
+   */
   warnings: string[];
   /** Messages stored without their reactions and pin; also summarised in `warnings`. */
   reactions_not_captured: number;
@@ -66,50 +66,6 @@ export interface FolderSyncParams {
   previous_manifest_entries?: number;
   page_size?: number;
   object_lock_policy?: ObjectLockPolicy;
-}
-
-/**
- * Processes a single message: capture MIME, dedup check, encrypt, store.
- * MIME embeds its attachments, so only a JSON fallback queues a separate
- * attachment fetch. Reactions and pin were read for the whole page beforehand (issue #513).
- * A MIME capture that failed for now is recorded in `message_errors` (issue #614).
- */
-async function process_message(
-  ctx: TenantContext,
-  connector: MailboxConnector,
-  tenant_id: string,
-  owner_id: string,
-  message: MailMessage,
-  properties: MessageExtendedProperties | undefined,
-  entries: ManifestEntry[],
-  stats: { stored: number; deduplicated: number; att_stored: number },
-  pending_attachments: PendingAttachment[],
-  message_errors: string[],
-  object_lock_policy?: ObjectLockPolicy,
-): Promise<void> {
-  const { mime, failure } = await capture_mime_payload(connector, tenant_id, owner_id, message);
-  if (failure !== undefined) {
-    message_errors.push(
-      `message ${message.message_id}: original MIME not captured, stored from the JSON payload (${failure})`,
-    );
-  }
-  const entry = await store_single_message(
-    ctx,
-    message,
-    owner_id,
-    object_lock_policy,
-    mime,
-    properties,
-  );
-  if (entry.was_new) stats.stored++;
-  else stats.deduplicated++;
-
-  const entry_index = entries.length;
-  entries.push(entry.manifest_entry);
-
-  if (!mime && message.has_attachments) {
-    pending_attachments.push({ entry_index, message_id: message.message_id });
-  }
 }
 
 /** Runs a delta sync for one folder, processing messages inline as pages arrive. */
@@ -139,6 +95,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
   const stats = { stored: 0, deduplicated: 0, att_stored: 0, reactions_failed: 0 };
   const pending_attachments: PendingAttachment[] = [];
   const message_errors: string[] = [];
+  const message_warnings: string[] = [];
   let folder_processed = 0;
   let streamed = false;
   // Set whenever any page or message is skipped; blocks delta-link persistence (issue #23).
@@ -193,6 +150,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
         stats,
         pending_attachments,
         message_errors,
+        message_warnings,
         object_lock_policy,
       );
       folder_processed++;
@@ -279,6 +237,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
         stats,
         pending_attachments,
         message_errors,
+        message_warnings,
         object_lock_policy,
       );
       folder_processed++;
@@ -325,12 +284,14 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
     attachments_stored: stats.att_stored,
     message_errors,
     folder_processed,
-    warnings:
-      stats.reactions_failed > 0
+    warnings: [
+      ...message_warnings,
+      ...(stats.reactions_failed > 0
         ? [
             `reactions and pin not captured for ${stats.reactions_failed} message(s); they are read again only when the message changes`,
           ]
-        : [],
+        : []),
+    ],
     reactions_not_captured: stats.reactions_failed,
   };
 }

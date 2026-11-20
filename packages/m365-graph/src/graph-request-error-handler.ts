@@ -17,6 +17,7 @@ import {
 } from '@/graph-retry-after';
 import { race_abort, run_attempt, sleep, throw_if_cancelled } from '@/graph-attempt-cancellation';
 import { is_network_error } from '@/graph-network-error';
+import { is_permanent_item_error } from '@/graph-permanent-item-errors';
 import { to_graph_unavailable_error } from '@/graph-unavailable-failure';
 import {
   GraphTokenRequestError,
@@ -128,10 +129,12 @@ export function is_invalid_delta_error(err: unknown): boolean {
 /**
  * Returns true when the error carries a transient HTTP status (429, 500, 502, 503, 504), or is the
  * `ThrottledError` or `GraphUnavailableError` an exhausted retry becomes, so an outer retry loop
- * still sees the transient failure it wraps.
+ * still sees the transient failure it wraps. A 500 whose Graph code is permanent for the item,
+ * such as `ErrorMimeContentConversionFailed`, is not transient (issue #812).
  */
 export function is_transient_error(err: unknown): boolean {
   if (err instanceof ThrottledError || err instanceof GraphUnavailableError) return true;
+  if (is_permanent_item_error(err)) return false;
   const status = (err as Record<string, unknown>).statusCode;
   return typeof status === 'number' && RETRYABLE_STATUS_CODES.has(status);
 }

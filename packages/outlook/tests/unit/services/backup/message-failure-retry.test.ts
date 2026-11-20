@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AuthError, MailboxNotLicensedError } from '@wisecom/atlas-types';
+import { AuthError, MailboxNotLicensedError, MimeUnavailableError } from '@wisecom/atlas-types';
 import type { MailboxDeltaCursor, Manifest, ManifestEntry, SyncResult } from '@wisecom/atlas-types';
 import { create_mailbox_sync_harness, make_delta, make_message } from './mailbox-sync.fixtures';
 import type { MailboxSyncHarness } from './mailbox-sync.fixtures';
@@ -114,6 +114,34 @@ describe('a per-message failure withholds the folder delta link', () => {
 
       expect(result.summary.folder_errors).toEqual([]);
       expect(saved_links(harness)).toEqual({ 'folder-1': NEXT_LINK });
+    });
+
+    it('advances the link when Exchange refuses the MIME for good, and resumes from it (issue #812)', async () => {
+      harness.mock_connector.fetch_mime = vi.fn(async (_t: string, _o: string, id: string) => {
+        if (id !== 'msg-1') return MIME;
+        throw new MimeUnavailableError(
+          'HTTP 500 -- ErrorMimeContentConversionFailed',
+          'ErrorMimeContentConversionFailed',
+        );
+      });
+      const first = await harness.service.sync_mailbox('t', OWNER);
+
+      expect(first.summary.folder_errors).toEqual([]);
+      expect(first.summary.warnings).toEqual([
+        expect.stringMatching(
+          /^Inbox: message msg-1: Exchange cannot produce its original MIME \(ErrorMimeContentConversionFailed\)/,
+        ),
+      ]);
+      expect(entry_for(first, 'msg-1')).toMatchObject({
+        mime_unavailable: 'ErrorMimeContentConversionFailed',
+      });
+      expect(entry_for(first, 'msg-1')?.payload_format).toBeUndefined();
+      expect(entry_for(first, 'msg-2')?.mime_unavailable).toBeUndefined();
+      expect(saved_links(harness)).toEqual({ 'folder-1': NEXT_LINK });
+
+      await harness.service.sync_mailbox('t', OWNER);
+
+      expect(prev_link_of_last_delta(harness)).toBe(NEXT_LINK);
     });
 
     it.each([

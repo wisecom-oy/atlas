@@ -210,10 +210,11 @@ Incremental runs fetch MIME only for new and changed messages. The first backup 
 | Situation | What Atlas does |
 | --- | --- |
 | Microsoft 365 cannot produce MIME for the message | Stores the legacy JSON form and records the format in the snapshot entry. The run succeeds |
+| Exchange refuses the conversion for good with `500 ErrorMimeContentConversionFailed` | Sends the request once, without retries. Stores the JSON form, records the error code as `mime_unavailable` in the snapshot entry, prints a warning that names the folder and message, and saves the folder's checkpoint. The run exits `0`. The message is fetched again only when it changes |
 | The MIME request still fails after [retries](/operations/reliability#microsoft-graph-requests), for example a `503` | Stores the JSON form so the message is kept, reports it as an error of its folder, keeps the folder's previous checkpoint, and exits `2`. The next run fetches the folder's changes again, captures the MIME, and its entry replaces the JSON one |
 | A JSON entry's attachments could not be fetched or stored | Handled the same way: the next run fetches the message and its attachments again |
 
-Entries with `payload_format: "mime"` hold original bytes. Entries without the field hold legacy JSON. A snapshot can mix both, and `save`, `read`, `restore`, and `verify` handle both. A message that fails on every run holds its folder's checkpoint back until it succeeds, and the changes fetched again each time deduplicate against the stored objects.
+Entries with `payload_format: "mime"` hold original bytes. Entries without the field hold legacy JSON. A snapshot can mix both, and `save`, `read`, `restore`, and `verify` handle both. A message that fails on every run holds its folder's checkpoint back until it succeeds, and the changes fetched again each time deduplicate against the stored objects. `ErrorMimeContentConversionFailed` is the exception: Exchange returns it with a `500` status, yet the same item fails the same way days later, so retrying it only re-read the folder on every run. Old meeting responses with attachments are a known cause.
 
 ### Reactions, flag, and pin
 
