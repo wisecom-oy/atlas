@@ -127,7 +127,7 @@ export class MailboxSyncService implements BackupUseCase {
       const folders = folder_selection.folders;
       const warnings: string[] = [];
       const excluded_folders = folder_selection.excluded;
-      const progress = resolve_progress_reporter(options, folders);
+      const progress = resolve_progress_reporter(options, folders, mode);
       const global_total = folders.reduce((sum, f) => sum + f.total_item_count, 0);
       emit_operation_progress(options, {
         operation: 'backup',

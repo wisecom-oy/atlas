@@ -38,7 +38,9 @@ def test_02_initial_backup_writes_objects(
     `-f <marker>` is mandatory: a bare backup would enumerate every mailbox in the tenant.
     """
     result = cli.ok("outlook", "backup", "-m", settings.mailbox, "-f", run_marker)
-    assert "Resuming incremental sync" not in result.out, "first run must be an initial sync"
+    mode = "No prior backup found. Running initial full sync"
+    folder_at = result.stdout.find(f"[ok] {run_marker} --")
+    assert 0 <= result.stdout.find(mode) < folder_at, result.describe()
 
     owner = _owner_id(s3, settings.bucket)
     STATE["owner"] = owner
@@ -94,7 +96,9 @@ def test_06_incremental_backup_adds_only_the_new_message(
     )
 
     result = cli.ok("outlook", "backup", "-m", settings.mailbox, "-f", run_marker)
-    assert "Resuming incremental sync" in result.out, result.describe()
+    mode = "Resuming incremental sync from saved delta state"
+    folder_at = result.stdout.find(f"[ok] {run_marker} --")
+    assert 0 <= result.stdout.find(mode) < folder_at, result.describe()
 
     after = set(storage.list_keys(s3, settings.bucket, f"data/{owner}/"))
     assert len(after - before) == 1, (
