@@ -627,7 +627,7 @@ A restored response also says which meeting it answers. Atlas reads the start, t
 | UTC (`DTSTART:20250310T090000Z`) | As written |
 | Local time with a `TZID`, and that zone's `VTIMEZONE` block in the same part | Converted with the block's own daylight saving rules. Exchange and Outlook write this form, under Windows zone names such as `W. Europe Standard Time` |
 | All-day date (`DTSTART;VALUE=DATE:20250310`) | Midnight in the zone of the part's only `VTIMEZONE` block, or midnight UTC when the part has no block or several. This is where Exchange places it |
-| Local time with a `TZID` and no block, local time with no zone, a `DURATION` in place of `DTEND`, or a zone rule other than a yearly nth weekday of a month | Not restored. The response keeps its class and location |
+| Local time with a `TZID` and no block, local time with no zone, a `DURATION` in place of `DTEND`, or a zone rule other than a yearly first to fourth, or last to fourth-last, weekday of a month | Not restored. The response keeps its class and location |
 
 Atlas uses the zone rules the sender wrote into the message, not a time zone database, and leaves a time out when it cannot be certain of it. A wrong time on a restored item is worse than none. Exchange resolves some of the forms in the last row by looking the zone name up or by assuming UTC. Atlas does not guess along.
 
