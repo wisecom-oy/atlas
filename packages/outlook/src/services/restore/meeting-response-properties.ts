@@ -1,5 +1,6 @@
 import type { MeetingResponse } from '@/services/shared/meeting-response-reader';
 import type { MeetingSchedule } from '@/services/shared/meeting-schedule-reader';
+import { build_global_object_ids } from '@/services/restore/global-object-id';
 
 const PR_MESSAGE_CLASS = 'String 0x001A';
 
@@ -17,14 +18,24 @@ const PID_LID_LOCATION = `String ${APPOINTMENT_PROPERTY_SET} Id 0x8208`;
 /** The all-day flag. Graph reports `isAllDay` as `null` on a response that lacks it. */
 const PID_LID_APPOINTMENT_SUB_TYPE = `Boolean ${APPOINTMENT_PROPERTY_SET} Id 0x8215`;
 
+/** PSETID_Meeting, the property set the identifiers of a meeting live in. */
+const MEETING_PROPERTY_SET = '{6ED8DA90-450B-101B-98DA-00AA003F1305}';
+const PID_LID_GLOBAL_OBJECT_ID = `Binary ${MEETING_PROPERTY_SET} Id 0x3`;
+const PID_LID_CLEAN_GLOBAL_OBJECT_ID = `Binary ${MEETING_PROPERTY_SET} Id 0x23`;
+
 /**
  * Builds the MAPI properties that make a created message a meeting response.
  *
  * The message class makes it restore as a response and not as ordinary mail (issue #817). The
- * start, end, all-day flag and location say which meeting it answers (issue #819): Graph reads
- * them back as `startDateTime`, `endDateTime`, `isAllDay` and `location`. The global object ID is
- * left out on purpose, so the restored response cannot be matched to a live calendar event and
- * change its tracking.
+ * start, end, all-day flag and location say when and where the meeting is (issue #819): Graph
+ * reads them back as `startDateTime`, `endDateTime`, `isAllDay` and `location`.
+ *
+ * The global object ID says which meeting it is, and it is the real one, rebuilt from the `UID`
+ * the backup holds. Exchange needs it to write the time and location into the MIME of the
+ * restored response, so without it a later backup captures a response that has lost them again.
+ * It also links the response to its meeting where that still exists. In a live test, responses
+ * created this way that disagreed with the attendee's current answer left the meeting's tracking
+ * as it was, whether they were dated before or after that answer.
  *
  * Extended properties are the only way in. Graph documents no operation that creates an
  * `eventMessage`, and its update takes five message fields and none of the meeting ones, while
@@ -48,5 +59,11 @@ export function build_meeting_response_properties(
     properties.push({ id: PID_LID_APPOINTMENT_SUB_TYPE, value: String(schedule.time.is_all_day) });
   }
   if (schedule?.location) properties.push({ id: PID_LID_LOCATION, value: schedule.location });
+
+  const ids = schedule?.identity && build_global_object_ids(schedule.identity);
+  if (ids) {
+    properties.push({ id: PID_LID_GLOBAL_OBJECT_ID, value: ids.global_object_id });
+    properties.push({ id: PID_LID_CLEAN_GLOBAL_OBJECT_ID, value: ids.clean_global_object_id });
+  }
   return properties;
 }

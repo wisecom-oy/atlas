@@ -39,6 +39,7 @@ const MEETING_RESPONSE_ENTRY = build_mime_entry(MEETING_RESPONSE_MIME);
 const PR_MESSAGE_CLASS = 'String 0x001A';
 
 const APPOINTMENT_SET = '{00062002-0000-0000-C000-000000000046}';
+const MEETING_SET = '{6ED8DA90-450B-101B-98DA-00AA003F1305}';
 
 /** Restores the stored MIME and returns the extended properties of the create payload by id. */
 async function restore_and_read_properties(mime: Buffer): Promise<Map<string, string>> {
@@ -167,6 +168,16 @@ describe('restore of a meeting response captured as MIME', () => {
     expect(properties.get(`Boolean ${APPOINTMENT_SET} Id 0x8215`)).toBe('false');
   });
 
+  it('creates a response with the global object ID of its meeting', async () => {
+    const properties = await restore_and_read_properties(MEETING_RESPONSE_MIME);
+
+    const id = properties.get(`Binary ${MEETING_SET} Id 0x3`);
+    expect(Buffer.from(id ?? '', 'base64').toString('latin1')).toContain(
+      'vCal-Uid\u0001\u0000\u0000\u0000meeting-4c1f@partner.example',
+    );
+    expect(properties.get(`Binary ${MEETING_SET} Id 0x23`)).toBe(id);
+  });
+
   it('writes no appointment property on a request, which restores as ordinary mail', async () => {
     const request = build_mixed_meeting_mime(
       [PLAIN_BODY_PART, HTML_BODY_PART, calendar_part('REQUEST')],
@@ -175,6 +186,9 @@ describe('restore of a meeting response captured as MIME', () => {
 
     const properties = await restore_and_read_properties(request);
 
-    expect([...properties.keys()].filter((id) => id.includes(APPOINTMENT_SET))).toEqual([]);
+    const meeting_properties = [...properties.keys()].filter(
+      (id) => id.includes(APPOINTMENT_SET) || id.includes(MEETING_SET),
+    );
+    expect(meeting_properties).toEqual([]);
   });
 });

@@ -631,11 +631,17 @@ A restored response also says which meeting it answers. Atlas reads the start, t
 
 Atlas uses the zone rules the sender wrote into the message, not a time zone database, and leaves a time out when it cannot be certain of it. A wrong time on a restored item is worse than none. Exchange resolves some of the forms in the last row by looking the zone name up or by assuming UTC. Atlas does not guess along.
 
+A restored response is also tied to its meeting again. Atlas rebuilds the meeting's global object ID, the property Exchange keys a meeting on, from the `UID` in the calendar part: an Outlook `UID` is the ID itself in hex, and any other `UID`, such as one from Google Calendar, is wrapped the way Exchange wraps it on delivery. The ID does two things:
+
+- **It links the response to the meeting.** Where the meeting still exists in the calendar, Microsoft Graph resolves the restored response to it, as it does for the original.
+- **It keeps the meeting details through a later backup.** Exchange writes the time and location into the MIME of a meeting message only when the item has this ID. A restored response is therefore backed up again complete, and restores complete from that backup too.
+
+Restoring an old answer does not replay it. In a live test, restored responses that disagreed with the attendee's current answer, some dated before it and some after, left the meeting's attendee tracking as it was.
+
 What a restored meeting message does not carry:
 
-- **The link to the calendar event.** Atlas does not write the global object ID, the property that ties a meeting message to a calendar event. A restored response points at no meeting, so it cannot change attendee tracking on a live one.
 - **Recurrence.** A response to a recurring meeting restores with the time of the calendar part and reads back as a single instance.
-- **Meeting details after a second backup.** Exchange writes the time and location into the MIME of a meeting message only when it has a global object ID. A backup of a restored response therefore captures the class without the time, and a restore from that backup brings back a response with no meeting time.
+- **The meeting link, when the calendar part does not name its meeting with certainty.** That is a part with no `UID`, or a response about one occurrence of a series whose `RECURRENCE-ID` is not a local time with a `TZID`. The response then restores with its class, time, and location, and points at no meeting.
 - **The calendar part.** Atlas leaves out a `text/calendar` part that has no `Content-Disposition: attachment` when it is a child of `multipart/alternative`, or when it has no file name and is the part the meeting was built from, or an exact copy of it. Uploading such a part would add a file named `attachment` that the source message never showed.
 
 What still restores as an attachment:

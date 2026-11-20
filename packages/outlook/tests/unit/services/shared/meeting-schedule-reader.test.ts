@@ -21,6 +21,8 @@ function read_schedule(
 
 const WEST_EUROPE_TZID = ';TZID=W. Europe Standard Time';
 const UTC_TIME_LINES = ['DTSTART:20240710T090000Z', 'DTEND:20240710T093000Z'];
+/** The identity of the meeting every fixture document is about. */
+const MEETING_IDENTITY = { uid: 'meeting-4c1f@partner.example' };
 
 // The expected instants are what Exchange Online reported for a response carrying the same
 // calendar part (issue #819).
@@ -239,11 +241,16 @@ describe('read_meeting_schedule', () => {
   it('returns a location alone when the time cannot be read', () => {
     const schedule = read_schedule({ event_lines: ['DTSTART:20240715T100000', 'LOCATION:Room 1'] });
 
-    expect(schedule).toEqual({ location: 'Room 1' });
+    expect(schedule).toEqual({ location: 'Room 1', identity: MEETING_IDENTITY });
   });
 
-  it('returns nothing when the event has neither a readable time nor a location', () => {
-    expect(read_schedule({ event_lines: [] })).toBeUndefined();
+  it('returns the identity alone when the event has neither a readable time nor a location', () => {
+    expect(read_schedule({ event_lines: [] })).toEqual({ identity: MEETING_IDENTITY });
+  });
+
+  // The UID is text like the location, and the bytes are decoded as UTF-8 whatever the part says.
+  it('leaves the identity out when the part declares another charset', () => {
+    expect(read_schedule({ event_lines: [] }, 'iso-8859-1')).toBeUndefined();
   });
 
   it('returns nothing for a part that is not an iCalendar document', () => {

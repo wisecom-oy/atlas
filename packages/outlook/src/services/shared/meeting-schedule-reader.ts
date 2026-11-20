@@ -9,6 +9,8 @@ import {
   parse_local_date_time,
 } from '@/services/shared/icalendar-time-zone';
 import type { MeetingCalendarPart } from '@/services/shared/meeting-calendar-parts';
+import { read_meeting_identity } from '@/services/shared/meeting-identity-reader';
+import type { MeetingIdentity } from '@/services/shared/meeting-identity-reader';
 
 /** When a meeting takes place, as UTC instants in ISO 8601. */
 export interface MeetingTime {
@@ -23,6 +25,8 @@ export interface MeetingSchedule {
   /** Absent when the calendar part does not pin both instants down. */
   readonly time?: MeetingTime;
   readonly location?: string;
+  /** Absent when the calendar part does not name its meeting with certainty. */
+  readonly identity?: MeetingIdentity;
 }
 
 /**
@@ -39,7 +43,7 @@ const EARLIEST_MAPI_TIME_MS = Date.UTC(1601, 0, 1);
 const UTF8_COMPATIBLE_CHARSETS = new Set(['utf-8', 'utf8', 'us-ascii', 'ascii']);
 
 /**
- * Reads the meeting time and location from the calendar part of a meeting message, the way
+ * Reads the meeting time, location and identity from the calendar part of a meeting message, the way
  * Exchange Online read the same parts in a live comparison (issue #819).
  *
  * The time is returned only when it is certain, because a wrong time on a restored item is worse
@@ -59,10 +63,17 @@ export function read_meeting_schedule(part: MeetingCalendarPart): MeetingSchedul
   const event = calendar && find_component(calendar, 'VEVENT');
   if (calendar === undefined || event === undefined) return undefined;
 
+  // Location and UID are text, and the bytes were decoded as UTF-8 whatever the part declared.
+  const is_text_readable = is_readable_as_utf8(part.charset);
   const time = read_meeting_time(calendar, event);
-  const location = is_readable_as_utf8(part.charset) ? read_location(event) : undefined;
-  if (time === undefined && location === undefined) return undefined;
-  return { ...(time ? { time } : {}), ...(location ? { location } : {}) };
+  const location = is_text_readable ? read_location(event) : undefined;
+  const identity = is_text_readable ? read_meeting_identity(event) : undefined;
+  if (time === undefined && location === undefined && identity === undefined) return undefined;
+  return {
+    ...(time ? { time } : {}),
+    ...(location ? { location } : {}),
+    ...(identity ? { identity } : {}),
+  };
 }
 
 /** Whether text decoded as UTF-8 is what the part's declared charset meant. */
