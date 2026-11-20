@@ -63,7 +63,7 @@ export class MailboxSyncService implements BackupUseCase {
    * The run's abort signal is published to every Graph call inside it, so cancelling also ends a
    * Graph retry or throttle wait rather than only the next page (issue #673).
    *
-   * The run holds the mailbox's lease from before it reads the cursor until it ends.
+   * The run holds the mailbox's lease through mailbox discovery and all subsequent reads and writes.
    *
    * @throws OwnerBusyError when another operation holds the mailbox's backup.
    */
@@ -86,22 +86,20 @@ export class MailboxSyncService implements BackupUseCase {
     owner_id: string,
     options: SyncOptions,
   ): Promise<SyncResult> {
-    await assert_mailbox_exists(this._connector, tenant_id, owner_id);
-    const mailbox_purpose = await this._connector.get_mailbox_purpose?.(tenant_id, owner_id);
-    // Before the tenant context, so selectors that match no folder fail before storage is touched.
-    const folder_selection = await resolve_backup_folders(this._connector, tenant_id, owner_id, {
-      folder_filter: options.folder_filter,
-      exclude_junk: options.exclude_junk,
-      include_recoverable_items: options.include_recoverable_items,
-    });
     const ctx = await this._tenant_factory.create(tenant_id);
     let lease: HeldOwnerLease | undefined;
     try {
-      // Taken before the cursor is read, released in the `finally` below (issue #623).
       lease = await this._leases.acquire(ctx, {
         workload: 'outlook',
         owner_id,
         operation: 'backup',
+      });
+      await assert_mailbox_exists(this._connector, tenant_id, owner_id);
+      const mailbox_purpose = await this._connector.get_mailbox_purpose?.(tenant_id, owner_id);
+      const folder_selection = await resolve_backup_folders(this._connector, tenant_id, owner_id, {
+        folder_filter: options.folder_filter,
+        exclude_junk: options.exclude_junk,
+        include_recoverable_items: options.include_recoverable_items,
       });
       const snapshot = create_pending_snapshot(tenant_id, owner_id, {
         owner_email: options.owner_email,
