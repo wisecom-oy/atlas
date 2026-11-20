@@ -24,11 +24,11 @@ export interface IcalendarComponent {
  * line that is not a content line is skipped and an unbalanced `END:` is ignored, and the reader
  * decides what it can trust.
  */
-export function parse_icalendar(text: string): IcalendarComponent {
+export function parse_icalendar(document: Buffer): IcalendarComponent {
   const root: IcalendarComponent = { name: '', properties: [], components: [] };
   const open: IcalendarComponent[] = [root];
 
-  for (const line of unfold_content_lines(text)) {
+  for (const line of unfold_content_lines(document)) {
     const property = parse_content_line(line);
     if (property === undefined) continue;
     const current = open[open.length - 1]!;
@@ -66,10 +66,21 @@ export function find_property(
   return component.properties.find((property) => property.name === name);
 }
 
-/** Splits a document into content lines, joining the continuation lines RFC 5545 folds them into. */
-function unfold_content_lines(text: string): string[] {
-  return text
-    .replace(/\r?\n[ \t]/g, '')
+/**
+ * Splits a document into content lines, joining the continuation lines RFC 5545 folds them into.
+ *
+ * Folding counts octets, so a fold may fall inside a multi-byte UTF-8 character. The folds are
+ * therefore removed from the bytes, and the text is decoded afterwards. Decoding first would turn
+ * the two halves of such a character into replacement characters for good. Latin-1 maps every
+ * byte to one code unit and back, which makes it a byte-exact way to edit the buffer as a string.
+ */
+function unfold_content_lines(document: Buffer): string[] {
+  const unfolded_bytes = Buffer.from(
+    document.toString('latin1').replace(/\r?\n[ \t]/g, ''),
+    'latin1',
+  );
+  return unfolded_bytes
+    .toString('utf-8')
     .split(/\r?\n/)
     .filter((line) => line.length > 0);
 }

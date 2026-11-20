@@ -55,7 +55,7 @@ const UTF8_COMPATIBLE_CHARSETS = new Set(['utf-8', 'utf8', 'us-ascii', 'ascii'])
  * the zone name up or by assuming UTC, and Atlas does not guess along.
  */
 export function read_meeting_schedule(part: MeetingCalendarPart): MeetingSchedule | undefined {
-  const calendar = find_component(parse_icalendar(part.icalendar.toString('utf-8')), 'VCALENDAR');
+  const calendar = find_component(parse_icalendar(part.icalendar), 'VCALENDAR');
   const event = calendar && find_component(calendar, 'VEVENT');
   if (calendar === undefined || event === undefined) return undefined;
 

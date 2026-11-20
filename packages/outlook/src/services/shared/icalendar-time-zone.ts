@@ -78,28 +78,55 @@ export function convert_zone_local_time_to_utc(
     observances.push(observance);
   }
 
-  const offset_minutes = find_offset_in_effect(observances, local_ms);
-  return offset_minutes === undefined ? undefined : local_ms - offset_minutes * MS_PER_MINUTE;
+  return resolve_local_time(observances, local_ms);
 }
 
 /**
- * Picks the offset of the observance whose latest onset is at or before the time.
+ * Resolves a wall-clock time to an instant under a zone's observances.
  *
- * Each candidate is tested under its own offset: the time is turned into the instant it would
- * be if that observance applied, and the observance qualifies when its onset is not after that
- * instant. In the hour a clock skips or repeats, this settles on one reading instead of failing.
+ * Each offset the zone uses gives one reading of the time. A reading holds when that offset is
+ * the one in effect at the instant it yields. Almost always exactly one holds. The two hours a
+ * year where that fails are settled the way RFC 5545 section 3.3.5 says, which is also what
+ * Exchange Online did with them in a live comparison:
+ *
+ * - When clocks go back, the time occurs twice and two readings hold. The first occurrence wins.
+ * - When clocks go forward, the time does not occur and no reading holds. It is read with the
+ *   offset in effect before the gap.
  */
-function find_offset_in_effect(
+function resolve_local_time(
   observances: readonly Observance[],
   local_ms: number,
 ): number | undefined {
-  const year = new Date(local_ms).getUTCFullYear();
+  const offsets = [...new Set(observances.map((observance) => observance.offset_to_minutes))];
+  const readings = offsets
+    .map((offset_minutes) => {
+      const instant_ms = local_ms - offset_minutes * MS_PER_MINUTE;
+      return {
+        instant_ms,
+        holds: find_offset_at_instant(observances, instant_ms) === offset_minutes,
+      };
+    })
+    .sort((a, b) => a.instant_ms - b.instant_ms);
+
+  const first_occurrence = readings.find((reading) => reading.holds);
+  if (first_occurrence !== undefined) return first_occurrence.instant_ms;
+
+  const earliest = readings[0];
+  const offset_before_gap = earliest && find_offset_at_instant(observances, earliest.instant_ms);
+  return offset_before_gap === undefined ? undefined : local_ms - offset_before_gap * MS_PER_MINUTE;
+}
+
+/** The offset in effect at a UTC instant: that of the observance with the latest onset before it. */
+function find_offset_at_instant(
+  observances: readonly Observance[],
+  instant_ms: number,
+): number | undefined {
+  const year = new Date(instant_ms).getUTCFullYear();
   let latest_onset_utc_ms = Number.NEGATIVE_INFINITY;
   let offset_minutes: number | undefined;
 
   for (const observance of observances) {
-    const instant_ms = local_ms - observance.offset_to_minutes * MS_PER_MINUTE;
-    for (const onset_local_ms of list_onsets_near_year(observance, year)) {
+    for (const onset_local_ms of list_onsets_around_year(observance, year)) {
       const onset_utc_ms = onset_local_ms - observance.offset_from_minutes * MS_PER_MINUTE;
       if (onset_utc_ms > instant_ms || onset_utc_ms <= latest_onset_utc_ms) continue;
       latest_onset_utc_ms = onset_utc_ms;
@@ -109,18 +136,20 @@ function find_offset_in_effect(
   return offset_minutes;
 }
 
-/** The onsets of an observance that can govern a time in this year: last year's and this year's. */
-function list_onsets_near_year(observance: Observance, year: number): number[] {
+/**
+ * The onsets of an observance that can govern an instant in this year: those of the year before,
+ * the year itself and the year after, since an onset is dated in local time.
+ */
+function list_onsets_around_year(observance: Observance, year: number): number[] {
   const { rule, first_onset_local_ms } = observance;
   if (rule === undefined) return [first_onset_local_ms];
 
-  const first = new Date(first_onset_local_ms);
   const time_of_day_ms = first_onset_local_ms - start_of_utc_day(first_onset_local_ms);
-  return [year - 1, year]
+  return [year - 1, year, year + 1]
     .map((onset_year) => find_nth_weekday_of_month(onset_year, rule))
     .filter((day_ms): day_ms is number => day_ms !== undefined)
     .map((day_ms) => day_ms + time_of_day_ms)
-    .filter((onset_ms) => onset_ms >= first.getTime());
+    .filter((onset_ms) => onset_ms >= first_onset_local_ms);
 }
 
 /** Midnight of the UTC day a timestamp falls on. */
@@ -171,8 +200,10 @@ function parse_observance(component: IcalendarComponent): Observance | undefined
 function parse_utc_offset(value: string | undefined): number | undefined {
   const match = /^([+-])(\d{2})(\d{2})(\d{2})?$/.exec(value?.trim() ?? '');
   if (!match || (match[4] !== undefined && match[4] !== '00')) return undefined;
-  const minutes = Number(match[2]) * 60 + Number(match[3]);
-  return match[1] === '-' ? -minutes : minutes;
+  const hours = Number(match[2]);
+  const minutes = Number(match[3]);
+  if (hours > 23 || minutes > 59) return undefined;
+  return (match[1] === '-' ? -1 : 1) * (hours * 60 + minutes);
 }
 
 /**

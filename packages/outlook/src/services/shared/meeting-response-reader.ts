@@ -19,7 +19,7 @@ export function read_meeting_response(part: MeetingCalendarPart): MeetingRespons
   if (part.method === 'COUNTER') return 'tentative';
   if (part.method !== 'REPLY') return undefined;
 
-  const calendar = find_component(parse_icalendar(part.icalendar.toString('utf-8')), 'VCALENDAR');
+  const calendar = find_component(parse_icalendar(part.icalendar), 'VCALENDAR');
   const event = calendar && find_component(calendar, 'VEVENT');
   const attendee = event && find_property(event, 'ATTENDEE');
   if (attendee === undefined) return undefined;

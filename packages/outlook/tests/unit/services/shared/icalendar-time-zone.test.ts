@@ -15,7 +15,8 @@ import {
 
 /** Converts a wall-clock time in the zone the block describes to an ISO 8601 UTC instant. */
 function to_utc(zone: readonly string[], local: string): string | undefined {
-  const component = find_component(parse_icalendar(zone.join('\r\n')), 'VTIMEZONE')!;
+  const document = Buffer.from(zone.join('\r\n'), 'utf-8');
+  const component = find_component(parse_icalendar(document), 'VTIMEZONE')!;
   const utc_ms = convert_zone_local_time_to_utc(component, parse_local_date_time(local)!);
   return utc_ms === undefined ? undefined : new Date(utc_ms).toISOString();
 }
@@ -49,6 +50,83 @@ describe('convert_zone_local_time_to_utc', () => {
   ])('converts a southern zone in %s', (_label, local, expected) => {
     expect(to_utc(SYDNEY_ZONE, local)).toBe(expected);
   });
+
+  // When clocks go back, an hour of local time occurs twice. RFC 5545 section 3.3.5 and Exchange
+  // both take the first occurrence, which is still in daylight time.
+  it.each([
+    [
+      'central Europe, inside the repeated hour',
+      WEST_EUROPE_ZONE,
+      '20241027T023000',
+      '2024-10-27T00:30:00.000Z',
+    ],
+    [
+      'central Europe, later in the repeated hour',
+      WEST_EUROPE_ZONE,
+      '20241027T024500',
+      '2024-10-27T00:45:00.000Z',
+    ],
+    [
+      'central Europe, as the repeated hour begins',
+      WEST_EUROPE_ZONE,
+      '20241027T020000',
+      '2024-10-27T00:00:00.000Z',
+    ],
+    [
+      'central Europe, as the repeated hour ends',
+      WEST_EUROPE_ZONE,
+      '20241027T030000',
+      '2024-10-27T02:00:00.000Z',
+    ],
+    [
+      'the US west coast, inside the repeated hour',
+      PACIFIC_ZONE,
+      '20241103T013000',
+      '2024-11-03T08:30:00.000Z',
+    ],
+    [
+      'the US west coast, later in the repeated hour',
+      PACIFIC_ZONE,
+      '20241103T014500',
+      '2024-11-03T08:45:00.000Z',
+    ],
+  ])('takes the first occurrence of a repeated time in %s', (_label, zone, local, expected) => {
+    expect(to_utc(zone, local)).toBe(expected);
+  });
+
+  // When clocks go forward, an hour of local time does not occur. It is read with the offset in
+  // effect before the gap, so it lands after the change by as much as it overshot it.
+  it.each([
+    [
+      'central Europe, inside the skipped hour',
+      WEST_EUROPE_ZONE,
+      '20240331T023000',
+      '2024-03-31T01:30:00.000Z',
+    ],
+    [
+      'central Europe, an hour later',
+      WEST_EUROPE_ZONE,
+      '20240331T033000',
+      '2024-03-31T01:30:00.000Z',
+    ],
+    [
+      'the US west coast, inside the skipped hour',
+      PACIFIC_ZONE,
+      '20240310T023000',
+      '2024-03-10T10:30:00.000Z',
+    ],
+    [
+      'the US west coast, an hour later',
+      PACIFIC_ZONE,
+      '20240310T033000',
+      '2024-03-10T10:30:00.000Z',
+    ],
+  ])(
+    'reads a skipped time with the offset before the gap in %s',
+    (_label, zone, local, expected) => {
+      expect(to_utc(zone, local)).toBe(expected);
+    },
+  );
 
   it('converts a zone with no daylight time and a half-hour offset', () => {
     expect(to_utc(INDIA_ZONE, '20240715T100000')).toBe('2024-07-15T04:30:00.000Z');
@@ -113,6 +191,8 @@ describe('convert_zone_local_time_to_utc', () => {
   it.each([
     ['an offset with seconds', '+010030'],
     ['an offset that is not one', 'CET'],
+    ['an offset of sixty minutes', '+0560'],
+    ['an offset of twenty-four hours', '+2400'],
   ])('refuses %s', (_label, offset) => {
     const zone = zone_lines('Odd Offset', { dtstart: '16010101T000000', from: offset, to: offset });
 

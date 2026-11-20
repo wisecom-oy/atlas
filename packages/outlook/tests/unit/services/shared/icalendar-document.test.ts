@@ -7,7 +7,7 @@ import {
 
 /** Parses a document given as its lines, joined the way a mail part carries them. */
 function parse_lines(lines: readonly string[]) {
-  return parse_icalendar(lines.join('\r\n'));
+  return parse_icalendar(Buffer.from(lines.join('\r\n'), 'utf-8'));
 }
 
 describe('parse_icalendar', () => {
@@ -74,8 +74,26 @@ describe('parse_icalendar', () => {
     expect(find_property(event, 'DTSTART')!.parameters.get('TZID')).toBe('W. Europe Standard Time');
   });
 
+  // Folding counts octets, so a fold may fall between the two bytes of one character. Decoding
+  // before unfolding would turn both halves into replacement characters.
+  it('joins a fold that splits a multi-byte character', () => {
+    const location = Buffer.from('LOCATION:Sali Ä', 'utf-8');
+    const folded = Buffer.concat([
+      Buffer.from('BEGIN:VEVENT\r\n', 'utf-8'),
+      location.subarray(0, location.length - 1),
+      Buffer.from('\r\n ', 'utf-8'),
+      location.subarray(location.length - 1),
+      Buffer.from('änekoski\r\nEND:VEVENT\r\n', 'utf-8'),
+    ]);
+
+    const event = find_component(parse_icalendar(folded), 'VEVENT')!;
+    expect(find_property(event, 'LOCATION')?.value).toBe('Sali Äänekoski');
+  });
+
   it('reads documents that end their lines with a bare line feed', () => {
-    const root = parse_icalendar('BEGIN:VEVENT\nSUMMARY:Example\n subject\nEND:VEVENT\n');
+    const root = parse_icalendar(
+      Buffer.from('BEGIN:VEVENT\nSUMMARY:Example\n subject\nEND:VEVENT\n', 'utf-8'),
+    );
 
     expect(find_property(find_component(root, 'VEVENT')!, 'SUMMARY')?.value).toBe('Examplesubject');
   });
@@ -95,6 +113,6 @@ describe('parse_icalendar', () => {
   });
 
   it('returns an empty root for an empty document', () => {
-    expect(parse_icalendar('')).toEqual({ name: '', properties: [], components: [] });
+    expect(parse_icalendar(Buffer.alloc(0))).toEqual({ name: '', properties: [], components: [] });
   });
 });
