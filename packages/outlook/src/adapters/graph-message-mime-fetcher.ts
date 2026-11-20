@@ -2,12 +2,15 @@ import type { Client } from '@microsoft/microsoft-graph-client';
 import {
   describe_graph_error,
   get_graph_bytes,
+  is_permanent_item_error,
   is_retryable_error,
+  read_graph_error_code,
   rethrow_if_access_denied,
   rethrow_if_mailbox_not_licensed,
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { MimeUnavailableError } from '@wisecom/atlas-types';
 
 // 30 min per attempt: a MIME body carries its attachments inline and runs to
 // Graph's message ceiling, which the default 60s window kills on slow links.
@@ -23,6 +26,9 @@ const MIME_DOWNLOAD_TIMEOUT_MS = 1_800_000;
  * message was hard-deleted between the delta page and this call, or it is an
  * item type with no MIME representation). The caller then stores the JSON
  * payload instead, so one odd item never costs a whole mailbox.
+ *
+ * Rejects with `MimeUnavailableError` when Exchange refuses the conversion for good with a 5xx,
+ * such as `500 ErrorMimeContentConversionFailed`, so the caller can record why (issue #812).
  */
 export async function fetch_message_mime(
   client: Client,
@@ -40,6 +46,11 @@ export async function fetch_message_mime(
   } catch (err) {
     rethrow_if_mailbox_not_licensed(err);
     rethrow_if_access_denied(err);
+    if (is_permanent_item_error(err)) {
+      throw new MimeUnavailableError(describe_graph_error(err), read_graph_error_code(err), {
+        cause: err,
+      });
+    }
     if (is_mime_unavailable_error(err)) {
       logger.debug(`no MIME available for message ${message_id}: ${describe_graph_error(err)}`);
       return undefined;

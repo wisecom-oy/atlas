@@ -182,9 +182,12 @@ export class MailboxSyncService implements BackupUseCase {
 
         // Per-message MIME and attachment failures, not folder failures: the folder's entries are
         // kept and the run reports itself incomplete rather than losing the folder (issue #366).
+        // Permanent MIME losses are reported the same way but leave the folder complete (#812).
         append_all(
           folder_errors,
-          outcome.message_errors.map((line) => `${folder.folder_path}: ${line}`),
+          [...outcome.message_errors, ...outcome.message_losses].map(
+            (line) => `${folder.folder_path}: ${line}`,
+          ),
         );
         append_all(
           warnings,

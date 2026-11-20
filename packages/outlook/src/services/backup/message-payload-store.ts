@@ -8,7 +8,7 @@ import type {
   ObjectLockPolicy,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { AuthError, MailboxNotLicensedError } from '@wisecom/atlas-types';
+import { AuthError, MailboxNotLicensedError, MimeUnavailableError } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { parse_mime_envelope } from '@/services/shared/mime-message-parser';
@@ -35,6 +35,8 @@ export interface MimeCapture {
   readonly mime: Buffer | undefined;
   /** Why a capture that could succeed on a later run failed; absent when Graph has no MIME. */
   readonly failure?: string;
+  /** The Graph error code with which Exchange refused the MIME for good (issue #812). */
+  readonly unavailable?: string;
 }
 
 /**
@@ -42,8 +44,9 @@ export interface MimeCapture {
  * will never produce MIME for the item, and the JSON payload is then the message's backup. A
  * rejection is a capture that failed for now, such as a 503 that outlasted the retries: the JSON
  * payload is still stored so the run keeps the message, and `failure` tells the caller to withhold
- * the folder's delta link so the next run captures the MIME (issue #614). Access and licensing
- * failures propagate (issue #372).
+ * the folder's delta link so the next run captures the MIME (issue #614). A `MimeUnavailableError`
+ * is permanent for the message, so it sets `unavailable` instead and the folder still completes
+ * (issue #812). Access and licensing failures propagate (issue #372).
  */
 export async function capture_mime_payload(
   connector: MailboxConnector,
@@ -56,6 +59,9 @@ export async function capture_mime_payload(
     return { mime: await connector.fetch_mime(tenant_id, owner_id, message.message_id) };
   } catch (err) {
     if (is_unrecordable_failure(err)) throw err;
+    if (err instanceof MimeUnavailableError) {
+      return { mime: undefined, unavailable: err.graph_code };
+    }
     const reason = describe_capture_failure(err);
     logger.warn(`MIME capture failed for message ${message.message_id}: ${reason}`);
     return { mime: undefined, failure: reason };

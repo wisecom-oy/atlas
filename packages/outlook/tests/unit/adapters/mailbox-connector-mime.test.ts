@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { Container } from 'inversify';
 import { GRAPH_CLIENT_TOKEN } from '@wisecom/atlas-m365-graph';
+import { MimeUnavailableError } from '@wisecom/atlas-types';
 import { GraphMailboxConnector } from '@/adapters/graph-mailbox-connector.adapter';
 
 interface GraphError {
@@ -86,6 +87,18 @@ describe('GraphMailboxConnector.fetch_mime', () => {
     );
 
     await expect(harness.connector.fetch_mime('t', 'owner-1', 'msg-1')).rejects.toThrow();
+  });
+
+  it('rejects with MimeUnavailableError after one request when Exchange cannot convert the item', async () => {
+    const harness = create_harness(() =>
+      Promise.reject(graph_error(500, 'ErrorMimeContentConversionFailed') as unknown as Error),
+    );
+
+    const attempt = harness.connector.fetch_mime('t', 'owner-1', 'poisoned');
+
+    await expect(attempt).rejects.toBeInstanceOf(MimeUnavailableError);
+    await expect(attempt).rejects.toMatchObject({ graph_code: 'ErrorMimeContentConversionFailed' });
+    expect(harness.get).toHaveBeenCalledTimes(1);
   });
 
   it('rethrows server failures instead of silently downgrading to JSON', async () => {
