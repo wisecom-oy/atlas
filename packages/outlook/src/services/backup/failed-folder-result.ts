@@ -21,6 +21,7 @@ export function failed_folder_result(
     deduplicated: 0,
     attachments_stored: 0,
     message_errors: [],
+    message_losses: [],
     folder_processed: 0,
     warnings: [],
     reactions_not_captured: 0,

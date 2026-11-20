@@ -39,9 +39,12 @@ export interface FolderSyncResult {
   message_errors: string[];
   folder_processed: number;
   /**
-   * Per-folder problems that lost data but no message, e.g. reactions not read (issue #513) or MIME
-   * Exchange will never produce (issue #812). None of them withholds the delta link.
+   * Messages stored without their original MIME because Exchange refused it for good (issue #812).
+   * Reported as errors, so the run exits 2, but they do not withhold the delta link: no later run
+   * could capture more, and holding the link back made every run read the whole folder again.
    */
+  message_losses: string[];
+  /** Per-folder problems that lost data but no message, e.g. reactions not read (issue #513). */
   warnings: string[];
   /** Messages stored without their reactions and pin; also summarised in `warnings`. */
   reactions_not_captured: number;
@@ -95,7 +98,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
   const stats = { stored: 0, deduplicated: 0, att_stored: 0, reactions_failed: 0 };
   const pending_attachments: PendingAttachment[] = [];
   const message_errors: string[] = [];
-  const message_warnings: string[] = [];
+  const message_losses: string[] = [];
   let folder_processed = 0;
   let streamed = false;
   // Set whenever any page or message is skipped; blocks delta-link persistence (issue #23).
@@ -150,7 +153,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
         stats,
         pending_attachments,
         message_errors,
-        message_warnings,
+        message_losses,
         object_lock_policy,
       );
       folder_processed++;
@@ -237,7 +240,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
         stats,
         pending_attachments,
         message_errors,
-        message_warnings,
+        message_losses,
         object_lock_policy,
       );
       folder_processed++;
@@ -284,14 +287,13 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
     attachments_stored: stats.att_stored,
     message_errors,
     folder_processed,
-    warnings: [
-      ...message_warnings,
-      ...(stats.reactions_failed > 0
+    message_losses,
+    warnings:
+      stats.reactions_failed > 0
         ? [
             `reactions and pin not captured for ${stats.reactions_failed} message(s); they are read again only when the message changes`,
           ]
-        : []),
-    ],
+        : [],
     reactions_not_captured: stats.reactions_failed,
   };
 }

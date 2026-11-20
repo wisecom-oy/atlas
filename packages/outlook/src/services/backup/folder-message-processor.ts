@@ -17,7 +17,7 @@ import type { PendingAttachment } from '@/services/backup/attachment-storage-syn
  * MIME embeds its attachments, so only a JSON fallback queues a separate
  * attachment fetch. Reactions and pin were read for the whole page beforehand (issue #513).
  * A MIME capture that failed for now is recorded in `message_errors` (issue #614); one Exchange
- * refused for good is recorded on the entry and in `message_warnings` (issue #812).
+ * refused for good is recorded on the entry and in `message_losses` (issue #812).
  */
 export async function process_message(
   ctx: TenantContext,
@@ -30,7 +30,7 @@ export async function process_message(
   stats: { stored: number; deduplicated: number; att_stored: number },
   pending_attachments: PendingAttachment[],
   message_errors: string[],
-  message_warnings: string[],
+  message_losses: string[],
   object_lock_policy?: ObjectLockPolicy,
 ): Promise<void> {
   const { mime, failure, unavailable } = await capture_mime_payload(
@@ -45,8 +45,8 @@ export async function process_message(
     );
   }
   if (unavailable !== undefined) {
-    message_warnings.push(
-      `message ${message.message_id}: Exchange cannot produce its original MIME (${unavailable}), stored from the JSON payload; not retried until the message changes`,
+    message_losses.push(
+      `message ${message.message_id}: original MIME not captured, Exchange cannot convert it (${unavailable}); stored from the JSON payload and not retried until the message changes`,
     );
   }
   const entry = await store_single_message(

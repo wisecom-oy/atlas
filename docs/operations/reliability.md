@@ -194,7 +194,7 @@ A failure that belongs to one item is recorded against that item and the run con
 
 | Scope of the failure | Recorded as |
 | --- | --- |
-| One Outlook message (MIME or attachments) | A message error. The folder keeps its entries but not its new checkpoint |
+| One Outlook message (MIME or attachments) | A message error. The folder keeps its entries but not its new checkpoint, unless Exchange refused the MIME for good, which keeps the checkpoint |
 | One Outlook folder | A folder error. The other folders run |
 | One OneDrive or SharePoint file | A failed file, retried by the next run up to 5 times |
 | One drive or library (for example its delta query) | That drive's error. Other drives run |
@@ -287,7 +287,7 @@ When a scheduled run did not exit `0`:
 | --- | --- | --- |
 | `0` | Complete | |
 | `1` | Unclassified failure, storage failure, or `ATLAS_WRITE_REFUSED` | Once, after reading stderr. A persistent `1` needs a person |
-| `2` | Partial run, soft interrupt, or items skipped | Backup: yes, the next backup retries failed items. Restore: first check the target for items whose create may have committed, see [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) |
+| `2` | Partial run, soft interrupt, or items skipped | Backup: yes, the next backup retries failed items. Items lost for good, such as a message Exchange cannot convert to MIME or a file permanently skipped after 5 attempts, are reported but not retried. Restore: first check the target for items whose create may have committed, see [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) |
 | `3` | Throttled, network failure, or Microsoft Graph `5xx` after retries | Yes, later |
 | `4` | Authentication, permission, or licence | No. Fix consent or licensing |
 | `5` | Wrong passphrase | No. Supply the original passphrase |

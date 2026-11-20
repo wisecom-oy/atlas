@@ -210,7 +210,7 @@ Incremental runs fetch MIME only for new and changed messages. The first backup 
 | Situation | What Atlas does |
 | --- | --- |
 | Microsoft 365 cannot produce MIME for the message | Stores the legacy JSON form and records the format in the snapshot entry. The run succeeds |
-| Exchange refuses the conversion for good with `500 ErrorMimeContentConversionFailed` | Sends the request once, without retries. Stores the JSON form, records the error code as `mime_unavailable` in the snapshot entry, prints a warning that names the folder and message, and saves the folder's checkpoint. The run exits `0`. The message is fetched again only when it changes |
+| Exchange refuses the conversion for good with `500 ErrorMimeContentConversionFailed` | Sends the request once, without retries. Stores the JSON form, records the error code as `mime_unavailable` in the snapshot entry, reports it as an error of its folder, and exits `2`. This failure alone does not hold the folder's checkpoint back, so the next run does not ask for the MIME again unless the message changes or another failure in the folder withholds the checkpoint |
 | The MIME request still fails after [retries](/operations/reliability#microsoft-graph-requests), for example a `503` | Stores the JSON form so the message is kept, reports it as an error of its folder, keeps the folder's previous checkpoint, and exits `2`. The next run fetches the folder's changes again, captures the MIME, and its entry replaces the JSON one |
 | A JSON entry's attachments could not be fetched or stored | Handled the same way: the next run fetches the message and its attachments again |
 
