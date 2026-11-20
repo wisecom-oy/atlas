@@ -33,6 +33,7 @@ function make_ctx(): { ctx: TenantContext; objects: Map<string, Buffer> } {
         complete: async () => {
           const assembled = [...parts.entries()].sort(([a], [b]) => a - b).map(([, data]) => data);
           objects.set(key, Buffer.concat(assembled));
+          return {};
         },
         abort: async () => parts.clear(),
       };

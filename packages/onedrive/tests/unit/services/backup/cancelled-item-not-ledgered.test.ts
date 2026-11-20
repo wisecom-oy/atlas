@@ -49,7 +49,7 @@ function make_ctx(): TenantContext {
     storage: {
       begin_multipart_upload: vi.fn(async () => ({
         upload_part: vi.fn(async () => 'etag'),
-        complete: vi.fn(async () => undefined),
+        complete: vi.fn(async () => ({})),
         abort: vi.fn(async () => undefined),
       })),
       list_stale: vi.fn(async () => []),

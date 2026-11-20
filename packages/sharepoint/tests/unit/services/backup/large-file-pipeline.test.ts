@@ -41,6 +41,7 @@ function make_ctx(options: { exists?: boolean; list?: string[] } = {}): Recorded
           upload_part: vi.fn(async () => 'etag'),
           complete: vi.fn(async () => {
             ops.push('complete');
+            return {};
           }),
           abort: vi.fn(async () => {
             ops.push('abort');

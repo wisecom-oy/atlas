@@ -2,6 +2,7 @@ export type {
   ObjectStorage,
   ObjectStorageEtagResult,
   MultipartUploadHandle,
+  CompletedMultipartUpload,
   StorageObjectLockMode,
   StorageObjectLockPolicy,
   StorageImmutabilityProbeRequest,
