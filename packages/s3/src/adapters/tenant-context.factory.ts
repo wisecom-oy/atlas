@@ -142,25 +142,55 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
   ): Promise<Buffer> {
     logger.info(`Generating new encryption key for tenant ${tenant_id}`);
     const dek = key_service.generate_dek();
-
-    try {
-      const wrapped = await key_service.wrap_dek(dek, tenant_id);
-      await storage.put(DEK_META_KEY, wrapped, undefined, undefined, undefined, true);
-    } catch (err) {
-      if (!(err instanceof PreconditionFailedError)) throw err;
-      logger.warn(
-        `Tenant ${tenant_id}: concurrent key bootstrap detected -- adopting the already stored key`,
-      );
-    }
+    const stored_by_this_run = await store_dek_if_absent(storage, key_service, dek, tenant_id);
 
     const stored = await storage.get(DEK_META_KEY);
     const stored_dek = await key_service.unwrap_dek(stored, tenant_id);
-    if (!stored_dek.equals(dek)) {
-      logger.warn(
-        `Tenant ${tenant_id}: stored key differs from the locally generated one -- using stored key`,
-      );
-    }
+    report_adopted_dek(tenant_id, stored_by_this_run, stored_dek.equals(dek));
     return stored_dek;
+  }
+}
+
+/**
+ * Writes the wrapped DEK create-only. Returns false when another run's key was
+ * already stored (412), which is the expected outcome of a lost bootstrap race.
+ */
+async function store_dek_if_absent(
+  storage: S3ObjectStorage,
+  key_service: EnvelopeKeyService,
+  dek: Buffer,
+  tenant_id: string,
+): Promise<boolean> {
+  const wrapped = await key_service.wrap_dek(dek, tenant_id);
+  try {
+    await storage.put(DEK_META_KEY, wrapped, undefined, undefined, undefined, true);
+    return true;
+  } catch (err) {
+    if (err instanceof PreconditionFailedError) return false;
+    throw err;
+  }
+}
+
+/**
+ * Logs which key a bootstrap ended up using. Losing the race is routine and
+ * gets one info line. A key that changed after this run's create-only write
+ * succeeded means the backend let a second write through, so that warns.
+ */
+function report_adopted_dek(
+  tenant_id: string,
+  stored_by_this_run: boolean,
+  stored_matches_generated: boolean,
+): void {
+  if (!stored_by_this_run) {
+    logger.info(`Tenant ${tenant_id}: another run created the data key first; using it`);
+    return;
+  }
+  if (!stored_matches_generated) {
+    logger.warn(
+      `Tenant ${tenant_id}: the stored data key is not the one this run wrote, so the ` +
+        'backend may ignore create-only writes (check with "atlas storage-check"); using the ' +
+        'stored key',
+    );
   }
 }
 

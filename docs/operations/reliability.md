@@ -253,7 +253,7 @@ A restore skips an item whose object is missing or fails its tag, names it, rest
 ## Key and configuration safety
 
 - `atlas keys rewrap` replaces `_meta/dek.enc` by compare-and-swap, reads the new wrapper back, and proves it opens the same data key. It writes the new passphrase to the configuration only when every tenant succeeded; otherwise it exits `2` and leaves the configuration unchanged. The previous wrapper stays as a noncurrent version on a versioned bucket until `atlas keys purge-old-wrappers` removes it. See [Rewrapping the passphrase](/security#rewrapping-the-passphrase).
-- The data key is created with a create-only write. Two runs bootstrapping one tenant agree on one key, and Atlas never generates a key over an existing one.
+- The data key is created with a create-only write. Two runs bootstrapping one tenant agree on one key, and Atlas never generates a key over an existing one. The run that loses logs `another run created the data key first; using it` at info level. A warning that the stored key is not the one the run wrote means the backend accepted a second create-only write; check it with `atlas storage-check`.
 - The encrypted config store (`~/.atlas/config.enc`) is written to a temporary file with mode `0600`, flushed to disk, and renamed into place, so a crash leaves the previous file intact. Updates take `~/.atlas/config.lock`, and a second update waits up to 10 s for it. A stale lock is removed only when its process no longer exists on the same host.
 
 ::: danger Keep a copy of the passphrase elsewhere
