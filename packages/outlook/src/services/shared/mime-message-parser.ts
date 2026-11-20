@@ -1,7 +1,9 @@
 import { simpleParser } from 'mailparser';
 import type { AddressObject, Attachment, EmailAddress, ParsedMail } from 'mailparser';
 import { UnreadableContentError } from '@wisecom/atlas-types';
-import { exclude_calendar_body_alternatives } from '@/services/shared/calendar-body-alternative';
+import { separate_meeting_calendar_parts } from '@/services/shared/meeting-calendar-parts';
+import { read_meeting_response } from '@/services/shared/meeting-response-reader';
+import type { MeetingResponse } from '@/services/shared/meeting-response-reader';
 
 export interface MimeAddress {
   readonly name: string;
@@ -34,6 +36,8 @@ export interface ParsedMimeMessage {
   readonly html?: string;
   readonly headers: MimeHeader[];
   readonly attachments: MimeAttachment[];
+  /** The answer of a meeting response, absent on every other message (issue #817). */
+  readonly meeting_response?: MeetingResponse;
 }
 
 /** Parses RFC 5322 MIME bytes into the fields Atlas needs for restore and display. */
@@ -44,7 +48,8 @@ export async function parse_mime_message(mime: Buffer): Promise<ParsedMimeMessag
   const from = flatten_addresses(parsed.from)[0];
   const html = typeof parsed.html === 'string' ? parsed.html : undefined;
   const referenced_cids = new Set([...(html ?? '').matchAll(CID_LINK)].map((m) => m[1]!));
-  const attachments = await exclude_calendar_body_alternatives(mime, parsed);
+  const calendar = await separate_meeting_calendar_parts(mime, parsed);
+  const meeting_response = calendar.meeting_part && read_meeting_response(calendar.meeting_part);
 
   return {
     subject: parsed.subject ?? '',
@@ -58,7 +63,8 @@ export async function parse_mime_message(mime: Buffer): Promise<ParsedMimeMessag
     ...(parsed.text ? { text: parsed.text } : {}),
     ...(html ? { html: inline_cid_images(html, parsed.attachments) } : {}),
     headers: flatten_header_lines(parsed),
-    attachments: attachments.map((a) => normalize_attachment(a, referenced_cids)),
+    attachments: calendar.attachments.map((a) => normalize_attachment(a, referenced_cids)),
+    ...(meeting_response ? { meeting_response } : {}),
   };
 }
 

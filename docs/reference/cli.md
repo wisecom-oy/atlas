@@ -431,7 +431,7 @@ A folder deleted while the restore lists the source mailbox's folders is skipped
 
 - Restored messages keep their original received and sent timestamps, appear as received mail rather than drafts, and include all backed-up attachments. Attachments larger than 3 MB use Graph upload sessions.
 - Messages archived as RFC 5322 MIME are parsed at restore time and recreated through Graph's JSON message-create path, because Graph's MIME import always marks the created message as a draft. The restored copy does not carry the original `Received:` chain. For the original bytes, use [`atlas outlook save`](#atlas-outlook-save).
-- A meeting request, response, or cancellation restores as an ordinary message, not as a meeting item. Outlook shows no accept or decline buttons on it, and it never updates a calendar. See [Meeting messages restore as ordinary mail](/security#meeting-messages-restore-as-ordinary-mail).
+- A meeting response restores as a meeting response, without the meeting time and location. A meeting request or cancellation restores as an ordinary message, because Microsoft Graph refuses to create those. See [Meeting messages](/security#meeting-messages).
 - A message that receives fewer attachments than its snapshot holds is listed as a warning, for example `<message-id>: 1 of 2 attachments restored`. A failed upload is an error and exits `2`. A legacy attachment that was never backed up is skipped with a warning only.
 
 #### Stopping an Outlook restore

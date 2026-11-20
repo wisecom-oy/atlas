@@ -6,8 +6,15 @@ export interface MimePart {
   readonly body: string;
 }
 
+/** What varies between the iCalendar documents the tests need. */
+export interface IcalendarOptions {
+  readonly uid?: string;
+  /** The ATTENDEE content lines, already folded where a test wants folding. */
+  readonly attendee_lines?: readonly string[];
+}
+
 /** Builds the iCalendar document a meeting message carries for the given iTIP method. */
-export function build_icalendar(method: string): string {
+export function build_icalendar(method: string, options: IcalendarOptions = {}): string {
   return [
     'BEGIN:VCALENDAR',
     'PRODID:-//Example Corp//Calendar//EN',
@@ -16,9 +23,9 @@ export function build_icalendar(method: string): string {
     'BEGIN:VEVENT',
     'DTSTART:20250310T090000Z',
     'DTEND:20250310T093000Z',
-    'UID:meeting-4c1f@partner.example',
+    `UID:${options.uid ?? 'meeting-4c1f@partner.example'}`,
     'ORGANIZER:mailto:john.doe@example.com',
-    'ATTENDEE;PARTSTAT=ACCEPTED:mailto:jane.roe@partner.example',
+    ...(options.attendee_lines ?? ['ATTENDEE;PARTSTAT=ACCEPTED:mailto:jane.roe@partner.example']),
     'SUMMARY:Example subject',
     'END:VEVENT',
     'END:VCALENDAR',
@@ -38,14 +45,34 @@ export const HTML_BODY_PART: MimePart = {
 };
 
 /** The inline calendar part: no Content-Disposition and no name, as the sending calendar wrote it. */
-export function calendar_part(method: string, extra_headers: readonly string[] = []): MimePart {
+export function calendar_part(
+  method: string,
+  extra_headers: readonly string[] = [],
+  icalendar: string = build_icalendar(method),
+): MimePart {
   return {
     headers: [
       `Content-Type: text/calendar; charset="UTF-8"; method=${method}`,
       'Content-Transfer-Encoding: 7bit',
       ...extra_headers,
     ],
-    body: build_icalendar(method),
+    body: icalendar,
+  };
+}
+
+/** A `text/calendar` file with a name and `Content-Disposition: attachment`. */
+export function calendar_file_part(
+  name: string,
+  content_type_parameters: string,
+  icalendar: string,
+): MimePart {
+  return {
+    headers: [
+      `Content-Type: text/calendar; charset="UTF-8"${content_type_parameters}; name="${name}"`,
+      `Content-Disposition: attachment; filename="${name}"`,
+      'Content-Transfer-Encoding: 7bit',
+    ],
+    body: icalendar,
   };
 }
 
@@ -59,15 +86,12 @@ export const INVITE_ICS_PART: MimePart = {
   body: Buffer.from(REPLY_ICALENDAR, 'utf-8').toString('base64'),
 };
 
-/** A `text/calendar` file sent as a real attachment, with its own name. */
-export const NAMED_CALENDAR_ATTACHMENT_PART: MimePart = {
-  headers: [
-    'Content-Type: text/calendar; charset="UTF-8"; method=REPLY; name="reply.ics"',
-    'Content-Disposition: attachment; filename="reply.ics"',
-    'Content-Transfer-Encoding: 7bit',
-  ],
-  body: REPLY_ICALENDAR,
-};
+/** A copy of the reply's calendar data, sent as a named `text/calendar` attachment. */
+export const NAMED_CALENDAR_ATTACHMENT_PART: MimePart = calendar_file_part(
+  'reply.ics',
+  '; method=REPLY',
+  REPLY_ICALENDAR,
+);
 
 const MESSAGE_HEADERS = [
   'From: "Jane Roe" <jane.roe@partner.example>',
