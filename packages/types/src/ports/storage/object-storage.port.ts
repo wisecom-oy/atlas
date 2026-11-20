@@ -30,12 +30,22 @@ export interface StorageObjectVersion {
   readonly is_latest?: boolean;
 }
 
+/** The object a completed multipart upload created. */
+export interface CompletedMultipartUpload {
+  /**
+   * The version the completion created, absent when the bucket keeps no versions or the backend
+   * did not report one. A caller that has to remove the object's bytes deletes this version: a
+   * delete without it only adds a delete marker in a versioned bucket (issue #795).
+   */
+  readonly version_id?: string | undefined;
+}
+
 export interface MultipartUploadHandle {
   /** Uploads a single part. Returns the ETag for assembly. */
   upload_part(part_number: number, data: Buffer): Promise<string>;
 
-  /** Finalises the multipart upload, assembling parts in order. */
-  complete(parts: Array<{ ETag: string; PartNumber: number }>): Promise<void>;
+  /** Finalises the multipart upload, assembling parts in order, and names the object it created. */
+  complete(parts: Array<{ ETag: string; PartNumber: number }>): Promise<CompletedMultipartUpload>;
 
   /** Aborts the upload and removes uploaded parts (best-effort). */
   abort(): Promise<void>;

@@ -43,6 +43,7 @@ function make_ctx(
           complete: vi.fn(async (assembled: Array<{ ETag: string; PartNumber: number }>) => {
             completed.push(assembled);
             ops.push('complete');
+            return {};
           }),
           abort: vi.fn(async () => {
             ops.push('abort');

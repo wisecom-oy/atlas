@@ -27,6 +27,7 @@ function make_ctx(options: { exists_fails?: boolean; complete_fails?: boolean } 
           complete: vi.fn(async () => {
             ops.push('complete');
             if (options.complete_fails === true) throw new Error('the bucket refused the assembly');
+            return {};
           }),
           abort: vi.fn(async () => {
             ops.push('abort');

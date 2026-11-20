@@ -4,7 +4,7 @@ import {
   UploadPartCommand,
   type S3Client,
 } from '@aws-sdk/client-s3';
-import type { MultipartUploadHandle } from '@wisecom/atlas-types';
+import type { CompletedMultipartUpload, MultipartUploadHandle } from '@wisecom/atlas-types';
 
 /** S3 multipart upload session; completes or aborts via {@link MultipartUploadHandle}. */
 export class S3MultipartUploadHandle implements MultipartUploadHandle {
@@ -30,9 +30,16 @@ export class S3MultipartUploadHandle implements MultipartUploadHandle {
     return response.ETag;
   }
 
-  /** Finalises the upload with parts sorted by ascending part number. */
-  async complete(parts: Array<{ ETag: string; PartNumber: number }>): Promise<void> {
-    await this._client.send(
+  /**
+   * Finalises the upload with parts sorted by ascending part number.
+   *
+   * The `VersionId` is only in the response of a versioned bucket, and it is the one moment the
+   * new version is named without a listing.
+   */
+  async complete(
+    parts: Array<{ ETag: string; PartNumber: number }>,
+  ): Promise<CompletedMultipartUpload> {
+    const response = await this._client.send(
       new CompleteMultipartUploadCommand({
         Bucket: this._bucket,
         Key: this._key,
@@ -42,6 +49,7 @@ export class S3MultipartUploadHandle implements MultipartUploadHandle {
         },
       }),
     );
+    return response.VersionId ? { version_id: response.VersionId } : {};
   }
 
   /** Aborts the session and deletes staged parts (best-effort). */
