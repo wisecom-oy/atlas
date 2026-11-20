@@ -595,7 +595,7 @@ Before MIME storage, Atlas kept only `fileAttachment` on the JSON path and disca
 | Reactions | Not in the MIME. Captured separately at backup and written back as the same MAPI properties |
 | Follow-up flag | Not in the MIME, which carries at most `X-Message-Flag`. Status (`flagged` or `complete`) with start, due and completed dates, recorded from the item's `flag` during incremental backup |
 | Pin | Not in the MIME. The renew times `SystemTime 0x0F02` and `0x0F01`, captured with the reactions and written back unchanged |
-| Attachments, inline or regular | The body parts. Inline means `Content-Disposition: inline`, or no disposition with a matching `Content-ID` |
+| Attachments, inline or regular | The body parts. Inline means `Content-Disposition: inline`, or no disposition with a matching `Content-ID`. A `text/calendar` part inside `multipart/alternative` is body content, not an attachment |
 | Read state | Always set to read, so a restore does not leave thousands of unread items |
 
 Outlook on the web and new Outlook pin a message by setting both renew times (PidTagReceivedOrRenewTime `0x0F02` and PidTagRenewTime `0x0F01`) to 4500-09-01, which keeps it at the top of a list sorted by date. An unpinned message has no `0x0F01`, and Exchange sets its `0x0F02` to the delivery time a restore writes, so only messages carrying `0x0F01` record anything.
@@ -607,6 +607,19 @@ What older or legacy entries restore without:
 - **MIME entries taken before flag and pin capture** restore unflagged and unpinned.
 
 Exchange keeps client-written reaction properties byte for byte. The reaction summary names the reacting users and their addresses as they were at backup time, and it is stored in the encrypted manifest alongside the subject and sender.
+
+### Meeting messages restore as ordinary mail
+
+A meeting request, response, or cancellation is a message with calendar data attached to it as properties. In MIME, that data travels as a `text/calendar` part beside the plain and HTML body, inside the same `multipart/alternative`. Exchange reads the part into the meeting properties and never lists it as an attachment.
+
+Restore creates the message from its subject, body, addresses, and attachments. It does not write the meeting message class or the meeting properties, and it leaves the calendar part out. The result is an ordinary message, not a meeting item:
+
+- **No meeting behaviour.** Outlook shows no accept, decline, or tracking controls, and Microsoft Graph returns the item as `message`, not `eventMessageRequest` or `eventMessageResponse`.
+- **No calendar side effects.** Exchange does not process an ordinary message as a meeting. A restored response does not change attendee tracking on a live meeting, and a restored request does not add a tentative event to a calendar.
+- **Files stay files.** A calendar file sent with `Content-Disposition: attachment`, such as the `invite.ics` Google Calendar adds, restores as an attachment under its original name. So does a `text/calendar` part that sits outside `multipart/alternative`, or that is the only body the message has.
+- **The calendar data is still in the backup.** The stored MIME is untouched. [`atlas outlook save`](/reference/cli#atlas-outlook-save) exports the original message, calendar part included.
+
+Legacy JSON entries behave the same way, because restore writes only the message fields Microsoft Graph accepts on create.
 
 ### Content Microsoft 365 will not release
 

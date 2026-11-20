@@ -1,6 +1,7 @@
 import { simpleParser } from 'mailparser';
 import type { AddressObject, Attachment, EmailAddress, ParsedMail } from 'mailparser';
 import { UnreadableContentError } from '@wisecom/atlas-types';
+import { exclude_calendar_body_alternatives } from '@/services/shared/calendar-body-alternative';
 
 export interface MimeAddress {
   readonly name: string;
@@ -43,6 +44,7 @@ export async function parse_mime_message(mime: Buffer): Promise<ParsedMimeMessag
   const from = flatten_addresses(parsed.from)[0];
   const html = typeof parsed.html === 'string' ? parsed.html : undefined;
   const referenced_cids = new Set([...(html ?? '').matchAll(CID_LINK)].map((m) => m[1]!));
+  const attachments = await exclude_calendar_body_alternatives(mime, parsed);
 
   return {
     subject: parsed.subject ?? '',
@@ -56,7 +58,7 @@ export async function parse_mime_message(mime: Buffer): Promise<ParsedMimeMessag
     ...(parsed.text ? { text: parsed.text } : {}),
     ...(html ? { html: inline_cid_images(html, parsed.attachments) } : {}),
     headers: flatten_header_lines(parsed),
-    attachments: parsed.attachments.map((a) => normalize_attachment(a, referenced_cids)),
+    attachments: attachments.map((a) => normalize_attachment(a, referenced_cids)),
   };
 }
 

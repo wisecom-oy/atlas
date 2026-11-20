@@ -25,6 +25,7 @@
     "@wisecom/atlas-core": "workspace:*",
     "@wisecom/atlas-m365-graph": "workspace:*",
     "@wisecom/atlas-types": "workspace:*",
+    "@zone-eu/mailsplit": "^5.4.29",
     "archiver": "^8.0.0",
     "inversify": "^8.2.3",
     "mailparser": "^3.14.1",
