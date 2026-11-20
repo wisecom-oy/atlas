@@ -32,6 +32,16 @@ export interface ContactsConnector {
     delta_link?: string,
   ): Promise<ContactFolderDelta>;
 
+  /**
+   * Lists the ids of a folder's contacts that carry an attachment. Exchange stores a contact photo
+   * as an attachment, so a contact outside this set has no photo and needs no photo request.
+   */
+  list_contact_ids_with_attachments(
+    tenant_id: string,
+    mailbox_id: string,
+    folder_id: string,
+  ): Promise<ReadonlySet<string>>;
+
   /** Returns the contact's photo bytes, or `undefined` when the contact has none. */
   fetch_contact_photo(
     tenant_id: string,

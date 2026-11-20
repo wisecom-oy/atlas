@@ -187,3 +187,28 @@ describe('GraphContactsConnector folder listing for restore', () => {
     );
   });
 });
+
+describe('GraphContactsConnector attachment listing for photo requests', () => {
+  it('filters on PidTagHasAttachments and follows every page under immutable ids', async () => {
+    const next_link = 'https://graph.example.com/next';
+    const graph = stub_graph_client(
+      (call) =>
+        call.url === next_link
+          ? { value: [{ id: 'c3' }] }
+          : { value: [{ id: 'c1' }, { id: 'c2' }], '@odata.nextLink': next_link },
+      { record_headers: true },
+    );
+    const connector = new GraphContactsConnector(graph.client as unknown as Client);
+
+    const ids = await connector.list_contact_ids_with_attachments('tenant-1', MAILBOX, FOLDER);
+
+    expect([...ids]).toEqual(['c1', 'c2', 'c3']);
+    const first = graph.calls[0];
+    expect(first?.headers?.['Prefer']).toBe('IdType="ImmutableId"');
+    expect(decodeURIComponent(first?.url ?? '')).toBe(
+      `/users/${MAILBOX}/contactFolders/${FOLDER}/contacts?$select=id&$top=1000&$filter=` +
+        "singleValueExtendedProperties/Any(ep: ep/id eq 'Boolean 0x0E1B' and " +
+        'cast(ep/value, Edm.Boolean) eq true)',
+    );
+  });
+});
