@@ -12,6 +12,7 @@ import { create_contact_folder, list_contact_folders } from '@/adapters/graph-co
 import {
   create_contact,
   fetch_contact_photo,
+  list_contact_ids_with_attachments,
   list_folder_contacts,
   upload_contact_photo,
 } from '@/adapters/graph-contacts-items';
@@ -37,6 +38,15 @@ export class GraphContactsConnector implements ContactsConnector {
     delta_link?: string,
   ): Promise<ContactFolderDelta> {
     return fetch_folder_delta(this._client, mailbox_id, folder_id, delta_link);
+  }
+
+  /** Lists the ids of a folder's contacts that carry an attachment and so may have a photo. */
+  async list_contact_ids_with_attachments(
+    _tenant_id: string,
+    mailbox_id: string,
+    folder_id: string,
+  ): Promise<Set<string>> {
+    return list_contact_ids_with_attachments(this._client, mailbox_id, folder_id);
   }
 
   /** Returns the contact's photo bytes, or `undefined` when the contact has none. */

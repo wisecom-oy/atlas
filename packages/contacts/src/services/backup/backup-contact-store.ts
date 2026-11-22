@@ -14,7 +14,11 @@ export interface StoredContact {
   readonly objects_stored: number;
 }
 
-/** Stores a contact's JSON and, when present, its photo under keyed content names. */
+/**
+ * Stores a contact's JSON and, when present, its photo under keyed content names. The photo is
+ * requested only when the contact is in `ids_with_attachments`, because a contact photo is an
+ * attachment and a contact without one has no photo.
+ */
 export async function store_contact_entry(
   ctx: TenantContext,
   connector: ContactsConnector,
@@ -22,6 +26,7 @@ export async function store_contact_entry(
   mailbox_id: string,
   folder_id: string,
   contact: GraphContactPayload,
+  ids_with_attachments: ReadonlySet<string>,
 ): Promise<StoredContact> {
   const data = Buffer.from(JSON.stringify(contact));
   const data_digests = compute_content_digests(ctx, data);
@@ -38,6 +43,7 @@ export async function store_contact_entry(
     checksum: data_digests.checksum,
     size_bytes: data.length,
   };
+  if (!ids_with_attachments.has(contact.id)) return { entry, objects_stored };
   const photo = await connector.fetch_contact_photo(tenant_id, mailbox_id, folder_id, contact.id);
   if (photo === undefined) return { entry, objects_stored };
   const photo_data = Buffer.from(photo);

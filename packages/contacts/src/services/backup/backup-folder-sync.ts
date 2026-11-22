@@ -1,4 +1,5 @@
 import type {
+  ContactFolderDelta,
   ContactManifestEntry,
   ContactsConnector,
   GraphContactFolder,
@@ -56,6 +57,7 @@ async function apply_contact(
   deps: FolderSyncDeps,
   folder: GraphContactFolder,
   contact: GraphContactPayload,
+  ids_with_attachments: ReadonlySet<string>,
   merge: FolderMerge,
 ): Promise<void> {
   try {
@@ -66,6 +68,7 @@ async function apply_contact(
       deps.mailbox_id,
       folder.id,
       contact,
+      ids_with_attachments,
     );
     merge.objects_stored += stored.objects_stored;
     merge.by_id.set(contact.id, stored.entry);
@@ -79,6 +82,24 @@ async function apply_contact(
     else merge.by_id.set(contact.id, prior);
   }
 }
+
+/**
+ * Lists which of a folder's contacts carry an attachment, so only those get a photo request.
+ * A delta with no upserts stores no contact, so the listing is skipped.
+ */
+async function read_ids_with_attachments(
+  deps: FolderSyncDeps,
+  folder: GraphContactFolder,
+  delta: ContactFolderDelta,
+): Promise<ReadonlySet<string>> {
+  if (delta.upserted.length === 0) return new Set();
+  return deps.connector.list_contact_ids_with_attachments(
+    deps.tenant_id,
+    deps.mailbox_id,
+    folder.id,
+  );
+}
+
 /**
  * Applies one folder's delta over `base` (the previous snapshot's entries for that folder).
  * A full read (no link, or a reset) replaces the base with the folder's current contents.
@@ -99,6 +120,7 @@ export async function sync_folder(
     folder.id,
     delta_link,
   );
+  const ids_with_attachments = await read_ids_with_attachments(deps, folder, delta);
   const full_read = delta_link === undefined || delta.reset;
   const previous_by_id = new Map(base.map((entry) => [entry.contact_id, entry]));
   const merge: FolderMerge = {
@@ -121,7 +143,7 @@ export async function sync_folder(
       const contact = delta.upserted[next++];
       if (contact === undefined) return;
       try {
-        await apply_contact(deps, folder, contact, merge);
+        await apply_contact(deps, folder, contact, ids_with_attachments, merge);
       } catch (err) {
         fatal = err instanceof Error ? err : new Error(String(err));
       }
