@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canonical_site_id } from '@/services/shared/site-id';
+import { canonical_site_id } from '@/domain/sharepoint/site-id';
 
 const SITE_GUID = '11111111-1111-1111-1111-111111111111';
 const WEB_GUID = '22222222-2222-2222-2222-222222222222';

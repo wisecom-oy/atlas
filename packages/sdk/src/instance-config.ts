@@ -1,11 +1,13 @@
-import { Buffer } from 'node:buffer';
 import {
   assert_valid_bucket_name,
   type AtlasConfig,
   type BucketSelection,
 } from '@wisecom/atlas-core';
 import { ConfigError } from '@wisecom/atlas-types';
-import { MIN_PASSPHRASE_BYTES } from '@wisecom/atlas-core/adapters/keystore/kdf-strategy';
+import {
+  is_acceptable_passphrase,
+  MIN_PASSPHRASE_BYTES,
+} from '@wisecom/atlas-core/services/keys/passphrase-floor';
 import type { AtlasInstanceConfig, ThrottleCoordinator } from '@wisecom/atlas-types';
 
 /** Validates explicit instance configuration without I/O and maps it to the internal config. */
@@ -21,7 +23,7 @@ export function normalize_config(config: AtlasInstanceConfig): AtlasConfig {
   assert_required_field(config.s3SecretKey, 's3SecretKey');
   assert_required_field(config.encryptionPassphrase, 'encryptionPassphrase');
   validate_endpoint(config.s3Endpoint);
-  if (Buffer.byteLength(config.encryptionPassphrase, 'utf8') < MIN_PASSPHRASE_BYTES) {
+  if (!is_acceptable_passphrase(config.encryptionPassphrase)) {
     throw new ConfigError(
       `encryptionPassphrase must contain at least ${MIN_PASSPHRASE_BYTES} UTF-8 bytes.`,
     );

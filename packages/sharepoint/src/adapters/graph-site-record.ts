@@ -1,5 +1,5 @@
 import type { SharePointSite } from '@wisecom/atlas-types';
-import { canonical_site_id } from '@/services/shared/site-id';
+import { canonical_site_id } from '@wisecom/atlas-types/domain/sharepoint/site-id';
 import { classify_site_kind } from '@/services/shared/site-kind';
 
 /** The site fields Atlas selects from Graph (`$select=id,webUrl,displayName`). */

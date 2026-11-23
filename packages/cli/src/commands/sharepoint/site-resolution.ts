@@ -1,6 +1,6 @@
 import type { Container } from 'inversify';
 import { logger } from '@wisecom/atlas-core';
-import { canonical_site_id } from '@wisecom/atlas-sharepoint';
+import { canonical_site_id } from '@wisecom/atlas-types/domain/sharepoint/site-id';
 import { SHAREPOINT_CONNECTOR_TOKEN, type SharePointSiteConnector } from '@wisecom/atlas-types';
 
 /**

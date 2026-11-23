@@ -6,3 +6,4 @@ export type {
   IdentityServiceLimits,
 } from './service-limits';
 export { GRAPH_SERVICE_LIMITS } from './service-limits-values';
+export { GRAPH_SERVICE_POOLS } from './service-pools';

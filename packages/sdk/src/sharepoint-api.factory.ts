@@ -29,7 +29,7 @@ import {
 } from '@wisecom/atlas-types';
 import { camelize } from '@wisecom/atlas-types/public/case-convert';
 import { adapt_operation_options, adapt_required_operation_options } from '@/operation-options';
-import { canonical_site_id } from '@wisecom/atlas-sharepoint';
+import { canonical_site_id } from '@wisecom/atlas-types/domain/sharepoint/site-id';
 import { split_target_tenant, with_restore_side } from '@/target-tenant';
 
 /** Builds the SharePointApi sub-namespace from the DI container. */
