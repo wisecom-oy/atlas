@@ -55,6 +55,7 @@ function make_ctx(): { ctx: TenantContext; ops: string[] } {
         upload_part: vi.fn(async () => 'etag'),
         complete: vi.fn(async () => {
           ops.push('complete');
+          return {};
         }),
         abort: vi.fn(async () => {
           ops.push('abort');

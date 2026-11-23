@@ -25,7 +25,7 @@ function make_ctx(): { ctx: TenantContext; parts: Map<number, Buffer> } {
           parts.set(part_number, Buffer.from(data));
           return `etag-${part_number}`;
         }),
-        complete: vi.fn(async () => undefined),
+        complete: vi.fn(async () => ({})),
         abort: vi.fn(async () => undefined),
       })),
       list_stale: vi.fn(async () => []),

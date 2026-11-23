@@ -47,12 +47,30 @@ A complete report includes `logical_bytes_referenced`, so you can compare the tw
 | `current` | The latest version of each live object |
 | `noncurrent` | Older versions kept by versioning or Object Lock. Buckets created by Atlas expire them after 30 days. Retention can keep them longer |
 | `delete_markers` | Delete markers. They hold no bytes. Atlas's lifecycle rules remove them once nothing remains behind them |
-| `staging` | Objects under `onedrive/staging/`, `sharepoint/staging/`, and `teams/staging/`. Already included in `current` or `noncurrent`. A large value usually means abandoned large-file uploads |
+| `staging` | Objects under `onedrive/staging/`, `sharepoint/staging/`, and `teams/staging/`. Already included in `current` or `noncurrent`. Zero when no backup is running. See [What the staging prefix costs](#what-the-staging-prefix-costs) |
 | `incomplete_uploads` | Multipart uploads that were never completed or aborted, and the bytes their parts hold. Not in `current`, but most providers bill for them |
 
 `stored_bytes` is `current` + `noncurrent` + `incomplete_uploads`.
 
 The workload breakdown follows the [storage layout](/operations/storage-layout): `outlook` (`data/`, `attachments/`, `manifests/`), `onedrive`, `sharepoint`, `teams`, `meta` (`_meta/`), and `other` (any path outside the layout). The rows add up to the totals. With `--by owner`, each row is one mailbox, OneDrive owner, SharePoint site, or Teams team, identified by the opaque ID in its path.
+
+## What the staging prefix costs
+
+OneDrive and SharePoint files of 64 MiB and larger are streamed to an object under `staging/`, copied inside the backend to their final key under `data/`, and then removed. From the end of the upload to the end of the copy the file is stored twice. Once no backup is running, `staging` reads zero.
+
+Every bucket Atlas creates is versioned. In a versioned bucket a delete by key only adds a delete marker, and the object stays billable as a noncurrent version. Atlas therefore deletes the staging object by the version ID that `CompleteMultipartUpload` returned, which removes the data. Staging uploads carry no Object Lock retention, so the backend allows that delete, also on a run with `--retention-days`.
+
+Staging bytes that stay have one of these causes:
+
+| Cause | What stays | Cleared by |
+| --- | --- | --- |
+| A backup made with Atlas 7.0.1 or earlier | A noncurrent copy of every file of 64 MiB or larger the run stored, which doubles their stored size | The 30-day noncurrent version rule |
+| A run that stopped between the upload and the copy | One current staging object | The next backup of that owner or site, once the object is 24 hours old. In a versioned bucket that removal leaves a noncurrent version for the 30-day rule |
+| A bucket default retention | A locked noncurrent copy of every large file. Atlas logs a warning for each one | The retain-until date, then the 30-day rule. [Remove the default](/self-hosting/storage#removing-a-bucket-default-retention) to stop new copies |
+| A backend that returns no version ID when a multipart upload completes | A noncurrent copy of every large file | The 30-day noncurrent version rule |
+| A bucket Atlas created whose lifecycle request failed | Every noncurrent staging copy, with no expiry | Nothing until you add the rule. Confirm `atlas-expire-noncurrent-versions` is present before you wait 30 days |
+
+"The 30-day noncurrent version rule" in this table is `atlas-expire-noncurrent-versions`. Atlas sends it once, when it creates the bucket. If the backend refuses it, the run logs `Could not configure lifecycle rules on bucket` and continues, and no later run retries it. A bucket Atlas did not create never gets the rule. In both cases nothing expires these copies until you add a [noncurrent version expiry](/operations/immutability#lifecycle-rules) yourself.
 
 ## Request cost
 

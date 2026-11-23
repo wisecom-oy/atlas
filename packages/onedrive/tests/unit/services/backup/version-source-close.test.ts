@@ -73,7 +73,7 @@ function failing_upload_ctx(): TenantContext {
         upload_part: vi.fn(async () => {
           throw new Error('the bucket refused the part');
         }),
-        complete: vi.fn(async () => undefined),
+        complete: vi.fn(async () => ({})),
         abort: vi.fn(async () => undefined),
       })),
       list_stale: vi.fn(async () => []),
