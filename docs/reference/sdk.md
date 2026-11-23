@@ -198,6 +198,36 @@ Methods accept the same identifiers as the CLI and normalize them the same way.
 - Object IDs and site IDs are lowercased before they become part of an object path, so two spellings of one ID address one tree. Graph item IDs (`fileId`, `itemId`) are case-sensitive and never changed. `fileFilter` compares them case-insensitively.
 - Outlook data written by v5 used the SMTP address in its paths and is not reachable under object-ID paths. See [Migrating to v6](/migration/v6).
 
+## Contract values
+
+```ts
+import {
+  isAcceptablePassphrase,
+  MIN_PASSPHRASE_BYTES,
+  canonicalSiteId,
+  GRAPH_SERVICE_POOLS,
+} from '@wisecom/atlas-sdk/contract';
+
+if (!isAcceptablePassphrase(form.passphrase)) {
+  showError(`Use at least ${MIN_PASSPHRASE_BYTES} UTF-8 bytes.`);
+}
+inventory.put(canonicalSiteId(graphSite.id), graphSite);
+```
+
+`@wisecom/atlas-sdk/contract` exports the rules an application has to apply before or outside an SDK call: validating a passphrase in an onboarding form, or keying a SharePoint inventory in a Cloudflare Worker the same way Atlas keys its backups. It imports no Node built-ins and no third-party packages, so it bundles for a browser or a Worker. The main `@wisecom/atlas-sdk` entry exports the same names.
+
+| Export | Type | Rule |
+| --- | --- | --- |
+| `MIN_PASSPHRASE_BYTES` | `14` | The shortest `encryptionPassphrase` Atlas accepts, in UTF-8 bytes |
+| `passphraseByteLength(passphrase)` | `number` | The passphrase's length in UTF-8 bytes. `'ä'` counts as 2 |
+| `isAcceptablePassphrase(passphrase)` | `boolean` | `true` when `createAtlasInstance`, `rewrapDataKey`, and `keys.rewrapTenantKeys` would accept the passphrase |
+| `canonicalSiteId(siteId)` | `string` | Drops the hostname from Graph's `hostname,siteGuid,webGuid`. An ID already in `siteGuid,webGuid` form is returned unchanged |
+| `GRAPH_SERVICE_POOLS` | `readonly GraphServicePool[]` | `outlook`, `sharepoint_onedrive`, `identity`, `teams`: the pool names used in `graphCost.byService` and `GRAPH_SERVICE_LIMITS` |
+
+These are the values Atlas enforces with, not copies of them, and they are part of the semver contract. A change to any of them is a major release.
+
+Site IDs are stored without the hostname because the hostname is the part that changes when a tenant renames its SharePoint domain. An inventory that keys sites by Graph's full ID never matches a backup outcome.
+
 ## Methods
 
 ```ts
