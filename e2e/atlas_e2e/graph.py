@@ -20,11 +20,19 @@ HTTP_ERROR_FLOOR = 400
 BASE_URL = "https://graph.microsoft.com/v1.0"
 SCOPE = ["https://graph.microsoft.com/.default"]
 RETRY_STATUSES = {429, 503, 504}
+"""Retried only for methods a repeat cannot duplicate: Graph can commit a create and still answer
+500 or 502, so a retried POST could seed an item twice."""
+IDEMPOTENT_RETRY_STATUSES = {500, 502}
+IDEMPOTENT_METHODS = {"GET", "DELETE"}
 MAX_ATTEMPTS = 5
 
 
 class GraphError(RuntimeError):
     """A Graph call that failed for a reason retrying will not fix."""
+
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 class Graph:
@@ -74,7 +82,7 @@ class Graph:
                 headers={"Authorization": f"Bearer {self.token()}", **kwargs.pop("headers", {})},
                 **kwargs,
             )
-            if response.status_code not in RETRY_STATUSES:
+            if not _is_retryable(method, response.status_code):
                 return response
             delay = float(response.headers.get("Retry-After", 2 * attempt))
             log.info(
@@ -90,7 +98,10 @@ class Graph:
         """
         response = self.request(method, url, **kwargs)
         if response.status_code >= HTTP_ERROR_FLOOR:
-            raise GraphError(f"{method} {url} -> {response.status_code} {_error_code(response)}")
+            raise GraphError(
+                f"{method} {url} -> {response.status_code} {_error_code(response)}",
+                status=response.status_code,
+            )
         if not response.content:
             return {}
         return dict(response.json())
@@ -122,6 +133,13 @@ class Graph:
     def close(self) -> None:
         """Releases the HTTP connection pool."""
         self._client.close()
+
+
+def _is_retryable(method: str, status: int) -> bool:
+    """Whether a status is transient for this method, matching the statuses Atlas itself retries."""
+    if status in RETRY_STATUSES:
+        return True
+    return status in IDEMPOTENT_RETRY_STATUSES and method.upper() in IDEMPOTENT_METHODS
 
 
 def _error_code(response: httpx.Response) -> str:

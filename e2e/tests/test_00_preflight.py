@@ -163,9 +163,15 @@ def test_tenant_bucket_is_local_only(settings: Settings, s3: Any) -> None:
     )
 
 
+"""Statuses that mean the app lacks a grant; any other failure is Graph itself."""
+PERMISSION_DENIED_STATUSES = {401, 403}
+
+
 def _require(graph: Graph, path: str, permission: str, **params: Any) -> dict[str, Any]:
-    """Asserts a Graph endpoint is reachable, naming the permission when it is not."""
+    """Asserts a Graph endpoint is reachable, naming the permission only when Graph denied it."""
     try:
         return graph.get(path, **params)
     except GraphError as err:
-        pytest.fail(f"{permission} appears to be missing or unconsented: {err}")
+        if err.status in PERMISSION_DENIED_STATUSES:
+            pytest.fail(f"{permission} appears to be missing or unconsented: {err}")
+        pytest.fail(f"Graph failed while probing {permission}, not a permission denial: {err}")
