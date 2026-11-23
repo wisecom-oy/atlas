@@ -68,8 +68,9 @@ Staging bytes that stay have one of these causes:
 | A run that stopped between the upload and the copy | One current staging object | The next backup of that owner or site, once the object is 24 hours old. In a versioned bucket that removal leaves a noncurrent version for the 30-day rule |
 | A bucket default retention | A locked noncurrent copy of every large file. Atlas logs a warning for each one | The retain-until date, then the 30-day rule. [Remove the default](/self-hosting/storage#removing-a-bucket-default-retention) to stop new copies |
 | A backend that returns no version ID when a multipart upload completes | A noncurrent copy of every large file | The 30-day noncurrent version rule |
+| A bucket Atlas created whose lifecycle request failed | Every noncurrent staging copy, with no expiry | Nothing until you add the rule. Confirm `atlas-expire-noncurrent-versions` is present before you wait 30 days |
 
-A bucket Atlas did not create has no lifecycle rules, so nothing expires these copies there. Add a noncurrent version expiry to it.
+"The 30-day noncurrent version rule" in this table is `atlas-expire-noncurrent-versions`. Atlas sends it once, when it creates the bucket. If the backend refuses it, the run logs `Could not configure lifecycle rules on bucket` and continues, and no later run retries it. A bucket Atlas did not create never gets the rule. In both cases nothing expires these copies until you add a [noncurrent version expiry](/operations/immutability#lifecycle-rules) yourself.
 
 ## Request cost
 
