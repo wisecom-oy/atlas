@@ -1,6 +1,7 @@
 import { inject, injectable } from 'inversify';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
+import { check_bucket_lifecycle } from '@/adapters/s3-bucket-lifecycle';
 import { probe_bucket_immutability } from '@/adapters/s3-bucket-manager';
 import { read_bucket_default_retention } from '@/adapters/s3-default-retention';
 import { probe_conditional_writes } from '@/adapters/s3-conditional-write-probe';
@@ -42,6 +43,7 @@ export class StorageCheckService implements StorageCheckUseCase {
     const default_retention = probe.object_lock_enabled
       ? await read_bucket_default_retention(this._s3, bucket)
       : undefined;
+    const lifecycle = await check_bucket_lifecycle(this._s3, bucket);
     const conditional_writes = await probe_conditional_writes(
       new S3ObjectStorage(this._s3, bucket, this._buckets),
     );
@@ -54,6 +56,7 @@ export class StorageCheckService implements StorageCheckUseCase {
       mode_supported: probe.mode_supported,
       default_retention,
       conditional_writes,
+      lifecycle,
       requested_mode: request.mode,
       requested_retention_days: request.retention_days,
       resolved_retain_until,

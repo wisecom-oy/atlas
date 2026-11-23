@@ -266,6 +266,12 @@ describe('createAtlasInstance', () => {
         object_lock_enabled: true,
         mode_supported: true,
         conditional_writes: { support: 'supported' },
+        lifecycle: {
+          status: 'checked',
+          missing_actions: [
+            { rule_id: 'atlas-housekeeping', action: 'AbortIncompleteMultipartUpload' },
+          ],
+        },
       };
       vi.mocked(mock_storage_check.check_storage).mockResolvedValue(check_result);
 

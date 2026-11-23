@@ -24,6 +24,14 @@ export interface StorageConditionalWriteCheck {
   readonly detail?: string | undefined;
 }
 
+/** Which Atlas actions are missing from enabled bucket rules, or why they could not be checked. */
+export type StorageLifecycleCheck =
+  | {
+      readonly status: 'checked';
+      readonly missing_actions: readonly { readonly rule_id: string; readonly action: string }[];
+    }
+  | { readonly status: 'not_checked'; readonly detail: string };
+
 export interface StorageCheckResult {
   readonly bucket: string;
   readonly reachable: boolean;
@@ -38,6 +46,8 @@ export interface StorageCheckResult {
   readonly default_retention?: StorageDefaultRetention | undefined;
   /** Result of the conditional-write probe, which writes and removes one throwaway object. */
   readonly conditional_writes: StorageConditionalWriteCheck;
+  /** Read-only check of Atlas bucket lifecycle actions. */
+  readonly lifecycle: StorageLifecycleCheck;
   readonly requested_mode?: ObjectLockMode | undefined;
   readonly requested_retention_days?: number | undefined;
   readonly resolved_retain_until?: string | undefined;
