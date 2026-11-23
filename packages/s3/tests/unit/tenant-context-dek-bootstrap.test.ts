@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DefaultTenantContextFactory } from '@/adapters/tenant-context.factory';
 import { ConfiguredBucketNameResolver } from '@/adapters/configured-bucket-name-resolver';
 import type { AtlasConfig } from '@wisecom/atlas-core';
-import { ConfigError } from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
+import { ConfigError, WrongPassphraseError } from '@wisecom/atlas-types';
 
 const DERIVED = new ConfiguredBucketNameResolver(undefined);
 
@@ -71,6 +72,7 @@ describe('DEK bootstrap race (issue #25)', () => {
   let buckets: BucketCache;
   beforeEach(() => {
     buckets = new BucketCache();
+    vi.restoreAllMocks();
   });
 
   it('two concurrent bootstraps of a fresh tenant converge on one DEK', async () => {
@@ -142,5 +144,64 @@ describe('DEK bootstrap race (issue #25)', () => {
       new DefaultTenantContextFactory(s3 as never, short, buckets, DERIVED).create('tenant-new'),
     ).rejects.toBeInstanceOf(ConfigError);
     expect(s3.objects.size).toBe(0);
+  });
+
+  // Issue #803: losing the race is routine. It must read as one info line, not
+  // as two warnings that suggest key corruption.
+  describe('reporting the adopted key (issue #803)', () => {
+    const LOST_RACE = /another run created the data key first; using it/;
+
+    /** Creates the winner's key, then has a second factory lose the create-only write. */
+    async function lose_bootstrap_race(loser_config: AtlasConfig): Promise<unknown> {
+      const s3 = make_racing_s3(2);
+      await make_factory(s3, buckets).create('tenant-race');
+      vi.clearAllMocks();
+      const loser = new DefaultTenantContextFactory(s3 as never, loser_config, buckets, DERIVED);
+      return loser.create('tenant-race').catch((err: unknown) => err);
+    }
+
+    it('logs one info line and no warning for the run that lost the race', async () => {
+      const info = vi.spyOn(logger, 'info').mockImplementation(() => {});
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+
+      const outcome = await lose_bootstrap_race(CONFIG);
+
+      expect(outcome).not.toBeInstanceOf(Error);
+      expect(warn).not.toHaveBeenCalled();
+      const race_lines = info.mock.calls.filter(([message]) => LOST_RACE.test(message));
+      expect(race_lines).toEqual([
+        ['Tenant tenant-race: another run created the data key first; using it'],
+      ]);
+    });
+
+    it('still fails loudly when the winning key does not open under this passphrase', async () => {
+      const info = vi.spyOn(logger, 'info').mockImplementation(() => {});
+      vi.spyOn(logger, 'warn').mockImplementation(() => {});
+      const other = { encryption_passphrase: 'a-different-passphrase' } as AtlasConfig;
+
+      const outcome = await lose_bootstrap_race(other);
+
+      expect(outcome).toBeInstanceOf(WrongPassphraseError);
+      expect(info.mock.calls.some(([message]) => LOST_RACE.test(message))).toBe(false);
+    });
+
+    it('warns when a create-only write was accepted but storage holds another key', async () => {
+      const s3 = make_racing_s3(2);
+      await make_factory(s3, buckets).create('tenant-race');
+      // A backend that ignores If-None-Match accepts the write, and a second
+      // writer's key lands after it, so the read-back returns a foreign key.
+      const honour_conditions = s3.send.getMockImplementation()!;
+      s3.send.mockImplementation(async (cmd: CommandLike) =>
+        cmd.constructor.name === 'PutObjectCommand' ? {} : honour_conditions(cmd),
+      );
+      const info = vi.spyOn(logger, 'info').mockImplementation(() => {});
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+
+      await make_factory(s3, buckets).create('tenant-race');
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![0]).toMatch(/not the one this run wrote/);
+      expect(info.mock.calls.some(([message]) => LOST_RACE.test(message))).toBe(false);
+    });
   });
 });
