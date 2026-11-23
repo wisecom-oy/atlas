@@ -8,6 +8,7 @@ import type {
   StorageCheckUseCase,
   StorageConditionalWriteCheck,
   StorageDefaultRetention,
+  StorageLifecycleCheck,
 } from '@wisecom/atlas-types';
 import { STORAGE_CHECK_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { with_object_lock, with_tenant } from '@/commands/shared/shared-options';
@@ -35,7 +36,7 @@ export function register_storage_check_command(
 ): void {
   const command = program
     .command('storage-check')
-    .description('Check S3/MinIO Object Lock and conditional-write readiness for backups');
+    .description('Check S3/MinIO Object Lock, conditional writes, and lifecycle rules');
   with_object_lock(command, 'planned retention period in days');
   with_tenant(command).action((options: StorageCheckOptions) =>
     execute_storage_check(get_container(), options),
@@ -84,6 +85,7 @@ function build_result_items(result: StorageCheckResult, ready: boolean): KeyValu
     items.push(describe_default_retention(result.default_retention));
   }
   items.push(describe_conditional_writes(result.conditional_writes));
+  items.push(describe_lifecycle(result.lifecycle));
   if (result.requested_mode) {
     items.push({ label: 'Requested mode', value: result.requested_mode });
   }
@@ -138,6 +140,18 @@ function describe_conditional_writes(check: StorageConditionalWriteCheck): KeyVa
     return { label, value: `IGNORED: ${check.detail ?? 'see docs'}`, color: 'red' };
   }
   return { label, value: `not probed (${check.detail ?? 'no reason given'})`, color: 'yellow' };
+}
+
+function describe_lifecycle(check: StorageLifecycleCheck): KeyValueItem {
+  const label = 'Lifecycle rules';
+  if (check.status === 'not_checked') {
+    return { label, value: `not checked (${check.detail})`, color: 'yellow' };
+  }
+  if (check.missing_actions.length === 0) {
+    return { label, value: 'Atlas actions present', color: 'green' };
+  }
+  const missing = check.missing_actions.map(({ rule_id, action }) => `${rule_id}/${action}`);
+  return { label, value: `missing Atlas actions: ${missing.join(', ')}`, color: 'yellow' };
 }
 
 function resolve_tenant_id(container: Container, options: StorageCheckOptions): string {

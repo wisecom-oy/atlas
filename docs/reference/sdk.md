@@ -958,6 +958,8 @@ if (check.conditionalWrites.support !== 'supported') {
 
 The result has `bucket`, `reachable`, `versioningEnabled`, `objectLockEnabled`, `modeSupported`, `defaultRetention` (`{ mode, days?, years? }`), the request echoed as `requestedMode` and `requestedRetentionDays`, the `resolvedRetainUntil` it would apply, and `conditionalWrites`. `conditionalWrites` is always present: `{ support: 'supported' | 'ignored' | 'not_probed', detail?: string }`, whether the backend refuses a create-only write and a stale compare-and-swap. The probe writes and removes one object under `_meta/storage-check/`, so it needs write access.
 
+`lifecycle` reports the readback of the bucket's lifecycle configuration. When `status` is `checked`, `missingActions` lists the missing Atlas actions as `{ ruleId, action }` entries. When `status` is `not_checked`, `detail` explains why the configuration could not be read.
+
 ### Storage usage
 
 `getStorageUsage(options?)` lists the tenant bucket and reports the bytes it physically holds. `getBucketStats()` and the workload `getStats()` methods report logical sizes instead. See [Storage usage](/operations/storage-usage) for categories, request cost, and required permissions.

@@ -1540,6 +1540,7 @@ The `Conditional writes` row reports a probe of the two writes that keep concurr
 
 - **The probe is the only write.** It puts one plaintext object of a few bytes under `_meta/storage-check/` and deletes it, with its versions, before the command returns. It needs `s3:PutObject` and `s3:DeleteObject` on that prefix. On a bucket with a default retention the probe's versions stay until that retention ends.
 - **Bucket default retention.** On a lock-capable bucket the command also reports the bucket's default retention. Atlas does not set one, because it would lock every object written without its own retention: backups without `--retention-days`, and the staging uploads Atlas deletes after copying them. A default found here was left by a version before 6.1.0 or set by hand. It is shown in yellow and does not change the exit code. See [Removing a bucket default retention](/self-hosting/storage#removing-a-bucket-default-retention).
+- **Lifecycle rules.** The command names each missing action in the enabled Atlas rules. The read requires `s3:GetLifecycleConfiguration`. If the configuration cannot be read, the row reports `not checked` with the reason. The row is advisory and does not affect the exit code.
 
 ## atlas stats
 

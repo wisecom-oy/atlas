@@ -279,15 +279,19 @@ MinIO cannot enable Object Lock on an existing bucket, and Atlas never enables i
 
 Backends that do not implement `ObjectLockEnabledForBucket` (`NotImplemented`), or that reject it with an error naming Object Lock, get a plain bucket and a warning. Immutability does not work there: `storage-check` reports `unversioned (legacy)`, and a backup with `--retention-days` fails before writing anything. Any other creation error, such as `InvalidArgument` without Object Lock wording, aborts bucket creation rather than leaving an unlocked bucket behind.
 
-New buckets also get lifecycle rules:
+Atlas requests these lifecycle rules when it creates a bucket:
 
-| Rule | Effect |
-| --- | --- |
-| Abort incomplete multipart uploads | Aborted after 7 days |
-| Expire delete markers | Orphaned delete markers are removed |
-| `atlas-expire-noncurrent-versions` | Noncurrent object versions expire after 30 days |
+| Rule | Action | Effect |
+| --- | --- | --- |
+| `atlas-housekeeping` | `AbortIncompleteMultipartUpload` | AWS S3 aborts incomplete uploads after 7 days |
+| `atlas-housekeeping` | `ExpiredObjectDeleteMarker` | Removes orphaned delete markers |
+| `atlas-expire-noncurrent-versions` | `NoncurrentVersionExpiration` | Expires noncurrent object versions after 30 days |
 
-Atlas never reads noncurrent versions. Its own version history is stored as separate objects, so the expiry removes only superseded sync checkpoints, indexes, [owner leases](#owner-leases-and-conditional-writes), and the [staging copies](/operations/storage-usage#what-the-staging-prefix-costs) that Atlas 7.0.1 and earlier left behind. A bucket Atlas did not create, such as one opened with a [bucket override](/configuration#bucket-override), has none of these rules.
+MinIO drops `AbortIncompleteMultipartUpload` from the lifecycle configuration. Its server-wide cleanup checks every 6 hours for incomplete multipart uploads older than 24 hours by default. Configure those intervals with `MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL` and `MINIO_API_STALE_UPLOADS_EXPIRY`. [MinIO server settings](https://github.com/minio/minio/blob/RELEASE.2025-06-13T11-33-47Z/docs/config/README.md#api)
+
+Run `atlas storage-check` to see which actions are missing from the enabled Atlas rules on the bucket. A missing action is advisory and does not affect the readiness verdict.
+
+Atlas never reads noncurrent versions. Its own version history is stored as separate objects, so the expiry removes only superseded sync checkpoints, indexes, [owner leases](#owner-leases-and-conditional-writes), and the [staging copies](/operations/storage-usage#what-the-staging-prefix-costs) that Atlas 7.0.1 and earlier left behind. Atlas leaves lifecycle configuration on existing buckets as it finds it, including buckets opened with a [bucket override](/configuration#bucket-override).
 
 Only commands that write create a bucket. Read-only commands (`list`, `read`, `status`, `verify`, `stats`, `list-users`) never create a bucket or a data key. They fail with `No backups found for tenant <id>` when the tenant has no stored key, so a mistyped `-t` cannot create an empty, billable bucket.
 

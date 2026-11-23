@@ -1,7 +1,3 @@
-/**
- * Issue #623: the owner lease only excludes a second run on a backend that refuses conditional
- * writes, so `storage-check` reports the probe and fails the check when the backend ignores them.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 import { Container } from 'inversify';
@@ -26,6 +22,7 @@ function lock_capable_bucket(conditional_writes: StorageConditionalWriteCheck): 
     object_lock_enabled: true,
     mode_supported: true,
     conditional_writes,
+    lifecycle: { status: 'checked', missing_actions: [] },
   };
 }
 
@@ -50,7 +47,7 @@ function row(rows: KeyValueItem[], label: string): KeyValueItem | undefined {
   return rows.find((item) => item.label === label);
 }
 
-describe('atlas storage-check conditional writes (issue #623)', () => {
+describe('atlas storage-check', () => {
   beforeEach(() => {
     process.exitCode = undefined;
   });
@@ -97,6 +94,26 @@ describe('atlas storage-check conditional writes (issue #623)', () => {
     expect(row(rows, 'Conditional writes')).toEqual({
       label: 'Conditional writes',
       value: 'not probed (the bucket does not exist yet)',
+      color: 'yellow',
+    });
+    expect(row(rows, 'Status')?.value).toBe('ready');
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('reports the missing lifecycle action without changing the readiness verdict', async () => {
+    const rows = await rendered_rows({
+      ...lock_capable_bucket({ support: 'supported' }),
+      lifecycle: {
+        status: 'checked',
+        missing_actions: [
+          { rule_id: 'atlas-housekeeping', action: 'AbortIncompleteMultipartUpload' },
+        ],
+      },
+    });
+
+    expect(row(rows, 'Lifecycle rules')).toEqual({
+      label: 'Lifecycle rules',
+      value: 'missing Atlas actions: atlas-housekeeping/AbortIncompleteMultipartUpload',
       color: 'yellow',
     });
     expect(row(rows, 'Status')?.value).toBe('ready');
