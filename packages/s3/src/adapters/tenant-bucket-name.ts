@@ -1,11 +1,11 @@
 import { ConfigError } from '@wisecom/atlas-types';
 import type { ResolvedBucket } from '@wisecom/atlas-types';
-import { is_same_tenant, is_valid_bucket_name, type BucketSelection } from '@wisecom/atlas-core';
-
-/** Bucket name convention: atlas-{tenant_id}. */
-export function tenant_bucket_name(tenant_id: string): string {
-  return `atlas-${tenant_id}`;
-}
+import {
+  is_same_tenant,
+  is_valid_bucket_name,
+  tenant_bucket_name,
+  type BucketSelection,
+} from '@wisecom/atlas-core';
 
 /**
  * The bucket a tenant's data lives in: the configured override bound to that tenant, else the

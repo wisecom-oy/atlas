@@ -71,6 +71,7 @@ function make_ctx(): { ctx: TenantContext; record: StorageRecord } {
     }),
     complete: vi.fn(async () => {
       ops.push('complete');
+      return {};
     }),
     abort: vi.fn(async () => {
       ops.push('abort');

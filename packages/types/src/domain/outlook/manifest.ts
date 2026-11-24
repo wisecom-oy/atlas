@@ -135,6 +135,12 @@ export interface ManifestEntry {
    */
   readonly payload_format?: 'mime' | undefined;
   /**
+   * The Graph error code with which Exchange refused this message's MIME for good, such as
+   * `ErrorMimeContentConversionFailed`. The blob is the JSON payload instead. Absent when MIME was
+   * captured, and when Graph had no MIME for the item at all (a 4xx) (issue #812).
+   */
+  readonly mime_unavailable?: string | undefined;
+  /**
    * ISO 8601 receive timestamp. Recorded for MIME entries, which have no JSON
    * payload to read `receivedDateTime` from.
    */

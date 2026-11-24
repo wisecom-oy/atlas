@@ -7,16 +7,17 @@ import { stream_to_content_addressed_storage } from '@/services/shared/stream-en
 
 const KEY = randomBytes(32);
 
-function make_inner_storage(): ObjectStorage {
+function make_inner_storage(staged_version_id?: string): ObjectStorage {
   return {
     begin_multipart_upload: vi.fn(async () => ({
       upload_part: vi.fn(async (part_number: number) => `etag-${part_number}`),
-      complete: vi.fn(async () => {}),
+      complete: vi.fn(async () => (staged_version_id ? { version_id: staged_version_id } : {})),
       abort: vi.fn(async () => {}),
     })),
     exists: vi.fn(async () => false),
     copy: vi.fn(async () => {}),
     delete: vi.fn(async () => {}),
+    delete_version: vi.fn(async () => {}),
     validate_object_lock_policy: vi.fn(async () => {}),
   } as unknown as ObjectStorage;
 }
@@ -65,6 +66,19 @@ describe('staging upload on a locked run (#556)', () => {
       expect.objectContaining({ mode: 'COMPLIANCE', retain_until: expect.any(String) }),
     );
     expect(inner.delete).toHaveBeenCalledWith(TARGET.staging_key);
+  });
+
+  it('removes the unlocked staging version on a locked run (#795)', async () => {
+    const inner = make_inner_storage('v-staged');
+    const ctx = await attach_run_retention(make_ctx(inner), {
+      retention_days: 30,
+      mode: 'COMPLIANCE',
+    });
+
+    await stream_to_content_addressed_storage(ctx, one_chunk(), TARGET);
+
+    expect(inner.delete_version).toHaveBeenCalledWith(TARGET.staging_key, 'v-staged');
+    expect(inner.delete).not.toHaveBeenCalled();
   });
 
   it('keeps a lock the caller asked for on the canonical copy', async () => {

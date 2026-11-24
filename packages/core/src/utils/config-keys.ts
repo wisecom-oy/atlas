@@ -1,7 +1,9 @@
 import type { StringConfigField } from '@/utils/config';
-import { MIN_PASSPHRASE_BYTES } from '@/adapters/keystore/kdf-strategy';
+import { is_acceptable_passphrase, MIN_PASSPHRASE_BYTES } from '@/services/keys/passphrase-floor';
+import { GUID_RE } from '@/services/shared/identifier-normalization';
 
-export const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export { GUID_RE };
+
 const DOMAIN_RE = /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i;
 
 export interface ConfigKeySpec {
@@ -88,7 +90,7 @@ export const CONFIG_KEYS: readonly ConfigKeySpec[] = [
     secret: true,
     description: 'Passphrase protecting the per-tenant encryption keys',
     validate: (v) =>
-      Buffer.byteLength(v, 'utf8') >= MIN_PASSPHRASE_BYTES
+      is_acceptable_passphrase(v)
         ? null
         : `must contain at least ${MIN_PASSPHRASE_BYTES} UTF-8 bytes`,
   },

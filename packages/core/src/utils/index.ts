@@ -33,9 +33,9 @@ export {
   assert_valid_bucket_name,
   build_bucket_selection,
   is_same_tenant,
-  is_valid_bucket_name,
   read_env_bucket,
 } from './bucket-override';
+export { is_valid_bucket_name, tenant_bucket_name } from './bucket-name';
 export type {
   BucketBinding,
   BucketSelection,

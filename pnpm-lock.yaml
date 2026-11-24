@@ -297,6 +297,9 @@ importers:
       '@wisecom/atlas-types':
         specifier: workspace:*
         version: link:../types
+      '@zone-eu/mailsplit':
+        specifier: ^5.4.29
+        version: 5.4.29
       archiver:
         specifier: ^8.0.0
         version: 8.0.0

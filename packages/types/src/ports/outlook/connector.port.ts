@@ -196,8 +196,10 @@ export interface MailboxConnector {
    * threading headers, and any S/MIME payload. Attachments are embedded.
    * Resolves undefined when Graph cannot produce MIME for the item, so callers
    * fall back to the JSON payload rather than losing the message (issue #50).
-   * Rejects when the capture failed for a reason a later attempt may not hit,
-   * such as a throttle or 5xx that outlasted the retries (issue #614).
+   * Rejects with `MimeUnavailableError` when Exchange answered with an error
+   * that is permanent for this item even though its status is 5xx (issue #812).
+   * Rejects otherwise when the capture failed for a reason a later attempt may
+   * not hit, such as a throttle or 5xx that outlasted the retries (issue #614).
    */
   // ponytail: optional method — keeps existing MailboxConnector test literals compiling; make it required when a second caller needs it guaranteed
   fetch_mime?(tenant_id: string, owner_id: string, message_id: string): Promise<Buffer | undefined>;

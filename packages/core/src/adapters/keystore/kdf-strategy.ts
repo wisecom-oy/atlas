@@ -34,12 +34,6 @@ const SCRYPT_MAXMEM = 128 * 1024 * 1024;
  * tampered blob from downgrading the derivation. Not an OWASP value: OWASP lists 2^14 only with p=5.
  */
 const SCRYPT_N_MIN = 1 << 14;
-/**
- * Minimum passphrase length, in UTF-8 bytes, for wrapping a tenant key. The wrapped key sits in the
- * bucket with its KDF parameters in the clear, so bucket read access allows offline guessing and
- * the passphrase is the whole defence (issue #447). Every wrap path and config check reads this.
- */
-export const MIN_PASSPHRASE_BYTES = 14;
 /** Upper bound for N to prevent a crafted blob from allocating unbounded memory. */
 const SCRYPT_N_MAX = 1 << 20;
 

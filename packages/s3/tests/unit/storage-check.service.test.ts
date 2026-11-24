@@ -1,3 +1,4 @@
+import { GetBucketLifecycleConfigurationCommand } from '@aws-sdk/client-s3';
 import { BucketCache } from '@/adapters/bucket-cache';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
@@ -24,6 +25,7 @@ describe('StorageCheckService', () => {
 
   beforeEach(() => {
     mock_s3 = make_mock_s3();
+    mock_s3.send.mockResolvedValue({});
     buckets = new BucketCache();
     const container = new Container();
     container.bind(S3_CLIENT_TOKEN).toConstantValue(mock_s3);
@@ -84,7 +86,126 @@ describe('StorageCheckService', () => {
     const result = await service.check_storage('tenant-1');
 
     expect(result.default_retention).toBeUndefined();
-    expect(mock_s3.send).toHaveBeenCalledTimes(3);
+    expect(mock_s3.send).toHaveBeenCalledTimes(4);
+    expect(mock_s3.send.mock.lastCall?.[0]).toBeInstanceOf(GetBucketLifecycleConfigurationCommand);
+  });
+
+  it('names the Atlas action missing from the MinIO lifecycle response', async () => {
+    mock_s3.send
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ Status: 'Enabled' })
+      .mockResolvedValueOnce({ ObjectLockConfiguration: { ObjectLockEnabled: 'Enabled' } })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({
+        Rules: [
+          {
+            ID: 'atlas-housekeeping',
+            Status: 'Enabled',
+            Expiration: { ExpiredObjectDeleteMarker: true },
+          },
+          {
+            ID: 'atlas-expire-noncurrent-versions',
+            Status: 'Enabled',
+            NoncurrentVersionExpiration: { NoncurrentDays: 30 },
+          },
+        ],
+      });
+
+    const result = await service.check_storage('tenant-1');
+
+    expect(result.lifecycle).toEqual({
+      status: 'checked',
+      missing_actions: [
+        { rule_id: 'atlas-housekeeping', action: 'AbortIncompleteMultipartUpload' },
+      ],
+    });
+    expect(mock_s3.send.mock.lastCall?.[0]).toBeInstanceOf(GetBucketLifecycleConfigurationCommand);
+    expect(mock_s3.send.mock.lastCall?.[0]).toHaveProperty('input.Bucket', 'atlas-tenant-1');
+  });
+
+  it.each([
+    {
+      name: 'retains all actions',
+      rules: [
+        {
+          ID: 'atlas-expire-noncurrent-versions',
+          Status: 'Enabled',
+          NoncurrentVersionExpiration: { NoncurrentDays: 45 },
+        },
+        {
+          ID: 'atlas-housekeeping',
+          Status: 'Enabled',
+          AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 },
+          Expiration: { ExpiredObjectDeleteMarker: true },
+        },
+      ],
+      missing_actions: [],
+    },
+    {
+      name: 'retains only the abort action and an unrelated expiry rule',
+      rules: [
+        {
+          ID: 'atlas-housekeeping',
+          Status: 'Enabled',
+          AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 },
+          Expiration: { Days: 10 },
+        },
+        {
+          ID: 'custom-expiry',
+          Status: 'Enabled',
+          NoncurrentVersionExpiration: { NoncurrentDays: 30 },
+        },
+      ],
+      missing_actions: [
+        { rule_id: 'atlas-housekeeping', action: 'ExpiredObjectDeleteMarker' },
+        { rule_id: 'atlas-expire-noncurrent-versions', action: 'NoncurrentVersionExpiration' },
+      ],
+    },
+  ])('reports the Atlas actions when the backend $name', async ({ rules, missing_actions }) => {
+    mock_s3.send
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ Status: 'Enabled' })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ Rules: rules });
+
+    const result = await service.check_storage('tenant-1');
+
+    expect(result.lifecycle).toEqual({ status: 'checked', missing_actions });
+  });
+
+  it('reports all Atlas actions missing when the bucket has no lifecycle configuration', async () => {
+    mock_s3.send
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ Status: 'Enabled' })
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(Object.assign(new Error(), { name: 'NoSuchLifecycleConfiguration' }));
+
+    const result = await service.check_storage('tenant-1');
+
+    expect(result.lifecycle).toEqual({
+      status: 'checked',
+      missing_actions: [
+        { rule_id: 'atlas-housekeeping', action: 'AbortIncompleteMultipartUpload' },
+        { rule_id: 'atlas-housekeeping', action: 'ExpiredObjectDeleteMarker' },
+        { rule_id: 'atlas-expire-noncurrent-versions', action: 'NoncurrentVersionExpiration' },
+      ],
+    });
+  });
+
+  it('reports a lifecycle read permission failure without preventing the other checks', async () => {
+    mock_s3.send
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ Status: 'Enabled' })
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(Object.assign(new Error(), { name: 'AccessDenied' }));
+
+    const result = await service.check_storage('tenant-1');
+
+    expect(result.lifecycle).toEqual({
+      status: 'not_checked',
+      detail: 'access denied (requires s3:GetLifecycleConfiguration)',
+    });
+    expect(result.conditional_writes).toEqual({ support: 'supported' });
   });
 
   it('reports what the conditional-write probe found on the tenant bucket (issue #623)', async () => {

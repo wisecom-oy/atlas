@@ -66,7 +66,11 @@ export interface SyncOptions extends OperationControlOptions {
   readonly object_lock_request?: ObjectLockRequest | undefined;
   readonly progress?: BackupProgressReporter | undefined;
   readonly create_progress?:
-    ((folders: { name: string; total_items: number }[]) => BackupProgressReporter) | undefined;
+    | ((
+        folders: { name: string; total_items: number }[],
+        mode: BackupSyncMode,
+      ) => BackupProgressReporter)
+    | undefined;
   readonly should_force_stop?: (() => boolean) | undefined;
   readonly owner_email?: string | undefined;
   readonly owner_display_name?: string | undefined;

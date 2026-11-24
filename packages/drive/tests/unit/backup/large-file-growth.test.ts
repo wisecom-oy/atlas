@@ -64,6 +64,7 @@ function recording_context(): { ctx: TenantContext; ops: string[] } {
     }),
     complete: vi.fn(async () => {
       ops.push('complete');
+      return {};
     }),
     abort: vi.fn(async () => {
       ops.push('abort');

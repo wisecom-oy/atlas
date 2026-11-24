@@ -109,6 +109,8 @@ Upgrading from v6? See the [v7 migration guide](https://docs.atlas.wisecom.fi/mi
 
 The SDK exports named public option and result types, error classes, `GRAPH_SERVICE_LIMITS`, `getGraphCost`, `getStorageUsageToken`, and `isFileStorageContainerSite`. Internal ports, DI tokens, and container factories are not public API.
 
+`@wisecom/atlas-sdk/contract` exports the rules an application applies outside an SDK call, such as the passphrase floor (`MIN_PASSPHRASE_BYTES`, `isAcceptablePassphrase`), the bucket naming rules (`tenantBucketName`, `isValidBucketName`), the owner and team ID forms Atlas keys backups by (`canonicalSiteId`, `normalizeOwnerId`, `parseTeamId`), `isFileStorageContainerSite`, and `GRAPH_SERVICE_POOLS`. It has no Node or third-party dependencies, so it bundles for a browser or a Worker. See [Contract values](https://docs.atlas.wisecom.fi/reference/sdk#contract-values) for the rules, and [Browser and Worker examples](https://docs.atlas.wisecom.fi/reference/contract-examples) for onboarding and inventory recipes.
+
 ## CLI alternative
 
 For shell-based operations, cron jobs, and operator workflows, use [`@wisecom/atlas-cli`](https://www.npmjs.com/package/@wisecom/atlas-cli).
@@ -121,6 +123,7 @@ Everything else lives at **[docs.atlas.wisecom.fi](https://docs.atlas.wisecom.fi
 | ------------------------------------- | --------------------------------------------------------------------------------------- |
 | Every method, option, and error       | [SDK reference](https://docs.atlas.wisecom.fi/reference/sdk)                            |
 | Working code for common tasks         | [Examples](https://docs.atlas.wisecom.fi/reference/examples)                            |
+| Browser and Worker code               | [Browser and Worker examples](https://docs.atlas.wisecom.fi/reference/contract-examples) |
 | Microsoft Entra ID permissions        | [Entra ID app registration](https://docs.atlas.wisecom.fi/azure-ad-setup)               |
 | Storage metrics                       | [Storage request events](https://docs.atlas.wisecom.fi/reference/storage-request-events) |
 | Encryption and threat model           | [Security model](https://docs.atlas.wisecom.fi/security)                                |

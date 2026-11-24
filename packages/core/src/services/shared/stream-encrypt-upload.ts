@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import type {
+  CompletedMultipartUpload,
   MultipartUploadHandle,
+  ObjectStorage,
   StorageObjectLockPolicy,
   TenantContext,
 } from '@wisecom/atlas-types';
@@ -56,7 +58,8 @@ export interface ContentAddressedStreamTarget {
  * The canonical key is a keyed hash of the plaintext, which is only known once the
  * last byte has passed through, so the bytes land on a staging key first and
  * are promoted afterwards. An object that already exists is deduplicated by
- * aborting the staged upload rather than completing it.
+ * aborting the staged upload rather than completing it. A promoted staging object is removed by
+ * the version its upload created, so none of its bytes outlive the promotion.
  */
 export async function stream_to_content_addressed_storage(
   ctx: TenantContext,
@@ -75,13 +78,14 @@ export async function stream_to_content_addressed_storage(
   // Everything from here to `complete()` owns an upload that exists in the bucket. A throw in
   // between, an `exists()` that fails or a completion the backend refuses, used to leave it there
   // active and billable with nobody holding its id (issue #345).
+  let staged: CompletedMultipartUpload;
   try {
     if (await ctx.storage.exists(canonical_key)) {
       await safe_abort_multipart(handle, target.staging_key);
       return { checksum, storage_key: canonical_key, stored: false, deduplicated: true };
     }
 
-    await handle.complete(completed_parts);
+    staged = await handle.complete(completed_parts);
   } catch (err) {
     await safe_abort_multipart(handle, target.staging_key);
     throw err;
@@ -96,13 +100,48 @@ export async function stream_to_content_addressed_storage(
     await ctx.storage.copy(target.staging_key, canonical_key, undefined, target.object_lock_policy);
   } catch (err) {
     logger.warn(`Copy staging->canonical failed, cleaning up: ${err}`);
-    await ctx.storage.delete(target.staging_key).catch(() => {});
+    await remove_staging_object(ctx.storage, target.staging_key, staged);
     throw err;
   }
 
-  await ctx.storage.delete(target.staging_key).catch(() => {});
+  await remove_staging_object(ctx.storage, target.staging_key, staged);
 
   return { checksum, storage_key: canonical_key, stored: true, deduplicated: false };
+}
+
+/**
+ * Removes a completed staging object, leaving none of its bytes stored where the backend allows.
+ *
+ * A delete by key only adds a delete marker in a versioned bucket, and every bucket Atlas creates
+ * is versioned. The object stayed whole as a noncurrent version until a lifecycle rule expired it,
+ * so each large file was stored twice for 30 days (issue #795). Deleting the version the upload
+ * created removes the data, and only that version, so nothing another run wrote is touched.
+ *
+ * Never rejects: the content is already safe on its canonical key or the caller is about to report
+ * the failure that matters, and the age-filtered startup cleanup collects whatever stays behind.
+ */
+async function remove_staging_object(
+  storage: ObjectStorage,
+  staging_key: string,
+  staged: CompletedMultipartUpload,
+): Promise<void> {
+  if (staged.version_id === undefined) {
+    await storage.delete(staging_key).catch(() => {});
+    return;
+  }
+
+  try {
+    await storage.delete_version(staging_key, staged.version_id);
+  } catch (err) {
+    // A bucket default retention locks the staging version, and the backend then refuses this
+    // delete. Hiding the key behind a delete marker is what is left, and what Atlas did before.
+    logger.warn(
+      `Could not remove the staging copy at ${staging_key}: ` +
+        `${err instanceof Error ? err.message : String(err)}. ` +
+        `Its bytes stay billable as a noncurrent version until the bucket expires it.`,
+    );
+    await storage.delete(staging_key).catch(() => {});
+  }
 }
 
 interface PendingPartState {

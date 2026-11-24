@@ -97,14 +97,14 @@ Data under retention stays in the bucket, and readable with the tenant key, unti
 
 ## Lifecycle rules
 
-When Atlas creates a bucket, it applies two lifecycle rules, which work on both AWS S3 and MinIO:
+Atlas requests two lifecycle rules when it creates a bucket:
 
 | Rule | Purpose |
 | --- | --- |
-| `atlas-housekeeping` | Aborts incomplete multipart uploads after 7 days (`AbortIncompleteMultipartUpload`) and removes delete markers left after versioned deletes (`ExpiredObjectDeleteMarker`) |
+| `atlas-housekeeping` | Removes orphaned delete markers (`ExpiredObjectDeleteMarker`). On AWS S3 it also aborts incomplete multipart uploads after 7 days (`AbortIncompleteMultipartUpload`) |
 | `atlas-expire-noncurrent-versions` | Removes noncurrent object versions 30 days after they are replaced. A locked version stays until its lock expires |
 
-The rules are best effort. If the backend does not support lifecycle configuration, Atlas continues without them. Buckets that already exist are left as they are.
+MinIO cleans up incomplete uploads on its own schedule. See [Storage](/self-hosting/storage#bucket-provisioning-and-object-lock). The rules are best effort. If the backend does not support lifecycle configuration, Atlas continues without them. Buckets that already exist are left as they are.
 
 ## Operational checklist
 

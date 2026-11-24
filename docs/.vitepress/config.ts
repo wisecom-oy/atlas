@@ -169,6 +169,7 @@ export default defineConfig({
           { text: 'SDK', link: '/reference/sdk' },
           { text: 'Storage request events', link: '/reference/storage-request-events' },
           { text: 'Examples', link: '/reference/examples' },
+          { text: 'Browser and Worker examples', link: '/reference/contract-examples' },
         ],
       },
       {

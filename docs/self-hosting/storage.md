@@ -279,15 +279,19 @@ MinIO cannot enable Object Lock on an existing bucket, and Atlas never enables i
 
 Backends that do not implement `ObjectLockEnabledForBucket` (`NotImplemented`), or that reject it with an error naming Object Lock, get a plain bucket and a warning. Immutability does not work there: `storage-check` reports `unversioned (legacy)`, and a backup with `--retention-days` fails before writing anything. Any other creation error, such as `InvalidArgument` without Object Lock wording, aborts bucket creation rather than leaving an unlocked bucket behind.
 
-New buckets also get lifecycle rules:
+Atlas requests these lifecycle rules when it creates a bucket:
 
-| Rule | Effect |
-| --- | --- |
-| Abort incomplete multipart uploads | Aborted after 7 days |
-| Expire delete markers | Orphaned delete markers are removed |
-| `atlas-expire-noncurrent-versions` | Noncurrent object versions expire after 30 days |
+| Rule | Action | Effect |
+| --- | --- | --- |
+| `atlas-housekeeping` | `AbortIncompleteMultipartUpload` | AWS S3 aborts incomplete uploads after 7 days |
+| `atlas-housekeeping` | `ExpiredObjectDeleteMarker` | Removes orphaned delete markers |
+| `atlas-expire-noncurrent-versions` | `NoncurrentVersionExpiration` | Expires noncurrent object versions after 30 days |
 
-Atlas never reads noncurrent versions. Its own version history is stored as separate objects, so the expiry removes only superseded sync checkpoints, indexes, and [owner leases](#owner-leases-and-conditional-writes). A bucket Atlas did not create, such as one opened with a [bucket override](/configuration#bucket-override), has none of these rules.
+MinIO drops `AbortIncompleteMultipartUpload` from the lifecycle configuration. Its server-wide cleanup checks every 6 hours for incomplete multipart uploads older than 24 hours by default. Configure those intervals with `MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL` and `MINIO_API_STALE_UPLOADS_EXPIRY`. [MinIO server settings](https://github.com/minio/minio/blob/RELEASE.2025-06-13T11-33-47Z/docs/config/README.md#api)
+
+Run `atlas storage-check` to see which actions are missing from the enabled Atlas rules on the bucket. A missing action is advisory and does not affect the readiness verdict.
+
+Atlas never reads noncurrent versions. Its own version history is stored as separate objects, so the expiry removes only superseded sync checkpoints, indexes, [owner leases](#owner-leases-and-conditional-writes), and the [staging copies](/operations/storage-usage#what-the-staging-prefix-costs) that Atlas 7.0.1 and earlier left behind. Atlas leaves lifecycle configuration on existing buckets as it finds it, including buckets opened with a [bucket override](/configuration#bucket-override).
 
 Only commands that write create a bucket. Read-only commands (`list`, `read`, `status`, `verify`, `stats`, `list-users`) never create a bucket or a data key. They fail with `No backups found for tenant <id>` when the tenant has no stored key, so a mistyped `-t` cannot create an empty, billable bucket.
 
@@ -317,7 +321,7 @@ mc retention clear --default <alias>/atlas-<tenant_id>
 Atlas locks each object it writes and needs no bucket default retention. OneDrive and SharePoint backups with `--retention-days` set one before 6.1.0, and `atlas storage-check` reports it when it finds one. Remove it, because a leftover default locks objects that should not be locked:
 
 - every write of a run without `--retention-days`
-- the staging copy of every large file, which stays as a locked noncurrent version for the full period after Atlas deletes it
+- the staging copy of every large file. Atlas cannot remove a locked version, so the copy stays as a noncurrent version for the full period
 - every version of every [owner lease](#owner-leases-and-conditional-writes)
 
 Removing the default changes no existing object. Objects already written keep their retain-until date, and runs with `--retention-days` keep locking what they write. In `COMPLIANCE` mode, removing the default is allowed even though the locked objects themselves cannot be shortened.
@@ -447,6 +451,8 @@ Large files upload as a multipart stream to a staging object, then move to their
 | Parts per multipart upload | 10,000 | 1 GiB copy parts: 10,000 parts cover 9.8 TiB, above the 5 TB limit |
 
 The copy happens inside the backend, so no file data returns through Atlas. Ciphertext, checksum, metadata, and Object Lock retention are the same whichever request is used. Retention on a ranged copy is set when the multipart upload starts.
+
+While the copy runs, the file is stored twice, so peak usage during a backup exceeds the stored size by the large files being copied at that moment. Atlas then deletes the staging object by its version ID. A delete by key would only add a delete marker in a versioned bucket and keep the whole file as a noncurrent version for 30 days. See [What the staging prefix costs](/operations/storage-usage#what-the-staging-prefix-costs) for the cases where a staging copy stays.
 
 The practical ceiling is S3's 5 TB per object. Microsoft 365 caps a single OneDrive or SharePoint file at 250 GB, so that limit is never reached.
 

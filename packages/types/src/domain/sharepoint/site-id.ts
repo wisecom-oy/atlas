@@ -6,6 +6,9 @@
  * backup history for every site. Graph accepts `siteGuid,webGuid` wherever it takes a site id.
  * Pure string work, so `list`, `verify` and `delete --site` still resolve a site with Graph unreachable. Ids that are
  * already canonical pass through unchanged.
+ *
+ * Imports nothing: the SDK publishes it through `@wisecom/atlas-sdk/contract`, so an inventory kept
+ * outside Node can key sites the same way Atlas does (issue #824).
  */
 export function canonical_site_id(site_id: string): string {
   const parts = site_id.split(',');

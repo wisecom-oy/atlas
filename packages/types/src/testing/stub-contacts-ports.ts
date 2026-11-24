@@ -22,6 +22,11 @@ export interface ConnectorScript {
   deltas: Record<string, ContactFolderDelta>;
   failing_delta_folders: Set<string>;
   failing_photo_contacts: Set<string>;
+  /**
+   * Per folder, the contacts reported as carrying an attachment. A folder without an entry reports
+   * every contact its scripted delta upserts, so the photo path runs for each of them.
+   */
+  attachment_ids_by_folder: Record<string, Set<string>>;
 }
 
 /** One recorded delta read: which folder, and the link it was asked to resume from. */
@@ -58,6 +63,7 @@ export function fake_connector(): FakeConnector {
     deltas: {},
     failing_delta_folders: new Set(),
     failing_photo_contacts: new Set(),
+    attachment_ids_by_folder: {},
   };
   const delta_calls: DeltaCall[] = [];
   const connector: ContactsConnector = {
@@ -69,6 +75,9 @@ export function fake_connector(): FakeConnector {
       if (delta === undefined) throw new Error(`no delta scripted for ${folder_id}`);
       return delta;
     },
+    list_contact_ids_with_attachments: async (_tenant, _mailbox, folder_id) =>
+      script.attachment_ids_by_folder[folder_id] ??
+      new Set((script.deltas[folder_id]?.upserted ?? []).map((item) => item.id)),
     fetch_contact_photo: async (_tenant, _mailbox, _folder, contact_id) => {
       if (script.failing_photo_contacts.has(contact_id)) throw new Error('photo unavailable');
       return undefined;

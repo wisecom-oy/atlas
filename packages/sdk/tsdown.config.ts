@@ -7,7 +7,8 @@ import { defineConfig } from 'tsdown';
  * third-party runtime deps stay external and are declared in package.json.
  */
 export default defineConfig({
-  entry: ['src/index.ts'],
+  // `contract` is a separate entry so a browser or Worker can import it without the Node SDK.
+  entry: { index: 'src/index.ts', contract: 'src/contract.ts' },
   format: ['esm'],
   platform: 'node',
   target: 'node22',

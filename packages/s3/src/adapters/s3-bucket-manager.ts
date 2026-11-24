@@ -1,10 +1,8 @@
-import { createHash } from 'node:crypto';
 import {
   CreateBucketCommand,
   GetBucketVersioningCommand,
   GetObjectLockConfigurationCommand,
   HeadBucketCommand,
-  PutBucketLifecycleConfigurationCommand,
   type ObjectLockEnabled,
   type S3Client,
 } from '@aws-sdk/client-s3';
@@ -16,6 +14,7 @@ import { logger } from '@wisecom/atlas-core';
 import type { BucketCache } from '@/adapters/bucket-cache';
 import { invalid_bucket_name_error } from '@/adapters/tenant-bucket-name';
 import { names_object_lock } from '@/adapters/s3-error-classifier';
+import { apply_default_lifecycle } from '@/adapters/s3-bucket-lifecycle';
 
 /**
  * Ensures a bucket exists, creating it if necessary.
@@ -122,65 +121,6 @@ export async function bucket_exists(client: S3Client, bucket: string): Promise<b
     if (code === 'NotFound' || code === 'NoSuchBucket') return false;
     throw err;
   }
-}
-
-/**
- * Best-effort housekeeping lifecycle rules for Atlas-created buckets:
- *  1. Abort incomplete multipart uploads after 7 days and remove delete
- *     markers that no longer reference any version (one combined rule:
- *     MinIO rejects a rule whose only action is
- *     AbortIncompleteMultipartUpload -- verified against a live MinIO).
- *  2. Expire noncurrent versions after 30 days -- versioning is now on by
- *     default (Object Lock implies it), so overwritten cursors/indexes would
- *     otherwise accumulate stale versions forever. Atlas never reads
- *     noncurrent versions; its own version history is stored as first-class
- *     objects. Locked versions are simply retained until their lock expires.
- * The request carries an explicit Content-MD5: MinIO requires it on
- * lifecycle puts and AWS SDK >= 3.729 no longer sends it by default.
- * Failures are logged but not fatal.
- */
-async function apply_default_lifecycle(client: S3Client, bucket: string): Promise<void> {
-  const command = new PutBucketLifecycleConfigurationCommand({
-    Bucket: bucket,
-    LifecycleConfiguration: {
-      Rules: [
-        {
-          ID: 'atlas-housekeeping',
-          Status: 'Enabled',
-          Filter: { Prefix: '' },
-          AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 },
-          Expiration: { ExpiredObjectDeleteMarker: true },
-        },
-        {
-          ID: 'atlas-expire-noncurrent-versions',
-          Status: 'Enabled',
-          Filter: { Prefix: '' },
-          NoncurrentVersionExpiration: { NoncurrentDays: 30 },
-        },
-      ],
-    },
-  });
-  add_content_md5(command);
-
-  try {
-    await client.send(command);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.warn(`Could not configure lifecycle rules on bucket "${bucket}" (best-effort): ${msg}`);
-  }
-}
-
-/** Injects a Content-MD5 header computed over the serialized request body. */
-function add_content_md5(command: PutBucketLifecycleConfigurationCommand): void {
-  command.middlewareStack.add(
-    (next) => async (args) => {
-      const request = (args as { request: { body: string; headers: Record<string, string> } })
-        .request;
-      request.headers['content-md5'] = createHash('md5').update(request.body).digest('base64');
-      return next(args);
-    },
-    { step: 'build', name: 'atlasContentMd5' },
-  );
 }
 
 /** Probes and memoizes immutability readiness for a bucket. */

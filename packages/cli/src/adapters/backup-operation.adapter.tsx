@@ -1,6 +1,7 @@
 import type { Instance } from 'ink';
 import type {
   BackupProgressReporter,
+  BackupSyncMode,
   BackupUseCase,
   SyncOptions,
   SyncResult,
@@ -43,7 +44,8 @@ export async function run_backup_with_cli_adapter(
   try {
     const result = await use_case.sync_mailbox(tenant_id, mailbox_id, {
       ...options,
-      create_progress: (folders) => {
+      create_progress: (folders, mode) => {
+        log_sync_mode(mode);
         if (process.stdout.isTTY) {
           const store = new BackupProgressStore(folders);
           instance = mount_live_view(<BackupProgressView store={store} />);
@@ -69,8 +71,12 @@ export async function run_backup_with_cli_adapter(
 }
 
 /**
- * Logs the sync mode, warnings, counters, and interruption. A run cancelled before it read any
- * folder stored nothing, so it gets neither the mode line nor counters, only the interruption.
+ * Logs the counters and how far an interrupted run got. A run cancelled before it read any folder
+ * stored nothing, so only the interruption is reported here.
+ *
+ * Warnings and folder errors are not printed here. The command prints them through
+ * `report_run_outcome` like every other workload, and printing them here too showed each one twice
+ * and every folder error once as a warning (issue #813).
  */
 async function log_backup_result(result: SyncResult): Promise<void> {
   if (result.snapshot_stored === false) {
@@ -78,14 +84,6 @@ async function log_backup_result(result: SyncResult): Promise<void> {
       'Interrupted before any folder was read. Nothing was backed up and no snapshot was saved.',
     );
     return;
-  }
-  log_sync_mode(result);
-
-  for (const warning of result.summary.warnings) {
-    logger.warn(warning);
-  }
-  for (const folder_error of result.summary.folder_errors) {
-    logger.warn(folder_error);
   }
 
   const elapsed_s = (result.summary.elapsed_ms / 1000).toFixed(1);
@@ -109,12 +107,12 @@ async function log_backup_result(result: SyncResult): Promise<void> {
   }
 }
 
-function log_sync_mode(result: SyncResult): void {
-  if (result.mode === 'full') {
-    logger.info('Full sync forced – ignoring saved delta state');
-  } else if (result.mode === 'incremental') {
+function log_sync_mode(mode: BackupSyncMode): void {
+  if (mode === 'full') {
+    logger.info('Full sync forced. Ignoring saved delta state');
+  } else if (mode === 'incremental') {
     logger.info('Resuming incremental sync from saved delta state');
   } else {
-    logger.info('No prior backup found – running initial full sync');
+    logger.info('No prior backup found. Running initial full sync');
   }
 }

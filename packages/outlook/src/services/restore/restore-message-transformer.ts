@@ -8,6 +8,7 @@ import type {
   MimeHeader,
   ParsedMimeMessage,
 } from '@/services/shared/mime-message-parser';
+import { build_meeting_response_properties } from '@/services/restore/meeting-response-properties';
 
 /**
  * Read-only fields that Graph returns on GET but rejects on POST.
@@ -192,6 +193,8 @@ export function extract_folder_id_from_json(message_json: Record<string, unknown
  * mailbox restore would land as thousands of drafts. Parsing the MIME and
  * feeding the normal JSON create path keeps the existing restore quality.
  * The MIME has no flag status, dates or pin, so those come from the entry (issue #579).
+ * A meeting response keeps its class, time and location, read from its calendar part (issues
+ * #817, #819).
  */
 export function build_restore_payload_from_mime(
   parsed: ParsedMimeMessage,
@@ -210,6 +213,7 @@ export function build_restore_payload_from_mime(
     singleValueExtendedProperties: [
       ...build_mapi_overrides({ is_read: true, received_at: parsed.date, sent_at: parsed.date }),
       ...build_threading_properties(parsed.headers),
+      ...build_meeting_response_properties(parsed.meeting_response, parsed.meeting_schedule),
       ...recorded_extended_properties(recorded),
     ],
   };

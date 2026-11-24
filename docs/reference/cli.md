@@ -324,7 +324,7 @@ Graph cannot write into Recoverable Items. Recovered items land in the normal re
 - **Nested folders.** Atlas walks the whole folder hierarchy, not only the top-level folders that `GET /users/{id}/mailFolders` returns. Folders are identified by root-relative path, such as `Inbox/Projects/2026`, and `status`, backup progress, and `save` show that path. Recursion stops at 300 levels, matching Exchange's own limit, and deeper folders are skipped with a warning. Excluded system folders are pruned with their subtrees.
 - **Matching `--folder`.** A value matches a full path (`Inbox/Projects`) or a folder name at any depth (`Projects`), case-insensitively, and always includes everything beneath it: `--folder Inbox` covers `Inbox`, `Inbox/Projects`, and `Inbox/Projects/2026`. Use the full path when one name exists under several parents. `restore` and `save` match `--folder` the same way.
 - **Well-known names.** A value can also be `inbox`, `drafts`, `sentitems`, `deleteditems`, `junkemail`, `archive`, `outbox`, or `conversationhistory`. Display names follow the mailbox language, so `--folder sentitems` selects Sent Items in a mailbox of any language, while `--folder "Sent Items"` matches only an English display name.
-- **No match is an error.** When no `--folder` value matches, `backup`, `restore`, and `save` stop with `ATLAS_NOT_FOUND` (exit `7`) and list the folders that exist, so a mistyped or localized name in a scheduled job does not store an empty snapshot and exit `0`. `backup` checks before it opens storage or writes a snapshot. `restore` and `save` check after they read the snapshot, before they create a restore folder or an archive. When some values match, `backup` backs up those folders, reports each unmatched value as a folder error, and exits `2`.
+- **No match is an error.** When no `--folder` value matches, `backup`, `restore`, and `save` stop with `ATLAS_NOT_FOUND` (exit `7`) and list the folders that exist, so a mistyped or localized name in a scheduled job does not store an empty snapshot and exit `0`. `backup` checks selectors while holding the mailbox lease and before writing a snapshot. `restore` and `save` check after they read the snapshot, before they create a restore folder or an archive. When some values match, `backup` backs up those folders, reports each unmatched value as a folder error, and exits `2`.
 
 ### atlas outlook verify
 
@@ -431,6 +431,7 @@ A folder deleted while the restore lists the source mailbox's folders is skipped
 
 - Restored messages keep their original received and sent timestamps, appear as received mail rather than drafts, and include all backed-up attachments. Attachments larger than 3 MB use Graph upload sessions.
 - Messages archived as RFC 5322 MIME are parsed at restore time and recreated through Graph's JSON message-create path, because Graph's MIME import always marks the created message as a draft. The restored copy does not carry the original `Received:` chain. For the original bytes, use [`atlas outlook save`](#atlas-outlook-save).
+- A meeting response restores as a meeting response with its meeting time and location, where the message states them unambiguously. A meeting request or cancellation restores as an ordinary message, because Microsoft Graph refuses to create those. See [Meeting messages](/security#meeting-messages).
 - A message that receives fewer attachments than its snapshot holds is listed as a warning, for example `<message-id>: 1 of 2 attachments restored`. A failed upload is an error and exits `2`. A legacy attachment that was never backed up is skipped with a warning only.
 
 #### Stopping an Outlook restore
@@ -1539,6 +1540,7 @@ The `Conditional writes` row reports a probe of the two writes that keep concurr
 
 - **The probe is the only write.** It puts one plaintext object of a few bytes under `_meta/storage-check/` and deletes it, with its versions, before the command returns. It needs `s3:PutObject` and `s3:DeleteObject` on that prefix. On a bucket with a default retention the probe's versions stay until that retention ends.
 - **Bucket default retention.** On a lock-capable bucket the command also reports the bucket's default retention. Atlas does not set one, because it would lock every object written without its own retention: backups without `--retention-days`, and the staging uploads Atlas deletes after copying them. A default found here was left by a version before 6.1.0 or set by hand. It is shown in yellow and does not change the exit code. See [Removing a bucket default retention](/self-hosting/storage#removing-a-bucket-default-retention).
+- **Lifecycle rules.** The command names each missing action in the enabled Atlas rules. The read requires `s3:GetLifecycleConfiguration`. If the configuration cannot be read, the row reports `not checked` with the reason. The row is advisory and does not affect the exit code.
 
 ## atlas stats
 

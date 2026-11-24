@@ -48,7 +48,7 @@ function make_ctx(): TenantContext {
       abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
       begin_multipart_upload: vi.fn().mockResolvedValue({
         upload_part: vi.fn().mockResolvedValue('etag'),
-        complete: vi.fn().mockResolvedValue(undefined),
+        complete: vi.fn().mockResolvedValue({}),
         abort: vi.fn().mockResolvedValue(undefined),
       }),
     },
@@ -196,7 +196,7 @@ describe('historical version content storage', () => {
     const connector = make_connector(version);
     const handle = {
       upload_part: vi.fn().mockResolvedValue('etag'),
-      complete: vi.fn().mockResolvedValue(undefined),
+      complete: vi.fn().mockResolvedValue({}),
       abort: vi.fn().mockResolvedValue(undefined),
     };
     vi.mocked(ctx.storage.begin_multipart_upload as ReturnType<typeof vi.fn>).mockResolvedValue(

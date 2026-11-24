@@ -6,6 +6,8 @@ description: 'Node.js SDK recipes for scheduled jobs and services: conditional b
 
 Recipes for embedding Atlas in a Node.js job or service. Each one names the task, says when you would use it, and gives code you can adapt. Method signatures and result fields are listed in the [SDK reference](/reference/sdk).
 
+For code that runs in a browser or a Worker, such as an onboarding form or a Microsoft 365 inventory, see [Browser and Worker examples](/reference/contract-examples).
+
 ## Setup
 
 Every recipe below uses an `atlas` instance created like this. See [createAtlasInstance](/reference/sdk#instance-lifecycle) for every option.

@@ -1,6 +1,6 @@
 {
   "name": "@wisecom/atlas-sdk",
-  "version": "7.0.1",
+  "version": "7.1.0",
   "description": "Programmatic API for embedding Atlas M365 backup and restore in Node.js applications.",
   "license": "Apache-2.0",
   "author": "Wisecom Oy <https://wisecom.fi>",
@@ -25,6 +25,12 @@
       "import": {
         "types": "./dist/index.d.mts",
         "default": "./dist/index.mjs"
+      }
+    },
+    "./contract": {
+      "import": {
+        "types": "./dist/contract.d.mts",
+        "default": "./dist/contract.mjs"
       }
     }
   },

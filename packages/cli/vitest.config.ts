@@ -51,6 +51,10 @@ export default defineConfig({
         find: /^@wisecom\/atlas-types\/testing\/(.+)$/,
         replacement: resolve(root_dir, '../types/src/testing/$1'),
       },
+      {
+        find: /^@wisecom\/atlas-types\/(.+)$/,
+        replacement: resolve(root_dir, '../types/src/$1'),
+      },
       { find: '@wisecom/atlas-types', replacement: resolve(root_dir, '../types/src/index.ts') },
       {
         find: '@wisecom/atlas-m365-graph',

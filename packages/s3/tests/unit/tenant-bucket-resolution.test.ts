@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import type { BucketSelection } from '@wisecom/atlas-core';
+import { tenant_bucket_name, type BucketSelection } from '@wisecom/atlas-core';
 import { ConfigError } from '@wisecom/atlas-types';
-import { resolve_tenant_bucket, tenant_bucket_name } from '@/adapters/tenant-bucket-name';
+import { resolve_tenant_bucket } from '@/adapters/tenant-bucket-name';
 
 // Issue #768: one resolver names every tenant bucket, and an override never crosses tenants.
 

@@ -53,7 +53,7 @@ Every Microsoft Graph call goes through one retry loop. The Graph SDK's own retr
 | Waiting budget per call | 24 minutes of backoff, `Retry-After`, and cooldown waits. A wait already started runs in full |
 | Per-attempt timeout | 60 s by default. A timed-out request is aborted before the next attempt is sent |
 
-`500` and `502` are retried because Microsoft Graph returns them for load and gateway faults that clear on their own. `501` and every other `4xx` are not retried: the same request returns the same answer. Atlas decides from the HTTP status and structured error codes only, never from message text, which carries request IDs and item IDs whose digits could pass for a status.
+`500` and `502` are retried because Microsoft Graph returns them for load and gateway faults that clear on their own. `501` and every other `4xx` are not retried: the same request returns the same answer. A `500` carrying `ErrorMimeContentConversionFailed` is not retried either, because Exchange returns it for an item it can never convert (see [When a message cannot be stored as MIME](/operations/delta-sync#when-a-message-cannot-be-stored-as-mime)). Atlas decides from the HTTP status and structured error codes only, never from message text, which carries request IDs and item IDs whose digits could pass for a status.
 
 The 24-minute budget sits just above the full exponential schedule (1 + 2 + 4 + ... capped at 5 minutes comes to about 23.5 minutes), so backoff alone always gets all 12 retries. Time spent inside a request does not count, so a slow download keeps its retries. One call therefore waits at most about 24 minutes plus one cooldown.
 
@@ -194,7 +194,7 @@ A failure that belongs to one item is recorded against that item and the run con
 
 | Scope of the failure | Recorded as |
 | --- | --- |
-| One Outlook message (MIME or attachments) | A message error. The folder keeps its entries but not its new checkpoint |
+| One Outlook message (MIME or attachments) | A message error. The folder keeps its entries but not its new checkpoint, unless Exchange refused the MIME for good, which keeps the checkpoint |
 | One Outlook folder | A folder error. The other folders run |
 | One OneDrive or SharePoint file | A failed file, retried by the next run up to 5 times |
 | One drive or library (for example its delta query) | That drive's error. Other drives run |
@@ -253,7 +253,7 @@ A restore skips an item whose object is missing or fails its tag, names it, rest
 ## Key and configuration safety
 
 - `atlas keys rewrap` replaces `_meta/dek.enc` by compare-and-swap, reads the new wrapper back, and proves it opens the same data key. It writes the new passphrase to the configuration only when every tenant succeeded; otherwise it exits `2` and leaves the configuration unchanged. The previous wrapper stays as a noncurrent version on a versioned bucket until `atlas keys purge-old-wrappers` removes it. See [Rewrapping the passphrase](/security#rewrapping-the-passphrase).
-- The data key is created with a create-only write. Two runs bootstrapping one tenant agree on one key, and Atlas never generates a key over an existing one.
+- The data key is created with a create-only write. Two runs bootstrapping one tenant agree on one key, and Atlas never generates a key over an existing one. The run that loses logs `another run created the data key first; using it` at info level. A warning that the stored key is not the one the run wrote means the backend accepted a second create-only write; check it with `atlas storage-check`.
 - The encrypted config store (`~/.atlas/config.enc`) is written to a temporary file with mode `0600`, flushed to disk, and renamed into place, so a crash leaves the previous file intact. Updates take `~/.atlas/config.lock`, and a second update waits up to 10 s for it. A stale lock is removed only when its process no longer exists on the same host.
 
 ::: danger Keep a copy of the passphrase elsewhere
@@ -287,7 +287,7 @@ When a scheduled run did not exit `0`:
 | --- | --- | --- |
 | `0` | Complete | |
 | `1` | Unclassified failure, storage failure, or `ATLAS_WRITE_REFUSED` | Once, after reading stderr. A persistent `1` needs a person |
-| `2` | Partial run, soft interrupt, or items skipped | Backup: yes, the next backup retries failed items. Restore: first check the target for items whose create may have committed, see [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) |
+| `2` | Partial run, soft interrupt, or items skipped | Backup: yes, the next backup retries failed items. Items lost for good, such as a message Exchange cannot convert to MIME or a file permanently skipped after 5 attempts, are reported but not retried. Restore: first check the target for items whose create may have committed, see [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) |
 | `3` | Throttled, network failure, or Microsoft Graph `5xx` after retries | Yes, later |
 | `4` | Authentication, permission, or licence | No. Fix consent or licensing |
 | `5` | Wrong passphrase | No. Supply the original passphrase |

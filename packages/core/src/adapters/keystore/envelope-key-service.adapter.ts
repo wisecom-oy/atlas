@@ -13,11 +13,8 @@ import {
   UnsupportedFormatVersionError,
   WrongPassphraseError,
 } from '@wisecom/atlas-types';
-import {
-  DEFAULT_KDF_STRATEGY,
-  KDF_STRATEGIES,
-  MIN_PASSPHRASE_BYTES,
-} from '@/adapters/keystore/kdf-strategy';
+import { DEFAULT_KDF_STRATEGY, KDF_STRATEGIES } from '@/adapters/keystore/kdf-strategy';
+import { MIN_PASSPHRASE_BYTES } from '@/services/keys/passphrase-floor';
 import { logger } from '@/utils/logger';
 import { parse_dek_blob, build_header_bytes } from '@/adapters/keystore/dek-blob-codec';
 import type { DekBlobHeader } from '@/adapters/keystore/dek-blob-codec';
