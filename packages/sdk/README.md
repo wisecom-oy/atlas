@@ -109,7 +109,7 @@ Upgrading from v6? See the [v7 migration guide](https://docs.atlas.wisecom.fi/mi
 
 The SDK exports named public option and result types, error classes, `GRAPH_SERVICE_LIMITS`, `getGraphCost`, `getStorageUsageToken`, and `isFileStorageContainerSite`. Internal ports, DI tokens, and container factories are not public API.
 
-`@wisecom/atlas-sdk/contract` exports the rules an application applies outside an SDK call, such as the passphrase floor (`MIN_PASSPHRASE_BYTES`, `isAcceptablePassphrase`), `canonicalSiteId`, and `GRAPH_SERVICE_POOLS`. It has no Node or third-party dependencies, so it bundles for a browser or a Worker. See [Contract values](https://docs.atlas.wisecom.fi/reference/sdk#contract-values).
+`@wisecom/atlas-sdk/contract` exports the rules an application applies outside an SDK call, such as the passphrase floor (`MIN_PASSPHRASE_BYTES`, `isAcceptablePassphrase`), `canonicalSiteId`, `isFileStorageContainerSite`, and `GRAPH_SERVICE_POOLS`. It has no Node or third-party dependencies, so it bundles for a browser or a Worker. See [Contract values](https://docs.atlas.wisecom.fi/reference/sdk#contract-values).
 
 ## CLI alternative
 

@@ -5,7 +5,7 @@ import type { GraphCollectionResponse } from '@/adapters/graph-sharepoint-delta-
 import { SHAREPOINT_DOWNLOAD_EXECUTOR } from '@/adapters/graph-sharepoint-download-executor';
 import { parse_site_reference } from '@/adapters/graph-sharepoint-url-parser';
 import { has_site_id, map_site_record, type GraphSiteRecord } from '@/adapters/graph-site-record';
-import { classify_site_kind } from '@/services/shared/site-kind';
+import { classify_site_kind } from '@wisecom/atlas-types/domain/sharepoint/site-kind';
 
 const SITE_SEARCH_URL = '/sites?search=*&$select=id,webUrl,displayName&$top=100';
 

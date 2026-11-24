@@ -9,12 +9,12 @@
 export { createAtlasInstance } from './atlas-instance.adapter';
 export { create_tenant as createTenant } from './target-tenant';
 export { getGraphCost, getStorageUsageToken, GRAPH_SERVICE_LIMITS } from './public-values';
-export { isFileStorageContainerSite } from './sharepoint-site-kind';
 export {
   MIN_PASSPHRASE_BYTES,
   passphraseByteLength,
   isAcceptablePassphrase,
   canonicalSiteId,
+  isFileStorageContainerSite,
   GRAPH_SERVICE_POOLS,
 } from '@/contract';
 
