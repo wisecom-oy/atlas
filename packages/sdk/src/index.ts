@@ -17,6 +17,8 @@ export {
   tenantBucketName,
   isValidBucketName,
   canonicalSiteId,
+  normalizeOwnerId,
+  parseTeamId,
   GRAPH_SERVICE_POOLS,
 } from '@/contract';
 

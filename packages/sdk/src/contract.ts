@@ -17,6 +17,10 @@ export {
   tenant_bucket_name as tenantBucketName,
   is_valid_bucket_name as isValidBucketName,
 } from '@wisecom/atlas-core/utils/bucket-name';
+export {
+  normalize_owner_id as normalizeOwnerId,
+  parse_team_id as parseTeamId,
+} from '@wisecom/atlas-core/services/shared/identifier-normalization';
 export { canonical_site_id as canonicalSiteId } from '@wisecom/atlas-types/domain/sharepoint/site-id';
 export { GRAPH_SERVICE_POOLS } from '@wisecom/atlas-types/domain/graph/service-pools';
 export type { GraphServicePool } from '@wisecom/atlas-types/domain/graph/service-pools';
