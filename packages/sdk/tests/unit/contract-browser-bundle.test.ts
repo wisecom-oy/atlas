@@ -52,5 +52,7 @@ describe('@wisecom/atlas-sdk/contract bundled for a browser', () => {
     expect(bundled).toMatch(/MIN_PASSPHRASE_BYTES\s*=\s*14/);
     expect(bundled).toContain('TextEncoder');
     expect(bundled).toContain('atlas-${');
+    expect(bundled).toMatch(/\[0-9a-f\]\{8\}-/);
+    expect(bundled).toContain('"contentstorage"');
   });
 });

@@ -67,6 +67,24 @@ describe('contract rules have a single source', () => {
     ]);
   });
 
+  it('declares the owner and Teams id rules once', () => {
+    expect(files_matching(SOURCES, /function (normalize_owner_id|parse_team_id)\b/)).toEqual([
+      'core/src/services/shared/identifier-normalization.ts',
+    ]);
+    expect(files_matching(SOURCES, /\bGUID_RE\s*=/)).toEqual([
+      'core/src/services/shared/identifier-normalization.ts',
+    ]);
+  });
+
+  it('classifies SharePoint Embedded container sites in one module', () => {
+    expect(files_matching(SOURCES, /function classify_site_kind\b/)).toEqual([
+      'types/src/domain/sharepoint/site-kind.ts',
+    ]);
+    expect(files_matching(SOURCES, /'contentstorage'/i)).toEqual([
+      'types/src/domain/sharepoint/site-kind.ts',
+    ]);
+  });
+
   it('spells the Graph pool names only in GRAPH_SERVICE_POOLS', () => {
     expect(files_matching(SOURCES, /'outlook'\s*\|\s*'sharepoint_onedrive'/)).toEqual([]);
   });
