@@ -20,6 +20,8 @@ export interface UsageCounts {
 
 /** Accumulated counts, keyed by workload and, when requested, by `workload/owner_id`. */
 export interface UsageTally {
+  /** Absent when resuming a listing begun before DEK usage was measured. */
+  dek_object_estimate?: number;
   by_workload: Record<string, UsageCounts>;
   by_owner?: Record<string, UsageCounts>;
 }
@@ -70,8 +72,20 @@ export function empty_counts(): UsageCounts {
   };
 }
 
+// Count final content and manifests across the six workloads. Staging copies, leases,
+// wrappers and other metadata do not establish a distinct content encryption.
+const ENCRYPTED_OBJECT_PATH =
+  /^(?:(?:(?:onedrive|sharepoint|teams|calendar|contacts)\/)?(?:data|manifests)|(?:calendar\/)?attachments|contacts\/photos|teams\/shards)\/[^/]+\/.+/;
+
 /** Adds one listed version, delete marker or live object to its workload and owner. */
 export function tally_object(tally: UsageTally, object: StorageListedObject): void {
+  if (
+    tally.dek_object_estimate !== undefined &&
+    !object.is_delete_marker &&
+    ENCRYPTED_OBJECT_PATH.test(object.key)
+  ) {
+    tally.dek_object_estimate++;
+  }
   for (const counts of counts_for(tally, object.key)) {
     if (object.is_delete_marker) {
       counts.delete_markers++;

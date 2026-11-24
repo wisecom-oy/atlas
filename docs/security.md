@@ -152,6 +152,14 @@ The re-wrap and the purge act on the buckets Atlas opens with its configured end
 - **Provider-side bucket replication** copies the re-wrapped `_meta/dek.enc` to the replica, but not the purge of old versions. See [Replicas](#replicas).
 - **Bucket backups, exports, and storage snapshots** carry the old wrapper for as long as they are kept. Expire them, or restrict who can read them.
 
+## Monitoring data key usage
+
+Atlas chooses a random 96-bit IV for each AES-GCM encryption. Reusing an IV with the same key can expose plaintext and allow forgeries. The limit for this construction is **2³² encryptions (4,294,967,296) over the lifetime of one DEK**, across every writer using that key. [NIST SP 800-38D, section 8.3](https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38D.pdf)
+
+Run `atlas stats storage` periodically on the primary bucket. At **2²⁸ estimated objects (268,435,456)** the report warns you to [rotate the data key](#rotating-the-data-key). This threshold leaves room for encryptions the listing cannot see and for the full backup a rotation requires. Re-wrapping the passphrase keeps the same DEK and its usage history.
+
+The estimate counts visible current and retained historical versions of content, attachments, photos, message shards and manifests. It excludes metadata, staging copies, delete markers and incomplete uploads. Expired versions, failed writes and encryptions on other writable copies of the bucket are invisible. Ciphertext copied into a counted path can count more than once. A partial listing or credentials without version access show fewer objects. A migration preserves the estimate to the extent it preserves these versions. The estimate can fall as versions expire, so a low reading cannot establish remaining key capacity.
+
 ## Rotating the data key
 
 Rotate the DEK when the key itself may have left the process, through memory, a core dump, or a compromised host. Rotation means starting a new bucket, because Atlas names the bucket `atlas-<tenant-id>` and a bucket holds one DEK.

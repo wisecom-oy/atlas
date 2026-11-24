@@ -57,6 +57,12 @@ function build_overview_items(usage: StorageUsage): KeyValueItem[] {
       value: usage.incomplete_uploads_visible ? tally(totals.incomplete_uploads) : NOT_VISIBLE,
     },
   ];
+  if (usage.dek_object_estimate !== undefined) {
+    items.push({
+      label: 'Data key usage (estimated objects)',
+      value: String(usage.dek_object_estimate),
+    });
+  }
   if (usage.logical_bytes_referenced !== undefined) {
     items.push({
       label: 'Logical referenced',

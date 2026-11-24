@@ -1,3 +1,14 @@
+import { vi, type Mock } from 'vitest';
+import { StorageUsageService } from '@/services/stats/storage-usage.service';
+import type { S3Config } from '@/utils/config';
+import type {
+  ManifestRepository,
+  OneDriveManifestRepository,
+  SharePointManifestRepository,
+  TeamsIndexRepository,
+  TenantContext,
+  TenantContextFactory,
+} from '@wisecom/atlas-types';
 import type {
   StorageIncompleteUpload,
   StorageInventory,
@@ -146,3 +157,58 @@ export const MIXED_BUCKET: FakeBucket = {
     { key: 'onedrive/staging/o1/h', parts: [700], gone: true },
   ],
 };
+
+interface Harness {
+  readonly service: StorageUsageService;
+  readonly inventory: FakeInventory;
+  readonly create_readonly: Mock;
+}
+
+/** Constructs the storage usage service with a paginated inventory and manifest summaries. */
+export function harness(
+  bucket: FakeBucket = MIXED_BUCKET,
+  readonly_fails = false,
+  onedrive_unreadable = false,
+  s3_endpoint = 'https://s3.primary.example',
+): Harness {
+  const inventory = fake_inventory(bucket);
+  const ctx = { destroy: vi.fn() } as unknown as TenantContext;
+  const create_readonly = vi.fn(async () => {
+    if (readonly_fails) throw new Error('No backups found');
+    return ctx;
+  });
+  const service = new StorageUsageService(
+    () => inventory,
+    { create_readonly } as unknown as TenantContextFactory,
+    {
+      list_all_manifests: async () => {
+        throw new Error('Outlook manifests must not be read for logical bytes');
+      },
+      list_all_snapshot_summaries: async () => ({
+        summaries: [{ owner_id: 'm1', aggregates: { entry_size_bytes: 150 } }],
+        unreadable_keys: [],
+      }),
+    } as unknown as ManifestRepository,
+    {
+      list_all_manifests: async () => {
+        throw new Error('drive manifests must not be read for logical bytes');
+      },
+      list_all_snapshot_summaries: async () => ({
+        summaries: [{ total_size_bytes: 4000 }],
+        unreadable_keys: onedrive_unreadable ? ['onedrive/manifests/m1/damaged.json'] : [],
+      }),
+    } as unknown as OneDriveManifestRepository,
+    {
+      list_all_manifests: async () => {
+        throw new Error('drive manifests must not be read for logical bytes');
+      },
+      list_all_snapshot_summaries: async () => ({ summaries: [], unreadable_keys: [] }),
+    } as unknown as SharePointManifestRepository,
+    {
+      list_all: async () => [{ totals: { size_bytes: 700 } }],
+    } as unknown as TeamsIndexRepository,
+    { s3_endpoint, s3_region: 'us-east-1' } as S3Config,
+    { resolve: (tenant_id) => ({ name: `atlas-${tenant_id}`, configured: false }) },
+  );
+  return { service, inventory, create_readonly };
+}

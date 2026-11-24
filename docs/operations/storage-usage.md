@@ -22,6 +22,8 @@ The SDK returns the same report from [`getStorageUsage()`](/reference/sdk#storag
 | `--max-requests <n>` | Stop after `n` S3 requests and print a continuation token |
 | `--continue <token>` | Resume a run from its continuation token |
 
+The report also estimates tenant data key usage from the same listing. The JSON field is `dek_object_estimate` (`dekObjectEstimate` in the SDK). Listings resumed from tokens issued before this field existed omit it. See [Monitoring data key usage](/security#monitoring-data-key-usage) for the warning threshold and how to interpret the count.
+
 ## Logical and physical sizes
 
 Atlas reports two sizes that answer different questions:

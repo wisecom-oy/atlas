@@ -44,6 +44,8 @@ export interface StorageOwnerUsage {
 }
 
 export interface StorageUsage {
+  /** Visible content and manifest versions so far. Absent for listings begun on older releases. */
+  readonly dek_object_estimate?: number;
   /** When the first call of this measurement started. */
   readonly started_at: string;
   /** When this call finished. */

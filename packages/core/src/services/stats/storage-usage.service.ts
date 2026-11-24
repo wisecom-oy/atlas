@@ -41,6 +41,8 @@ import { owner_rows, sum_counts, to_totals } from '@/services/stats/storage-usag
 
 type LogicalBytes = Record<LogicalWorkload, number>;
 
+const DEK_WARNING_THRESHOLD = 2 ** 28;
+
 const WORKLOAD_ORDER: readonly StorageUsageWorkload[] = [
   'outlook',
   'onedrive',
@@ -197,7 +199,15 @@ function build_report(
   logical: LogicalBytes | undefined,
 ): StorageUsage {
   const totals = sum_counts(Object.values(state.by_workload));
+  const estimate = state.dek_object_estimate;
+  if (estimate !== undefined && estimate >= DEK_WARNING_THRESHOLD) {
+    logger.warn(
+      `Tenant ${state.tenant_id} data key usage is estimated at ${estimate} objects. ` +
+        'Rotate the data key by starting backups in a fresh bucket before 2^32 encryptions.',
+    );
+  }
   return {
+    ...(estimate === undefined ? {} : { dek_object_estimate: estimate }),
     started_at: state.started_at,
     measured_at: new Date().toISOString(),
     complete,

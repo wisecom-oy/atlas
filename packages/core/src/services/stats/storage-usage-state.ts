@@ -78,6 +78,7 @@ export function fresh_state(identity: StateIdentity, now: Date): UsageState {
     prefixes: [],
     uploads: { listed: false, visible: true, parts_denied: false, pending: [] },
     requests: 0,
+    dek_object_estimate: 0,
     by_workload: {},
     ...(identity.breakdown === 'owner' ? { by_owner: {} } : {}),
   };
@@ -130,6 +131,7 @@ export function decode_state(token: string, identity: StateIdentity): UsageState
     typeof state.started_at !== 'string' ||
     (state.mode !== 'versions' && state.mode !== 'current') ||
     typeof state.versions_visible !== 'boolean' ||
+    (state.dek_object_estimate !== undefined && !is_count(state.dek_object_estimate)) ||
     !is_count(state.requests) ||
     !is_phase(state.discovery) ||
     !is_uploads_phase(state.uploads) ||
