@@ -1,11 +1,9 @@
 import { ConfigError } from '@wisecom/atlas-types';
+import { is_valid_bucket_name } from '@/utils/bucket-name';
 import type { StoredConfig, TenantProfile } from '@/utils/tenant-profiles';
 
 /** Environment variable that replaces the run's derived bucket name. */
 export const BUCKET_ENV_VAR = 'ATLAS_S3_BUCKET';
-
-/** S3 bucket naming: 3 to 63 lowercase letters, digits, dots and dashes, alphanumeric at both ends. */
-const BUCKET_NAME_RE = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
 
 /** One tenant and the bucket configured for it. An undefined bucket means `atlas-<tenant_id>`. */
 export interface BucketBinding {
@@ -41,11 +39,6 @@ export interface BucketSelectionInput {
   readonly selected?: Partial<TenantProfile> | undefined;
   readonly env_bucket?: string | undefined;
   readonly profiles: readonly Partial<TenantProfile>[];
-}
-
-/** Whether S3 accepts `bucket` as a bucket name. */
-export function is_valid_bucket_name(bucket: string): boolean {
-  return BUCKET_NAME_RE.test(bucket) && !bucket.includes('..');
 }
 
 /** Compares tenant ids the way Entra does: case-insensitively. */

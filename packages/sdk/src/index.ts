@@ -14,6 +14,8 @@ export {
   MIN_PASSPHRASE_BYTES,
   passphraseByteLength,
   isAcceptablePassphrase,
+  tenantBucketName,
+  isValidBucketName,
   canonicalSiteId,
   GRAPH_SERVICE_POOLS,
 } from '@/contract';

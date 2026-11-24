@@ -51,5 +51,6 @@ describe('@wisecom/atlas-sdk/contract bundled for a browser', () => {
   it('still carries the rules it publishes', () => {
     expect(bundled).toMatch(/MIN_PASSPHRASE_BYTES\s*=\s*14/);
     expect(bundled).toContain('TextEncoder');
+    expect(bundled).toContain('atlas-${');
   });
 });

@@ -51,6 +51,16 @@ describe('contract rules have a single source', () => {
     expect(files_matching(SOURCES, /passphrase[^\n;]*[<>]=?\s*14\b/i)).toEqual([]);
   });
 
+  it('derives and validates bucket names in one module', () => {
+    expect(files_matching(SOURCES, /function (tenant_bucket_name|is_valid_bucket_name)\b/)).toEqual(
+      ['core/src/utils/bucket-name.ts'],
+    );
+    expect(files_matching(SOURCES, /`atlas-\$\{/)).toEqual(['core/src/utils/bucket-name.ts']);
+    expect(files_matching(SOURCES, /\[a-z0-9\.-\]\{1,61\}/)).toEqual([
+      'core/src/utils/bucket-name.ts',
+    ]);
+  });
+
   it('declares the canonical site id rule once', () => {
     expect(files_matching(SOURCES, /function canonical_site_id\b/)).toEqual([
       'types/src/domain/sharepoint/site-id.ts',
