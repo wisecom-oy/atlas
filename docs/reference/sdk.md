@@ -221,10 +221,14 @@ inventory.put(canonicalSiteId(graphSite.id), graphSite);
 | `MIN_PASSPHRASE_BYTES` | `14` | The shortest `encryptionPassphrase` Atlas accepts, in UTF-8 bytes |
 | `passphraseByteLength(passphrase)` | `number` | The passphrase's length in UTF-8 bytes. `'ä'` counts as 2 |
 | `isAcceptablePassphrase(passphrase)` | `boolean` | `true` when `createAtlasInstance`, `rewrapDataKey`, and `keys.rewrapTenantKeys` would accept the passphrase |
+| `tenantBucketName(tenantId)` | `string` | The bucket Atlas uses when `s3Bucket` is not set: `atlas-{tenantId}`, with the tenant ID's case kept |
+| `isValidBucketName(bucket)` | `boolean` | `true` when `createAtlasInstance` would accept the name as `s3Bucket`: 3 to 63 lowercase letters, digits, dots, and dashes, a letter or digit at both ends, and no two adjacent dots |
 | `canonicalSiteId(siteId)` | `string` | Drops the hostname from Graph's `hostname,siteGuid,webGuid`. An ID already in `siteGuid,webGuid` form is returned unchanged |
 | `GRAPH_SERVICE_POOLS` | `readonly GraphServicePool[]` | `outlook`, `sharepoint_onedrive`, `identity`, `teams`: the pool names used in `graphCost.byService` and `GRAPH_SERVICE_LIMITS` |
 
 These are the values Atlas enforces with, not copies of them, and they are part of the semver contract. A change to any of them is a major release.
+
+`tenantBucketName` does not validate. A tenant ID with uppercase letters, or a domain longer than 57 characters, derives a name S3 refuses, and Atlas reports that only when it creates the bucket or cannot reach it, so a bucket an older Atlas created under such a name stays reachable. Pass the derived name to `isValidBucketName` before provisioning it.
 
 Site IDs are stored without the hostname because the hostname is the part that changes when a tenant renames its SharePoint domain. An inventory that keys sites by Graph's full ID never matches a backup outcome.
 

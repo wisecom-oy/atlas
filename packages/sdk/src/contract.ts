@@ -13,6 +13,10 @@ export {
   passphrase_byte_length as passphraseByteLength,
   is_acceptable_passphrase as isAcceptablePassphrase,
 } from '@wisecom/atlas-core/services/keys/passphrase-floor';
+export {
+  tenant_bucket_name as tenantBucketName,
+  is_valid_bucket_name as isValidBucketName,
+} from '@wisecom/atlas-core/utils/bucket-name';
 export { canonical_site_id as canonicalSiteId } from '@wisecom/atlas-types/domain/sharepoint/site-id';
 export { GRAPH_SERVICE_POOLS } from '@wisecom/atlas-types/domain/graph/service-pools';
 export type { GraphServicePool } from '@wisecom/atlas-types/domain/graph/service-pools';
