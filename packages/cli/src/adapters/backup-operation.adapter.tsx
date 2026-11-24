@@ -71,8 +71,12 @@ export async function run_backup_with_cli_adapter(
 }
 
 /**
- * Logs warnings, counters, and interruption. A run cancelled before it read any
- * folder stored nothing, so only the interruption is reported here.
+ * Logs the counters and how far an interrupted run got. A run cancelled before it read any folder
+ * stored nothing, so only the interruption is reported here.
+ *
+ * Warnings and folder errors are not printed here. The command prints them through
+ * `report_run_outcome` like every other workload, and printing them here too showed each one twice
+ * and every folder error once as a warning (issue #813).
  */
 async function log_backup_result(result: SyncResult): Promise<void> {
   if (result.snapshot_stored === false) {
@@ -80,13 +84,6 @@ async function log_backup_result(result: SyncResult): Promise<void> {
       'Interrupted before any folder was read. Nothing was backed up and no snapshot was saved.',
     );
     return;
-  }
-
-  for (const warning of result.summary.warnings) {
-    logger.warn(warning);
-  }
-  for (const folder_error of result.summary.folder_errors) {
-    logger.warn(folder_error);
   }
 
   const elapsed_s = (result.summary.elapsed_ms / 1000).toFixed(1);
