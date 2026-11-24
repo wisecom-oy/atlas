@@ -15,6 +15,8 @@ export {
   passphraseByteLength,
   isAcceptablePassphrase,
   canonicalSiteId,
+  normalizeOwnerId,
+  parseTeamId,
   GRAPH_SERVICE_POOLS,
 } from '@/contract';
 

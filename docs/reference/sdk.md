@@ -222,11 +222,13 @@ inventory.put(canonicalSiteId(graphSite.id), graphSite);
 | `passphraseByteLength(passphrase)` | `number` | The passphrase's length in UTF-8 bytes. `'ä'` counts as 2 |
 | `isAcceptablePassphrase(passphrase)` | `boolean` | `true` when `createAtlasInstance`, `rewrapDataKey`, and `keys.rewrapTenantKeys` would accept the passphrase |
 | `canonicalSiteId(siteId)` | `string` | Drops the hostname from Graph's `hostname,siteGuid,webGuid`. An ID already in `siteGuid,webGuid` form is returned unchanged |
+| `normalizeOwnerId(ownerId)` | `string` | The form Atlas stores an Entra object ID or a site ID under: lowercased. Compose it with `canonicalSiteId` for a SharePoint site. An email address or UPN is not a key; the SDK resolves it to the object ID through Graph |
+| `parseTeamId(teamId)` | `string \| undefined` | The form Atlas stores a Teams team ID under: trimmed and lowercased. `undefined` when the result is not a GUID, the same values `teams.backup` refuses with `ConfigError` |
 | `GRAPH_SERVICE_POOLS` | `readonly GraphServicePool[]` | `outlook`, `sharepoint_onedrive`, `identity`, `teams`: the pool names used in `graphCost.byService` and `GRAPH_SERVICE_LIMITS` |
 
 These are the values Atlas enforces with, not copies of them, and they are part of the semver contract. A change to any of them is a major release.
 
-Site IDs are stored without the hostname because the hostname is the part that changes when a tenant renames its SharePoint domain. An inventory that keys sites by Graph's full ID never matches a backup outcome.
+Site IDs are stored without the hostname because the hostname is the part that changes when a tenant renames its SharePoint domain. An inventory that keys sites by Graph's full ID never matches a backup outcome. `canonicalSiteId` keeps the case it is given, and Atlas lowercases the result before using it as a key, so key a site by `normalizeOwnerId(canonicalSiteId(site.id))`. Graph file and item IDs are case-sensitive: never pass them through `normalizeOwnerId`.
 
 ## Methods
 
