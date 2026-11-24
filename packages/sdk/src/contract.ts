@@ -22,5 +22,6 @@ export {
   parse_team_id as parseTeamId,
 } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 export { canonical_site_id as canonicalSiteId } from '@wisecom/atlas-types/domain/sharepoint/site-id';
+export { is_file_storage_container_site as isFileStorageContainerSite } from '@wisecom/atlas-types/domain/sharepoint/site-kind';
 export { GRAPH_SERVICE_POOLS } from '@wisecom/atlas-types/domain/graph/service-pools';
 export type { GraphServicePool } from '@wisecom/atlas-types/domain/graph/service-pools';

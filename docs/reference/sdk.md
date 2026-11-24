@@ -226,6 +226,7 @@ inventory.put(canonicalSiteId(graphSite.id), graphSite);
 | `canonicalSiteId(siteId)` | `string` | Drops the hostname from Graph's `hostname,siteGuid,webGuid`. An ID already in `siteGuid,webGuid` form is returned unchanged |
 | `normalizeOwnerId(ownerId)` | `string` | The form Atlas stores an Entra object ID or a site ID under: lowercased. Compose it with `canonicalSiteId` for a SharePoint site. An email address or UPN is not a key; the SDK resolves it to the object ID through Graph |
 | `parseTeamId(teamId)` | `string \| undefined` | The form Atlas stores a Teams team ID under: trimmed and lowercased. `undefined` when the result is not a GUID, the same values `teams.backup` refuses with `ConfigError` |
+| `isFileStorageContainerSite(webUrl)` | `boolean` | `true` when the site's first path segment is `contentstorage` in any case, a [SharePoint Embedded container](/sharepoint-backup#sharepoint-embedded-containers) Atlas cannot back up. `false` for a value that is not a URL. `sharepoint.listSites()` marks the same sites `kind: 'file_storage_container'` |
 | `GRAPH_SERVICE_POOLS` | `readonly GraphServicePool[]` | `outlook`, `sharepoint_onedrive`, `identity`, `teams`: the pool names used in `graphCost.byService` and `GRAPH_SERVICE_LIMITS` |
 
 These are the values Atlas enforces with, not copies of them, and they are part of the semver contract. A change to any of them is a major release.
