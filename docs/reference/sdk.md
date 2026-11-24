@@ -204,14 +204,27 @@ Methods accept the same identifiers as the CLI and normalize them the same way.
 import {
   isAcceptablePassphrase,
   MIN_PASSPHRASE_BYTES,
+  tenantBucketName,
+  isValidBucketName,
   canonicalSiteId,
-  GRAPH_SERVICE_POOLS,
+  normalizeOwnerId,
 } from '@wisecom/atlas-sdk/contract';
 
-if (!isAcceptablePassphrase(form.passphrase)) {
-  showError(`Use at least ${MIN_PASSPHRASE_BYTES} UTF-8 bytes.`);
+export function onboardingErrors(tenantId: string, passphrase: string): string[] {
+  const errors: string[] = [];
+  if (!isAcceptablePassphrase(passphrase)) {
+    errors.push(`Use at least ${MIN_PASSPHRASE_BYTES} UTF-8 bytes.`);
+  }
+  if (!isValidBucketName(tenantBucketName(tenantId))) {
+    errors.push('This tenant ID cannot name a bucket. Use the tenant GUID in lowercase.');
+  }
+  return errors;
 }
-inventory.put(canonicalSiteId(graphSite.id), graphSite);
+
+/** The key Atlas reports a site under, as `siteId` in a SharePoint backup result. */
+export function siteKey(graphSiteId: string): string {
+  return normalizeOwnerId(canonicalSiteId(graphSiteId));
+}
 ```
 
 `@wisecom/atlas-sdk/contract` exports the rules an application has to apply before or outside an SDK call: validating a passphrase in an onboarding form, or keying a SharePoint inventory in a Cloudflare Worker the same way Atlas keys its backups. It imports no Node built-ins and no third-party packages, so it bundles for a browser or a Worker. The main `@wisecom/atlas-sdk` entry exports the same names.
@@ -230,6 +243,8 @@ inventory.put(canonicalSiteId(graphSite.id), graphSite);
 | `GRAPH_SERVICE_POOLS` | `readonly GraphServicePool[]` | `outlook`, `sharepoint_onedrive`, `identity`, `teams`: the pool names used in `graphCost.byService` and `GRAPH_SERVICE_LIMITS` |
 
 These are the values Atlas enforces with, not copies of them, and they are part of the semver contract. A change to any of them is a major release.
+
+For complete recipes, see [Browser and Worker examples](/reference/contract-examples): tenant onboarding in a browser, a SharePoint and Teams inventory in a Worker, and pool names shared with a scheduler.
 
 `tenantBucketName` does not validate. A tenant ID with uppercase letters, or a domain longer than 57 characters, derives a name S3 refuses, and Atlas reports that only when it creates the bucket or cannot reach it, so a bucket an older Atlas created under such a name stays reachable. Pass the derived name to `isValidBucketName` before provisioning it.
 
