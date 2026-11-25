@@ -34,20 +34,22 @@ export interface StoredMessage {
 export interface MimeCapture {
   /** The original MIME, or undefined when the JSON payload stands in for it. */
   readonly mime: Buffer | undefined;
-  /** Why a capture that could succeed on a later run failed; absent when Graph has no MIME. */
+  /** Why a capture that could succeed on a later run failed; absent when it did not fail. */
   readonly failure?: string;
   /** The Graph error code with which Exchange refused the MIME for good (issue #812). */
   readonly unavailable?: string;
 }
 
 /**
- * Captures the message's original MIME (issue #50). The connector resolves undefined when Graph
- * will never produce MIME for the item, and the JSON payload is then the message's backup. Any
- * other rejection that is this message's own, such as a 404 for a message deleted since its page
+ * Captures the message's original MIME (issue #50). The connector resolves undefined when it has
+ * no MIME to offer, and the JSON payload is then the message's backup. Any other rejection that is
+ * this message's own, such as a `400` or `401`, or a `404` for a message deleted since its page
  * was read, is a capture that failed for now: the JSON payload is still stored so the run keeps
  * the message, and `failure` tells the caller to withhold the folder's delta link so the next run
- * captures the MIME (issue #614). A `MimeUnavailableError` is permanent for the message, so it
- * sets `unavailable` instead and the folder still completes (issue #812). An empty MIME is a
+ * captures the MIME (issues #614, #849). A deleted message holds the link back once: the next
+ * run's delta reports it removed instead of listing it, so no MIME is requested for it. A
+ * `MimeUnavailableError` is permanent for the message, so it sets `unavailable` instead and the
+ * folder still completes (issue #812). An empty MIME is a
  * failure too: zero bytes are never a message, and storing them as MIME would lose its content
  * with the folder reported complete (issue #848). Access and licensing failures propagate (issue
  * #372), and so does an exhausted retry budget, which is an outage (issue #881).
@@ -96,14 +98,16 @@ export function is_unrecordable_failure(err: unknown): boolean {
 }
 
 /**
- * The error message, or its HTTP status when it has none. Graph errors for binary responses such
- * as `$value` carry no message, and an empty reason would leave the operator nothing to act on.
+ * The error message, or its HTTP status and Graph error code when it has none. Graph errors for
+ * binary responses such as `$value` carry no message, and an empty reason would leave the operator
+ * nothing to act on.
  */
 function describe_capture_failure(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
   if (message) return message;
-  const status = (err as { statusCode?: unknown } | null)?.statusCode;
-  return typeof status === 'number' ? `HTTP ${status}` : 'unknown error';
+  const { statusCode: status, code } = (err ?? {}) as { statusCode?: unknown; code?: unknown };
+  if (typeof status !== 'number') return 'unknown error';
+  return typeof code === 'string' && code !== '' ? `HTTP ${status} ${code}` : `HTTP ${status}`;
 }
 
 export interface PageExtendedProperties {

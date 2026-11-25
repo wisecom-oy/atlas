@@ -69,7 +69,7 @@ describe('MIME capture failures', () => {
     expect(capture).toEqual({ mime: undefined, failure: 'Graph returned an empty MIME body' });
   });
 
-  it('reports no failure when Graph has no MIME for the item', async () => {
+  it('reports no failure when the connector has no MIME to offer', async () => {
     const connector = {
       fetch_mime: vi.fn().mockResolvedValue(undefined),
     } as unknown as MailboxConnector;

@@ -4,7 +4,6 @@ import {
   describe_graph_error,
   get_graph_bytes,
   is_permanent_item_error,
-  is_retryable_error,
   read_graph_error_code,
   rethrow_if_access_denied,
   rethrow_if_mailbox_not_licensed,
@@ -23,27 +22,24 @@ const EMPTY_BODY_ATTEMPTS = 3;
 const EMPTY_BODY_RETRY_DELAY_MS = 2_000;
 
 /**
- * Fetches a message's original RFC 5322 MIME via `/$value` — the bytes that
+ * Fetches a message's original RFC 5322 MIME via `/$value`: the bytes that
  * transited SMTP, with the Received chain, DKIM/SPF results, threading headers,
  * and any S/MIME payload intact (issue #50). Attachments are embedded, so a
  * MIME capture needs no separate attachment requests.
  *
- * Resolves undefined when Graph permanently refuses MIME for this item (the
- * message was hard-deleted between the delta page and this call, or it is an
- * item type with no MIME representation). The caller then stores the JSON
- * payload instead, so one odd item never costs a whole mailbox.
- *
  * Rejects with `MimeUnavailableError` when Exchange refuses the conversion for good with a 5xx,
  * such as `500 ErrorMimeContentConversionFailed`, so the caller can record why (issue #812).
- * Rejects when every attempt answered with an empty body, which is never an RFC 5322 message
- * (issue #848).
+ * Rejects with the Graph error for any other refusal, a `4xx` included: a `400`, `401` or `404`
+ * on a message the delta page just listed does not prove the message has no MIME, so the caller
+ * records it as a failure for now and the next run asks again (issue #849). Rejects when every
+ * attempt answered with an empty body, which is never an RFC 5322 message (issue #848).
  */
 export async function fetch_message_mime(
   client: Client,
   owner_id: string,
   message_id: string,
   immutable_id_prefer: string,
-): Promise<Buffer | undefined> {
+): Promise<Buffer> {
   const url = `/users/${owner_id}/messages/${message_id}/$value`;
   try {
     return await download_non_empty_mime(client, url, immutable_id_prefer, message_id);
@@ -54,10 +50,6 @@ export async function fetch_message_mime(
       throw new MimeUnavailableError(describe_graph_error(err), read_graph_error_code(err), {
         cause: err,
       });
-    }
-    if (is_mime_unavailable_error(err)) {
-      logger.debug(`no MIME available for message ${message_id}: ${describe_graph_error(err)}`);
-      return undefined;
     }
     throw err;
   }
@@ -97,17 +89,4 @@ async function download_mime_once(
     { timeout_ms: MIME_DOWNLOAD_TIMEOUT_MS },
   );
   return Buffer.from(data);
-}
-
-/**
- * True when Graph will never return MIME for this item, however many times we
- * ask: the message is gone, or its type has no MIME representation. Retryable
- * statuses (429/5xx) and network faults are deliberately excluded — those are
- * handled by with_graph_retry and must surface as real failures, not as a
- * silent downgrade to the lossy JSON payload.
- */
-function is_mime_unavailable_error(err: unknown): boolean {
-  if (is_retryable_error(err)) return false;
-  const status = (err as { statusCode?: number } | undefined)?.statusCode;
-  return typeof status === 'number' && status >= 400 && status < 500;
 }

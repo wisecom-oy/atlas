@@ -98,21 +98,20 @@ describe('GraphMailboxConnector.fetch_mime', () => {
     }
   });
 
-  it('resolves undefined when the message no longer exists', async () => {
-    const harness = create_harness(() =>
-      Promise.reject(graph_error(404, 'ErrorItemNotFound') as unknown as Error),
-    );
+  it.each([
+    [400, 'ErrorInvalidRequest'],
+    [401, 'InvalidAuthenticationToken'],
+    [404, 'ErrorItemNotFound'],
+  ])(
+    'rejects with the Graph error on %i %s instead of resolving no MIME (issue #849)',
+    async (status, code) => {
+      const refusal = graph_error(status, code);
+      const harness = create_harness(() => Promise.reject(refusal as unknown as Error));
 
-    await expect(harness.connector.fetch_mime('t', 'owner-1', 'gone')).resolves.toBeUndefined();
-  });
-
-  it('resolves undefined when the item type has no MIME representation', async () => {
-    const harness = create_harness(() =>
-      Promise.reject(graph_error(400, 'ErrorInvalidRequest') as unknown as Error),
-    );
-
-    await expect(harness.connector.fetch_mime('t', 'owner-1', 'odd')).resolves.toBeUndefined();
-  });
+      await expect(harness.connector.fetch_mime('t', 'owner-1', 'msg-1')).rejects.toBe(refusal);
+      expect(harness.get).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('rethrows access denied instead of silently downgrading to JSON', async () => {
     const harness = create_harness(() =>
