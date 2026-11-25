@@ -9,6 +9,7 @@ import {
   BUCKET_NAME_RESOLVER_TOKEN,
   NotFoundError,
   StorageError,
+  StorageUnavailableError,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import type { BucketNameResolver, TenantContextFactory } from '@wisecom/atlas-types';
@@ -57,7 +58,8 @@ async function validate_existing_passphrase(
     ctx.destroy();
   } catch (cause) {
     if (cause instanceof NotFoundError) return;
-    if (cause instanceof AtlasError) throw cause;
+    // An unanswered read is still a storage failure here: `validate()` promises `StorageError`.
+    if (cause instanceof AtlasError && !(cause instanceof StorageUnavailableError)) throw cause;
     throw new StorageError(
       'Encryption-key validation failed while reading the existing wrapped data key.',
       { cause },

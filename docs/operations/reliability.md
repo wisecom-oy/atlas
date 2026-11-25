@@ -27,7 +27,7 @@ The [exit code table](#exit-codes-and-whether-to-retry) says which codes a rerun
 | Microsoft Graph `429`, `500`, `502`, `503`, `504`, network error | Retries up to 12 times with backoff, honouring `Retry-After` | [Microsoft Graph requests](#microsoft-graph-requests) |
 | Microsoft Graph outage outlasts the retry budget during a backup | Stops the run after one budget, commits what finished, exits `3` | [When retries run out](#when-retries-run-out-on-a-throttle) |
 | A large file transfer stalls or its URL expires | Retries the range, refreshes the URL, resumes at the failed range | [File transfers](#file-transfers-onedrive-and-sharepoint) |
-| S3 request fails | The AWS SDK retries. Writes that must not collide are conditional | [Storage](#storage) |
+| S3 request fails or the backend stops answering | Retries each request up to 3 times, cuts off a connect after 10 s and a silent socket after 5 min, then exits `3`. Writes that must not collide are conditional | [Storage](#storage) |
 | You press Ctrl+C | Commits what finished, exits `2` | [Ctrl+C and signals](#ctrl-c-and-signals) |
 | Process killed mid-run | Storage only references what was fully written. The next run resumes from the last saved cursor | [Crash safety and resume](#crash-safety-and-resume) |
 | Two runs on one owner | The second one exits `12` and writes nothing | [Concurrency guards](#concurrency-guards) |
@@ -128,7 +128,7 @@ During a restore, a file over 4 MiB is uploaded through an upload session in 10 
 
 ### Storage
 
-Atlas uses the AWS SDK for JavaScript v3 with its default retry strategy: standard mode, 3 attempts in total, with the SDK's own backoff for throttling (`SlowDown`) and `5xx` responses. Atlas sets no request timeout of its own on S3. [Storage request events](/reference/storage-request-events) reports the time each request spent in SDK retries.
+Atlas uses the AWS SDK for JavaScript v3 with a retry strategy of its own: 3 attempts per request for timeouts, connection errors, throttling (`SlowDown`, `429`), and `500`, `502`, `503`, or `504`, with jittered exponential backoff. Unlike the SDK default, no retry budget is shared between requests, so early failures cannot use up the retries of later ones. A connection that does not open within 10 s, or a socket that stays silent for 5 minutes, ends the attempt. A request the backend never answers fails as `ATLAS_STORAGE_UNAVAILABLE`, exit `3`. [S3 timeouts and retries](/self-hosting/storage#s3-timeouts-and-retries) lists the settings. [Storage request events](/reference/storage-request-events) reports the time each request spent in retries.
 
 | Safeguard | Behaviour |
 | --- | --- |
@@ -307,7 +307,7 @@ When a scheduled run did not exit `0`:
 | `0` | Complete | |
 | `1` | Unclassified failure, storage failure, or `ATLAS_WRITE_REFUSED` | Once, after reading stderr. A persistent `1` needs a person |
 | `2` | Partial run, soft interrupt, or items skipped | Backup: yes, the next backup retries failed items. Items lost for good, such as a message Exchange cannot convert to MIME or a file permanently skipped after 5 attempts, are reported but not retried. Restore: first check the target for items whose create may have committed, see [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) |
-| `3` | Throttled, network failure, or Microsoft Graph `5xx` after retries | Yes, later |
+| `3` | Throttled, network failure, Microsoft Graph `5xx`, or an S3 endpoint that never answered, after retries | Yes, later |
 | `4` | Authentication, permission, or licence | No. Fix consent or licensing |
 | `5` | Wrong passphrase | No. Supply the original passphrase |
 | `6` | Invalid configuration | No |

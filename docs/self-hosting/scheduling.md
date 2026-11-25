@@ -103,6 +103,7 @@ systemd timers log to the journal and show failed runs clearly.
 | `ATLAS_S3_ACCESS_KEY` | S3 access key |
 | `ATLAS_S3_SECRET_KEY` | S3 secret key |
 | `ATLAS_S3_REGION` | S3 region, if your backend needs one |
+| `ATLAS_S3_IDLE_TIMEOUT_MS` | Optional. How long an S3 request may stay silent before the attempt fails, default 5 minutes. See [S3 timeouts and retries](/self-hosting/storage#s3-timeouts-and-retries) |
 | `ATLAS_ENCRYPTION_PASSPHRASE` | Passphrase that protects the tenant data key |
 
 Atlas also reads S3 and passphrase settings from `atlas config`, from `atlas.config.json`, and from a `.env` file. Real environment variables take precedence over all of them. See [Configuration](/configuration).

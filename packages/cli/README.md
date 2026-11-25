@@ -90,7 +90,7 @@ Treat every nonzero code as a failed or incomplete run.
 | `0`  | Success                                                                                                     |
 | `1`  | Unclassified or command-reported failure                                                                    |
 | `2`  | Partial result                                                                                              |
-| `3`  | Retryable network or throttling failure                                                                     |
+| `3`  | Retryable network or throttling failure, including an S3 endpoint that never answered                       |
 | `4`  | Authentication or licensing                                                                                 |
 | `5`  | Wrong passphrase                                                                                            |
 | `6`  | Invalid configuration                                                                                       |

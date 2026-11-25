@@ -167,7 +167,7 @@ Microsoft Graph returned `accessDenied` during a restore. Restore needs write pe
 
 ## S3 connectivity errors
 
-These stop Atlas from reading or writing backup data. They are configuration problems, not transient failures.
+These stop Atlas from reading or writing backup data. Most are configuration problems. An endpoint that does not answer can also be a transient outage.
 
 ### Endpoint not reachable
 
@@ -180,6 +180,19 @@ Nothing is listening on the configured endpoint.
 1. Confirm MinIO or your S3-compatible service is running, for example with `docker ps` or `systemctl status minio`.
 2. Confirm `ATLAS_S3_ENDPOINT` points to the correct host and port.
 3. If Atlas runs on another machine, confirm the firewall allows TCP on the endpoint port (9000 by default for MinIO).
+
+### Endpoint does not answer
+
+```
+[x] S3 HeadBucket got no answer from the storage endpoint after 3 attempt(s): @smithy/node-http-handler - the request socket timed out after 300000 ms of inactivity (configured by client requestHandler).
+[x]   Atlas code: ATLAS_STORAGE_UNAVAILABLE
+```
+
+The endpoint accepted the connection and then sent nothing for the idle timeout, or the connection did not open within the connection timeout, on every attempt. The command exits `3`. A backend overloaded past saturation often slows down this way rather than answering `503` or `SlowDown`.
+
+1. Check the storage service's health and load, and the network path to it.
+2. Rerun later. A scheduler that retries exit `3` handles this case.
+3. If the backend is healthy but performs long server-side copies without sending progress bytes, raise `ATLAS_S3_IDLE_TIMEOUT_MS`. See [S3 timeouts and retries](/self-hosting/storage#s3-timeouts-and-retries).
 
 ### Bucket not found
 

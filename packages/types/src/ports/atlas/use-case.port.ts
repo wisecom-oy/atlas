@@ -31,6 +31,19 @@ export interface AtlasInstanceConfig {
    * a missing bucket is an error rather than created.
    */
   readonly s3Bucket?: string;
+  /**
+   * Milliseconds for a TCP connection to the S3 endpoint to open, from 1000 to 600000, or 0 for
+   * no timeout. Defaults to 10000.
+   */
+  readonly s3ConnectionTimeoutMs?: number;
+  /**
+   * Milliseconds an S3 request's socket may stay silent, nothing sent and nothing received, before
+   * the attempt is cut off, from 1000 to 3600000, or 0 for no timeout. Defaults to 300000. A slow
+   * transfer that keeps moving bytes never reaches it.
+   */
+  readonly s3IdleTimeoutMs?: number;
+  /** Attempts per S3 request, the first one included, from 1 to 10. Defaults to 3. */
+  readonly s3MaxAttempts?: number;
   readonly encryptionPassphrase: string;
   /**
    * Where Atlas sends log output. Omitted means silent: an embedded Atlas

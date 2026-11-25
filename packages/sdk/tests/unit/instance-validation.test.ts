@@ -6,6 +6,7 @@ import {
   ConfigError,
   NotFoundError,
   StorageError,
+  StorageUnavailableError,
   WrongPassphraseError,
 } from '@wisecom/atlas-types';
 import type { AtlasConfig } from '@wisecom/atlas-core';
@@ -117,6 +118,19 @@ describe('atlas.validate', () => {
     expect(mocks.create_context).not.toHaveBeenCalled();
     expect(mocks.get_access_token).not.toHaveBeenCalled();
     expect(mocks.log).not.toHaveBeenCalled();
+  });
+
+  it('reports an unanswered key read as a storage failure, keeping the cause (#924)', async () => {
+    const cause = new StorageUnavailableError('S3 GetObject got no answer', 3);
+    mocks.create_readonly_context.mockRejectedValue(cause);
+
+    const error = await create_instance()
+      .validate()
+      .catch((error: unknown) => error);
+
+    expect(error).toBeInstanceOf(StorageError);
+    expect((error as StorageError).cause).toBe(cause);
+    expect(mocks.get_access_token).not.toHaveBeenCalled();
   });
 
   it('destroys the temporary context after an existing key opens', async () => {
