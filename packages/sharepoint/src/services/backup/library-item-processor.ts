@@ -22,7 +22,7 @@ import {
 import { process_backup_file } from '@/services/backup/backup-file-processor';
 import { is_download_refused } from '@wisecom/atlas-m365-graph';
 import { resolve_backed_up_kind } from '@wisecom/atlas-drive';
-import { is_download_url_expired } from '@wisecom/atlas-drive/backup/large-file-url-refresh';
+import { spares_failed_item_attempt } from '@wisecom/atlas-drive/backup/transient-download-failure';
 import { classify_change_type } from '@/services/backup/change-classifier';
 import { process_folder_item } from '@wisecom/atlas-drive/backup/folder-item-processor';
 import {
@@ -299,8 +299,8 @@ async function download_or_record_refusal(
     const result = await process_backup_file(connector, item, site_id, ctx, abort_signal);
     return result ?? record('file content could not be downloaded');
   } catch (err) {
-    // The URL expired before the file was read, so it is retried without spending an attempt (#718).
-    if (is_download_url_expired(err)) return record(err.message, { consumes_attempt: false });
+    // An expired URL or a failure outside the file costs no attempt (issues #718, #857).
+    if (spares_failed_item_attempt(err)) return record(err.message, { consumes_attempt: false });
     if (!is_download_refused(err)) throw err;
     return record(err.message, { permanent: true });
   }

@@ -1,4 +1,5 @@
 import type { Readable } from 'node:stream';
+import { TransferTimeoutError } from '@/backup/transfer-timeout';
 
 /** A stream's chunks, plus a way to give the stream up while a read is still pending. */
 interface ChunkSource {
@@ -38,7 +39,8 @@ function open_chunk_source(stream: NodeJS.ReadableStream): ChunkSource {
 }
 
 /**
- * Drains a readable stream into a buffer with a wall-clock timeout.
+ * Drains a readable stream into a buffer with a wall-clock timeout, rejecting with
+ * `TransferTimeoutError` when it runs out.
  *
  * On timeout the stream is released (destroyed, or cancelled for a web stream) so its socket is
  * freed. The timer is cleared in `finally`, so a drain that ends, fails or times out leaves nothing
@@ -64,7 +66,7 @@ export async function stream_to_buffer(
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
           source.release();
-          reject(new Error('Graph content stream timed out'));
+          reject(new TransferTimeoutError('Graph content stream timed out'));
         }, timeout_ms);
       }),
     ]);
@@ -75,7 +77,8 @@ export async function stream_to_buffer(
 }
 
 /**
- * Settles with `promise` when it settles before `timeout_ms`, otherwise rejects with `message`.
+ * Settles with `promise` when it settles before `timeout_ms`, otherwise rejects with a
+ * `TransferTimeoutError` carrying `message`.
  * The timer is cleared however the race ends.
  */
 export async function with_timeout<T>(
@@ -88,7 +91,7 @@ export async function with_timeout<T>(
     return await Promise.race([
       promise,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeout_ms);
+        timer = setTimeout(() => reject(new TransferTimeoutError(message)), timeout_ms);
       }),
     ]);
   } finally {

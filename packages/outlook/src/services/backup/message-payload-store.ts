@@ -44,11 +44,13 @@ export interface MimeCapture {
  * Captures the message's original MIME (issue #50). The connector resolves undefined when Graph
  * will never produce MIME for the item, and the JSON payload is then the message's backup. Any
  * other rejection that is this message's own, such as a 404 for a message deleted since its page
- * was read, is a capture that failed for now: the JSON payload is still stored so the run keeps the message, and
- * `failure` tells the caller to withhold the folder's delta link so the next run captures the MIME
- * (issue #614). A `MimeUnavailableError` is permanent for the message, so it sets `unavailable`
- * instead and the folder still completes (issue #812). Access and licensing failures propagate
- * (issue #372), and so does an exhausted retry budget, which is an outage (issue #881).
+ * was read, is a capture that failed for now: the JSON payload is still stored so the run keeps
+ * the message, and `failure` tells the caller to withhold the folder's delta link so the next run
+ * captures the MIME (issue #614). A `MimeUnavailableError` is permanent for the message, so it
+ * sets `unavailable` instead and the folder still completes (issue #812). An empty MIME is a
+ * failure too: zero bytes are never a message, and storing them as MIME would lose its content
+ * with the folder reported complete (issue #848). Access and licensing failures propagate (issue
+ * #372), and so does an exhausted retry budget, which is an outage (issue #881).
  */
 export async function capture_mime_payload(
   connector: MailboxConnector,
@@ -58,7 +60,8 @@ export async function capture_mime_payload(
 ): Promise<MimeCapture> {
   if (!connector.fetch_mime) return { mime: undefined };
   try {
-    return { mime: await connector.fetch_mime(tenant_id, owner_id, message.message_id) };
+    const mime = await connector.fetch_mime(tenant_id, owner_id, message.message_id);
+    return mime?.length === 0 ? empty_mime_failure(message.message_id) : { mime };
   } catch (err) {
     if (is_unrecordable_failure(err)) throw err;
     if (err instanceof MimeUnavailableError) {
@@ -68,6 +71,13 @@ export async function capture_mime_payload(
     logger.warn(`MIME capture failed for message ${message.message_id}: ${reason}`);
     return { mime: undefined, failure: reason };
   }
+}
+
+/** The capture of a MIME that arrived with no bytes: a failure for now, so the next run asks again. */
+function empty_mime_failure(message_id: string): MimeCapture {
+  const reason = 'Graph returned an empty MIME body';
+  logger.warn(`MIME capture failed for message ${message_id}: ${reason}`);
+  return { mime: undefined, failure: reason };
 }
 
 /**

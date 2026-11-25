@@ -9,6 +9,7 @@ import {
   retryable_items,
   type FailedItemLedger,
 } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
+import { is_transient_drive_failure } from '@wisecom/atlas-drive/backup/transient-download-failure';
 
 export interface RetryResolution {
   /** Items to push through the normal per-item pipeline ahead of new delta changes. */
@@ -25,7 +26,9 @@ export interface RetryResolution {
  * would never come back on its own -- it has to be pulled by id. Items past
  * their retry budget are skipped here but stay in the ledger so they keep being
  * reported. Items already present in the incoming delta batch are skipped too:
- * the delta copy is fresher and processing both would double the work.
+ * the delta copy is fresher and processing both would double the work. A read
+ * that fails for a reason outside the file, such as an outage or throttling,
+ * spends none of the item's attempts (issue #857).
  */
 export async function resolve_retry_items(
   connector: OneDriveConnector,
@@ -59,6 +62,8 @@ export async function resolve_retry_items(
         drive_id,
         name: record.name,
         reason: `Retry fetch failed: ${reason}`,
+        // An outage or throttling says nothing about the file, so it keeps its attempts (#857).
+        consumes_attempt: !is_transient_drive_failure(err),
       });
     }
   }

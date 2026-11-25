@@ -370,7 +370,8 @@ One file that cannot be read never stops the rest of the library. Atlas keeps th
 
 | Situation                                   | What Atlas does                                                      | What you do |
 | ------------------------------------------- | -------------------------------------------------------------------- | ----------- |
-| Download fails                              | Records the file in the list of failed files and retries it next run | Nothing, unless it reaches 5 attempts |
+| Download fails because Microsoft 365 is down or throttling, or the connection drops | Records the file in the list of failed files and retries it next run, without using an attempt | Nothing |
+| Download fails for any other reason         | Records the file in the list of failed files and retries it next run | Nothing, unless it reaches 5 attempts |
 | Download link expired                       | Fetches a fresh link and continues                                   | Nothing |
 | Malware quarantine                          | Skips the download and reports the file as permanently skipped by service policy | Resolve the file in Microsoft 365 if it should be backed up |
 | `403` with a protection code, listed below  | Records a permanent failure for that file, with the Graph error code | Review the policy on that file |
@@ -395,11 +396,30 @@ Each failed file is retried at the start of the next run, before new changes:
 
 - If the file downloads, it is stored and the failure clears.
 - If the file no longer exists, the failure is dropped.
-- If it fails again, its attempt count increases.
+- If it fails again, its attempt count increases, unless the failure is outside the file.
 
-After 5 attempts the file is no longer retried, but every run reports it as `PERMANENTLY SKIPPED after 5 attempts`. The run stays UNHEALTHY until the file is fixed or removed in the source.
+Only a failure that belongs to the file uses one of its 5 attempts. A scheduled backup can run five times inside one Microsoft 365 incident, so counting outage failures would skip every file the incident touched.
 
-Some failures are not the file's fault and do not use an attempt: an expired download link, a file interrupted by Ctrl+C, and a malware quarantine, which retries cannot change.
+| Failure, on the download or on the re-read of a listed file | Uses an attempt |
+| ----------------------------------------------------------- | --------------- |
+| Throttling (`429`, or `503` with `Retry-After`) once the retries are spent | No |
+| Microsoft Graph `500`, `502`, `503`, or `504` once the retries are spent | No |
+| Connection reset or refused, DNS failure, or a timed-out transfer, including a download host that is down | No |
+| Download link expired | No |
+| Run interrupted by Ctrl+C | No |
+| Downloaded body of the wrong length or range, or a file that keeps changing size | Yes |
+| Any other `4xx`, such as `400` or a `403` with an unrecognised code | Yes |
+| Malware quarantine, or a `403` with a protection code | Permanent at once, never retried |
+
+A file that has failed only for reasons outside it is reported as `will retry (no attempt counted yet)`, and the run stays UNHEALTHY with exit code `2`, so an outage stays visible. Such a file is retried on every run until it backs up. When a Microsoft Graph call spends its whole retry budget, the run also stops there and exits `3`, keeping the file listed with its attempts unchanged. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
+
+After 5 attempts the file is no longer retried, but every run reports it as `PERMANENTLY SKIPPED after 5 attempts`. The run stays UNHEALTHY until the file is fixed or removed in the source. To fetch it again once the cause is fixed, run a full backup:
+
+```bash
+atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering --full
+```
+
+A full backup ignores the saved sync checkpoint and its list of failed files, so every file is read again and a listed file starts with a fresh budget. It downloads all content again, but content already in storage is not uploaded twice. Editing the file in Microsoft 365 also gets it read once more, because the change listing presents changed files again.
 
 ### Expired download links
 

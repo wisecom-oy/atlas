@@ -6,6 +6,7 @@ import {
 } from '@wisecom/atlas-m365-graph';
 import type { DriveContentConnector, DriveDeltaItem } from '@/drive-ports';
 import { is_download_size_changed } from '@/backup/download-integrity';
+import { transient_download_error_for } from '@/backup/transient-download-failure';
 import { format_bytes } from '@/shared/format-bytes';
 
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -28,13 +29,15 @@ export interface DownloadRetryOptions {
 
 /**
  * Wraps a connector download call in a file-level retry loop.
- * Returns undefined when all attempts are exhausted, allowing
- * the caller to skip the file without throwing.
+ * Returns undefined when the file's own fault ends the attempts, allowing
+ * the caller to skip the file and spend one of its ledger attempts.
  *
  * A missing grant and a service refusal are the exceptions: both are rethrown so
  * the caller can name the cause. Swallowing them here is what turned one missing
  * permission into a per-file retry storm reported as a skipped file (issue #246).
  * A size change is the third exception, so the caller can re-read the item (issue #759).
+ * A failure outside the file (throttling, an outage, a reset or timeout) ends as a
+ * `TransientDownloadError`, so the caller records it without spending an attempt (issue #857).
  */
 export async function download_with_retry(
   connector: DriveContentConnector,
@@ -59,13 +62,7 @@ export async function download_with_retry(
       // Passed up so the caller can re-read the item once (issue #759).
       if (is_download_size_changed(err)) throw err;
 
-      if (is_last || !is_retryable_error(err)) {
-        logger.warn(
-          `Skipping drive file ${item.item_id} (${item.file_name}) ` +
-            `after ${attempt} attempt(s): ${reason}`,
-        );
-        return undefined;
-      }
+      if (is_last || !is_retryable_error(err)) return give_up_on_file(err, item, attempt);
 
       const delay = compute_file_retry_delay(attempt);
       logger.info(
@@ -76,6 +73,22 @@ export async function download_with_retry(
     }
   }
 
+  return undefined;
+}
+
+/**
+ * Ends the download once its attempts are spent or the failure is not worth repeating. Throws
+ * `TransientDownloadError` for a failure outside the file, and returns undefined for the file's own
+ * so the caller spends one of its ledger attempts (issue #857).
+ */
+function give_up_on_file(err: unknown, item: DriveDeltaItem, attempts_made: number): undefined {
+  const reason = err instanceof Error ? err.message : String(err);
+  logger.warn(
+    `Skipping drive file ${item.item_id} (${item.file_name}) ` +
+      `after ${attempts_made} attempt(s): ${reason}`,
+  );
+  const transient = transient_download_error_for(err, `${item.file_name} (${item.item_id})`);
+  if (transient) throw transient;
   return undefined;
 }
 
