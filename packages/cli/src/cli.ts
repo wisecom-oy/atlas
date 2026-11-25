@@ -17,6 +17,10 @@ import { register_config_command } from '@/commands/tenant/config.command';
 import { register_keys_command } from '@/commands/tenant/keys.command';
 import { register_tenants_command } from '@/commands/tenant/tenants.command';
 import { handle_fatal_error } from '@/fatal-error';
+import {
+  release_command_process_holds,
+  track_command_container,
+} from '@/adapters/command-process-holds';
 import type { Container } from 'inversify';
 
 let _container: Container | undefined;
@@ -28,7 +32,9 @@ let _container: Container | undefined;
  */
 export function get_container(): Container {
   if (!_container) {
-    _container = compose_container({ profile: program.opts<{ profile?: string }>().profile });
+    _container = track_command_container(
+      compose_container({ profile: program.opts<{ profile?: string }>().profile }),
+    );
   }
   return _container;
 }
@@ -68,4 +74,4 @@ function register_commands(program: Command): void {
 
 const program = create_program();
 register_commands(program);
-program.parseAsync(process.argv).catch(handle_fatal_error);
+program.parseAsync(process.argv).catch(handle_fatal_error).finally(release_command_process_holds);

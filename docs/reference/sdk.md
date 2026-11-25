@@ -177,6 +177,7 @@ await atlas.outlook.backup('user@example.com');
 - `dispose()` closes the socket pools, clears the bucket cache, and unbinds the container. It is idempotent and never throws: a failing step is logged and the remaining steps still run. Do not use the instance afterwards.
 - A service that creates an instance per request and never disposes it accumulates socket pools for the life of the process.
 - Disposal does not wait for operations in flight. Let them finish or cancel them first, or each one leaves its [owner lease](#concurrent-operations) to expire.
+- A throttle cooldown still in force when an operation ends keeps a timer running for up to an hour, which holds the Node.js process open. `dispose()` clears it. A script that skips disposal does not exit until the cooldown ends. A `throttleCoordinator` you pass in is yours to clear.
 - Bucket caches are per instance. Two instances with different endpoints and same-named buckets do not share answers about bucket existence or Object Lock support.
 
 ::: warning
