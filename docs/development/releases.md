@@ -76,8 +76,9 @@ real input:
 The workflow then:
 
 1. Branches `release/v<version>` from `dev` (or `hotfix/v<version>` from `main`).
-2. Runs `pnpm run release:version <version>`, bumping every workspace
-   package in lockstep. Internal dependencies are `workspace:*`, so pnpm
+2. Runs `pnpm run release:version <version>`, bumping every package under
+   `packages/` in lockstep. The private `tools/*` workspace packages are never
+   published and stay at `0.0.0`. Internal dependencies are `workspace:*`, so pnpm
    rewrites them to the exact version at publish time, so there is nothing else to edit.
 3. Commits `chore(release): <version>` on that branch. The commit is created
    through GitHub's `createCommitOnBranch` GraphQL mutation rather than

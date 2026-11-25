@@ -74,7 +74,7 @@ gh workflow run release-start.yml -f version=2.2.0 -f from=dev
 gh run watch
 ```
 
-It creates `release/v<version>`, bumps every workspace package, commits
+It creates `release/v<version>`, bumps every package under `packages/`, commits
 `chore(release): <version>`, and prints a prefilled compare link in the run
 summary. The organisation forbids GitHub Actions from creating pull requests, so
 open the release PR from that link:
@@ -171,17 +171,20 @@ correct it with `npm dist-tag add`, never by republishing.
 ## Repairing a botched bump
 
 ```bash
-pnpm run release:version 2.2.0        # explicit version, every workspace package
+pnpm run release:version 2.2.0        # explicit version, every package under packages/
 pnpm run release:version patch        # or a keyword
-git diff --stat                       # expect one package.json per package, nothing else
+git diff HEAD --stat                  # expect one package.json per package, nothing else
 ```
 
-One `package.json` per workspace package and nothing else: 13 files as of
-v7.0.0. Internal dependencies are `workspace:*` and are rewritten by pnpm at
+One `package.json` per package under `packages/` and nothing else: 13 files as
+of v7.0.0. The private `tools/*` workspace packages are never published and stay
+at `0.0.0`. Internal dependencies are `workspace:*` and are rewritten by pnpm at
 publish time, so they never need editing. If the diff shows a different count,
 stop and check whether a package was added or the filter is wrong. Count the
-packages with `git ls-files 'packages/*/package.json' | wc -l`, which ignores a
-package directory that is not committed yet. `ls -d packages/*/` counts that
-directory too and gives the wrong number on a checkout with work in progress.
+packages with `git ls-files 'packages/*/package.json' | wc -l`, which counts
+committed and staged manifests and ignores an untracked package directory.
+`git diff HEAD --stat` covers the same staged files, so the two agree.
+`ls -d packages/*/` counts an untracked directory too and gives the wrong number
+on a checkout with work in progress.
 The count went from nine to ten with `packages/drive` in v4.3.0, and to 13 with
 `calendar`, `contacts` and `teams` in v7.0.0.
