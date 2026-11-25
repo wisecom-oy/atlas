@@ -33,7 +33,7 @@ describe('GraphMailboxConnector - immutable message IDs (issue #48)', () => {
     const headers = prefer_headers_sent(mock_client);
     expect(headers).toHaveLength(1);
     expect(headers[0]).toContain(IMMUTABLE_ID);
-    expect(headers[0]).toContain('odata.maxpagesize=');
+    expect(headers[0]).toContain('odata.maxpagesize=100,');
   });
 
   it('sends IdType=ImmutableId on continuation pages from a saved delta link', async () => {
@@ -44,6 +44,7 @@ describe('GraphMailboxConnector - immutable message IDs (issue #48)', () => {
     const headers = prefer_headers_sent(mock_client);
     expect(headers).toHaveLength(1);
     expect(headers[0]).toContain(IMMUTABLE_ID);
+    expect(headers[0]).toContain('odata.maxpagesize=100,');
   });
 
   it('sends IdType=ImmutableId when fetching a single message by ID', async () => {

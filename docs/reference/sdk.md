@@ -343,7 +343,6 @@ for (const folder of result.summary.excludedFolders) {
 | `folderFilter`            | `string[]`    | Back up only these folders, by name, path, or Graph well-known name such as `inbox` or `sentitems`                            |
 | `excludeJunk`             | `boolean`     | Skip Junk Email and its subfolders. Junk is captured by default                                                               |
 | `includeRecoverableItems` | `boolean`     | Also capture the Recoverable Items folders. Off by default. See [Recoverable Items](#recoverable-items)                        |
-| `pageSize`                | `number`      | Messages per incremental page requested from Microsoft Graph, 1 to 100. The CLI passes 10                                     |
 | `ownerEmail`, `ownerDisplayName` | `string` | Owner labels recorded in the snapshot. Default: the values looked up for an email argument                                  |
 | `objectLockRequest`       | `ObjectLockRequest` | Retention for every object written. See [Object Lock](#object-lock)                                                    |
 | `hardStopSignal`          | `AbortSignal` | Faster stop than `signal`. See [Outlook escalation](#outlook-escalation)                                                      |

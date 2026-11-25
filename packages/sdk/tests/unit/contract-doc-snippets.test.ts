@@ -11,6 +11,8 @@ const DOCS_ROOT = resolve(SDK_ROOT, '../../docs');
 const DOC_PAGES = ['reference/contract-examples.md', 'reference/sdk.md'];
 const CONTRACT_SPECIFIER = '@wisecom/atlas-sdk/contract';
 const TS_BLOCK = /```ts\n([\s\S]*?)```/g;
+/** A full program check with `lib.dom` takes several seconds under CI coverage. */
+const TYPECHECK_TIMEOUT_MS = 30_000;
 
 let out_dir: string;
 let contract_declarations: string;
@@ -77,7 +79,7 @@ afterAll(async () => {
   await rm(out_dir, { recursive: true, force: true });
 });
 
-describe('contract snippets in the docs', () => {
+describe('contract snippets in the docs', { timeout: TYPECHECK_TIMEOUT_MS }, () => {
   it('typecheck against the published declarations without Node types', async () => {
     const snippets = await read_contract_snippets();
     expect(snippets.length).toBeGreaterThanOrEqual(5);

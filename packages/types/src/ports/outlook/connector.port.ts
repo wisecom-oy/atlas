@@ -178,6 +178,7 @@ export interface MailboxConnector {
    * Each message reaches on_page at most once per call, even when a rejected delta link forces a
    * full re-enumeration after earlier pages were handed over; removals read before that fallback
    * stay in `removed_ids`.
+   * `page_size` overrides the adapter's own page size; only the status peek passes it.
    */
   fetch_delta(
     tenant_id: string,
