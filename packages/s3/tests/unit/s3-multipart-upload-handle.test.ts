@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { StorageError } from '@wisecom/atlas-types';
 import { S3MultipartUploadHandle } from '@/adapters/s3-multipart-upload-handle';
 
 const PARTS = [
@@ -36,5 +37,13 @@ describe('completing a multipart upload', () => {
     const input = (send.mock.calls[0]?.[0] as { input: { MultipartUpload: { Parts: unknown[] } } })
       .input;
     expect(input.MultipartUpload.Parts).toEqual([PARTS[1], PARTS[0]]);
+  });
+});
+
+describe('uploading a part', () => {
+  it('fails as a StorageError when the backend answers without an ETag (issue #917)', async () => {
+    const { handle } = handle_answering({});
+
+    await expect(handle.upload_part(2, Buffer.alloc(1))).rejects.toBeInstanceOf(StorageError);
   });
 });

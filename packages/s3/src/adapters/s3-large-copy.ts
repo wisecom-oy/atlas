@@ -7,7 +7,7 @@ import {
   UploadPartCopyCommand,
   type S3Client,
 } from '@aws-sdk/client-s3';
-import type { StorageObjectLockPolicy } from '@wisecom/atlas-types';
+import { StorageError, type StorageObjectLockPolicy } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { build_s3_copy_source } from '@/adapters/s3-error-classifier';
 
@@ -102,7 +102,9 @@ async function copy_object_in_parts(client: S3Client, request: LargeCopyRequest)
     }),
   );
   const upload_id = created.UploadId;
-  if (!upload_id) throw new Error('CreateMultipartUpload returned no UploadId for a ranged copy');
+  if (!upload_id) {
+    throw new StorageError('CreateMultipartUpload returned no UploadId for a ranged copy');
+  }
 
   try {
     const parts = await copy_every_part(client, request, upload_id);
@@ -144,7 +146,7 @@ async function copy_every_part(
     );
     const etag = response.CopyPartResult?.ETag;
     if (!etag) {
-      throw new Error(`UploadPartCopy returned no ETag for bytes=${offset}-${end}`);
+      throw new StorageError(`UploadPartCopy returned no ETag for bytes=${offset}-${end}`);
     }
     parts.push({ ETag: etag, PartNumber: part_number });
     part_number++;

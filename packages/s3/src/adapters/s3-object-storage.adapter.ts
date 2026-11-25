@@ -11,7 +11,7 @@ import {
   AbortMultipartUploadCommand,
   type S3Client,
 } from '@aws-sdk/client-s3';
-import { ObjectLockRetainedError } from '@wisecom/atlas-types';
+import { ObjectLockRetainedError, StorageError } from '@wisecom/atlas-types';
 import type {
   ObjectStorage,
   ObjectStorageEtagResult,
@@ -287,7 +287,7 @@ export class S3ObjectStorage implements ObjectStorage {
             : undefined,
         }),
       );
-      if (!response.UploadId) throw new Error('CreateMultipartUpload returned no UploadId');
+      if (!response.UploadId) throw new StorageError('CreateMultipartUpload returned no UploadId');
       return new S3MultipartUploadHandle(this._client, this._bucket, key, response.UploadId);
     } catch (err) {
       if (is_backend_mode_rejection(err, object_lock_policy?.mode)) {

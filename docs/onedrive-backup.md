@@ -406,8 +406,11 @@ Only a failure that belongs to the file uses one of its 5 attempts. A scheduled 
 | Downloaded body of the wrong length or range, or a file that keeps changing size | Yes |
 | Any other `4xx`, such as `400` or a `403` with an unrecognised code | Yes |
 | Malware quarantine, or a `403` with a protection code | Permanent at once, never retried |
+| Storage failure while writing the file, at any size: a full disk or quota, an S3 `5xx` once the retries are spent, or an endpoint that never answers | No. The drive fails instead and the file is not listed, see below |
 
 A file that has failed only for reasons outside it is reported as `will retry (no attempt counted yet)`, and the run stays UNHEALTHY with exit code `2`, so an outage stays visible. Such a file is retried on every run until it backs up. When a Microsoft Graph call spends its whole retry budget, the run also stops there and exits `3`, keeping the file listed with its attempts unchanged. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
+
+A storage failure is the backend's, not the file's. It fails the drive like a missing permission does: the drive keeps its sync checkpoint, so the next run reads the file again from the change listing, and the failure is reported as the drive's error with exit code `2`. When storage stays full or down, the run's own commit fails as well and the command exits with that storage error's code, as listed in [Exit codes](/reference/cli#exit-codes).
 
 After 5 attempts the file is no longer retried, but every run reports it as `PERMANENTLY SKIPPED after 5 attempts`. The run stays UNHEALTHY until the file is fixed or removed in the source. To fetch it again once the cause is fixed, run a full backup:
 
