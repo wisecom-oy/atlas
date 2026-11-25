@@ -202,4 +202,5 @@ export {
   ObjectLockUnsupportedError,
   ObjectLockModeRejectedError,
   PreconditionFailedError,
+  ConditionalWritesNotEnforcedError,
 } from '@wisecom/atlas-s3';

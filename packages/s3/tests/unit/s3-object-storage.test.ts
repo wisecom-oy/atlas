@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ObjectLockRetainedError } from '@wisecom/atlas-types';
 import { S3ServiceException } from '@aws-sdk/client-s3';
 import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
+import { remember_conditional_writes_enforced } from './conditional-write-verdict';
 import {
   ObjectLockUnsupportedError,
   ObjectLockVersioningDisabledError,
@@ -19,10 +20,11 @@ describe('S3ObjectStorage', () => {
   let storage: S3ObjectStorage;
   const bucket = 'test-bucket';
 
-  beforeEach(() => {
+  beforeEach(async () => {
     mock_s3 = make_mock_s3();
-    storage = new S3ObjectStorage(mock_s3 as never, bucket, buckets);
     buckets = new BucketCache();
+    await remember_conditional_writes_enforced(buckets, bucket);
+    storage = new S3ObjectStorage(mock_s3 as never, bucket, buckets);
   });
 
   describe('put', () => {

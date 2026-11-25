@@ -1,14 +1,9 @@
-import { createHash } from 'node:crypto';
 import {
-  PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
-  ListObjectVersionsCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
   CreateMultipartUploadCommand,
-  ListMultipartUploadsCommand,
-  AbortMultipartUploadCommand,
   type S3Client,
 } from '@aws-sdk/client-s3';
 import { ObjectLockRetainedError, StorageError } from '@wisecom/atlas-types';
@@ -16,6 +11,7 @@ import type {
   ObjectStorage,
   ObjectStorageEtagResult,
   MultipartUploadHandle,
+  StorageConditionalWriteCheck,
   StorageImmutabilityProbeRequest,
   StorageImmutabilityProbeResult,
   StorageObjectLockPolicy,
@@ -30,10 +26,17 @@ import {
   ObjectLockModeRejectedError,
   ObjectLockUnsupportedError,
   ObjectLockVersioningDisabledError,
-  PreconditionFailedError,
 } from '@/adapters/object-lock.errors';
-import { is_backend_mode_rejection, is_precondition_failed } from '@/adapters/s3-error-classifier';
+import { is_backend_mode_rejection } from '@/adapters/s3-error-classifier';
 import { copy_object_server_side } from '@/adapters/s3-large-copy';
+import { list_object_versions } from '@/adapters/s3-object-version-listing';
+import { is_conditional_put, send_put_object } from '@/adapters/s3-object-put';
+import { require_conditional_writes } from '@/adapters/conditional-write-guard';
+import {
+  probe_conditional_writes,
+  run_conditional_write_probe,
+  type ConditionalWriteProbeTarget,
+} from '@/adapters/s3-conditional-write-probe';
 
 /**
  * S3-backed ObjectStorage scoped to a single bucket.
@@ -46,7 +49,12 @@ export class S3ObjectStorage implements ObjectStorage {
     private readonly _buckets: BucketCache,
   ) {}
 
-  /** Uploads data with a Content-MD5 header for transport integrity verification. */
+  /**
+   * Uploads data with a Content-MD5 header for transport integrity verification. A conditional
+   * write first confirms, once per bucket and process, that the backend enforces conditions.
+   *
+   * @throws ConditionalWritesNotEnforcedError on a conditional write to a backend that ignores it.
+   */
   async put(
     key: string,
     data: Buffer,
@@ -56,35 +64,18 @@ export class S3ObjectStorage implements ObjectStorage {
     if_none_match?: boolean,
   ): Promise<void> {
     await this.validate_object_lock_policy(object_lock_policy);
-    const content_md5 = createHash('md5').update(data).digest('base64');
-
-    try {
-      await this._client.send(
-        new PutObjectCommand({
-          Bucket: this._bucket,
-          Key: key,
-          Body: data,
-          ContentMD5: content_md5,
-          Metadata: metadata,
-          ObjectLockMode: object_lock_policy?.mode,
-          ObjectLockRetainUntilDate: object_lock_policy?.retain_until
-            ? new Date(object_lock_policy.retain_until)
-            : undefined,
-          ...(if_match ? { IfMatch: if_match } : {}),
-          ...(if_none_match ? { IfNoneMatch: '*' } : {}),
-        }),
+    const request = { key, data, metadata, object_lock_policy, if_match, if_none_match };
+    if (is_conditional_put(request)) {
+      await require_conditional_writes(this._bucket, this._buckets, () =>
+        run_conditional_write_probe(this.unguarded_probe_target()),
       );
-    } catch (err) {
-      if (is_precondition_failed(err)) throw new PreconditionFailedError(key);
-      if (is_backend_mode_rejection(err, object_lock_policy?.mode)) {
-        throw new ObjectLockModeRejectedError(
-          this._bucket,
-          object_lock_policy?.mode ?? 'UNKNOWN',
-          err,
-        );
-      }
-      throw err;
     }
+    await send_put_object(this._client, this._bucket, request);
+  }
+
+  /** Probes this bucket's conditional-write rules without the cache, for `storage-check`. */
+  async check_conditional_writes(): Promise<StorageConditionalWriteCheck> {
+    return probe_conditional_writes(this.unguarded_probe_target());
   }
 
   /** Probes bucket-level immutability readiness. */
@@ -224,48 +215,7 @@ export class S3ObjectStorage implements ObjectStorage {
 
   /** Lists all object versions and delete markers under a prefix. */
   async list_versions(prefix: string): Promise<StorageObjectVersion[]> {
-    const versions: StorageObjectVersion[] = [];
-    let key_marker: string | undefined;
-    let version_id_marker: string | undefined;
-
-    do {
-      const response = await this._client.send(
-        new ListObjectVersionsCommand({
-          Bucket: this._bucket,
-          Prefix: prefix,
-          KeyMarker: key_marker,
-          VersionIdMarker: version_id_marker,
-        }),
-      );
-
-      for (const version of response.Versions ?? []) {
-        if (version.Key && version.VersionId) {
-          versions.push({
-            key: version.Key,
-            version_id: version.VersionId,
-            is_delete_marker: false,
-            ...currency_of(version.IsLatest),
-          });
-        }
-      }
-
-      for (const marker of response.DeleteMarkers ?? []) {
-        if (marker.Key && marker.VersionId) {
-          versions.push({
-            key: marker.Key,
-            version_id: marker.VersionId,
-            is_delete_marker: true,
-            ...currency_of(marker.IsLatest),
-          });
-        }
-      }
-
-      key_marker = response.NextKeyMarker;
-      version_id_marker = response.NextVersionIdMarker;
-      if (!response.IsTruncated) break;
-    } while (true);
-
-    return versions;
+    return list_object_versions(this._client, this._bucket, prefix);
   }
 
   /** Starts a multipart upload with optional metadata and object lock. */
@@ -347,6 +297,25 @@ export class S3ObjectStorage implements ObjectStorage {
     return swept.aborted;
   }
 
+  /** This bucket's storage calls with puts that skip the guard, which would await the probe. */
+  private unguarded_probe_target(): ConditionalWriteProbeTarget {
+    return {
+      put: (key, data, metadata, object_lock_policy, if_match, if_none_match) =>
+        send_put_object(this._client, this._bucket, {
+          key,
+          data,
+          metadata,
+          object_lock_policy,
+          if_match,
+          if_none_match,
+        }),
+      get_with_etag: (key) => this.get_with_etag(key),
+      delete: (key) => this.delete(key),
+      list_versions: (prefix) => this.list_versions(prefix),
+      delete_version: (key, version_id) => this.delete_version(key, version_id),
+    };
+  }
+
   /** Rejects unless the bucket can honour the policy; a policy without `retain_until` passes. */
   async validate_object_lock_policy(policy?: StorageObjectLockPolicy): Promise<void> {
     if (!policy || !policy.retain_until) return;
@@ -362,15 +331,6 @@ export class S3ObjectStorage implements ObjectStorage {
  * Names a refused delete for what it is. Retention and legal holds are an expected outcome a
  * caller reports as retained; anything else is a failure it must not file as recoverable.
  */
-/**
- * The listing's own statement of whether a version is current. A backend that leaves `IsLatest`
- * out says nothing, and that must stay unknown rather than read as noncurrent: a caller that
- * deletes old versions would otherwise delete the current one.
- */
-function currency_of(is_latest: boolean | undefined): { is_latest?: boolean } {
-  return is_latest === undefined ? {} : { is_latest };
-}
-
 function as_delete_failure(key: string, err: unknown): Error {
   if (is_object_lock_refusal(err)) return new ObjectLockRetainedError(key, { cause: err });
   return err instanceof Error ? err : new Error(String(err));

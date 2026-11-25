@@ -5,7 +5,6 @@ import { check_bucket_lifecycle } from '@/adapters/s3-bucket-lifecycle';
 import { add_missing_atlas_rules } from '@/adapters/s3-lifecycle-update';
 import { probe_bucket_immutability } from '@/adapters/s3-bucket-manager';
 import { read_bucket_default_retention } from '@/adapters/s3-default-retention';
-import { probe_conditional_writes } from '@/adapters/s3-conditional-write-probe';
 import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
 import { BucketCache } from '@/adapters/bucket-cache';
 import { BUCKET_NAME_RESOLVER_TOKEN } from '@wisecom/atlas-types';
@@ -26,7 +25,7 @@ export class StorageCheckService implements StorageCheckUseCase {
 
   /**
    * Checks bucket readiness for Object Lock policy before backup starts, and probes whether the
-   * backend honours the conditional writes the owner lease relies on (issue #623). The probe
+   * backend enforces the conditional writes the owner lease relies on (issues #623, #915). The probe
    * writes and deletes one object, so it needs write access to the bucket. With `apply_lifecycle`
    * it first adds the Atlas lifecycle rules the bucket lacks (issue #918), so the lifecycle check
    * reports the result.
@@ -50,9 +49,11 @@ export class StorageCheckService implements StorageCheckUseCase {
       ? await read_bucket_default_retention(this._s3, bucket)
       : undefined;
     const lifecycle = await check_bucket_lifecycle(this._s3, bucket);
-    const conditional_writes = await probe_conditional_writes(
-      new S3ObjectStorage(this._s3, bucket, this._buckets),
-    );
+    const conditional_writes = await new S3ObjectStorage(
+      this._s3,
+      bucket,
+      this._buckets,
+    ).check_conditional_writes();
 
     return {
       bucket: probe.bucket,

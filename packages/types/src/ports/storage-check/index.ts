@@ -3,6 +3,7 @@ export type {
   StorageCheckRequest,
   StorageCheckResult,
   StorageConditionalWriteCheck,
+  ConditionalWriteViolation,
   StorageDefaultRetention,
   StorageLifecycleCheck,
   StorageLifecycleMissingAction,
