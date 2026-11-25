@@ -4,6 +4,7 @@ import {
   UploadPartCommand,
   type S3Client,
 } from '@aws-sdk/client-s3';
+import { StorageError } from '@wisecom/atlas-types';
 import type { CompletedMultipartUpload, MultipartUploadHandle } from '@wisecom/atlas-types';
 
 /** S3 multipart upload session; completes or aborts via {@link MultipartUploadHandle}. */
@@ -26,7 +27,7 @@ export class S3MultipartUploadHandle implements MultipartUploadHandle {
         Body: data,
       }),
     );
-    if (!response.ETag) throw new Error(`Missing ETag for multipart part ${part_number}`);
+    if (!response.ETag) throw new StorageError(`Missing ETag for multipart part ${part_number}`);
     return response.ETag;
   }
 

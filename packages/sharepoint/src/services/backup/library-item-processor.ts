@@ -23,6 +23,7 @@ import { process_backup_file } from '@/services/backup/backup-file-processor';
 import { is_download_refused } from '@wisecom/atlas-m365-graph';
 import { resolve_backed_up_kind } from '@wisecom/atlas-drive';
 import { spares_failed_item_attempt } from '@wisecom/atlas-drive/backup/transient-download-failure';
+import { is_storage_failure } from '@wisecom/atlas-drive/backup/storage-failure';
 import { classify_change_type } from '@/services/backup/change-classifier';
 import { process_folder_item } from '@wisecom/atlas-drive/backup/folder-item-processor';
 import {
@@ -228,7 +229,10 @@ export async function process_item_guarded(
     // A cancelled transfer is the run stopping, not the item failing. Recording it would spend one
     // of the item's five ledger attempts and eventually skip the file for good (issue #344). A Graph
     // outage is not the item's failure either: it fails the library, which keeps its delta link (#881).
-    if (abort_signal?.aborted === true || is_graph_outage(err)) throw err;
+    // Nor is a storage failure, such as a full disk or an S3 5xx, as on OneDrive (issue #917).
+    if (abort_signal?.aborted === true || is_graph_outage(err) || is_storage_failure(err)) {
+      throw err;
+    }
     const reason = err instanceof Error ? err.message : String(err);
     logger.warn(`SharePoint item ${item.item_id} (${item.file_name}) failed: ${reason}`);
     library_state.failed_item_ids.add(item.item_id);
