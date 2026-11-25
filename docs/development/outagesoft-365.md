@@ -661,6 +661,12 @@ Paths are relative to `tools/outagesoft-365/`.
 
 ## Verify after changing the tool
 
+Unlike the TypeScript packages, this standalone Node.js tool uses its own selfcheck
+rather than Vitest. Add unit regression checks for request classification and other
+pure modules to `src/selfcheck/unit-checks.mjs`. The selfcheck runs these checks
+before the end-to-end scenarios. The package `tests/unit/` convention does not
+apply to this tool.
+
 ```bash
 ./tools/outagesoft-365/outagesoft-365 selfcheck
 ./tools/graph-tap/graph-tap selfcheck     # after touching tools/graph-tap/redact.mjs
