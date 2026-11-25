@@ -8,6 +8,7 @@ import type {
 import { UnreadableContentError, UnsupportedFormatVersionError } from '@wisecom/atlas-types';
 import { load_encrypted_json } from '@wisecom/atlas-core/services/shared/encrypted-state-reader';
 import { write_encrypted_json } from '@wisecom/atlas-core/services/shared/stored-json-writer';
+import { UNLOCKED_STATE_WRITE } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { assert_cursor_shape } from '@/services/shared/teams-object-shape';
 import { teams_cursor_key, teams_cursor_prefix_for } from '@/services/shared/storage-keys';
 
@@ -36,6 +37,7 @@ export class S3TeamsChannelCursorRepository implements TeamsChannelCursorReposit
         reader_check: require_teams_cursor,
         write: 'overwrite',
         confirm_read_back: false,
+        object_lock_policy: UNLOCKED_STATE_WRITE,
       },
       cursor,
     );

@@ -31,18 +31,22 @@ export interface DriveRecrawl {
  * delta, which already reports deletions, and for an interrupted one, whose absences prove nothing.
  * A delta that enumerated afresh because the saved link predates the `shared` facet
  * (`full_enumeration`) counts as a full one: it lists what exists, not what was removed.
+ *
+ * Only a listing that ended with `@odata.deltaLink` reached its end. One without it stopped early,
+ * so it is never a finished enumeration either (issue #852).
  */
 export function completed_recrawl(
   drive_id: string,
   delta: {
     readonly items: readonly { readonly item_id: string }[];
+    readonly delta_link: string;
     readonly reset_detected: boolean;
     readonly full_enumeration?: boolean | undefined;
   },
   prev_delta_link: string | undefined,
   interrupted: boolean,
 ): DriveRecrawl | undefined {
-  if (interrupted) return undefined;
+  if (interrupted || !delta.delta_link) return undefined;
   const enumerated_afresh = delta.reset_detected || delta.full_enumeration === true;
   if (prev_delta_link !== undefined && !enumerated_afresh) return undefined;
   return { drive_id, returned_item_ids: new Set(delta.items.map((item) => item.item_id)) };

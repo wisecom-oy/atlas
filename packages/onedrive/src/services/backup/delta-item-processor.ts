@@ -15,7 +15,7 @@ import {
 import { process_backup_file } from '@/services/backup/backup-file-processor';
 import { is_download_refused } from '@wisecom/atlas-m365-graph';
 import { resolve_backed_up_kind } from '@wisecom/atlas-drive';
-import { is_download_url_expired } from '@wisecom/atlas-drive/backup/large-file-url-refresh';
+import { spares_failed_item_attempt } from '@wisecom/atlas-drive/backup/transient-download-failure';
 import { classify_change_type } from '@/services/backup/change-classifier';
 import { process_folder_item } from '@wisecom/atlas-drive/backup/folder-item-processor';
 import {
@@ -61,8 +61,11 @@ export interface DeltaItemOutcome {
   error?: string;
   /** The error is a policy refusal, so retrying it on later runs is pointless. */
   permanent?: boolean;
-  /** The download URL expired and the file was not read, so the ledger does not count an attempt. */
-  url_expired?: boolean;
+  /**
+   * False when the failure was outside the file (an expired download URL, throttling, an outage, a
+   * reset or a timeout), so the ledger does not count an attempt (issues #718, #857).
+   */
+  consumes_attempt?: boolean;
 }
 
 /**
@@ -229,7 +232,8 @@ async function sharing_only_change(
  *
  * A refusal is permanent for this item but not for the run, so it is recorded the
  * way a quarantined item is. A missing grant is deliberately not caught: it applies
- * to every item and must stop the run (issue #246).
+ * to every item and must stop the run (issue #246). A failure outside the file is
+ * recorded without spending an attempt (issues #718, #857).
  */
 async function download_or_record_refusal(
   connector: OneDriveConnector,
@@ -249,8 +253,8 @@ async function download_or_record_refusal(
       outcome: { ...empty, error: `Failed to process file ${item.file_name} (${item.item_id})` },
     };
   } catch (err) {
-    if (is_download_url_expired(err)) {
-      return { outcome: { ...empty, error: err.message, url_expired: true } };
+    if (spares_failed_item_attempt(err)) {
+      return { outcome: { ...empty, error: err.message, consumes_attempt: false } };
     }
     if (!is_download_refused(err)) throw err;
     return { outcome: { ...empty, error: err.message, permanent: true } };

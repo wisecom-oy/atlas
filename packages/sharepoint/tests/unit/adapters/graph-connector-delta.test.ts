@@ -46,6 +46,28 @@ describe('GraphSharePointConnector.fetch_delta', () => {
     expect(result.reset_detected).toBe(false);
   });
 
+  it('refuses a listing whose last page carries neither a nextLink nor a deltaLink (#852)', async () => {
+    const { connector, calls } = connector_over(({ url }) =>
+      url === CURRENT_CURSOR
+        ? { value: [file('a', 'a.txt')], '@odata.nextLink': PAGE_2 }
+        : { value: [file('b', 'b.txt')] },
+    );
+
+    await expect(connector.fetch_delta('tenant', SITE, DRIVE, CURRENT_CURSOR)).rejects.toThrow(
+      `Graph ended the delta listing of library ${DRIVE} without a delta link`,
+    );
+    expect(calls.map((call) => call.url)).toEqual([CURRENT_CURSOR, PAGE_2]);
+  });
+
+  it('refuses a full enumeration that ends without a deltaLink, rather than re-reading (#852)', async () => {
+    const { connector, calls } = connector_over(() => ({ value: [file('a', 'a.txt')] }));
+
+    await expect(connector.fetch_delta('tenant', SITE, DRIVE)).rejects.toThrow(
+      /without a delta link/,
+    );
+    expect(calls.map((call) => call.url)).toEqual([ROOT_DELTA]);
+  });
+
   it('skips items Graph returns without a usable id, and warns how many', async () => {
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     const { connector } = connector_over(({ url }) =>

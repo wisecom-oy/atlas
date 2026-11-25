@@ -1,8 +1,8 @@
 /**
  * Lease handling for a killed backup child. SIGKILL stops the child before it releases its lease,
- * so the lease stays live until its `expires_at`, at most five minutes after its last renewal
+ * so the lease stays live until its `expires_at`, at most ten minutes after its last renewal
  * (owner-lease-timing.ts). An operator waits that out before retrying (docs/teams-backup.md). The
- * rig does not wait five minutes per run, so it moves each dead lease's expiry into the past,
+ * rig does not wait ten minutes per run, so it moves each dead lease's expiry into the past,
  * which is the state the TTL reaches. The resumed run then takes the lease over through the real
  * takeover path, a compare-and-swap on the stored ETag, not by deleting the object.
  */

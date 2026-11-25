@@ -33,6 +33,7 @@ import { GRAPH_SERVICE_LIMITS, ThrottledError } from '@wisecom/atlas-types';
 import type { ThrottleCoordinator, ThrottleScope } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { is_retry_after_above_cap_error } from '@/graph-retry-after';
 
 const DELTA_WITH_TOKEN_COST = 1;
 const DELTA_WITHOUT_TOKEN_COST = 2;
@@ -203,6 +204,14 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     );
   }
 
+  /**
+   * Stops callers parked on a mailbox's request window from keeping the process alive, for once
+   * the command that sent them has ended (issue #859). They stay parked; nothing is sent early.
+   */
+  release_process_hold(): void {
+    this._factory.release_process_hold();
+  }
+
   /** Shuts down all per-mailbox limiters. */
   shutdown(): void {
     this._factory.shutdown_all();
@@ -231,7 +240,9 @@ export class RateLimitedGraphConnector implements MailboxConnector {
       // carried the 429, and it knows the pool while this frame does not.
       return await run_with_throttle_coordinator(this._throttle, 'outlook', fn, scope);
     } catch (err) {
-      if (err instanceof ThrottledError) {
+      // A Retry-After above the cap fails the call at once, so no retry budget was spent; the error
+      // itself names the value (issue #873).
+      if (err instanceof ThrottledError && !is_retry_after_above_cap_error(err)) {
         logger.warn(`Graph kept throttling mailbox ${owner_id} through the retry budget`);
       }
       throw err;

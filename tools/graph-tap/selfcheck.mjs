@@ -220,7 +220,11 @@ check('timing is recorded', () => {
 check_body('byte counts are recorded', () => {
   const upload = records.find((r) => r.method === 'POST');
   assert.equal(upload.tx, 17, 'request body bytes'); // {"hello":"world"} is 17 bytes
-  assert.ok(records.every((r) => r.rx > 0));
+  const answered = records.filter((r) => r.status !== undefined);
+  assert.ok(
+    answered.every((r) => r.rx > 0),
+    'a request that got a response recorded no bytes',
+  );
 });
 
 check('request bodies are not recorded without --bodies', () => {
@@ -289,7 +293,38 @@ const TENANT_SHAPES = [
     '/v1.0/users/x/messages?$filter=from/emailAddress/address eq jane@contoso.com',
     'graph.microsoft.com/v1.0/users/{id}/messages?$filter=from/emailAddress/address eq {upn}',
   ],
+  [
+    'https://graph.microsoft.com',
+    '/v1.0/users/jane@contoso.com/messages/AAMk1',
+    'graph.microsoft.com/v1.0/users/{upn}/messages/{id}',
+  ],
 ];
+
+/** Teams thread ids contain an `@` but are not UPNs; Atlas sends them percent-encoded. */
+const TEAMS_THREAD_SHAPES = [
+  [
+    `/v1.0/teams/${G1}/channels/19%3Aabc123%40thread.tacv2/messages/1700000000000/hostedContents/aWQ9eF8wLHR5cGU9MSx1cmw9aHR0cHM6Ly9leGFtcGxl/$value`,
+    'graph.microsoft.com/v1.0/teams/{guid}/channels/{channel}/messages/{n}/hostedContents/{id}/$value',
+  ],
+  [
+    `/v1.0/teams/${G1}/channels/19:abc123@thread.skype/messages/delta`,
+    'graph.microsoft.com/v1.0/teams/{guid}/channels/{channel}/messages/delta',
+  ],
+  [
+    `/v1.0/chats/19:${G1}_${G2}@unq.gbl.spaces/messages`,
+    'graph.microsoft.com/v1.0/chats/{thread}/messages',
+  ],
+  [
+    '/v1.0/chats/19:meeting_abc123@thread.v2/members',
+    'graph.microsoft.com/v1.0/chats/{thread}/members',
+  ],
+];
+
+check('teams thread ids are templated as channels or threads, not upns', () => {
+  for (const [path, expected] of TEAMS_THREAD_SHAPES) {
+    assert.equal(normalize_url('https://graph.microsoft.com', path), expected);
+  }
+});
 
 check('tenant content in urls is templated (paths, sites, hosts, literals, tenants)', () => {
   for (const [origin, path, expected] of TENANT_SHAPES) {

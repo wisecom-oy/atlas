@@ -2,6 +2,7 @@ import type { Container } from 'inversify';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import { compose_target_container } from '@/container';
+import { track_command_container } from '@/adapters/command-process-holds';
 import type { KeyValueItem } from '@/ui/components/key-value-list';
 
 /**
@@ -22,13 +23,16 @@ export function require_target_for_profile(
 /**
  * The container a restore's writes go through. A target profile swaps in its Graph credentials
  * while storage, region, and passphrase stay the source's; without one, the source container is used.
+ * A target container is tracked, so its cooldowns stop holding the process once the command ends.
  */
 export function resolve_restore_container(
   container: Container,
   target_profile: string | undefined,
 ): Container {
   if (target_profile === undefined) return container;
-  return compose_target_container(container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN), target_profile);
+  return track_command_container(
+    compose_target_container(container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN), target_profile),
+  );
 }
 
 /** Banner rows naming the target profile and its tenant; empty when the restore stays in the source tenant. */

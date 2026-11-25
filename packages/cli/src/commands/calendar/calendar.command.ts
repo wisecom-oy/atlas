@@ -53,7 +53,7 @@ function register_calendar_backup(group: Command, get_container: ContainerFactor
     .description('Back up changed calendar events for one mailbox')
     .requiredOption(MAILBOX_FLAG, MAILBOX_DESCRIPTION)
     .option('--full', 'force full crawl ignoring saved delta state');
-  with_object_lock(command, 'lock every object this run writes for N days');
+  with_object_lock(command, 'lock the backup data this run writes for N days');
   with_tenant(command).action((options: CalendarBackupCommandOptions) =>
     execute_calendar_backup(get_container(), options),
   );

@@ -101,7 +101,7 @@ Every command accepts `-t, --tenant <id>` to override the tenant from config. Th
 | ----------------------------- | --------------------------------------------------------------- | -------------- |
 | `-m, --mailbox <email or id>` | Mailbox                                                         | Required       |
 | `--full`                      | Ignore the saved sync checkpoints and read every calendar again | `false`        |
-| `--retention-days <n>`        | Lock every object this run writes for `n` days with Object Lock | Off            |
+| `--retention-days <n>`        | Lock this run's backup data for `n` days with Object Lock       | Off            |
 | `--lock-mode <mode>`          | `governance` or `compliance`; requires `--retention-days`       | `governance`   |
 | `-t, --tenant <id>`           | Tenant identifier                                               | Config default |
 

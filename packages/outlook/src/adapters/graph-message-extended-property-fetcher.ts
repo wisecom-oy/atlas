@@ -6,6 +6,7 @@ import {
   is_transient_error,
   rethrow_if_access_denied,
   rethrow_if_mailbox_not_licensed,
+  rethrow_if_retry_exhausted,
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
 import {
@@ -39,7 +40,8 @@ interface BatchResponse {
  * 400, so it cannot ride along on the delta page.
  *
  * A message missing from the result could not be read; the reason is logged. Access and
- * licensing failures throw, as for every other mailbox read.
+ * licensing failures throw, as for every other mailbox read, and so does an exhausted retry
+ * budget: the remaining chunks would only meet the same outage (issue #881).
  */
 export async function fetch_message_extended_properties(
   client: Client,
@@ -55,6 +57,7 @@ export async function fetch_message_extended_properties(
     } catch (err) {
       rethrow_if_mailbox_not_licensed(err);
       rethrow_if_access_denied(err);
+      rethrow_if_retry_exhausted(err);
       const unread = chunk.filter((id) => !found.has(id)).length;
       logger.warn(
         `Reaction and pin capture failed for ${unread} messages: ${describe_graph_error(err)}`,

@@ -81,11 +81,11 @@ Throttling caps throughput even with unlimited bandwidth. For a first full tenan
 Microsoft Graph answered `500`, `502`, `503`, or `504`, or the connection failed or timed out, on every attempt until the retry budget ran out. This is a service incident at Microsoft or a network problem between the host and Microsoft 365, not a fault in the backup. The run exits `3`.
 
 1. Check the [Microsoft 365 service health](https://admin.microsoft.com/#/servicehealth) page.
-2. Schedule the run again once the incident clears. Back off at the run level rather than retrying immediately: each attempt can spend about 24 minutes per call before it gives up.
+2. Schedule the run again once the incident clears. Back off at the run level rather than retrying immediately: each attempt spends up to one retry budget, about 24 minutes, before it gives up.
 
 The message always names the HTTP status and the Microsoft Graph error code when the last attempt got a response, even one with an empty body. When no response arrived, it names the transport error instead, for example `no HTTP response (TypeError: fetch failed)` for a reset connection.
 
-One outage costs one retry budget per run. Lookups that may fail without failing a backup, such as a mailbox's purpose, the well-known folder roles, a tenant mailbox listing's purpose lookups, or a SharePoint subsite walk, still skip a `403` or `404`, but stop the run on an exhausted budget instead of letting the next call spend another one.
+One outage costs a backup one retry budget. The first call that spends its budget stops every other Graph call of the run, whether it was reading a message, a folder, an event, a channel, or a lookup that may otherwise fail without failing the backup. The run still writes the snapshot of the folders, drives, calendars, and channels it finished, keeps the previous checkpoint of the rest, and releases the owner lease, so the next scheduled run does not meet `ATLAS_OWNER_BUSY`. `atlas teams backup --all` and `atlas sharepoint backup --include-subsites` do not start the next team or subsite. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
 
 In the SDK the error is `GraphUnavailableError`:
 
@@ -167,7 +167,7 @@ Microsoft Graph returned `accessDenied` during a restore. Restore needs write pe
 
 ## S3 connectivity errors
 
-These stop Atlas from reading or writing backup data. They are configuration problems, not transient failures.
+These stop Atlas from reading or writing backup data. Most are configuration problems. An endpoint that does not answer can also be a transient outage.
 
 ### Endpoint not reachable
 
@@ -180,6 +180,19 @@ Nothing is listening on the configured endpoint.
 1. Confirm MinIO or your S3-compatible service is running, for example with `docker ps` or `systemctl status minio`.
 2. Confirm `ATLAS_S3_ENDPOINT` points to the correct host and port.
 3. If Atlas runs on another machine, confirm the firewall allows TCP on the endpoint port (9000 by default for MinIO).
+
+### Endpoint does not answer
+
+```
+[x] S3 HeadBucket got no answer from the storage endpoint after 3 attempt(s): @smithy/node-http-handler - the request socket timed out after 300000 ms of inactivity (configured by client requestHandler).
+[x]   Atlas code: ATLAS_STORAGE_UNAVAILABLE
+```
+
+The endpoint accepted the connection and then sent nothing for the idle timeout, or the connection did not open within the connection timeout, on every attempt. The command exits `3`. A backend overloaded past saturation often slows down this way rather than answering `503` or `SlowDown`.
+
+1. Check the storage service's health and load, and the network path to it.
+2. Rerun later. A scheduler that retries exit `3` handles this case.
+3. If the backend is healthy but performs long server-side copies without sending progress bytes, raise `ATLAS_S3_IDLE_TIMEOUT_MS`. See [S3 timeouts and retries](/self-hosting/storage#s3-timeouts-and-retries).
 
 ### Bucket not found
 
@@ -461,7 +474,7 @@ Restore targets (`-T`, `--target-owner`) always resolve through Microsoft Graph 
 ### Another operation holds the owner
 
 ```
-Another backup is running on onedrive owner <owner-id>, so this operation did not start and wrote nothing. Its lease expires at 2026-03-01T10:05:00.000Z unless that operation is still running and renews it. Retry once the other operation ends, or after the lease expires.
+Another backup is running on onedrive owner <owner-id>, so this operation did not start and wrote nothing. Its lease expires at 2026-03-01T10:10:00.000Z unless that operation is still running and renews it. Retry once the other operation ends, or after the lease expires.
   Atlas code: ATLAS_OWNER_BUSY
 ```
 
@@ -469,13 +482,13 @@ Atlas runs one operation at a time per mailbox, drive owner, site, or team. A ba
 
 | Situation | What to do |
 | --- | --- |
-| The other operation is still running | Wait for it and rerun. The expiry in the message moves forward every minute while it runs, so it is not a completion time |
-| Its process was killed, or exited on a second Ctrl+C | Wait until the time in the message, at most 5 minutes after the kill, and rerun. The next run takes the expired lease over and logs `Taking over the lease a backup left behind` |
+| The other operation is still running | Wait for it and rerun. The expiry in the message moves forward every 5 minutes while it runs, so it is not a completion time |
+| Its process was killed, or exited on a second Ctrl+C | Wait until the time in the message, at most 10 minutes after the kill, and rerun. The next run takes the expired lease over and logs `Taking over the lease a backup left behind` |
 | Two scheduled jobs overlap every night | Space them out, or wrap them in `flock` as in [Scheduling](/self-hosting/scheduling). The lease keeps the data safe, but the second job still fails with exit `12` |
-| `This run lost its lease on ...` | This run held the owner and could not renew its lease for 5 minutes, or another host took it over. It stopped before writing its manifest or cursor. Check storage reachability and the clocks of the hosts that share the bucket, then rerun |
+| `This run lost its lease on ...` | This run held the owner and could not renew its lease before it expired, or another host took it over. It stopped before writing its manifest or cursor. Check storage reachability and the clocks of the hosts that share the bucket, then rerun |
 
 ::: warning Do not delete a live lease
-Delete or edit the lease object by hand only when you are certain no operation on that owner is running anywhere. Deleting a live lease lets a second run start next to the first. The first run notices at its next renewal, within 60 seconds, and stops before its next commit, but until then both write the same owner's state. Waiting out the 5 minutes is always safe.
+Delete or edit the lease object by hand only when you are certain no operation on that owner is running anywhere. Deleting a live lease lets a second run start next to the first. The first run notices at its next check, within 60 seconds, and stops before its next commit, but until then both write the same owner's state. Waiting out the 10 minutes is always safe.
 :::
 
 A host whose clock runs several minutes ahead sees a live lease as expired and takes it over. If runs fail with `lost its lease` while storage is healthy, compare the hosts' clocks against NTP.

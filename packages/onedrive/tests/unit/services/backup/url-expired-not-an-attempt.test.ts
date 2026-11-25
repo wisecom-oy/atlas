@@ -77,7 +77,7 @@ describe('expired download URL and the failed-item ledger (issue #718)', () => {
       const outcome = await outcome_for(
         new DownloadUrlExpiredError('URL expired', new Error('403')),
       );
-      expect(outcome).toMatchObject({ url_expired: true, error: 'URL expired' });
+      expect(outcome).toMatchObject({ consumes_attempt: false, error: 'URL expired' });
       record_item_outcome_failure(result, new Set(), 'drive-1', ITEM, outcome);
     }
 
@@ -103,7 +103,7 @@ describe('expired download URL and the failed-item ledger (issue #718)', () => {
       () => {},
       { watermarks: {}, rows: new Map() } as never,
     );
-    expect(failed.url_expired).toBeUndefined();
+    expect(failed.consumes_attempt).toBeUndefined();
     record_item_outcome_failure(result, new Set(), 'drive-1', ITEM, failed);
 
     expect(result.failed_items['item-1']).toMatchObject({ attempts: 1 });
@@ -113,6 +113,6 @@ describe('expired download URL and the failed-item ledger (issue #718)', () => {
     const outcome = await outcome_for(new DownloadRefusedError('refused', 'notAllowed'));
 
     expect(outcome).toMatchObject({ permanent: true, error: 'refused' });
-    expect(outcome.url_expired).toBeUndefined();
+    expect(outcome.consumes_attempt).toBeUndefined();
   });
 });

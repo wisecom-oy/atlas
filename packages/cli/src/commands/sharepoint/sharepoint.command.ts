@@ -117,7 +117,7 @@ function register_sharepoint_backup(group: Command, get_container: ContainerFact
       '--include-subsites',
       'also back up every subsite beneath the site (one snapshot per subsite)',
     );
-  with_object_lock(command, 'lock every object this run writes for N days');
+  with_object_lock(command, 'lock the backup data this run writes for N days');
   with_tenant(command).action((options: SharePointBackupOptions) =>
     execute_sharepoint_backup(get_container(), options),
   );

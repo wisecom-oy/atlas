@@ -76,8 +76,9 @@ real input:
 The workflow then:
 
 1. Branches `release/v<version>` from `dev` (or `hotfix/v<version>` from `main`).
-2. Runs `pnpm run release:version <version>`, bumping all ten workspace
-   packages in lockstep. Internal dependencies are `workspace:*`, so pnpm
+2. Runs `pnpm run release:version <version>`, bumping every package under
+   `packages/` in lockstep. The private `tools/*` workspace packages are never
+   published and stay at `0.0.0`. Internal dependencies are `workspace:*`, so pnpm
    rewrites them to the exact version at publish time, so there is nothing else to edit.
 3. Commits `chore(release): <version>` on that branch. The commit is created
    through GitHub's `createCommitOnBranch` GraphQL mutation rather than
@@ -255,7 +256,7 @@ pnpm run release:version 2.2.0   # explicit version
 pnpm run release:version patch   # 2.2.0 -> 2.2.1
 ```
 
-This edits all ten `packages/*/package.json` files and nothing else. It creates no git tag and no commit. Prefer the **Start release** workflow; use this only when working offline or repairing a botched bump.
+This edits every `packages/*/package.json` file and nothing else: 13 as of v7.0.0. `git ls-files 'packages/*/package.json' | wc -l` gives the current count. It creates no git tag and no commit. Prefer the **Start release** workflow; use this only when working offline or repairing a botched bump.
 
 ## If a publish fails
 

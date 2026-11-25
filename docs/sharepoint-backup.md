@@ -111,7 +111,7 @@ Lists every site the tenant's site search returns, with its ID, name, kind, and 
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering --include-subsites
 ```
 
-Each run picks up from a sync checkpoint (a Microsoft Graph delta link) saved by the previous one. Each library keeps its own checkpoint. See [incremental sync](/operations/delta-sync).
+Each run picks up from a sync checkpoint (a Microsoft Graph delta link) saved by the previous one. Each library keeps its own checkpoint. A run that reads a library in full records a deletion for each file that is gone, but only once the library's listing reached its end. See [incremental sync](/operations/delta-sync) and [Deletions found by a full read](/operations/delta-sync#drive-full-read-deletions).
 
 ::: warning Object Lock
 Object Lock makes stored objects undeletable until the retention period ends. Use `compliance` mode only when no one, including tenant administrators, should be able to shorten it. See [immutability](/operations/immutability).
@@ -370,26 +370,75 @@ One file that cannot be read never stops the rest of the library. Atlas keeps th
 
 | Situation                                   | What Atlas does                                                      | What you do |
 | ------------------------------------------- | -------------------------------------------------------------------- | ----------- |
-| Download fails                              | Records the file in the list of failed files and retries it next run | Nothing, unless it reaches 5 attempts |
+| Download fails because Microsoft 365 is down or throttling, or the connection drops | Records the file in the list of failed files and retries it next run, without using an attempt | Nothing |
+| Download fails for any other reason         | Records the file in the list of failed files and retries it next run | Nothing, unless it reaches 5 attempts |
 | Download link expired                       | Fetches a fresh link and continues                                   | Nothing |
 | Malware quarantine                          | Skips the download and reports the file as permanently skipped by service policy | Resolve the file in Microsoft 365 if it should be backed up |
-| Sensitivity label, IRM, or retention rule   | Records a permanent failure for that file, with the Graph error code | Review the policy on that file |
-| Application permission missing (`403`)      | Stops the run                                                        | Grant the permission, see [Permissions](#permissions) |
-| Any other unrecognised `403`                | Fails that one file, not the run                                     | Check the Graph error code in the output |
+| `403` with a protection code, listed below  | Records a permanent failure for that file, with the Graph error code | Review the policy on that file |
+| Application permission missing (`403 accessDenied` or `403 ErrorAccessDenied`) | Stops the run                           | Grant the permission, see [Permissions](#permissions) |
+| Any other `403`, including one with no code | Fails that file for this run and retries it next run, up to 5 attempts | Check the Graph error code in the run output |
 | File changes size during the download       | Reads the file again at its current size                             | Nothing, unless it keeps changing |
 | Earlier version cannot be downloaded        | Marks the run UNHEALTHY, or counts the version as `unavailable`      | See [version failures](#version-failures) |
+
+A `403` is permanent on the first occurrence only for these Graph error codes:
+
+| Code                         | Meaning                                                              |
+| ---------------------------- | -------------------------------------------------------------------- |
+| `malwareDetected`            | Microsoft 365 quarantined the content as malware                     |
+| `fileDoubleKeyEncrypted`     | A sensitivity label encrypts the file with Double Key Encryption     |
+| `fileDecryptionNotSupported` | A sensitivity label encrypts the file in a way the service cannot decrypt |
+
+Microsoft does not document which code a download returns for an IRM or retention block. A refusal with any code outside this list is retried like an ordinary failure, and reported as `PERMANENTLY SKIPPED after 5 attempts` once the budget is spent. Atlas does not treat an unknown code as permanent, because one transient or misread `403` would then hide the file from every later backup.
 
 ### Failed files
 
 Each failed file is retried at the start of the next run, before new changes:
 
 - If the file downloads, it is stored and the failure clears.
-- If the file no longer exists, the failure is dropped.
-- If it fails again, its attempt count increases.
+- If the file was deleted, the failure is dropped. A `404` on the re-read is not enough on its own. See [A listed file that answers not found](#a-listed-file-that-answers-not-found).
+- If it fails again, its attempt count increases, unless the failure is outside the file.
 
-After 5 attempts the file is no longer retried, but every run reports it as `PERMANENTLY SKIPPED after 5 attempts`. The run stays UNHEALTHY until the file is fixed or removed in the source.
+Only a failure that belongs to the file uses one of its 5 attempts. A scheduled backup can run five times inside one Microsoft 365 incident, so counting outage failures would skip every file the incident touched.
 
-Some failures are not the file's fault and do not use an attempt: an expired download link, a file interrupted by Ctrl+C, and a malware quarantine, which retries cannot change.
+| Failure, on the download or on the re-read of a listed file | Uses an attempt |
+| ----------------------------------------------------------- | --------------- |
+| Throttling (`429`, or `503` with `Retry-After`) once the retries are spent | No |
+| Microsoft Graph `500`, `502`, `503`, or `504` once the retries are spent | No |
+| Connection reset or refused, DNS failure, or a timed-out transfer, including a download host that is down | No |
+| Download link expired | No |
+| Run interrupted by Ctrl+C | No |
+| `404` or `itemNotFound` on the re-read of a listed file | No |
+| Downloaded body of the wrong length or range, or a file that keeps changing size | Yes |
+| Any other `4xx`, such as `400` or a `403` with an unrecognised code | Yes |
+| Malware quarantine, or a `403` with a protection code | Permanent at once, never retried |
+| Storage failure while writing the file, at any size: a full disk or quota, an S3 `5xx` once the retries are spent, or an endpoint that never answers | No. The library fails instead and the file is not listed, see below |
+
+A file that has failed only for reasons outside it is reported as `will retry (no attempt counted yet)`, and the run stays UNHEALTHY with exit code `2`, so an outage stays visible. Such a file is retried on every run until it backs up. When a Microsoft Graph call spends its whole retry budget, the run also stops there and exits `3`, keeping the file listed with its attempts unchanged. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
+
+A storage failure is the backend's, not the file's. It fails the library like a missing permission does: the library keeps its sync checkpoint, so the next run reads the file again from the change listing, and the failure is reported as the library's error with exit code `2`. When storage stays full or down, the run's own commit fails as well and the command exits with that storage error's code, as listed in [Exit codes](/reference/cli#exit-codes).
+
+After 5 attempts the file is no longer retried, but every run reports it as `PERMANENTLY SKIPPED after 5 attempts`. The run stays UNHEALTHY until the file is fixed or removed in the source. To fetch it again once the cause is fixed, run a full backup:
+
+```bash
+atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering --full
+```
+
+A full backup ignores the saved sync checkpoint and its list of failed files, so every file is read again and a listed file starts with a fresh budget. It downloads all content again, but content already in storage is not uploaded twice. Editing the file in Microsoft 365 also gets it read once more, because the change listing presents changed files again.
+
+#### A listed file that answers not found
+
+A file on the failed list stays listed when Microsoft Graph answers its re-read with `404` or `itemNotFound`. It keeps its attempts, the run stays UNHEALTHY with exit code `2`, and it is reported with the reason `Graph answered "not found" when re-reading the file`. The next run reads it again, and once Graph answers normally it is stored.
+
+A single `404` is not proof of deletion. Graph returns it during service incidents and from replica lag, and Atlas does not retry a `404`. The library's sync checkpoint has already moved past the file, and the change listing (delta) never re-presents an unchanged file, so dropping it on one `404` would leave it out of every later snapshot while the run reported HEALTHY.
+
+The failure is dropped as a deletion in either of these cases:
+
+| Evidence | When the failure is dropped |
+| -------- | --------------------------- |
+| The change listing reports the file as deleted | In that run. This is how a real deletion normally clears. |
+| The re-read answers `404` on 3 runs in a row, spanning at least 24 hours | On the run that meets both conditions |
+
+Both conditions are needed for the second case. A run count alone would let a one-hour incident clear a file on a 15-minute schedule, and a time span alone would decide on two answers a day apart. Any other outcome for the file, such as a failed download, starts the count again. The second case covers a deletion that the change listing never reported, such as one hidden by a full re-read of the library after a delta reset, so a deleted file does not stay listed indefinitely.
 
 ### Expired download links
 
@@ -404,7 +453,7 @@ A `401` or `403` from the download link means it expired.
 | Over 4 MiB, under 64 MiB | Link from the change listing    | Fetch a fresh link once, restart from byte zero, then fall back to `/content`            |
 | 64 MiB and larger        | Fresh link, one Graph request   | Fetch a fresh link and resume at the 4 MiB range that failed                             |
 
-For files of 64 MiB and larger, a run can refresh the link any number of times, as long as each fresh link delivers at least one more range. If three fresh links in a row expire before any new range arrives, Atlas records the file as not backed up, without counting an attempt. A Graph refusal while fetching a fresh link is handled like the other `403` cases: a missing grant stops the run, and a service refusal is recorded as permanent. The fresh link costs one Graph request per file of 64 MiB or more.
+For files of 64 MiB and larger, a run can refresh the link any number of times, as long as each fresh link delivers at least one more range. If three fresh links in a row expire before any new range arrives, Atlas records the file as not backed up, without counting an attempt. A Graph refusal while fetching a fresh link is handled like the other `403` cases: a missing grant stops the run, a protection code is recorded as permanent, and any other `403` fails the file for that run. The fresh link costs one Graph request per file of 64 MiB or more.
 :::
 
 ### Version failures

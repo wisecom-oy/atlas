@@ -48,6 +48,18 @@ Checkpoints expire after a period of inactivity, which breaks the incremental ch
 
 A full read is scoped to the folder, drive, or library that triggered it. Checkpoints are kept per drive, so a site with several libraries, or a user with several drives, keeps working checkpoints for the rest. Files in the drive read in full are recorded again as `created`. Files elsewhere keep their history, and an edit there is still reported as `updated`.
 
+### Deletions found by a full read (OneDrive and SharePoint) {#drive-full-read-deletions}
+
+A full listing names the files that exist, not the ones removed since the last run. After a full read of a drive or library, Atlas compares the listing with the earlier snapshots and records a deletion for each file they list that the listing no longer returns. Without that entry, a point-in-time restore of the new snapshot would bring the deleted file back.
+
+The comparison is only sound when the listing is complete. Microsoft Graph marks the end of a delta listing by putting `@odata.deltaLink` (the next checkpoint) on its last page, and every page before it carries `@odata.nextLink`. A page with neither link means the listing stopped early, and a file missing from it may still exist. Atlas then fails that drive or library:
+
+- No entries and no deletions are recorded for it, so a snapshot never marks a live file as deleted.
+- It keeps the checkpoint the run started from, and the next run reads the same changes again. A run started by `--full`, a changed `--folder`, or a deleted snapshot has no checkpoint to keep, so the next run reads that drive in full again.
+- The other drives and libraries continue, and the command exits `2`.
+
+The same rule covers an interrupted run: a drive whose listing or processing did not finish records no deletions.
+
 ::: details How a checkpoint is matched to its snapshot
 **Outlook, Contacts, and Calendar** cursors record the snapshot that was newest when they were saved. When that snapshot is no longer the newest readable manifest, Atlas ignores the checkpoints and reads every folder in full.
 
@@ -212,6 +224,7 @@ Incremental runs fetch MIME only for new and changed messages. The first backup 
 | Microsoft 365 cannot produce MIME for the message | Stores the legacy JSON form and records the format in the snapshot entry. The run succeeds |
 | Exchange refuses the conversion for good with `500 ErrorMimeContentConversionFailed` | Sends the request once, without retries. Stores the JSON form, records the error code as `mime_unavailable` in the snapshot entry, reports it as an error of its folder, and exits `2`. This failure alone does not hold the folder's checkpoint back, so the next run does not ask for the MIME again unless the message changes or another failure in the folder withholds the checkpoint |
 | The MIME request still fails after [retries](/operations/reliability#microsoft-graph-requests), for example a `503` | Stores the JSON form so the message is kept, reports it as an error of its folder, keeps the folder's previous checkpoint, and exits `2`. The next run fetches the folder's changes again, captures the MIME, and its entry replaces the JSON one |
+| The MIME request answers `200` with an empty body on all 3 attempts | Handled as the failed request above. Zero bytes are never stored as MIME, so the empty answer cannot replace the message's content in the snapshot |
 | A JSON entry's attachments could not be fetched or stored | Handled the same way: the next run fetches the message and its attachments again |
 
 Entries with `payload_format: "mime"` hold original bytes. Entries without the field hold legacy JSON. A snapshot can mix both, and `save`, `read`, `restore`, and `verify` handle both. A message that fails on every run holds its folder's checkpoint back until it succeeds, and the changes fetched again each time deduplicate against the stored objects. `ErrorMimeContentConversionFailed` is the exception: Exchange returns it with a `500` status, yet the same item fails the same way days later, so retrying it only re-read the folder on every run. Old meeting responses with attachments are a known cause.
@@ -249,19 +262,21 @@ Every message in a page is read, including messages without reactions and messag
 
 ## Retry and error handling
 
-Atlas retries `429 Too Many Requests` (honouring `Retry-After`) and `500`, `502`, `503`, `504` on its own, up to 12 times. `501` and every other `4xx` are not retried, because the same request returns the same error. [Retries and fail-safes](/operations/reliability#microsoft-graph-requests) lists every parameter. For incremental backup, two outcomes matter:
+Atlas retries `429 Too Many Requests` (honouring `Retry-After`) and `500`, `502`, `503`, `504` on its own, up to 12 times. `501` and every other `4xx` are not retried, because the same request returns the same error. [Retries and fail-safes](/operations/reliability#microsoft-graph-requests) lists every parameter. For incremental backup, these outcomes matter:
 
 | Response | Effect on the checkpoint |
 | --- | --- |
 | `syncStateNotFound`, `resyncRequired`, `syncStateInvalid` | The checkpoint is no longer valid. Atlas reads the folder in full |
 | Retries exhausted on a folder | Atlas marks the folder as failed and continues with the remaining folders. The failed folder keeps its previous checkpoint |
+| A drive or library's last delta page carries neither `@odata.nextLink` nor `@odata.deltaLink` | The listing stopped early. Atlas fails that drive or library, which keeps its previous checkpoint and records no deletions. See [Deletions found by a full read](#drive-full-read-deletions) |
+| An Outlook folder's last delta page carries neither `@odata.nextLink` nor `@odata.deltaLink` | The read stopped early, so messages on the pages never requested are missing. Atlas fails that folder, which keeps its previous checkpoint, and the run records no removals and exits `2`. The next run reads the folder again |
 
 ## Stopping a run {#interruption}
 
 | Action | Effect on checkpoints |
 | --- | --- |
 | First Ctrl+C | Completed folders and their checkpoints are saved to a partial manifest, and the command exits `2`. The dashboard marks interrupted folders. The next run resumes from those checkpoints, and an interrupted folder is read again from its previous one |
-| Second Ctrl+C | Exits at once with `130`. No manifest is written, so no checkpoint moves. Objects already uploaded stay in storage and deduplicate on the next run. The [lease](/reference/sdk#concurrent-operations) is not released, so a backup of the same mailbox started within 5 minutes exits `12` |
+| Second Ctrl+C | Exits at once with `130`. No manifest is written, so no checkpoint moves. Objects already uploaded stay in storage and deduplicate on the next run. The [lease](/reference/sdk#concurrent-operations) is not released, so a backup of the same mailbox started within 10 minutes exits `12` |
 
 A partial manifest from the first Ctrl+C is a valid snapshot. Microsoft Graph has no cancel, so a request it already accepted still completes on its side, and Atlas drops the result. [Ctrl+C and signals](/operations/reliability#ctrl-c-and-signals) covers the other commands.
 

@@ -3,6 +3,11 @@ import type { ObjectLockMode } from '@/ports/backup/use-case.port';
 export interface StorageCheckRequest {
   readonly mode?: ObjectLockMode | undefined;
   readonly retention_days?: number | undefined;
+  /**
+   * Adds the Atlas lifecycle rules the bucket lacks before checking it, keeping every rule that is
+   * already there. The only check option that changes the bucket configuration.
+   */
+  readonly apply_lifecycle?: boolean | undefined;
 }
 
 /** A bucket-wide default retention from the bucket's Object Lock configuration. */
@@ -24,13 +29,35 @@ export interface StorageConditionalWriteCheck {
   readonly detail?: string | undefined;
 }
 
+/** One Atlas lifecycle action the bucket's enabled rules lack. */
+export interface StorageLifecycleMissingAction {
+  readonly rule_id: string;
+  readonly action: string;
+  /**
+   * True when `apply_lifecycle` restores it: the rule is absent, or it is a state-key rule. A
+   * disabled or edited base rule is the operator's choice and is never overwritten.
+   */
+  readonly fixed_by_apply: boolean;
+}
+
 /** Which Atlas actions are missing from enabled bucket rules, or why they could not be checked. */
 export type StorageLifecycleCheck =
   | {
       readonly status: 'checked';
-      readonly missing_actions: readonly { readonly rule_id: string; readonly action: string }[];
+      readonly missing_actions: readonly StorageLifecycleMissingAction[];
     }
   | { readonly status: 'not_checked'; readonly detail: string };
+
+/** Outcome of adding the Atlas lifecycle rules a bucket lacked and resetting broken state rules. */
+export type StorageLifecycleUpdate =
+  | {
+      readonly status: 'applied';
+      readonly added_rule_ids: readonly string[];
+      /** State-key rules that were disabled, lacked their expiry, or had another prefix. */
+      readonly replaced_rule_ids: readonly string[];
+    }
+  | { readonly status: 'unchanged' }
+  | { readonly status: 'failed'; readonly detail: string };
 
 export interface StorageCheckResult {
   readonly bucket: string;
@@ -48,6 +75,8 @@ export interface StorageCheckResult {
   readonly conditional_writes: StorageConditionalWriteCheck;
   /** Read-only check of Atlas bucket lifecycle actions. */
   readonly lifecycle: StorageLifecycleCheck;
+  /** Present when the request asked to apply the lifecycle rules. */
+  readonly lifecycle_update?: StorageLifecycleUpdate | undefined;
   readonly requested_mode?: ObjectLockMode | undefined;
   readonly requested_retention_days?: number | undefined;
   readonly resolved_retain_until?: string | undefined;

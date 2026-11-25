@@ -17,7 +17,8 @@ export type AtlasErrorCode =
   | 'ATLAS_OWNER_BUSY'
   | 'ATLAS_CONFIG_INVALID'
   | 'ATLAS_ACCESS_REFUSED'
-  | 'ATLAS_GRAPH_UNAVAILABLE';
+  | 'ATLAS_GRAPH_UNAVAILABLE'
+  | 'ATLAS_STORAGE_UNAVAILABLE';
 
 /**
  * Base class for every failure Atlas raises on purpose.
@@ -426,5 +427,22 @@ export class GraphUnavailableError extends AtlasError {
     this.graph_code = options.graph_code;
     this.retries = attempts.retries;
     this.elapsed_ms = attempts.elapsed_ms;
+  }
+}
+
+/**
+ * The storage backend never answered: the connection did not open, the socket went idle past its
+ * timeout, or the connection broke, on every attempt the S3 client made (issue #924).
+ *
+ * The backend, not the request, is at fault, so a later run can succeed: the same transient
+ * category as `GraphUnavailableError`. An HTTP answer, even a 5xx, is not this error.
+ */
+export class StorageUnavailableError extends AtlasError {
+  /** Attempts the S3 client made before giving up, the first one included. */
+  readonly attempts: number;
+
+  constructor(message: string, attempts: number, options?: { cause?: unknown }) {
+    super('ATLAS_STORAGE_UNAVAILABLE', message, options);
+    this.attempts = attempts;
   }
 }

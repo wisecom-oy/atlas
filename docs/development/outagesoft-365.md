@@ -116,6 +116,9 @@ and a kind. Faults, `--services`, and outage windows select on these.
 | `identity`   | `login.microsoftonline.com`                                                |
 | `transfer`   | pre-authenticated download and upload hosts, Outlook upload sessions       |
 
+Outlook resource segments also accept OData keys, such as `mailFolders('id')`,
+so Graph delta continuation links retain the `outlook` service.
+
 The selector `graph` means every service except `identity`; `all` means everything.
 Kinds are `delta`, `batch`, `download`, `upload`, `token`, `write` (any other
 non-GET), and `read`.
@@ -565,15 +568,16 @@ arguments name mailboxes. Journal lines are built from an explicit field allowli
 and URLs pass through the redaction shared with graph-tap
 (`tools/graph-tap/redact.mjs`):
 
-| In the URL                                                                | Becomes                                      |
-| ------------------------------------------------------------------------- | -------------------------------------------- |
-| GUIDs, mail addresses                                                     | `{guid}`, `{upn}`                            |
-| The segment after `users/`, `messages/`, `drives/`, `items/`, and similar | `{id}` (or `{upn}`), whatever its shape      |
-| Path-addressed file and folder names (`root:/Finance/Q1 budget.xlsx:`)    | `root:/{path}:`                              |
-| SharePoint host label, site, personal site owner                          | `{tenant}.sharepoint.com`, `{site}`, `{upn}` |
-| Tenant segment of a token URL                                             | `{tenant}`                                   |
-| Quoted literals in query values (`$filter=subject eq 'Board minutes'`)    | `'{value}'`                                  |
-| Delta and skip tokens, `tempauth`, SAS signatures, secrets                | their byte count, e.g. `<1840b>`             |
+| In the URL                                                                | Becomes                                        |
+| ------------------------------------------------------------------------- | ---------------------------------------------- |
+| GUIDs, mail addresses                                                     | `{guid}`, `{upn}`                              |
+| The segment after `users/`, `messages/`, `drives/`, `items/`, and similar | `{id}` (or `{upn}`), whatever its shape        |
+| Teams channel and chat IDs (`19:…@thread.tacv2`, `@unq.gbl.spaces`)       | `{channel}` after `channels/`, else `{thread}` |
+| Path-addressed file and folder names (`root:/Finance/Q1 budget.xlsx:`)    | `root:/{path}:`                                |
+| SharePoint host label, site, personal site owner                          | `{tenant}.sharepoint.com`, `{site}`, `{upn}`   |
+| Tenant segment of a token URL                                             | `{tenant}`                                     |
+| Quoted literals in query values (`$filter=subject eq 'Board minutes'`)    | `'{value}'`                                    |
+| Delta and skip tokens, `tempauth`, SAS signatures, secrets                | their byte count, e.g. `<1840b>`               |
 
 **Keyed digests.** `identity_key`, `url_key`, and the request body digest are the
 first 16 hex characters of HMAC-SHA256 under `.outagesoft-365/identity.key`: 32
@@ -656,6 +660,12 @@ Paths are relative to `tools/outagesoft-365/`.
 | `tools/graph-tap/redact.mjs`              | URL redaction shared with graph-tap (repository path)                                                                    |
 
 ## Verify after changing the tool
+
+Unlike the TypeScript packages, this standalone Node.js tool uses its own selfcheck
+rather than Vitest. Add unit regression checks for request classification and other
+pure modules to `src/selfcheck/unit-checks.mjs`. The selfcheck runs these checks
+before the end-to-end scenarios. The package `tests/unit/` convention does not
+apply to this tool.
 
 ```bash
 ./tools/outagesoft-365/outagesoft-365 selfcheck

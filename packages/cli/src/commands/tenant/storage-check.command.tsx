@@ -9,6 +9,8 @@ import type {
   StorageConditionalWriteCheck,
   StorageDefaultRetention,
   StorageLifecycleCheck,
+  StorageLifecycleMissingAction,
+  StorageLifecycleUpdate,
 } from '@wisecom/atlas-types';
 import { STORAGE_CHECK_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { with_object_lock, with_tenant } from '@/commands/shared/shared-options';
@@ -27,6 +29,7 @@ interface StorageCheckOptions {
   tenant?: string;
   lockMode?: string;
   retentionDays?: string;
+  applyLifecycle?: boolean;
 }
 
 /** Registers `atlas storage-check` for immutability readiness validation. */
@@ -36,7 +39,11 @@ export function register_storage_check_command(
 ): void {
   const command = program
     .command('storage-check')
-    .description('Check S3/MinIO Object Lock, conditional writes, and lifecycle rules');
+    .description('Check S3/MinIO Object Lock, conditional writes, and lifecycle rules')
+    .option(
+      '--apply-lifecycle',
+      'add the Atlas lifecycle rules the bucket lacks, keeping every existing rule',
+    );
   with_object_lock(command, 'planned retention period in days');
   with_tenant(command).action((options: StorageCheckOptions) =>
     execute_storage_check(get_container(), options),
@@ -67,7 +74,8 @@ async function execute_storage_check(
     </Box>,
   );
 
-  if (!ready) process.exitCode = 1;
+  // A refused lifecycle update leaves the bucket as it was but fails the command that asked for it.
+  if (!ready || result.lifecycle_update?.status === 'failed') process.exitCode = 1;
 }
 
 function build_result_items(result: StorageCheckResult, ready: boolean): KeyValueItem[] {
@@ -86,6 +94,7 @@ function build_result_items(result: StorageCheckResult, ready: boolean): KeyValu
   }
   items.push(describe_conditional_writes(result.conditional_writes));
   items.push(describe_lifecycle(result.lifecycle));
+  if (result.lifecycle_update) items.push(describe_lifecycle_update(result.lifecycle_update));
   if (result.requested_mode) {
     items.push({ label: 'Requested mode', value: result.requested_mode });
   }
@@ -142,6 +151,11 @@ function describe_conditional_writes(check: StorageConditionalWriteCheck): KeyVa
   return { label, value: `not probed (${check.detail ?? 'no reason given'})`, color: 'yellow' };
 }
 
+/**
+ * Reports the missing Atlas lifecycle actions, split by what fixes them: `--apply-lifecycle` for
+ * absent rules and state-key rules. A base rule that is present stays as the operator or the
+ * backend left it, for example MinIO dropping AbortIncompleteMultipartUpload.
+ */
 function describe_lifecycle(check: StorageLifecycleCheck): KeyValueItem {
   const label = 'Lifecycle rules';
   if (check.status === 'not_checked') {
@@ -150,8 +164,35 @@ function describe_lifecycle(check: StorageLifecycleCheck): KeyValueItem {
   if (check.missing_actions.length === 0) {
     return { label, value: 'Atlas actions present', color: 'green' };
   }
-  const missing = check.missing_actions.map(({ rule_id, action }) => `${rule_id}/${action}`);
-  return { label, value: `missing Atlas actions: ${missing.join(', ')}`, color: 'yellow' };
+  const name = ({ rule_id, action }: StorageLifecycleMissingAction): string =>
+    `${rule_id}/${action}`;
+  const by_apply = check.missing_actions.filter((entry) => entry.fixed_by_apply).map(name);
+  const kept_as_is = check.missing_actions.filter((entry) => !entry.fixed_by_apply).map(name);
+  const groups = [
+    ...(by_apply.length > 0 ? [`${by_apply.join(', ')} (fix with --apply-lifecycle)`] : []),
+    ...(kept_as_is.length > 0
+      ? [`${kept_as_is.join(', ')} (--apply-lifecycle keeps these rules as they are)`]
+      : []),
+  ];
+  return { label, value: `missing Atlas actions: ${groups.join('; ')}`, color: 'yellow' };
+}
+
+/** Reports what `--apply-lifecycle` changed. A failure leaves the previous rules in place. */
+function describe_lifecycle_update(update: StorageLifecycleUpdate): KeyValueItem {
+  const label = 'Lifecycle update';
+  if (update.status === 'unchanged') return { label, value: 'nothing to change', color: 'green' };
+  if (update.status === 'failed') return { label, value: `FAILED: ${update.detail}`, color: 'red' };
+  const changes = [
+    ...describe_rule_ids('added', update.added_rule_ids),
+    ...describe_rule_ids('reset', update.replaced_rule_ids),
+  ];
+  return { label, value: changes.join('; '), color: 'green' };
+}
+
+function describe_rule_ids(verb: string, rule_ids: readonly string[]): string[] {
+  if (rule_ids.length === 0) return [];
+  const count = rule_ids.length;
+  return [`${verb} ${count} rule${count === 1 ? '' : 's'}: ${rule_ids.join(', ')}`];
 }
 
 function resolve_tenant_id(container: Container, options: StorageCheckOptions): string {
@@ -162,11 +203,13 @@ function resolve_tenant_id(container: Container, options: StorageCheckOptions): 
 function build_request(options: StorageCheckOptions): {
   mode?: ObjectLockMode;
   retention_days?: number;
+  apply_lifecycle?: boolean;
 } {
   const mode = parse_object_lock_mode(options.lockMode);
   const retention_days = parse_retention_days(options.retentionDays);
   return {
     ...(mode !== undefined ? { mode } : {}),
     ...(retention_days !== undefined ? { retention_days } : {}),
+    ...(options.applyLifecycle === true ? { apply_lifecycle: true } : {}),
   };
 }

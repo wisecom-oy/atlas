@@ -26,6 +26,7 @@ import {
   type DriveRecrawl,
 } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
 import { permission_digests } from '@wisecom/atlas-drive/backup/sharing-capture';
+import { assert_delta_listing_complete } from '@wisecom/atlas-drive/backup/delta-listing-end';
 import {
   create_item_metadata_capture,
   type DriveItemMetadataCapture,
@@ -112,6 +113,8 @@ export async function process_single_library(
     library.drive_id,
     prev_delta,
   );
+  // Before any tracking is touched: a library that throws here keeps its previous checkpoint.
+  assert_delta_listing_complete(delta, `library ${library.drive_id}`);
 
   if (delta.reset_detected) {
     clear_file_tracking_on_reset(

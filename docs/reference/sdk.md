@@ -49,6 +49,9 @@ The API is grouped by workload (`atlas.outlook`, `atlas.onedrive`, `atlas.sharep
 | `s3SecretKey`          | `string`                               | Yes      | S3 secret key                                                                                                                     |
 | `s3Region`             | `string`                               | No       | S3 region. Default `us-east-1`                                                                                                    |
 | `s3Bucket`             | `string`                               | No       | Bucket to use instead of `atlas-{tenantId}`. Bound to `tenantId` and never created. See [Bucket override](#bucket-override)       |
+| `s3ConnectionTimeoutMs` | `number`                              | No       | Milliseconds for the TCP connection to the S3 endpoint to open, 1000 to 600000, or `0` for none. Default `10000`. See [S3 timeouts and retries](/self-hosting/storage#s3-timeouts-and-retries) |
+| `s3IdleTimeoutMs`      | `number`                               | No       | Milliseconds an S3 request's socket may stay silent before the attempt is cut off, 1000 to 3600000, or `0` for none. Default `300000` |
+| `s3MaxAttempts`        | `number`                               | No       | Attempts per S3 request, the first one included, 1 to 10. Default `3`                                                               |
 | `encryptionPassphrase` | `string`                               | Yes      | Protects the tenant's data key. At least 14 UTF-8 bytes. Must match the passphrase of existing backups                            |
 | `logger`               | `LogSink`                              | No       | Receives SDK log lines. The SDK is silent without it. See [Logging](#logging)                                                     |
 | `onStorageRequest`     | `(event: StorageRequestEvent) => void` | No       | Receives one event per S3 request. See [Storage request events](#storage-request-events)                                          |
@@ -60,7 +63,8 @@ Construction is synchronous and makes no network requests. It throws `ConfigErro
 - a required field is missing or blank, or the passphrase is shorter than 14 UTF-8 bytes;
 - `s3Endpoint` is not a valid URL as described above, or `s3Bucket` is not a valid S3 bucket name;
 - `onStorageRequest` is not a function, or `throttleCoordinator` lacks `wait` and `raise` functions;
-- `teamsPacingShare` is outside the range above 0 and at most 1.
+- `teamsPacingShare` is outside the range above 0 and at most 1;
+- `s3ConnectionTimeoutMs`, `s3IdleTimeoutMs`, or `s3MaxAttempts` is not an integer in its range.
 
 ### Naming
 
@@ -99,7 +103,7 @@ try {
 | Unwrap `_meta/dek.enc`, if it exists     | `WrongPassphraseError`, `ATLAS_WRONG_PASSPHRASE` | Use the passphrase that created this tenant's backups. In a multi-tenant service, confirm each tenant has its own passphrase  |
 | Microsoft Graph token                    | `AuthError`, `ATLAS_AUTH_DENIED`                 | Check the tenant ID, client ID, client secret, and connectivity to Microsoft Entra ID                                         |
 
-- A code names the stage that failed, not necessarily bad credentials. DNS, TLS, and transport failures also fail a stage. The original failure is kept in `cause`.
+- A code names the stage that failed, not necessarily bad credentials. DNS, TLS, and transport failures also fail a stage. The original failure is kept in `cause`. An S3 endpoint that never answers fails a storage check as `StorageError` with a `StorageUnavailableError` cause.
 - When S3 refuses `atlas-{tenantId}` as an invalid bucket name, the first check throws `ConfigError` (`ATLAS_CONFIG_INVALID`) naming the rule. See [Bucket name is not valid](/troubleshooting#bucket-name-is-not-valid).
 - The key check makes at most one storage `GET` and opens the key locally with AES-256-GCM. It never creates a key, writes an object, or logs key material. A new tenant with no key passes, and the first backup creates the key.
 - `validate()` does not check write permission, Object Lock readiness, or workload-specific Microsoft Graph consent. Use [`checkStorage()`](#checkstorage) for Object Lock and conditional writes. See [Security](/security#kek-derivation-scrypt) for passphrase guidance.
@@ -177,6 +181,7 @@ await atlas.outlook.backup('user@example.com');
 - `dispose()` closes the socket pools, clears the bucket cache, and unbinds the container. It is idempotent and never throws: a failing step is logged and the remaining steps still run. Do not use the instance afterwards.
 - A service that creates an instance per request and never disposes it accumulates socket pools for the life of the process.
 - Disposal does not wait for operations in flight. Let them finish or cancel them first, or each one leaves its [owner lease](#concurrent-operations) to expire.
+- A throttle cooldown still in force when an operation ends keeps a timer running for up to an hour, which holds the Node.js process open. `dispose()` clears it. A script that skips disposal does not exit until the cooldown ends. A `throttleCoordinator` you pass in is yours to clear.
 - Bucket caches are per instance. Two instances with different endpoints and same-named buckets do not share answers about bucket existence or Object Lock support.
 
 ::: warning
@@ -980,7 +985,16 @@ if (check.conditionalWrites.support !== 'supported') {
 
 The result has `bucket`, `reachable`, `versioningEnabled`, `objectLockEnabled`, `modeSupported`, `defaultRetention` (`{ mode, days?, years? }`), the request echoed as `requestedMode` and `requestedRetentionDays`, the `resolvedRetainUntil` it would apply, and `conditionalWrites`. `conditionalWrites` is always present: `{ support: 'supported' | 'ignored' | 'not_probed', detail?: string }`, whether the backend refuses a create-only write and a stale compare-and-swap. The probe writes and removes one object under `_meta/storage-check/`, so it needs write access.
 
-`lifecycle` reports the readback of the bucket's lifecycle configuration. When `status` is `checked`, `missingActions` lists the missing Atlas actions as `{ ruleId, action }` entries. When `status` is `not_checked`, `detail` explains why the configuration could not be read.
+`lifecycle` reports the readback of the bucket's lifecycle configuration. When `status` is `checked`, `missingActions` lists the missing Atlas actions as `{ ruleId, action, fixedByApply }` entries. `fixedByApply` is `false` for a base rule that is present but disabled or edited, which `applyLifecycle` keeps. When `status` is `not_checked`, `detail` explains why the configuration could not be read.
+
+```ts
+const check = await atlas.checkStorage({ applyLifecycle: true });
+if (check.lifecycleUpdate?.status === 'failed') {
+  console.error(check.lifecycleUpdate.detail);
+}
+```
+
+`applyLifecycle: true` first adds the Atlas lifecycle rules the bucket lacks and resets broken `atlas-state-versions-*` rules, keeping every other rule, so `lifecycle` reports the result. `lifecycleUpdate` is then `{ status: 'applied', addedRuleIds, replacedRuleIds }`, `{ status: 'unchanged' }`, or `{ status: 'failed', detail }`, and is absent otherwise. A failed update, including a read-back that fails, leaves the previous rules in place. It needs `s3:GetLifecycleConfiguration` and `s3:PutLifecycleConfiguration`. See [Applying the rules to an existing bucket](/self-hosting/storage#applying-the-rules-to-an-existing-bucket).
 
 ### Storage usage
 
@@ -1442,8 +1456,8 @@ try {
 ```
 
 - **Scope.** A lease covers one workload and one owner. Mail, contacts, calendar, and OneDrive of one user are four leases and do not block each other, and neither do two owners.
-- **A killed process** cannot release its lease. The owner stays busy until it expires, at most 5 minutes after the last renewal, and `lease_expires_at` says when. The next operation then takes it over, and of several waiting runs exactly one starts. A lease object that is not valid lease JSON is replaced the same way. One written by a newer Atlas is never replaced: the operation rejects with `ATLAS_FORMAT_UNSUPPORTED`.
-- **A lost lease.** Before each write that advances durable state (the manifest or index, the sync checkpoint, a Teams checkpoint, a deletion), the run checks its lease without reading storage. If a renewal found another holder or no lease, or the lease ran out because storage was unreachable for its whole lifetime, the run rejects with `OwnerLeaseLostError` and commits nothing further. `OwnerLeaseLostError` is an `OwnerBusyError` with the same code and exit status, because the remedy is the same. Content already uploaded stays and is deduplicated by the next run. A failed renewal alone loses nothing: it is retried every minute, and the check starts failing 30 seconds before the unrenewed expiry.
+- **A killed process** cannot release its lease. The owner stays busy until it expires, at most 10 minutes after the last renewal, and `lease_expires_at` says when. The next operation then takes it over, and of several waiting runs exactly one starts. A lease object that is not valid lease JSON is replaced the same way. One written by a newer Atlas is never replaced: the operation rejects with `ATLAS_FORMAT_UNSUPPORTED`.
+- **A lost lease.** Before each write that advances durable state (the manifest or index, the sync checkpoint, a Teams checkpoint, a deletion), the run checks its lease without reading storage. If a renewal found another holder or no lease, or the lease ran out because storage was unreachable for its whole lifetime, the run rejects with `OwnerLeaseLostError` and commits nothing further. `OwnerLeaseLostError` is an `OwnerBusyError` with the same code and exit status, because the remedy is the same. Content already uploaded stays and is deduplicated by the next run. A failed renewal alone loses nothing: it is retried every minute, and the check starts failing 30 seconds before the unrenewed expiry. The lease is read back every minute and rewritten every 5 minutes, so a held hour leaves at most 14 versions in a versioned bucket.
 - **SharePoint subsites.** With `includeSubsites: true`, each site takes its own lease. A busy subsite does not stop the others: its result has `summary.healthy: false` and the busy error in `summary.errors`. A busy root site rejects the call.
 - **Tenant-wide runs.** `atlas teams backup --all` and the tenant-wide Outlook backup report a busy team or mailbox as that owner's failure and continue.
 
@@ -1453,8 +1467,8 @@ try {
 | Object   | One plain JSON object per workload and owner, not encrypted, so operations without the tenant key can take it. See [Owner leases](/operations/storage-layout#owner-leases) for the paths and what it reveals |
 | Body     | A random ID for the run, the operation (`backup`, `delete`, `quarantine`, `restore`, or `purge` and `rewrap` on the tenant lease), `acquired_at`, and `expires_at`. No host name, user name, or process ID |
 | Acquire  | A create-only write (`If-None-Match: *`), then a read to confirm this run is the holder: one `PUT` and one `GET` |
-| Lifetime | 5 minutes after the last write |
-| Renewal  | Every 60 seconds: one `GET`, then one `PUT` with `If-Match` on the ETag just read. The timer does not keep the Node.js process alive |
+| Lifetime | 10 minutes after the last write |
+| Renewal  | Every 60 seconds: one `GET` to confirm the lease is still this run's. Every 5 minutes: one `PUT` with `If-Match` on the ETag just read, at most 14 versions per held hour. The timer does not keep the Node.js process alive |
 | Takeover | An expired lease is replaced by compare-and-swap |
 | Release  | When the operation ends with a result, an error, or a cancellation: one `GET`, and one `DELETE` if the lease is still this run's. If the delete is refused, one `PUT` with `If-Match` marks it released, and the next operation takes it at once. A failed release is logged and never replaces the operation's result |
 | Cost     | Requests per run and per minute, never per object |
@@ -1462,12 +1476,12 @@ try {
 
 ### Tenant lease
 
-`purgeTenantData()`, `rewrapDataKey()`, and the `keys` methods take one lease for the whole tenant, stored at `_meta/tenant-lease.json` with the tenant ID as its owner ID, renewed every 60 seconds and released when the call ends, also on failure.
+`purgeTenantData()`, `rewrapDataKey()`, and the `keys` methods take one lease for the whole tenant, stored at `_meta/tenant-lease.json` with the tenant ID as its owner ID, renewed every 5 minutes and released when the call ends, also on failure.
 
 - The tenant call writes its lease, then lists every owner lease of the tenant. Any live owner lease makes it reject with `OwnerBusyError` before it writes anything else, naming one busy owner in `workload` and `owner_id`.
 - Every owner operation does the reverse: after writing its own lease it reads the tenant lease, and a live one makes it release its own and reject with `OwnerBusyError`, `held_by_operation` set to `purge` or `rewrap`.
 - Because each side writes before it reads, two calls that start at the same moment cannot both proceed. An owner lease that has expired, was released, or does not parse does not block the tenant call.
-- A tenant lease whose purge was killed expires 5 minutes after its last renewal and blocks the tenant's owner operations until then.
+- A tenant lease whose purge was killed expires 10 minutes after its last renewal and blocks the tenant's owner operations until then.
 - Cost: one extra `GET` per owner acquire. The tenant call lists each workload's lease prefix, a listing of that workload's `_meta/` tree, so its cost grows with the number of owners.
 
 ### What Atlas makes safe
@@ -1488,8 +1502,8 @@ These conditional writes, the lease included, need a backend that honours `If-Ma
 
 - **Restores and leases.** Restore takes the source owner's lease in the bucket it reads, also for a cross-tenant restore, so it never runs next to a backup, deletion, quarantine, or second restore of that owner. A restore whose storage credentials cannot write the lease (HTTP `403`) still runs, without a lease, and logs `concurrent-run protection is off for this restore`; a backup, deletion, or second restore of that owner is then not refused. A live lease held by another operation still refuses the restore, owner or tenant, because reading a lease needs no write access.
 - **Readers take no lease.** Save, verify, status, and the listings only read, so they can run next to a backup of the same owner. A deletion or quarantine running at the same time can remove the snapshot they are reading.
-- **Clocks.** Keep the clocks of hosts that share a bucket within a few minutes of each other. A host whose clock is ahead by more than the time left on a live lease (4 to 5 minutes in steady state) sees it as expired and takes over a running operation. The displaced run notices within 60 seconds and stops before its next commit, but both ran for that long.
-- **Backends that ignore write conditions** let two runs take the same lease. Each finds out at its next renewal, so the overlap is bounded at 60 seconds but not prevented. Schedule one operation per owner yourself until `checkStorage()` reports `conditionalWrites.support: 'supported'`.
+- **Clocks.** Keep the clocks of hosts that share a bucket within a few minutes of each other. A host whose clock is ahead by more than the time left on a live lease (5 to 10 minutes in steady state) sees it as expired and takes over a running operation. The displaced run notices within 60 seconds and stops before its next commit, but both ran for that long.
+- **Backends that ignore write conditions** let two runs take the same lease. Each finds out at its next check, so the overlap is bounded at 60 seconds but not prevented. Schedule one operation per owner yourself until `checkStorage()` reports `conditionalWrites.support: 'supported'`.
 - **Mixed versions.** A host running an Atlas version older than the lease does not see it. Upgrade every host that writes to a bucket before relying on it.
 - **Disposal.** Let operations finish or cancel them before `dispose()`. See [Instance lifecycle](#instance-lifecycle).
 
@@ -1780,6 +1794,7 @@ try {
 | `WrongPassphraseError`              | `ATLAS_WRONG_PASSPHRASE`     | The passphrase could not unwrap the data key. A damaged content object is a per-file entry in a restore result's `errors`, not this error                       |
 | `ObjectLockRetainedError`           | `ATLAS_OBJECT_LOCK_RETAINED` | The object is under retention or a legal hold. `key` is set                                                                                                     |
 | `StorageError`                      | `ATLAS_STORAGE_FAILURE`      | Storage failed for a reason other than permission, retention, or absence                                                                                        |
+| `StorageUnavailableError`           | `ATLAS_STORAGE_UNAVAILABLE`  | The S3 endpoint never answered: the connection was refused or did not open, or the socket stayed silent past `s3IdleTimeoutMs`, on every attempt. An HTTP answer, even a 5xx, is not this error. Transient. See [S3 timeouts and retries](/self-hosting/storage#s3-timeouts-and-retries) |
 | `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | A conditional write lost a race (HTTP 412)                                                                                                                      |
 | `StoredObjectConflictError`         | `ATLAS_STORAGE_FAILURE`      | A create-only manifest or index write found a different object at its path and left it in place. `key` is set. A new run uses a new snapshot ID                |
 | `ConfigError`                       | `ATLAS_CONFIG_INVALID`       | Credentials, endpoint, passphrase, option, or tenant is missing or unusable                                                                                     |
@@ -1799,6 +1814,7 @@ try {
 | every `AtlasError`             | `code`, and `cause` with the underlying Graph or AWS SDK error, for logging. Branching never depends on it     |
 | `ThrottledError`               | `retry_after_ms`                                                                                               |
 | `GraphUnavailableError`        | `status_code`, `graph_code`, `retries`, `elapsed_ms`                                                           |
+| `StorageUnavailableError`      | `attempts`                                                                                                     |
 | `GraphAccessRefusedError`      | `site_id`, `drive_id`, `owner_id`, `reason`, `status_code`, `graph_code`                                       |
 | `MissingGraphPermissionsError` | `permissions`, `status_code`, `graph_code`                                                                     |
 | `OwnerBusyError`, `OwnerLeaseLostError` | `workload`, `owner_id`, `held_by_operation`, `lease_expires_at`                                       |
@@ -1844,6 +1860,7 @@ try {
   ```
 
 - An exhausted `429` stays `ThrottledError`. A failure Atlas does not retry, such as a `400`, is rethrown unchanged.
+- Every workload's `backup` rejects with the first `GraphUnavailableError` or `ThrottledError` of the run. After that call spent its budget, no other Graph call of the run was sent. The snapshot of what the run finished is still written and the owner lease is released, so the next attempt resumes from the units that did not finish. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
 - A Graph token request that Microsoft Entra ID leaves unanswered, or answers with `408`, `429`, a `5xx`, or `temporarily_unavailable`, becomes `GraphUnavailableError` once retries run out, `429` included. Its `status_code` and `graph_code` are `undefined`, because the status is Entra's, not Graph's. The message starts `Microsoft Entra ID did not issue a Graph token`, and `cause` keeps Entra's answer.
 - **`GraphAccessRefusedError`** is raised for a `403` whose code does not name a missing permission, or, for SharePoint, a refused site while the same app can read the tenant's root site. A SharePoint Embedded container is the known case.
 - **`reason`** is `file_storage_container` when the refused site's URL is under `/contentstorage/`, the shape of a [SharePoint Embedded container](/sharepoint-backup#sharepoint-embedded-containers), and `access_refused` otherwise. A site given by ID is refused before Atlas learns its URL, so a container backed up by ID reports `access_refused`. Use `listSites()`, whose results carry `kind`, or `isFileStorageContainerSite(webUrl)` on a URL from your own discovery, to skip containers before backing them up.

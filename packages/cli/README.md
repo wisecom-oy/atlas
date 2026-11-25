@@ -77,7 +77,7 @@ atlas teams backup --team <team-id>
 | `atlas teams backup`      | Back up Teams channel messages to object storage                    |
 | `atlas stats`             | Storage statistics                                                  |
 | `atlas stats storage`     | Physical bytes in the bucket: versions, staging, incomplete uploads |
-| `atlas storage-check`     | Check that the bucket supports Object Lock and conditional writes   |
+| `atlas storage-check`     | Check Object Lock, conditional writes, and lifecycle rules; `--apply-lifecycle` adds or repairs them |
 
 Run `atlas --help` or `atlas <command> --help` for every flag.
 
@@ -90,7 +90,7 @@ Treat every nonzero code as a failed or incomplete run.
 | `0`  | Success                                                                                                     |
 | `1`  | Unclassified or command-reported failure                                                                    |
 | `2`  | Partial result                                                                                              |
-| `3`  | Retryable network or throttling failure                                                                     |
+| `3`  | Retryable network or throttling failure, including an S3 endpoint that never answered                       |
 | `4`  | Authentication or licensing                                                                                 |
 | `5`  | Wrong passphrase                                                                                            |
 | `6`  | Invalid configuration                                                                                       |

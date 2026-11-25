@@ -1,23 +1,33 @@
 import { randomUUID } from 'node:crypto';
 
 /**
- * How long a lease lives after its last write, and how often its holder rewrites it.
+ * How long a lease lives after its last write, how often its holder writes it again, and how often
+ * the holder reads it back.
  *
  * The trade-off is between two failures. A process that is killed cannot release its lease, so the
  * owner stays blocked until the lease runs out: at most the TTL. A holder that is alive but cannot
  * reach storage keeps the owner for the same time, then stops at its next commit point. A shorter
- * TTL frees a dead owner sooner and gives a stalled holder fewer renewal attempts; five minutes
- * with a renewal every minute leaves four attempts before the lease is gone.
+ * TTL frees a dead owner sooner and gives a stalled holder fewer renewal attempts.
+ *
+ * Every write leaves one noncurrent version of the lease in a versioned bucket, and some backends
+ * refuse writes to a key that holds 1,000 versions (issue #918). Writing only every five minutes
+ * caps a held hour at 14 versions: the acquire, 12 renewals and the release. Reading the lease back
+ * every minute leaves no version, so a takeover or a removed lease is still noticed within a
+ * minute, and a renewal that failed is retried at that pace: about five attempts between the
+ * renewal falling due and the lease running out.
  *
  * Expiry compares the `expires_at` one host wrote with another host's clock. A host whose clock
  * runs ahead by more than the time left on a live lease sees it as expired and takes the owner
- * over while the holder is still running. In steady state the time left is between four and five
+ * over while the holder is still running. In steady state the time left is between five and ten
  * minutes, so hosts that share a bucket must keep their clocks within a few minutes of each other.
  */
-export const OWNER_LEASE_TTL_MS = 5 * 60_000;
+export const OWNER_LEASE_TTL_MS = 10 * 60_000;
 
-/** How often a holder extends its lease by another TTL. */
-export const OWNER_LEASE_RENEW_INTERVAL_MS = 60_000;
+/** How long after its last write a holder writes its lease again, extending it by a full TTL. */
+export const OWNER_LEASE_RENEW_INTERVAL_MS = 5 * 60_000;
+
+/** How often a holder reads its lease back, and retries a renewal that is due but failed. */
+export const OWNER_LEASE_CHECK_INTERVAL_MS = 60_000;
 
 /**
  * How long before expiry a commit-point check already fails. A commit that starts with seconds

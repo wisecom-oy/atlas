@@ -42,7 +42,7 @@ describe('chunk failure typing', () => {
   );
 
   it('keeps a Graph-shaped failure reachable through cause', async () => {
-    const refusal = { statusCode: 403, code: 'notAllowed' };
+    const refusal = { statusCode: 403, code: 'malwareDetected' };
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(refusal));
 
     const error = await failure_of(download_file_chunked(URL, 10, 'item-1'));

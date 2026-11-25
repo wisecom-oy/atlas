@@ -1,7 +1,9 @@
 import {
   assert_valid_bucket_name,
+  build_s3_transport,
   type AtlasConfig,
   type BucketSelection,
+  type S3TransportField,
 } from '@wisecom/atlas-core';
 import { ConfigError } from '@wisecom/atlas-types';
 import {
@@ -34,6 +36,14 @@ export function normalize_config(config: AtlasInstanceConfig): AtlasConfig {
   assert_throttle_coordinator(config.throttleCoordinator);
   assert_teams_pacing_share(config.teamsPacingShare);
   const s3_bucket = bind_bucket_override(config.s3Bucket, config.tenantId);
+  const s3_transport = build_s3_transport(
+    {
+      connection_timeout_ms: config.s3ConnectionTimeoutMs,
+      idle_timeout_ms: config.s3IdleTimeoutMs,
+      max_attempts: config.s3MaxAttempts,
+    },
+    S3_TRANSPORT_OPTION_NAMES,
+  );
 
   return {
     tenant_id: config.tenantId,
@@ -45,8 +55,16 @@ export function normalize_config(config: AtlasInstanceConfig): AtlasConfig {
     s3_region: config.s3Region || 'us-east-1',
     encryption_passphrase: config.encryptionPassphrase,
     ...(s3_bucket !== undefined ? { s3_bucket } : {}),
+    ...(s3_transport !== undefined ? { s3_transport } : {}),
   };
 }
+
+/** The instance option behind each S3 transport setting, for validation messages. */
+const S3_TRANSPORT_OPTION_NAMES: Readonly<Record<S3TransportField, keyof AtlasInstanceConfig>> = {
+  connection_timeout_ms: 's3ConnectionTimeoutMs',
+  idle_timeout_ms: 's3IdleTimeoutMs',
+  max_attempts: 's3MaxAttempts',
+};
 
 /**
  * Binds `s3Bucket` to the instance's tenant. Exclusive: an instance has one tenant, so a restore

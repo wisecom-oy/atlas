@@ -12,6 +12,8 @@ import {
   type DriveLargeFileDeps,
 } from '@/backup/large-file-pipeline';
 import { is_download_url_expired } from '@/backup/large-file-url-refresh';
+import { is_storage_failure } from '@/backup/storage-failure';
+import { transient_download_error_for } from '@/backup/transient-download-failure';
 import type { DriveContentConnector, DriveDeltaItem } from '@/drive-ports';
 
 export interface FileProcessResult {
@@ -27,6 +29,9 @@ export interface FileProcessResult {
  * Downloads or deduplicates a single delta file item.
  *
  * `refetch_item` re-reads the item once if its size changed during the download (issue #759).
+ * Undefined means the file's own fault ended the download; a failure outside the file throws
+ * `TransientDownloadError` instead, so the caller can spare the file's ledger attempt (#857). A
+ * storage failure is thrown unchanged at either size, so it fails the drive, not the file (#917).
  */
 export async function process_drive_backup_file(
   deps: DriveLargeFileDeps,
@@ -74,7 +79,11 @@ async function store_drive_file(
   return { storage_key, checksum, stored: false, deduplicated: true, size_bytes };
 }
 
-/** Streams a large file, returning undefined for an ordinary failure the run carries on past. */
+/**
+ * Streams a large file, returning undefined for a failure of the file's own the run carries on past,
+ * throwing `TransientDownloadError` for a download failure outside the file, and rethrowing a
+ * storage failure unchanged.
+ */
 async function process_large_or_skip(
   deps: DriveLargeFileDeps,
   connector: DriveContentConnector & DriveDownloadUrlResolver,
@@ -100,6 +109,12 @@ async function process_large_or_skip(
     logger.warn(
       `Skipping large file ${item.item_id} (${item.file_name}): ${err instanceof Error ? err.message : String(err)}`,
     );
+    // Throttling, an outage, a reset or a timeout: recorded without spending an attempt (#857).
+    const transient = transient_download_error_for(
+      err,
+      `large file ${item.file_name} (${item.item_id})`,
+    );
+    if (transient) throw transient;
     return undefined;
   }
 }
@@ -110,6 +125,10 @@ function rethrow_unless_skippable(err: unknown, abort_signal?: AbortSignal): voi
   // and five cancellations of the same large file burn its retry budget and skip it for good,
   // because delta never re-presents an unchanged item (issue #344).
   if (abort_signal?.aborted === true) throw err;
+  // Storage failed, not the file: a full disk or quota, an S3 5xx after the SDK's retries, a refused
+  // completion or copy, or an endpoint that never answered. Rethrown as a small file's failed put
+  // is, so it fails the drive or library with its own exit code and spends no attempt (issue #917).
+  if (is_storage_failure(err)) throw err;
   // A missing grant or a service refusal is not a skip: it must reach the caller so the run can
   // name the cause instead of reporting a lost file (issue #246).
   if (is_unretryable_download_failure(err)) throw err;

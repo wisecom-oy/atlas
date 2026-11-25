@@ -96,7 +96,7 @@ atlas teams list-teams
 | `--channel <id>`       | Back up only this channel. Needs exactly one `--team`, not allowed with `--all`                   | All channels   |
 | `--full`               | Ignore saved sync checkpoints and cached files folders, and read every channel in full            | `false`        |
 | `--concurrency <n>`    | Channels backed up at once within a team, 1 to 16                                                 | `4`            |
-| `--retention-days <n>` | Lock every object this run writes for `n` days with Object Lock                                   | Off            |
+| `--retention-days <n>` | Lock the backup data this run writes for `n` days with Object Lock                                | Off            |
 | `--lock-mode <mode>`   | `governance` or `compliance`; requires `--retention-days`                                         | `governance`   |
 | `-t, --tenant <id>`    | Tenant GUID                                                                                       | Config default |
 
@@ -346,7 +346,7 @@ Each inline image is journaled as its own small encrypted object under `hosted/`
 
 ## When a channel cannot be backed up {#failed-channels}
 
-A channel that cannot be read is recorded as an error, and the run continues with the next channel. Teams under `--all` or repeated `--team` are isolated the same way.
+A channel that cannot be read is recorded as an error, and the run continues with the next channel. Teams under `--all` or repeated `--team` are isolated the same way. A Microsoft Graph outage is the exception: once a call spends its retry budget, the run starts no other channel and no other team, and exits `3`. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
 
 A thread that fails is added to its channel's list of failed threads and retried on later runs:
 

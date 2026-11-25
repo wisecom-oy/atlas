@@ -36,6 +36,9 @@ const GUID_ANYWHERE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 // The local part is bounded so a long run of its characters with no `@` cannot
 // make the scan quadratic. 256 covers a 64-character local part fully percent-encoded.
 const EMAIL = /[A-Za-z0-9._%+-]{1,256}(?:@|%40)[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+// Teams channel and chat ids (`19:abc@thread.tacv2`, `@thread.v2`, `@thread.skype`,
+// `@unq.gbl.spaces`) contain an `@`, so they must be told apart from UPNs by their domain.
+const TEAMS_THREAD_ID = /(?:@|%40)(?:thread\.[a-z0-9]+|unq\.gbl\.spaces)$/i;
 const SINGLE_QUOTED = /'(?:[^']|'')*'/g;
 const DOUBLE_QUOTED = /"[^"]*"/g;
 
@@ -140,6 +143,7 @@ function is_keyword(seg) {
 /** Shape rules: placeholders for segments that look like ids wherever they appear, or null. */
 function template_by_shape(seg) {
   if (GUID.test(seg)) return '{guid}';
+  if (TEAMS_THREAD_ID.test(seg)) return '{thread}';
   if (seg.includes('@') || /%40/i.test(seg)) return '{upn}';
   if (/^[a-z]!/i.test(seg)) return '{id}'; // drive ids (b!...) and share ids (s!...)
   // Outlook item ids, drive item ids and site ids: long and opaque.
@@ -153,7 +157,9 @@ function template_by_shape(seg) {
 function positional_placeholder(parent, seg, colon) {
   if (parent === 'sites') return colon ? '{host}' : '{site}';
   if (parent === 'teams' && colon) return '{host}';
-  return template_by_shape(seg) ?? '{id}';
+  const shape = template_by_shape(seg);
+  if (parent === 'channels' && shape === '{thread}') return '{channel}';
+  return shape ?? '{id}';
 }
 
 /** Templates one bare segment (no trailing colon) given its parent and the host's kind. */

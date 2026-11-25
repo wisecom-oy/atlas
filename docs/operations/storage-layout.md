@@ -272,7 +272,7 @@ The summary is AES-256-GCM encrypted with the tenant DEK and bound to its direct
 | Backup, summary write fails | The backup still succeeds and logs a warning, because the manifest is the record |
 | Backup, another writer changed it | Conditional write: `If-None-Match` creates it, `If-Match` on the ETag read replaces it. On a conflict Atlas reads, reconciles, and writes once more, then gives up with a warning. A backend that ignores conditional headers lets the later write win, which leaves a stale summary at worst |
 | Backup lost its owner lease | The run checks its [owner lease](#owner-leases) right before the write, because seeding rows can take long. A run that lost it raises `OwnerLeaseLostError` and writes neither the summary nor the cursor |
-| OneDrive or SharePoint backup with retention | Written with the run's retention, like the delta cursor, so each rewrite keeps a locked version until it expires |
+| Backup with retention | Written without the run's retention, like the delta cursor, so the noncurrent-version rule expires replaced versions. See [What Object Lock covers](/operations/immutability#what-object-lock-covers) |
 | `delete -s`, `quarantine` | The snapshot's row is removed under the owner's lease, after the manifest is gone and, for `delete -s`, after the delta cursor. The rewrite is a compare-and-swap on the summary just read and never creates one. If it fails, the command succeeds with a warning and readers skip the row |
 | Contacts and Calendar `delete -s` | Runs without the tenant key, so it cannot rewrite the summary. It leaves the row, readers drop it, and the next backup removes it |
 | Deleting an owner, mailbox, or site | The summary is removed with the owner's other `_meta` objects, and its lease last |
@@ -298,7 +298,7 @@ The lease is plain, unencrypted JSON, so that an operation without the tenant ke
 | Field | What it reveals |
 | --- | --- |
 | `operation` | That a `backup`, `delete`, `quarantine`, or `restore` is running on the owner, or `purge` or `rewrap` on the tenant lease, or last ran if the lease was left behind |
-| `acquired_at`, `expires_at` | When that operation started and when it last renewed the lease, to the minute |
+| `acquired_at`, `expires_at` | When that operation started and when its lease runs out, which moves forward with every renewal |
 | `released_at` | When it finished, present only when the lease could not be deleted |
 | `holder_id` | A random ID generated for that one run. It names no host, user, or process |
 | `format_version` | The lease format |
@@ -307,11 +307,11 @@ The owner ID is in the key, as it is for every object of that owner. The lease h
 
 | Property | Behavior |
 | --- | --- |
-| Lifetime | Written when the operation starts, rewritten every 60 seconds, deleted when it ends. If the delete is refused, it is rewritten as released and stays as a free lease. One left by a killed process expires 5 minutes after its last write |
+| Lifetime | Written when the operation starts, read back every 60 seconds, rewritten every 5 minutes, deleted when it ends. If the delete is refused, it is rewritten as released and stays as a free lease. One left by a killed process expires 10 minutes after its last write |
 | Object Lock | Never written with retention, also when the run uses `--retention-days`. A bucket default retention still locks each version, which is one more reason to remove it |
-| Versions | In a versioned bucket every renewal leaves a noncurrent version of about 200 bytes. The 30-day noncurrent expiry rule removes them |
+| Versions | In a versioned bucket every write leaves a noncurrent version of about 200 bytes, at most 14 per held hour. The [one-day lifecycle rule](/self-hosting/storage#lifecycle-rules) for its prefix removes them |
 | Deletion | Deleting an owner removes its lease last, with all versions, so nothing is left under the erased owner's ID. A purge removes the tenant lease last, with all versions, so an erased bucket holds no lease object |
-| Replicas | Copied by provider replication like any object. A restore from the replica waits out a live one, at most 5 minutes after its holder stopped |
+| Replicas | Copied by provider replication like any object. A restore from the replica waits out a live one, at most 10 minutes after its holder stopped |
 | Storage usage | Counted like a delta cursor: under its workload for the prefixed workloads, under `meta` for Outlook. It is not backup data |
 
 ::: warning Do not delete a live lease
@@ -357,6 +357,20 @@ Messages, attachments, and files are named by an HMAC-SHA256 of their **plaintex
 Each manifest records the object's key and a plain SHA-256 checksum of the plaintext. Integrity checks decrypt the object, hash the result with SHA-256, and compare it with the manifest checksum. A match proves the content is byte-for-byte what was backed up. See [What object names reveal](/security#what-object-names-reveal).
 
 A MIME message is one object with its attachments inside, base64-encoded. Two messages with the same attachment are two objects, so the attachment is stored once per message rather than once per mailbox, and base64 adds about one third to its size. In return, messages stay byte-exact, which matters for signed mail.
+
+## Old versions of overwritten objects {#noncurrent-versions}
+
+The bucket is versioned, so every overwrite or delete keeps the previous version as a noncurrent version until a [lifecycle rule](/self-hosting/storage#lifecycle-rules) expires it. Atlas never reads noncurrent versions.
+
+| Objects | Rewritten | Noncurrent versions kept |
+| --- | --- | --- |
+| Owner and tenant leases | Every 5 minutes while an operation runs, at most 14 versions per held hour | 1 day |
+| Delta cursors, Teams channel cursors and read checkpoints | Every run, and every 50 threads during a Teams channel read | 1 day |
+| Outlook `latest.json` and `summary.json`, the `snapshots.json` summary of the other workloads | Every run | 1 day |
+| `_meta/dek.enc` | On a key re-wrap | 30 days, as a recovery path after a re-wrap |
+| Everything else: content, manifests, version indexes, the identity registry | Rarely; content and manifests are written once | 30 days |
+
+The one-day window applies to every key under `_meta/outlook-leases/`, `_meta/outlook-cursors/`, `_meta/outlook-manifests/owners/`, `_meta/tenant-lease.json`, and the `_meta/` folder of each prefixed workload. Several hosted S3 providers cap the versions of one key, Scaleway and Exoscale at 1,000. Without the one-day rules a frequently backed-up owner's lease reaches that cap and its backups fail. See [Version caps of hosted providers](/self-hosting/storage#version-caps-of-hosted-providers). A version under Object Lock stays until its lock expires.
 
 ## S3 object metadata
 

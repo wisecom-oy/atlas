@@ -7,6 +7,7 @@ import {
   require_snapshot_summary_document,
 } from '@/services/shared/snapshot-summary-document';
 import type { SnapshotSummaryLayout } from '@/services/shared/snapshot-summary-layout';
+import { UNLOCKED_STATE_WRITE } from '@/services/shared/run-object-lock';
 import { write_encrypted_json } from '@/services/shared/stored-json-writer';
 
 /** An owner's stored summary rows and the ETag they were read at, for a conditional rewrite. */
@@ -70,6 +71,7 @@ export async function write_snapshot_summaries<TManifest, TSummary extends Snaps
       write: 'overwrite',
       expected_etag: etag ?? null,
       confirm_read_back: false,
+      object_lock_policy: UNLOCKED_STATE_WRITE,
     },
     build_snapshot_summary_document(owner_id, summaries),
   );

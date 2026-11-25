@@ -11,6 +11,7 @@ import type {
 import { AuthError, MailboxNotLicensedError, MimeUnavailableError } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
+import { is_graph_outage } from '@wisecom/atlas-core/services/shared/graph-outage-latch';
 import { parse_mime_envelope } from '@/services/shared/mime-message-parser';
 import type { MimeEnvelope } from '@/services/shared/mime-message-parser';
 
@@ -41,12 +42,15 @@ export interface MimeCapture {
 
 /**
  * Captures the message's original MIME (issue #50). The connector resolves undefined when Graph
- * will never produce MIME for the item, and the JSON payload is then the message's backup. A
- * rejection is a capture that failed for now, such as a 503 that outlasted the retries: the JSON
- * payload is still stored so the run keeps the message, and `failure` tells the caller to withhold
- * the folder's delta link so the next run captures the MIME (issue #614). A `MimeUnavailableError`
- * is permanent for the message, so it sets `unavailable` instead and the folder still completes
- * (issue #812). Access and licensing failures propagate (issue #372).
+ * will never produce MIME for the item, and the JSON payload is then the message's backup. Any
+ * other rejection that is this message's own, such as a 404 for a message deleted since its page
+ * was read, is a capture that failed for now: the JSON payload is still stored so the run keeps
+ * the message, and `failure` tells the caller to withhold the folder's delta link so the next run
+ * captures the MIME (issue #614). A `MimeUnavailableError` is permanent for the message, so it
+ * sets `unavailable` instead and the folder still completes (issue #812). An empty MIME is a
+ * failure too: zero bytes are never a message, and storing them as MIME would lose its content
+ * with the folder reported complete (issue #848). Access and licensing failures propagate (issue
+ * #372), and so does an exhausted retry budget, which is an outage (issue #881).
  */
 export async function capture_mime_payload(
   connector: MailboxConnector,
@@ -56,7 +60,8 @@ export async function capture_mime_payload(
 ): Promise<MimeCapture> {
   if (!connector.fetch_mime) return { mime: undefined };
   try {
-    return { mime: await connector.fetch_mime(tenant_id, owner_id, message.message_id) };
+    const mime = await connector.fetch_mime(tenant_id, owner_id, message.message_id);
+    return mime?.length === 0 ? empty_mime_failure(message.message_id) : { mime };
   } catch (err) {
     if (is_unrecordable_failure(err)) throw err;
     if (err instanceof MimeUnavailableError) {
@@ -68,13 +73,25 @@ export async function capture_mime_payload(
   }
 }
 
+/** The capture of a MIME that arrived with no bytes: a failure for now, so the next run asks again. */
+function empty_mime_failure(message_id: string): MimeCapture {
+  const reason = 'Graph returned an empty MIME body';
+  logger.warn(`MIME capture failed for message ${message_id}: ${reason}`);
+  return { mime: undefined, failure: reason };
+}
+
 /**
  * A failure the caller must not record against one message: lost access or licence ends the run
- * (issue #372), and a Graph call cut short by cancellation is the run stopping (issue #673).
+ * (issue #372), a Graph call cut short by cancellation is the run stopping (issue #673), and an
+ * exhausted retry budget is a Graph outage that fails the folder, which keeps its delta link,
+ * rather than a JSON stand-in stored for every message left on the page (issue #881).
  */
 export function is_unrecordable_failure(err: unknown): boolean {
   return (
-    err instanceof AuthError || err instanceof MailboxNotLicensedError || is_active_run_cancelled()
+    err instanceof AuthError ||
+    err instanceof MailboxNotLicensedError ||
+    is_graph_outage(err) ||
+    is_active_run_cancelled()
   );
 }
 
@@ -105,9 +122,9 @@ const NO_MESSAGE_PROPERTIES: MessageExtendedProperties = {
 
 /**
  * Captures the Outlook reaction and pin properties of a page of messages in one batched read
- * (issues #481, #513, #579). Access and licensing failures propagate as for MIME. Any other
- * failure loses only that metadata, never a message, and is counted so the run summary can report
- * it: the delta link moves past the page, so it is read again only when the message changes.
+ * (issues #481, #513, #579). Access, licensing and outage failures propagate as for MIME. Any
+ * other failure loses only that metadata, never a message, and is counted so the run summary can
+ * report it: the delta link moves past the page, so it is read again only when the message changes.
  */
 export async function capture_page_extended_properties(
   connector: MailboxConnector,

@@ -36,6 +36,9 @@ const ATLAS_EXIT_CODES = {
   // Graph kept failing with 5xx, network errors or timeouts through the whole retry budget: the
   // same transient category as an exhausted throttle (issue #773).
   ATLAS_GRAPH_UNAVAILABLE: 3,
+  // The storage backend never answered through every attempt: it timed out or the connection
+  // failed. Transient like an unavailable Graph, so a scheduler retries later (issue #924).
+  ATLAS_STORAGE_UNAVAILABLE: 3,
 } satisfies Record<AtlasErrorCode, number>;
 
 const NETWORK_CODES: Readonly<Record<string, true>> = {
@@ -62,9 +65,7 @@ export function handle_fatal_error(err: unknown): void {
   const atlas_error = chain.find((error) => error instanceof AtlasError);
   const statuses = chain.map(http_status);
   const atlas_code = atlas_error?.code ?? transport_atlas_code(statuses);
-  const network_error = chain.some(
-    (error) => typeof error.code === 'string' && NETWORK_CODES[error.code] === true,
-  );
+  const network_error = chain.some(is_transport_failure);
   process.exitCode = failure_exit_code(statuses, atlas_code, network_error);
 
   logger.error(err instanceof Error ? err.message : String(err));
@@ -90,6 +91,16 @@ function error_chain(err: unknown): ErrorFields[] {
     err = fields.cause;
   }
   return chain;
+}
+
+/**
+ * A connection that failed, or a request that timed out, before any HTTP answer. A
+ * `StorageUnavailableError` counts too, so a broad `StorageError` wrapping one still exits 3.
+ */
+function is_transport_failure(error: ErrorFields): boolean {
+  if (error instanceof AtlasError) return error.code === 'ATLAS_STORAGE_UNAVAILABLE';
+  if (typeof error.code === 'string' && NETWORK_CODES[error.code] === true) return true;
+  return error.name === 'TimeoutError' && http_status(error) === 0;
 }
 
 function failure_exit_code(
@@ -161,7 +172,8 @@ function log_remediation(error: AtlasError): void {
 function log_connection_hint(chain: ErrorFields[]): void {
   const is_storage = chain.some(
     (error) =>
-      (error instanceof AtlasError && error.code === 'ATLAS_STORAGE_FAILURE') ||
+      (error instanceof AtlasError &&
+        (error.code === 'ATLAS_STORAGE_FAILURE' || error.code === 'ATLAS_STORAGE_UNAVAILABLE')) ||
       (error.$metadata !== null && typeof error.$metadata === 'object'),
   );
   if (is_storage) {

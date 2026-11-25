@@ -9,6 +9,7 @@ import {
   state_names_key_check,
 } from '@wisecom/atlas-core/services/shared/encrypted-state-reader';
 import { write_encrypted_json } from '@wisecom/atlas-core/services/shared/stored-json-writer';
+import { UNLOCKED_STATE_WRITE } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { sharepoint_delta_cursor_key } from '@/services/shared/storage-keys';
 
 /** Persists the delta sync cursor (delta links + change tracking state) in S3. */
@@ -33,6 +34,7 @@ export class S3SharePointDeltaCursorRepository implements SharePointDeltaCursorR
         reader_check: state_names_key_check(key_cursor_names),
         write: 'overwrite',
         confirm_read_back: true,
+        object_lock_policy: UNLOCKED_STATE_WRITE,
       },
       cursor,
     );

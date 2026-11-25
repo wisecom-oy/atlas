@@ -1,11 +1,12 @@
-import { GraphUnavailableError, ThrottledError } from '@wisecom/atlas-types';
+import type { GraphUnavailableError, ThrottledError } from '@wisecom/atlas-types';
+import { is_graph_outage } from '@wisecom/atlas-core/services/shared/graph-outage-latch';
 
 /**
  * True for what `with_graph_retry` throws once a call has spent its retry budget: Graph kept
  * failing (`GraphUnavailableError`) or kept throttling (`ThrottledError`).
  */
 export function is_exhausted_retry(err: unknown): err is GraphUnavailableError | ThrottledError {
-  return err instanceof GraphUnavailableError || err instanceof ThrottledError;
+  return is_graph_outage(err);
 }
 
 /**

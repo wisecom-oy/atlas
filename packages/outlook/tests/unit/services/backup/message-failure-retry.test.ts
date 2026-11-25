@@ -107,6 +107,31 @@ describe('a per-message failure withholds the folder delta link', () => {
       expect(saved_links(harness)).toEqual({ 'folder-1': NEXT_LINK });
     });
 
+    it('withholds the link when $value came back empty, and the next run stores the MIME (issue #848)', async () => {
+      harness.mock_connector.fetch_mime = vi.fn(async (_t: string, _o: string, id: string) =>
+        id === 'msg-1' ? Buffer.alloc(0) : MIME,
+      );
+      const first = await harness.service.sync_mailbox('t', OWNER);
+
+      expect(first.summary.folder_errors).toEqual([
+        'Inbox: message msg-1: original MIME not captured, stored from the JSON payload (Graph returned an empty MIME body)',
+      ]);
+      expect(entry_for(first, 'msg-1')?.payload_format).toBeUndefined();
+      expect(entry_for(first, 'msg-1')?.size_bytes).toBe('{"id":"msg-1"}'.length);
+      expect(saved_links(harness)).toEqual({ 'folder-1': PREVIOUS_LINK });
+
+      harness.mock_connector.fetch_mime = vi.fn().mockResolvedValue(MIME);
+      const second = await harness.service.sync_mailbox('t', OWNER);
+
+      expect(prev_link_of_last_delta(harness)).toBe(PREVIOUS_LINK);
+      expect(second.summary.folder_errors).toEqual([]);
+      expect(entry_for(second, 'msg-1')).toMatchObject({
+        payload_format: 'mime',
+        size_bytes: MIME.length,
+      });
+      expect(saved_links(harness)).toEqual({ 'folder-1': NEXT_LINK });
+    });
+
     it('advances the link when Graph has no MIME for the item', async () => {
       harness.mock_connector.fetch_mime = vi.fn().mockResolvedValue(undefined);
 

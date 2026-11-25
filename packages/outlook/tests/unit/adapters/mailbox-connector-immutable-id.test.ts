@@ -26,7 +26,10 @@ describe('GraphMailboxConnector - immutable message IDs (issue #48)', () => {
   });
 
   it('sends IdType=ImmutableId on the initial delta page', async () => {
-    mock_client._chain.get.mockResolvedValueOnce({ value: [] });
+    mock_client._chain.get.mockResolvedValueOnce({
+      value: [],
+      '@odata.deltaLink': 'https://graph.microsoft.com/delta?token=next',
+    });
 
     await connector.fetch_delta('t', 'owner-1', 'folder-1');
 
@@ -37,7 +40,10 @@ describe('GraphMailboxConnector - immutable message IDs (issue #48)', () => {
   });
 
   it('sends IdType=ImmutableId on continuation pages from a saved delta link', async () => {
-    mock_client._chain.get.mockResolvedValueOnce({ value: [] });
+    mock_client._chain.get.mockResolvedValueOnce({
+      value: [],
+      '@odata.deltaLink': 'https://graph.microsoft.com/delta?token=next',
+    });
 
     await connector.fetch_delta('t', 'owner-1', 'folder-1', 'https://saved-delta-link');
 

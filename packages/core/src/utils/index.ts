@@ -36,6 +36,17 @@ export {
   read_env_bucket,
 } from './bucket-override';
 export { is_valid_bucket_name, tenant_bucket_name } from './bucket-name';
+export {
+  DEFAULT_S3_TRANSPORT,
+  S3_TRANSPORT_ENV_VARS,
+  build_s3_transport,
+  read_env_s3_transport,
+} from '@/utils/s3-transport-settings';
+export type {
+  S3TransportField,
+  S3TransportOverrides,
+  S3TransportSettings,
+} from '@/utils/s3-transport-settings';
 export type {
   BucketBinding,
   BucketSelection,

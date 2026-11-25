@@ -76,14 +76,19 @@ describe('entry kinds (#580)', () => {
 
 describe('completed_recrawl with a full enumeration (#580)', () => {
   it('treats a fresh listing after a pre-sharing cursor as a re-crawl', () => {
-    const delta = { items: [{ item_id: 'a' }], reset_detected: false, full_enumeration: true };
+    const delta = {
+      items: [{ item_id: 'a' }],
+      delta_link: 'link',
+      reset_detected: false,
+      full_enumeration: true,
+    };
     expect(completed_recrawl('drive-1', delta, 'old-link', false)?.returned_item_ids).toEqual(
       new Set(['a']),
     );
   });
 
   it('does not for an ordinary incremental delta', () => {
-    const delta = { items: [{ item_id: 'a' }], reset_detected: false };
+    const delta = { items: [{ item_id: 'a' }], delta_link: 'link', reset_detected: false };
     expect(completed_recrawl('drive-1', delta, 'link', false)).toBeUndefined();
   });
 });

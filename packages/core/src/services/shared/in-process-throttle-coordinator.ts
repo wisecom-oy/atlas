@@ -15,6 +15,7 @@ import { ThrottleFence } from './throttle-fence';
  */
 export class InProcessThrottleCoordinator implements ThrottleCoordinator {
   private readonly _fences = new Map<string, ThrottleFence>();
+  private _holds_process = true;
 
   /** Resolves once no cooldown is active for `pool`, or for `scope` within it. */
   async wait(pool: GraphServicePool, scope?: ThrottleScope): Promise<void> {
@@ -46,6 +47,15 @@ export class InProcessThrottleCoordinator implements ThrottleCoordinator {
   }
 
   /**
+   * Stops every cooldown, armed now or raised later, from keeping the process alive, without
+   * dropping it. For once the run has ended; see {@link ThrottleFence.release_process_hold}.
+   */
+  release_process_hold(): void {
+    this._holds_process = false;
+    for (const fence of this._fences.values()) fence.release_process_hold();
+  }
+
+  /**
    * The key of the per-owner fence an Outlook or Teams request is scoped to, or undefined when it has no
    * owner. Pool names hold no colon, so an owner key can never collide with a pool key.
    */
@@ -59,6 +69,7 @@ export class InProcessThrottleCoordinator implements ThrottleCoordinator {
     let fence = this._fences.get(key);
     if (!fence) {
       fence = new ThrottleFence();
+      if (!this._holds_process) fence.release_process_hold();
       this._fences.set(key, fence);
     }
     return fence;
