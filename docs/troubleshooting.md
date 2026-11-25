@@ -242,6 +242,25 @@ The signature Atlas computed differs from the one the server expects. The cause 
 3. For MinIO, confirm the keys match the root user and password the server was started with.
 4. Check the clock. S3 rejects requests whose timestamp differs from the server time by more than 15 minutes. Run NTP on both the Atlas host and the S3 server.
 
+### Conditional writes not enforced
+
+```
+Refusing to write to bucket atlas-<tenant-id>: the storage backend does not enforce conditional writes (the backend accepted a create-only write (If-None-Match: *) onto an existing object). ...
+```
+
+The storage backend failed the conditional-write probe Atlas runs before its first lease, key, or manifest write. The error is a `ConditionalWritesNotEnforcedError`, a `ConfigError` (`ATLAS_CONFIG_INVALID`, exit `6`), and nothing was written apart from the probe object, which Atlas removes. The text in brackets names the broken rule:
+
+| Text in the message | Backend behaviour | Seen on |
+| --- | --- | --- |
+| `accepted a create-only write (If-None-Match: *) onto an existing object` | Ignores `If-None-Match` | Garage, Scality CloudServer, Ceph RGW 18 |
+| `accepted a compare-and-swap (If-Match) with a stale ETag` | Ignores `If-Match` | Garage, Scality CloudServer |
+| `refused a compare-and-swap (If-Match) with the current ETag` | Refuses every `If-Match` | Ceph RGW 18 |
+
+Retrying returns the same answer, and there is no option to run anyway.
+
+1. Run `atlas storage-check` and read the `Conditional writes` row to confirm it.
+2. Upgrade the backend to a release that enforces conditional writes, or move the bucket to one that does. See [Backend compatibility](/self-hosting/storage#backend-compatibility).
+
 ## Decryption failures
 
 A decryption failure means the passphrase does not match the one that protected the tenant's data, or the stored key or data is damaged. Atlas never generates a key over an existing one, so a damaged key cannot be replaced in place.
@@ -514,7 +533,7 @@ Atlas checks every manifest, index, and cursor before it uploads it, writes snap
 | `Refusing to write ... its reader would reject it` | `RefusedWriteError`, `ATLAS_WRITE_REFUSED`, exit `1` | The object Atlas built fails its own reader's checks. Storing it would have produced a damaged manifest | Rerun. If it repeats, report it with the message, which names the object and the failed check, never content |
 | `Refusing to write ... too large to store as one JSON document` | The same | One manifest or index passed the JSON string limit of about 512 MB | Rerunning gives the same result. Report it with the message |
 | `Refusing to write ... decrypts to different bytes`, `does not decrypt` | The same | The ciphertext did not decrypt back to what was encrypted, which points at faulty memory or CPU on the host | Rerun. If it repeats, test the host's memory before trusting any backup made on it |
-| `already exists and holds a different object` | `StoredObjectConflictError`, `ATLAS_STORAGE_FAILURE`, exit `1` | Another object sits under this run's snapshot ID. The owner lease keeps two runs off one owner, so suspect a backend that ignores write conditions | Rerun, which uses a new snapshot ID. Run `atlas storage-check` and read its `Conditional writes` row |
+| `already exists and holds a different object` | `StoredObjectConflictError`, `ATLAS_STORAGE_FAILURE`, exit `1` | Another object sits under this run's snapshot ID. The owner lease keeps two runs off one owner, and Atlas refuses a backend that does not enforce write conditions, so this points at an object written outside Atlas | Rerun, which uses a new snapshot ID. Run `atlas storage-check` and read its `Conditional writes` row |
 | `was written, but reading it back returned different bytes` | `StorageError`, `ATLAS_STORAGE_FAILURE`, exit `1` | Storage returned something other than what was sent: a backend fault, or for a cursor, another run writing the same cursor | Rerun, then check `status`. If the object is reported damaged, see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes) or [Delta cursor or identity registry cannot be read](#delta-cursor-or-identity-registry-cannot-be-read) |
 | `was written but could not be read back to confirm it` | The same | The upload succeeded and the confirming `GET` failed. The cause is attached | Rerun once storage responds |
 

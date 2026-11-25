@@ -22,7 +22,7 @@ Any S3-compatible store works if it meets two requirements:
 | Requirement | Why it matters |
 | --- | --- |
 | Object Lock, enabled when the bucket is created | Needed for immutable backups with `--retention-days`. Most backends, MinIO included, cannot add it to an existing bucket. See [Immutability](/operations/immutability). |
-| Conditional writes (`If-None-Match`, `If-Match`) honoured | Keeps two runs from overwriting each other's state. See [Conditional writes](#conditional-writes). |
+| Conditional writes (`If-None-Match`, `If-Match`) enforced | Keeps two runs from overwriting each other's state. Atlas refuses to write to a bucket whose backend does not enforce them. See [Conditional writes](#conditional-writes). |
 
 `atlas storage-check` tests both. Run it against a new backend before you rely on it.
 
@@ -271,7 +271,7 @@ Atlas creates each tenant's bucket on the first backup, named `atlas-{tenant_id}
 | `versioned-only (legacy)` | Created by Atlas before 2.1.0, with versioning but without Object Lock | [Migrate it](#migrating-a-legacy-bucket) if you need immutability |
 | `unversioned (legacy)` | Created before versioning was enabled, or on a backend without Object Lock | [Migrate it](#migrating-a-legacy-bucket) if you need immutability |
 
-It also probes conditional writes and reports any bucket default retention. It exits `1` and prints `not-ready` unless the bucket is reachable, versioned, lock-capable, supports the requested lock mode, and does not ignore conditional writes.
+It also probes conditional writes and reports any bucket default retention. It exits `1` and prints `not-ready` unless the bucket is reachable, versioned, lock-capable, supports the requested lock mode, and enforces conditional writes.
 
 ::: warning Object Lock is set when the bucket is created
 MinIO cannot enable Object Lock on an existing bucket, and Atlas never enables it on one. On a bucket without Object Lock, a backup with `--retention-days` fails with `ObjectLockUnsupportedError` instead of appearing immutable. Backups without retention keep working.
@@ -432,11 +432,49 @@ More ways to protect the key are in [The DEK object](/operations/storage-layout#
 atlas storage-check   # the `Conditional writes` row must read `supported`
 ```
 
-Several objects depend on the backend refusing a write with `412` when its condition fails: the data key, snapshot manifests, owner leases, and the identity registry. `atlas storage-check` probes this and reports `supported`, `IGNORED`, or `not probed`.
+Several objects depend on the backend enforcing write conditions: the data key, snapshot manifests, owner leases, and the identity registry. The backend must give these three answers:
 
-::: warning Some S3-compatible stores ignore the header
-Older MinIO releases, some Ceph RGW versions, and various emulators silently ignore unknown conditional headers. To test by hand, write the same object twice with `If-None-Match: *`, and overwrite an object with `If-Match` set to a stale ETag. Both writes must fail with 412. On a backend that ignores them, run one backup per tenant at a time. After setup, Atlas reads back the stored data key and uses it, so two simultaneous first runs still agree on one key.
+| Write | Required answer |
+| --- | --- |
+| Create-only (`If-None-Match: *`) onto an existing object | Refused with `412` |
+| Compare-and-swap (`If-Match`) with a stale ETag | Refused with `412` |
+| Compare-and-swap (`If-Match`) with the current ETag | Accepted |
+
+`atlas storage-check` probes all three and reports `supported`, `NOT ENFORCED` with the broken rule, or `not probed` with the reason.
+
+### Atlas refuses a backend that does not enforce them
+
+Every command that writes to the bucket runs the same probe before its first conditional write: backup, restore, delete, quarantine, `keys rewrap`, and `keys purge-old-wrappers`, from the CLI or the SDK. When the backend breaks a rule, the command fails with `ConditionalWritesNotEnforcedError` (`ATLAS_CONFIG_INVALID`, exit `6`) before it writes a lease, a data key, or backup data. There is no override. See [Conditional writes are enforced or refused](/security#conditional-writes-are-enforced-or-refused) for why.
+
+| Consideration | Detail |
+| --- | --- |
+| Frequency | Once per bucket per process. A tenant-wide run probes once, not once per owner. Reads, lists, `verify`, and `save` never probe |
+| Requests | 5 `PUT`, 2 `GET`, 1 `DELETE`, and 1 `ListObjectVersions` on one plaintext object of about 30 bytes under `_meta/storage-check/`, plus one `DeleteObject` per version it left |
+| Permissions | `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`, `s3:ListBucketVersions`, and `s3:DeleteObjectVersion` on `_meta/storage-check/` |
+| Bucket does not exist yet | The write goes ahead, so a first backup can create the bucket. The probe runs again at the next conditional write |
+| Credentials may not write | The write goes ahead with a warning, and the process does not probe that bucket again. Read-only restore credentials keep working |
+| A request fails | The write goes ahead with a warning, and the next conditional write probes again. A storage outage is never remembered as a refusal |
+| Default retention | A bucket default retention locks the probe's versions until it ends, a few hundred bytes per process. See [Removing a bucket default retention](#removing-a-bucket-default-retention) |
+
+::: warning Upgrading on Garage, CloudServer, or Ceph RGW before 20.1
+Releases up to 7.2.0 only reported these backends in `storage-check` and ran anyway. Atlas now refuses to back up, restore, or delete there. Move the tenant buckets to a backend that enforces conditional writes before upgrading.
 :::
+
+### Backend compatibility
+
+Measured with single-node backends in Docker, 20 concurrent writers racing on one key with a create-only write:
+
+| Backend | Create-only onto an existing object | Stale `If-Match` | Current `If-Match` | Race winners | Atlas |
+| --- | --- | --- | --- | --- | --- |
+| MinIO | Refused | Refused | Accepted | 1 of 20 | Runs |
+| SeaweedFS 4.55 | Refused | Refused | Accepted | 1 of 20 | Runs |
+| RustFS 1.0.6 | Refused | Refused | Accepted | 1 of 20 | Runs |
+| Versity 1.11.0 | Refused | Refused | Accepted | 1 of 20 | Runs |
+| Garage v2.1.0 | Accepted | Accepted | Accepted | 20 of 20 | Refused |
+| Scality CloudServer 9.1.0 | Accepted | Accepted | Accepted | 20 of 20 | Refused |
+| Ceph RGW 18.2.4 | Accepted | Refused | Refused | 20 of 20 | Refused |
+
+Provider documentation lists further gaps. Backblaze B2 answers `If-None-Match` with `501 Not Implemented`, so Atlas's conditional writes fail there. Hetzner Object Storage does not support conditional `PUT` on versioned buckets, and Atlas creates its buckets versioned. UpCloud applies the conditions to `PutObject` only, which is all Atlas needs, since it never sends them on `CopyObject` or `CompleteMultipartUpload`. Run `atlas storage-check` against any backend before you rely on it.
 
 ### Create-only snapshot objects and the read-back
 
@@ -464,7 +502,7 @@ Atlas runs one operation at a time per mailbox, drive owner, site, or team. A ba
 
 | Consideration | Detail |
 | --- | --- |
-| Backend | Must refuse a create-only write onto an existing object and a compare-and-swap with a stale ETag, both with `412`. A backend that accepts them lets two runs hold one lease for up to 60 seconds |
+| Backend | Must enforce the [three conditional-write rules](#conditional-writes). Atlas refuses to take a lease on a backend that does not |
 | Requests | Per operation: 2 to acquire and 2 to release, 3 when the delete is refused. While it runs: one `GET` per minute, and one `PUT` of about 200 bytes every 5 minutes. Nothing per object |
 | Permissions | `s3:PutObject` and `s3:GetObject` on the lease objects, and `s3:DeleteObject` to remove a lease when its run ends |
 | Delete denied | Under a policy that denies `DeleteObject`, such as on `_meta/*`, the run marks its lease released with a conditional `PUT`, and the object stays as a free lease |
@@ -491,7 +529,7 @@ Backups record every user they look up by email in one tenant-wide object, `iden
 - Every later write carries the ETag the registry was read at (`If-Match`).
 - On `412 Precondition Failed`, or the `409 ConditionalRequestConflict` S3 returns when two conditional writes arrive together, Atlas re-reads the registry, applies its change on top of the other writer's, and tries again. After 8 attempts with a short jittered pause, the run fails with `ATLAS_STORAGE_FAILURE`.
 
-On a backend that ignores `If-Match`, the last writer wins and concurrent runs can drop each other's new entries. If `storage-check` does not report `supported`, run one backup per tenant at a time.
+On a backend that ignores `If-Match`, the last writer would win and concurrent runs would drop each other's new entries. On one that refuses the current ETag, every update would fail. Atlas refuses both before the first registry write. See [Atlas refuses a backend that does not enforce them](#atlas-refuses-a-backend-that-does-not-enforce-them).
 
 ## Object size limits
 

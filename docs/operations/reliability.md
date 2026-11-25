@@ -143,7 +143,7 @@ Atlas uses the AWS SDK for JavaScript v3 with a retry strategy of its own: 3 att
 | Identity registry contention | Up to 8 attempts, waiting `50 ms × attempt + random(0 to 200 ms)` between them |
 
 ::: warning Conditional writes must be enforced
-The leases, the data key bootstrap, and the identity registry are only safe on a backend that enforces these conditions. `atlas storage-check` writes a probe object and reports a backend that ignores them in its `Conditional writes` row.
+The leases, the data key bootstrap, and the identity registry are only safe on a backend that enforces these conditions. Every command that writes probes the bucket once per process and refuses one that does not, with exit `6`. `atlas storage-check` runs the same probe and reports the result in its `Conditional writes` row. See [Atlas refuses a backend that does not enforce them](/self-hosting/storage#atlas-refuses-a-backend-that-does-not-enforce-them).
 :::
 
 See [Create-only snapshot objects and the read-back](/self-hosting/storage#create-only-snapshot-objects-and-the-read-back) and [Metadata is checked before and after it is stored](/security#metadata-is-checked-before-and-after-it-is-stored).
