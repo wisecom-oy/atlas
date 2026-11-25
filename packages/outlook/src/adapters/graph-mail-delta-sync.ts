@@ -86,6 +86,8 @@ async function fetch_initial_delta_page(
  * Runs one delta pass for a folder, paging through all results and converting each message
  * directly (the body is in the delta response, so no per-message fetches are needed). Removals
  * accumulate into the handover, and a message the handover already passed to on_page is skipped.
+ * Throws when the round ends on a page without a delta link; a round on_page stops early returns
+ * an empty `delta_link` instead.
  */
 export async function run_mail_delta_pass(
   client: Client,
@@ -126,12 +128,30 @@ export async function run_mail_delta_pass(
     if (callback_result.should_continue === false) break;
 
     const next_url = page['@odata.nextLink'];
-    if (!next_url) break;
+    if (!next_url) {
+      assert_final_page_has_delta_link(page);
+      break;
+    }
 
     page = await fetch_mail_continuation_page(client, next_url, page_size);
   }
 
   return { messages, removed_ids: handover.removed_ids, delta_link, delta_reset: pass.delta_reset };
+}
+
+/**
+ * Throws when the page that ends a delta round carries no `@odata.deltaLink`.
+ *
+ * Graph ends every complete round with that link. A last page with neither link means the round
+ * was cut short, so the messages on the pages never requested are not in the result. Returning it
+ * as finished reported the folder `[ok]` with those messages missing (issue #851).
+ */
+function assert_final_page_has_delta_link(page: GraphPageResponse): void {
+  if (page['@odata.deltaLink']) return;
+  throw new Error(
+    'Graph ended the message delta of this folder without a delta link, so the read is ' +
+      'incomplete and the folder is read again next run',
+  );
 }
 
 /**

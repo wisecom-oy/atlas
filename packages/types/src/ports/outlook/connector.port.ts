@@ -125,7 +125,8 @@ export interface DeltaSyncResult {
   readonly removed_ids: string[];
   /**
    * Full @odata.deltaLink URL to pass to the next sync call. Empty when `on_page` stopped paging
-   * before the final page, which is the only page that carries one.
+   * before the final page, which is the only page that carries one. A round that runs to its end
+   * without one is incomplete, so `fetch_delta` rejects it instead of returning it (issue #851).
    */
   readonly delta_link: string;
   /** True when the previous delta link was invalid and a full re-enumeration occurred. */
