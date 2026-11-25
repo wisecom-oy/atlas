@@ -57,12 +57,45 @@ describe('GraphMailboxConnector.fetch_mime', () => {
   });
 
   it('requests immutable IDs and raw bytes', async () => {
-    const harness = create_harness(async () => new Response(new ArrayBuffer(0)));
+    const harness = create_harness(async () => new Response(MIME));
 
     await harness.connector.fetch_mime('t', 'owner-1', 'msg-1');
 
     expect(harness.header).toHaveBeenCalledWith('Prefer', 'IdType="ImmutableId"');
     expect(harness.response_type).toHaveBeenCalledWith('raw');
+  });
+
+  it('asks again when $value answers 200 with an empty body (issue #848)', async () => {
+    let calls = 0;
+    const harness = create_harness(async () => new Response(++calls === 1 ? '' : MIME));
+
+    vi.useFakeTimers();
+    try {
+      const attempt = harness.connector.fetch_mime('t', 'owner-1', 'msg-1');
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(Buffer.compare((await attempt) as Buffer, MIME)).toBe(0);
+      expect(harness.get).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects instead of resolving zero bytes when every body comes back empty', async () => {
+    const harness = create_harness(async () => new Response(''));
+
+    vi.useFakeTimers();
+    try {
+      const attempt = harness.connector.fetch_mime('t', 'owner-1', 'msg-1');
+      const assertion = expect(attempt).rejects.toThrow(
+        'Graph returned an empty MIME body on 3 attempts',
+      );
+      await vi.advanceTimersByTimeAsync(6_000);
+      await assertion;
+      expect(harness.get).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('resolves undefined when the message no longer exists', async () => {

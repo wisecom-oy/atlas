@@ -200,7 +200,8 @@ export interface MailboxConnector {
    * Rejects with `MimeUnavailableError` when Exchange answered with an error
    * that is permanent for this item even though its status is 5xx (issue #812).
    * Rejects otherwise when the capture failed for a reason a later attempt may
-   * not hit, such as a throttle or 5xx that outlasted the retries (issue #614).
+   * not hit, such as a throttle or 5xx that outlasted the retries (issue #614),
+   * or a body that stayed empty. Never resolves an empty buffer (issue #848).
    */
   // ponytail: optional method — keeps existing MailboxConnector test literals compiling; make it required when a second caller needs it guaranteed
   fetch_mime?(tenant_id: string, owner_id: string, message_id: string): Promise<Buffer | undefined>;

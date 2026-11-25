@@ -59,6 +59,16 @@ describe('MIME capture failures', () => {
     expect(capture.failure).toBe('HTTP 503');
   });
 
+  it('reports an empty MIME as a failure, never as captured MIME (issue #848)', async () => {
+    const connector = {
+      fetch_mime: vi.fn().mockResolvedValue(Buffer.alloc(0)),
+    } as unknown as MailboxConnector;
+
+    const capture = await capture_mime_payload(connector, 't', 'o', MESSAGE);
+
+    expect(capture).toEqual({ mime: undefined, failure: 'Graph returned an empty MIME body' });
+  });
+
   it('reports no failure when Graph has no MIME for the item', async () => {
     const connector = {
       fetch_mime: vi.fn().mockResolvedValue(undefined),
