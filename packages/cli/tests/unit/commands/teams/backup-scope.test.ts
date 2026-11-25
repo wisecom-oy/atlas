@@ -3,7 +3,9 @@ import { Container } from 'inversify';
 import { execute_teams_backup } from '@/commands/teams/command.handlers';
 import {
   AuthError,
+  GraphUnavailableError,
   OwnerBusyError,
+  ThrottledError,
   TEAMS_BACKUP_USE_CASE_TOKEN,
   TEAMS_CATALOG_USE_CASE_TOKEN,
   type TeamsBackupUseCase,
@@ -141,6 +143,29 @@ describe('teams backup scope and per-team isolation', () => {
 
     expect(backup_team).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    [
+      'GraphUnavailableError',
+      () => new GraphUnavailableError('Graph unavailable', { retries: 12, elapsed_ms: 1_411_000 }),
+    ],
+    ['ThrottledError', () => new ThrottledError('Graph kept throttling', 30_000)],
+  ])(
+    'stops --all at the first team that ends in %s and rethrows it (#881)',
+    async (_, make_outage) => {
+      list_teams.mockResolvedValueOnce([{ id: 'team-a' }, { id: 'team-b' }, { id: 'team-c' }]);
+      const outage = make_outage();
+      backup_team.mockResolvedValueOnce(healthy_result('team-a')).mockRejectedValueOnce(outage);
+
+      await expect(execute_teams_backup(container, { tenant: TENANT, all: true })).rejects.toBe(
+        outage,
+      );
+
+      // team-c would spend its own retry budget on the same outage.
+      expect(backup_team).toHaveBeenCalledTimes(2);
+      expect(backup_team.mock.calls.map((call) => call[1])).toEqual(['team-a', 'team-b']);
+    },
+  );
 
   it('rethrows a single-team failure so the fatal category exit is kept', async () => {
     backup_team.mockRejectedValueOnce(new Error('team not found'));

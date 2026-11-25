@@ -7,6 +7,7 @@ import type {
   TenantContext,
 } from '@wisecom/atlas-types';
 import { is_run_fatal } from '@/services/shared/run-fatal-error';
+import { is_graph_outage } from '@wisecom/atlas-core/services/shared/graph-outage-latch';
 import { store_contact_entry } from '@/services/backup/backup-contact-store';
 import { error_message } from '@/services/shared/error-message';
 
@@ -50,8 +51,9 @@ interface FolderMerge {
 }
 
 /**
- * Stores one contact into the merge. A non-fatal failure is recorded and the contact falls back
- * to its previous entry; a run-fatal failure is thrown.
+ * Stores one contact into the merge. A failure of the contact's own is recorded and the contact
+ * falls back to its previous entry. A run-fatal failure is thrown, and so is a Graph outage, which
+ * fails the folder so it keeps its previous state rather than one failure per remaining contact.
  */
 async function apply_contact(
   deps: FolderSyncDeps,
@@ -73,7 +75,7 @@ async function apply_contact(
     merge.objects_stored += stored.objects_stored;
     merge.by_id.set(contact.id, stored.entry);
   } catch (err) {
-    if (is_run_fatal(err)) throw err;
+    if (is_run_fatal(err) || is_graph_outage(err)) throw err;
     merge.errors.push(
       `Contact ${describe_contact(contact)} in ${folder.display_name} failed: ${error_message(err)}`,
     );

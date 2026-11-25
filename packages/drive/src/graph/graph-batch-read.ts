@@ -2,6 +2,7 @@ import type { GraphApiClient } from '@/permissions/graph-api-client';
 import {
   describe_graph_error,
   is_transient_error,
+  rethrow_if_retry_exhausted,
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
 import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
@@ -52,7 +53,9 @@ interface BatchResponse {
  * item deleted since the delta page, a 403 and the like), or its chunk kept failing after the
  * retry budget. Both are logged, never thrown, so a metadata read never fails the content backup it
  * rides along with. Refusals are summed into one line per call, so a drive that refuses every read
- * logs once rather than once per item. Cancellation still propagates.
+ * logs once rather than once per item. Cancellation still propagates, and so does an exhausted
+ * retry budget: it is a Graph outage, and swallowing it would store the drive's items without their
+ * metadata while the remaining chunks met the same outage (issue #881).
  */
 export async function batch_read_each<T>(
   client: GraphApiClient,
@@ -67,6 +70,7 @@ export async function batch_read_each<T>(
       await read_chunk(client, chunk, spec, { found, refusals });
     } catch (err) {
       if (is_active_run_cancelled()) throw err;
+      rethrow_if_retry_exhausted(err);
       const unread = chunk.filter((request) => !found.has(request.key)).length;
       logger.warn(`${spec.label} failed for ${unread} item(s): ${describe_graph_error(err)}`);
     }

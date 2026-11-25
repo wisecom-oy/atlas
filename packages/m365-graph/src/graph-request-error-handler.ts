@@ -7,6 +7,10 @@ import {
   get_active_throttle_scope,
 } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import {
+  get_active_graph_outage_signal,
+  record_graph_outage,
+} from '@wisecom/atlas-core/services/shared/graph-outage-latch';
+import {
   MAX_COOLDOWN_RELEASE_JITTER_MS,
   cooldown_release_jitter_ms,
 } from '@wisecom/atlas-core/services/shared/cooldown-release-jitter';
@@ -15,7 +19,13 @@ import {
   extract_requested_retry_after_ms,
   extract_retry_after_ms,
 } from '@/graph-retry-after';
-import { race_abort, run_attempt, sleep, throw_if_cancelled } from '@/graph-attempt-cancellation';
+import {
+  link_signals,
+  race_abort,
+  run_attempt,
+  sleep,
+  throw_if_cancelled,
+} from '@/graph-attempt-cancellation';
 import { is_network_error } from '@/graph-network-error';
 import { is_permanent_item_error } from '@/graph-permanent-item-errors';
 import { to_graph_unavailable_error } from '@/graph-unavailable-failure';
@@ -159,6 +169,11 @@ export function is_retryable_error(err: unknown): boolean {
  * left running beside the next attempt. A call marked `idempotent: false` is retried only on a
  * throttle response.
  *
+ * Inside a backup run (`run_stopping_on_graph_outage`), a call that spends its budget records the
+ * outage for the whole run, and every call of the run then throws that outage instead of sending a
+ * request or starting a wait, so one incident costs the run one budget rather than one per unit of
+ * work (issue #881).
+ *
  * This function is designed to be reusable across backup, restore, save, and
  * any other operation that communicates over the network.
  */
@@ -166,24 +181,45 @@ export async function with_graph_retry<T>(
   fn: (attempt_signal: AbortSignal) => Promise<T>,
   options: GraphRetryOptions = {},
 ): Promise<T> {
+  const stop = link_signals(get_active_abort_signal(), get_active_graph_outage_signal());
+  try {
+    return await retry_until_settled(fn, options, stop.signal);
+  } catch (err) {
+    record_graph_outage(err);
+    throw err;
+  } finally {
+    stop.release();
+  }
+}
+
+/**
+ * The retry loop of `with_graph_retry`. Every wait, and the start of every attempt, ends as soon as
+ * `stop_signal` fires: the run was cancelled, or another call of the run spent its budget. A
+ * request already sent is cut off only by cancellation, so a read in flight still completes.
+ */
+async function retry_until_settled<T>(
+  fn: (attempt_signal: AbortSignal) => Promise<T>,
+  options: GraphRetryOptions,
+  stop_signal: AbortSignal | undefined,
+): Promise<T> {
   const timeout_ms = options.timeout_ms ?? REQUEST_TIMEOUT_MS;
   const idempotent = options.idempotent ?? true;
   const abort_signal = get_active_abort_signal();
-  // What may cut off a request already sent; waits before a send always honour `abort_signal`.
+  // What may cut off a request already sent; waits before a send honour `stop_signal`.
   const in_flight_signal = options.complete_in_flight === true ? undefined : abort_signal;
   let waited_ms = 0;
   const started_at = Date.now();
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    throw_if_cancelled(abort_signal);
+    throw_if_cancelled(stop_signal);
     // Per attempt, not per call. A retry loop that started before the cooldown
     // began would otherwise keep firing into Graph for the whole of it.
-    waited_ms += await wait_out_throttle(cooldown_wait_bound_ms(waited_ms), abort_signal);
+    waited_ms += await wait_out_throttle(cooldown_wait_bound_ms(waited_ms), stop_signal);
     // Pacing is charged to no budget: it spaces requests out, it is not a cooldown Graph imposed.
     // A cooldown raised while this request waited for its slot is honoured before it is sent.
     const pacing = get_active_request_pacing();
     if (pacing) {
-      await pacing.before_attempt(abort_signal);
-      waited_ms += await wait_out_throttle(cooldown_wait_bound_ms(waited_ms), abort_signal);
+      await pacing.before_attempt(stop_signal);
+      waited_ms += await wait_out_throttle(cooldown_wait_bound_ms(waited_ms), stop_signal);
     }
     try {
       return await run_attempt(fn, timeout_ms, in_flight_signal);
@@ -206,7 +242,7 @@ export async function with_graph_retry<T>(
       logger.debug(
         `Retry ${attempt + 1}/${MAX_RETRIES} in ${(delay / 1000).toFixed(1)}s -- ${reason}`,
       );
-      waited_ms += await wait_before_retry(delay, retry_after ?? delay, abort_signal);
+      waited_ms += await wait_before_retry(delay, retry_after ?? delay, stop_signal);
     }
   }
   throw new Error('with_graph_retry: unreachable');

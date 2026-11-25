@@ -1,3 +1,4 @@
+import { is_graph_outage } from '@wisecom/atlas-core/services/shared/graph-outage-latch';
 import type {
   SharePointDeltaItem,
   SharePointSiteConnector,
@@ -114,8 +115,9 @@ async function refetch_or_record(
     return undefined;
   } catch (err) {
     // A fetch cut short by cancellation keeps the attempt count the item already had; the library
-    // scan treats the throw as the run stopping (issue #673).
-    if (err instanceof AuthError || is_active_run_cancelled()) throw err;
+    // scan treats the throw as the run stopping (issue #673). A Graph outage fails the library
+    // rather than spending the item's attempt (issue #881).
+    if (err instanceof AuthError || is_graph_outage(err) || is_active_run_cancelled()) throw err;
     const reason = err instanceof Error ? err.message : String(err);
     library_state.failed_items = record_item_failure(library_state.failed_items, {
       item_id: record.item_id,

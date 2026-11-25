@@ -1,5 +1,6 @@
 import type { OperationControlOptions } from '@wisecom/atlas-types';
 import { run_with_abort_signal } from '@/services/shared/graph-request-context';
+import { run_stopping_on_graph_outage } from '@/services/shared/graph-outage-latch';
 
 /** How far down a `cause` chain a wrapped cancellation is looked for. */
 const MAX_CAUSE_DEPTH = 8;
@@ -29,6 +30,23 @@ export async function run_cancellable<T>(
     if (!is_cancellation_of(err, control.abort_signal)) throw err;
     return interrupted_result();
   }
+}
+
+/**
+ * Runs one backup as `run_cancellable` does, under its own Graph outage latch: once a Graph call
+ * spends its retry budget, the run starts no other Graph call, commits what it finished, and
+ * rejects with that outage (issue #881).
+ */
+export function run_cancellable_backup<T>(
+  control: OperationControlOptions,
+  run: () => Promise<T>,
+  interrupted_result: () => T,
+): Promise<T> {
+  return run_cancellable(
+    control,
+    () => run_stopping_on_graph_outage(control.abort_signal, run),
+    interrupted_result,
+  );
 }
 
 /**

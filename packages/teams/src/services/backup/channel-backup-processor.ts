@@ -1,4 +1,5 @@
 import { retryable_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
+import { rethrow_if_retry_exhausted } from '@wisecom/atlas-m365-graph';
 import {
   TEAMS_FORMAT_VERSION,
   type FailedItemLedger,
@@ -152,7 +153,8 @@ function reused_entry(
 
 /**
  * Reuses the stored files folder, or the stored unavailable marker, unless `--full`. A 403 sets the
- * marker so the lookup is not repeated every run. A lookup error keeps the previous state.
+ * marker so the lookup is not repeated every run. A lookup error keeps the previous state; an
+ * exhausted retry budget is a Graph outage and fails the channel instead (issue #881).
  */
 async function resolve_files_folder(
   scope: BackupRunScope,
@@ -180,6 +182,7 @@ async function resolve_files_folder(
     }
     return { files_folder: found, files_folder_unavailable: undefined };
   } catch (err) {
+    rethrow_if_retry_exhausted(err);
     warnings.push(
       `Channel ${channel_id}: files folder not resolved (${error_message(err)}); kept the previous value`,
     );
@@ -190,7 +193,10 @@ async function resolve_files_folder(
   }
 }
 
-/** Lists the teams a shared channel is shared with. A lookup failure keeps the previous value. */
+/**
+ * Lists the teams a shared channel is shared with. A lookup failure keeps the previous value; an
+ * exhausted retry budget is a Graph outage and fails the channel instead (issue #881).
+ */
 async function resolve_shared_teams(
   scope: BackupRunScope,
   channel: TeamsGraphResource,
@@ -207,6 +213,7 @@ async function resolve_shared_teams(
       channel.id,
     );
   } catch (err) {
+    rethrow_if_retry_exhausted(err);
     warnings.push(
       `Channel ${channel.id}: shared teams not resolved (${error_message(err)}); kept the previous value`,
     );

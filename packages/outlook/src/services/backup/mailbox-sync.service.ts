@@ -1,5 +1,5 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
-import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
+import { run_cancellable_backup } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import type { HeldOwnerLease, OwnerLeasePort } from '@wisecom/atlas-types';
@@ -66,6 +66,8 @@ export class MailboxSyncService implements BackupUseCase {
    * The run holds the mailbox's lease through mailbox discovery and all subsequent reads and writes.
    *
    * @throws OwnerBusyError when another operation holds the mailbox's backup.
+   * @throws GraphUnavailableError or ThrottledError once a Graph call has spent its retry budget.
+   *   The run starts no further Graph calls, commits what it finished, then rejects (issue #881).
    */
   async sync_mailbox(
     tenant_id: string,
@@ -78,7 +80,11 @@ export class MailboxSyncService implements BackupUseCase {
       return build_interrupted_result(tenant_id, owner_id, options);
     };
     if (begin_operation_progress(options, 'backup', 'outlook')) return cancelled();
-    return run_cancellable(options, () => this.run_sync(tenant_id, owner_id, options), cancelled);
+    return run_cancellable_backup(
+      options,
+      () => this.run_sync(tenant_id, owner_id, options),
+      cancelled,
+    );
   }
 
   private async run_sync(
