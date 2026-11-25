@@ -2,6 +2,7 @@ import { inject, injectable } from 'inversify';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
 import { check_bucket_lifecycle } from '@/adapters/s3-bucket-lifecycle';
+import { add_missing_atlas_rules } from '@/adapters/s3-lifecycle-update';
 import { probe_bucket_immutability } from '@/adapters/s3-bucket-manager';
 import { read_bucket_default_retention } from '@/adapters/s3-default-retention';
 import { probe_conditional_writes } from '@/adapters/s3-conditional-write-probe';
@@ -26,13 +27,18 @@ export class StorageCheckService implements StorageCheckUseCase {
   /**
    * Checks bucket readiness for Object Lock policy before backup starts, and probes whether the
    * backend honours the conditional writes the owner lease relies on (issue #623). The probe
-   * writes and deletes one object, so it needs write access to the bucket.
+   * writes and deletes one object, so it needs write access to the bucket. With `apply_lifecycle`
+   * it first adds the Atlas lifecycle rules the bucket lacks (issue #918), so the lifecycle check
+   * reports the result.
    */
   async check_storage(
     tenant_id: string,
     request: StorageCheckRequest = {},
   ): Promise<StorageCheckResult> {
     const bucket = this._bucket_names.resolve(tenant_id).name;
+    const lifecycle_update = request.apply_lifecycle
+      ? await add_missing_atlas_rules(this._s3, bucket)
+      : undefined;
     const resolved_retain_until = request.retention_days
       ? compute_retain_until_utc(request.retention_days)
       : undefined;
@@ -57,6 +63,7 @@ export class StorageCheckService implements StorageCheckUseCase {
       default_retention,
       conditional_writes,
       lifecycle,
+      ...(lifecycle_update !== undefined ? { lifecycle_update } : {}),
       requested_mode: request.mode,
       requested_retention_days: request.retention_days,
       resolved_retain_until,

@@ -52,7 +52,7 @@ describe('s3-bucket-manager lock-capability fallback (issue #640)', () => {
 
     await ensure_bucket_exists(mock_s3 as never, 'lock-refused', buckets);
 
-    expect(mock_s3.send).toHaveBeenCalledTimes(4);
+    expect(mock_s3.send).toHaveBeenCalledTimes(5);
     expect(mock_s3.send.mock.calls[2][0].input.ObjectLockEnabledForBucket).toBeUndefined();
   });
 });

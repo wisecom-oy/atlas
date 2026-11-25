@@ -9,6 +9,7 @@ import type {
   StorageConditionalWriteCheck,
   StorageDefaultRetention,
   StorageLifecycleCheck,
+  StorageLifecycleUpdate,
 } from '@wisecom/atlas-types';
 import { STORAGE_CHECK_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { with_object_lock, with_tenant } from '@/commands/shared/shared-options';
@@ -27,6 +28,7 @@ interface StorageCheckOptions {
   tenant?: string;
   lockMode?: string;
   retentionDays?: string;
+  applyLifecycle?: boolean;
 }
 
 /** Registers `atlas storage-check` for immutability readiness validation. */
@@ -36,7 +38,11 @@ export function register_storage_check_command(
 ): void {
   const command = program
     .command('storage-check')
-    .description('Check S3/MinIO Object Lock, conditional writes, and lifecycle rules');
+    .description('Check S3/MinIO Object Lock, conditional writes, and lifecycle rules')
+    .option(
+      '--apply-lifecycle',
+      'add the Atlas lifecycle rules the bucket lacks, keeping every existing rule',
+    );
   with_object_lock(command, 'planned retention period in days');
   with_tenant(command).action((options: StorageCheckOptions) =>
     execute_storage_check(get_container(), options),
@@ -67,7 +73,8 @@ async function execute_storage_check(
     </Box>,
   );
 
-  if (!ready) process.exitCode = 1;
+  // A refused lifecycle update leaves the bucket as it was but fails the command that asked for it.
+  if (!ready || result.lifecycle_update?.status === 'failed') process.exitCode = 1;
 }
 
 function build_result_items(result: StorageCheckResult, ready: boolean): KeyValueItem[] {
@@ -86,6 +93,7 @@ function build_result_items(result: StorageCheckResult, ready: boolean): KeyValu
   }
   items.push(describe_conditional_writes(result.conditional_writes));
   items.push(describe_lifecycle(result.lifecycle));
+  if (result.lifecycle_update) items.push(describe_lifecycle_update(result.lifecycle_update));
   if (result.requested_mode) {
     items.push({ label: 'Requested mode', value: result.requested_mode });
   }
@@ -151,7 +159,24 @@ function describe_lifecycle(check: StorageLifecycleCheck): KeyValueItem {
     return { label, value: 'Atlas actions present', color: 'green' };
   }
   const missing = check.missing_actions.map(({ rule_id, action }) => `${rule_id}/${action}`);
-  return { label, value: `missing Atlas actions: ${missing.join(', ')}`, color: 'yellow' };
+  return {
+    label,
+    value: `missing Atlas actions: ${missing.join(', ')} (add with --apply-lifecycle)`,
+    color: 'yellow',
+  };
+}
+
+/** Reports what `--apply-lifecycle` changed. A failure leaves the previous rules in place. */
+function describe_lifecycle_update(update: StorageLifecycleUpdate): KeyValueItem {
+  const label = 'Lifecycle update';
+  if (update.status === 'unchanged') return { label, value: 'nothing to add', color: 'green' };
+  if (update.status === 'failed') return { label, value: `FAILED: ${update.detail}`, color: 'red' };
+  const count = update.added_rule_ids.length;
+  return {
+    label,
+    value: `added ${count} rule${count === 1 ? '' : 's'}: ${update.added_rule_ids.join(', ')}`,
+    color: 'green',
+  };
 }
 
 function resolve_tenant_id(container: Container, options: StorageCheckOptions): string {
@@ -162,11 +187,13 @@ function resolve_tenant_id(container: Container, options: StorageCheckOptions): 
 function build_request(options: StorageCheckOptions): {
   mode?: ObjectLockMode;
   retention_days?: number;
+  apply_lifecycle?: boolean;
 } {
   const mode = parse_object_lock_mode(options.lockMode);
   const retention_days = parse_retention_days(options.retentionDays);
   return {
     ...(mode !== undefined ? { mode } : {}),
     ...(retention_days !== undefined ? { retention_days } : {}),
+    ...(options.applyLifecycle === true ? { apply_lifecycle: true } : {}),
   };
 }

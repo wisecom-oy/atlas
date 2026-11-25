@@ -5,4 +5,5 @@ export type {
   StorageConditionalWriteCheck,
   StorageDefaultRetention,
   StorageLifecycleCheck,
+  StorageLifecycleUpdate,
 } from './use-case.port';

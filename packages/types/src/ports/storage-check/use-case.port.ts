@@ -3,6 +3,11 @@ import type { ObjectLockMode } from '@/ports/backup/use-case.port';
 export interface StorageCheckRequest {
   readonly mode?: ObjectLockMode | undefined;
   readonly retention_days?: number | undefined;
+  /**
+   * Adds the Atlas lifecycle rules the bucket lacks before checking it, keeping every rule that is
+   * already there. The only check option that changes the bucket configuration.
+   */
+  readonly apply_lifecycle?: boolean | undefined;
 }
 
 /** A bucket-wide default retention from the bucket's Object Lock configuration. */
@@ -32,6 +37,12 @@ export type StorageLifecycleCheck =
     }
   | { readonly status: 'not_checked'; readonly detail: string };
 
+/** Outcome of adding the Atlas lifecycle rules a bucket lacked. */
+export type StorageLifecycleUpdate =
+  | { readonly status: 'applied'; readonly added_rule_ids: readonly string[] }
+  | { readonly status: 'unchanged' }
+  | { readonly status: 'failed'; readonly detail: string };
+
 export interface StorageCheckResult {
   readonly bucket: string;
   readonly reachable: boolean;
@@ -48,6 +59,8 @@ export interface StorageCheckResult {
   readonly conditional_writes: StorageConditionalWriteCheck;
   /** Read-only check of Atlas bucket lifecycle actions. */
   readonly lifecycle: StorageLifecycleCheck;
+  /** Present when the request asked to apply the lifecycle rules. */
+  readonly lifecycle_update?: StorageLifecycleUpdate | undefined;
   readonly requested_mode?: ObjectLockMode | undefined;
   readonly requested_retention_days?: number | undefined;
   readonly resolved_retain_until?: string | undefined;
