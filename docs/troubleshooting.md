@@ -81,11 +81,11 @@ Throttling caps throughput even with unlimited bandwidth. For a first full tenan
 Microsoft Graph answered `500`, `502`, `503`, or `504`, or the connection failed or timed out, on every attempt until the retry budget ran out. This is a service incident at Microsoft or a network problem between the host and Microsoft 365, not a fault in the backup. The run exits `3`.
 
 1. Check the [Microsoft 365 service health](https://admin.microsoft.com/#/servicehealth) page.
-2. Schedule the run again once the incident clears. Back off at the run level rather than retrying immediately: each attempt can spend about 24 minutes per call before it gives up.
+2. Schedule the run again once the incident clears. Back off at the run level rather than retrying immediately: each attempt spends up to one retry budget, about 24 minutes, before it gives up.
 
 The message always names the HTTP status and the Microsoft Graph error code when the last attempt got a response, even one with an empty body. When no response arrived, it names the transport error instead, for example `no HTTP response (TypeError: fetch failed)` for a reset connection.
 
-One outage costs one retry budget per run. Lookups that may fail without failing a backup, such as a mailbox's purpose, the well-known folder roles, a tenant mailbox listing's purpose lookups, or a SharePoint subsite walk, still skip a `403` or `404`, but stop the run on an exhausted budget instead of letting the next call spend another one.
+One outage costs a backup one retry budget. The first call that spends its budget stops every other Graph call of the run, whether it was reading a message, a folder, an event, a channel, or a lookup that may otherwise fail without failing the backup. The run still writes the snapshot of the folders, drives, calendars, and channels it finished, keeps the previous checkpoint of the rest, and releases the owner lease, so the next scheduled run does not meet `ATLAS_OWNER_BUSY`. `atlas teams backup --all` and `atlas sharepoint backup --include-subsites` do not start the next team or subsite. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
 
 In the SDK the error is `GraphUnavailableError`:
 
