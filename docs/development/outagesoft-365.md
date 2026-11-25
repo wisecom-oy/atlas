@@ -116,6 +116,9 @@ and a kind. Faults, `--services`, and outage windows select on these.
 | `identity`   | `login.microsoftonline.com`                                                |
 | `transfer`   | pre-authenticated download and upload hosts, Outlook upload sessions       |
 
+Outlook resource segments also accept OData keys, such as `mailFolders('id')`,
+so Graph delta continuation links retain the `outlook` service.
+
 The selector `graph` means every service except `identity`; `all` means everything.
 Kinds are `delta`, `batch`, `download`, `upload`, `token`, `write` (any other
 non-GET), and `read`.

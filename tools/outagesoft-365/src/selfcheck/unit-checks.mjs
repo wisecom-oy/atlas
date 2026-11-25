@@ -83,6 +83,19 @@ export async function run_unit_checks(check) {
       classify_kind('outlook', 'GET', '/v1.0/users/x/mailFolders/inbox/messages/delta'),
       'delta',
     );
+    for (const token of ['$skiptoken', '$deltatoken']) {
+      const path = `/v1.0/users/x/mailFolders('inbox')/messages/delta?${token}=x`;
+      const service = classify_service(G, path);
+      assert.equal(service, 'outlook');
+      assert.equal(classify_kind(service, 'GET', path), 'delta');
+    }
+    for (const resource of ['contactFolders', 'calendars', 'messages']) {
+      assert.equal(classify_service(G, `/v1.0/users/x/${resource}('id')`), 'outlook');
+      assert.equal(classify_service(G, `/v1.0/me/${resource}('id')`), 'outlook');
+    }
+    assert.equal(classify_service(G, '/v1.0/users/x'), 'directory');
+    assert.equal(classify_service(G, '/v1.0/$batch'), 'directory');
+    assert.equal(classify_service(G, '/v1.0/users/x/messagesOther'), 'directory');
     assert.equal(classify_service(G, '/v1.0/users/x/drive/items/1/content'), 'onedrive');
     assert.equal(
       classify_kind('onedrive', 'GET', '/v1.0/users/x/drive/items/1/content'),
