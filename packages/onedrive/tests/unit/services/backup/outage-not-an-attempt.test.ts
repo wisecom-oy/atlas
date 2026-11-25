@@ -133,16 +133,28 @@ describe('OneDrive re-read of a listed file during an outage (issue #857)', () =
     return resolve_retry_items(connector, 'tenant-1', 'owner-1', 'drive-1', ledger, new Set());
   }
 
-  it.each([
-    ['an exhausted Graph retry', outage()],
-    ['an exhausted throttle', new ThrottledError('throttled', 1_000)],
-    ['a connection reset', Object.assign(new Error('reset'), { code: 'ECONNRESET' })],
-  ])('does not spend an attempt on %s', async (_label, err) => {
-    const resolution = await reread_failing_with(err, ledger_with_attempts(4));
+  it('does not spend an attempt on a connection reset', async () => {
+    const reset = Object.assign(new Error('reset'), { code: 'ECONNRESET' });
+
+    const resolution = await reread_failing_with(reset, ledger_with_attempts(4));
 
     expect(resolution.ledger['item-1']).toMatchObject({ attempts: 4 });
     expect(resolution.ledger['item-1']?.reason).toContain('Retry fetch failed');
     expect(retryable_items(resolution.ledger, 'drive-1')).toHaveLength(1);
+  });
+
+  // An exhausted budget is a Graph outage: it fails the drive instead of touching the ledger, so
+  // the item keeps its attempts and stays listed for the next run (issue #881).
+  it.each([
+    ['an exhausted Graph retry', outage()],
+    ['an exhausted throttle', new ThrottledError('throttled', 1_000)],
+  ])('fails the drive on %s and leaves the attempts as they were', async (_label, err) => {
+    const ledger = ledger_with_attempts(4);
+
+    await expect(reread_failing_with(err, ledger)).rejects.toBe(err);
+
+    expect(ledger['item-1']).toMatchObject({ attempts: 4 });
+    expect(retryable_items(ledger, 'drive-1')).toHaveLength(1);
   });
 
   it('spends an attempt on a Graph 400, which belongs to the request for this file', async () => {

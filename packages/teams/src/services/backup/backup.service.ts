@@ -1,5 +1,6 @@
 import { attach_run_retention } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { run_with_abort_signal } from '@wisecom/atlas-core/services/shared/graph-request-context';
+import { run_stopping_on_graph_outage } from '@wisecom/atlas-core/services/shared/graph-outage-latch';
 import { run_with_owner_lease } from '@wisecom/atlas-core/services/lease/run-with-owner-lease';
 import {
   begin_operation_progress,
@@ -95,6 +96,8 @@ export class TeamsBackupService implements TeamsBackupUseCase {
    *
    * @throws ConfigError when `tenant_id` is not a GUID, before any Graph call.
    * @throws OwnerBusyError when another operation holds the team's backup.
+   * @throws GraphUnavailableError or ThrottledError once a Graph call has spent its retry budget.
+   *   The run starts no further Graph calls, commits what it finished, then rejects (issue #881).
    */
   async backup_team(
     tenant_id: string,
@@ -121,12 +124,14 @@ export class TeamsBackupService implements TeamsBackupUseCase {
         async (lease) => {
           const ctx = await attach_run_retention(tenant_ctx, options.object_lock_request);
           return run_with_abort_signal(options.abort_signal, () =>
-            run_with_teams_request_stats(settings.stats, () =>
-              this.run_backup(ctx, lease, tenant_id, normalized_team_id, options, {
-                ...settings,
-                // Checkpoints are short-lived and rewritten every page: never put them under the run's lock.
-                checkpoint_ctx: tenant_ctx,
-              }),
+            run_stopping_on_graph_outage(options.abort_signal, () =>
+              run_with_teams_request_stats(settings.stats, () =>
+                this.run_backup(ctx, lease, tenant_id, normalized_team_id, options, {
+                  ...settings,
+                  // Checkpoints are short-lived and rewritten every page: never put them under the run's lock.
+                  checkpoint_ctx: tenant_ctx,
+                }),
+              ),
             ),
           );
         },

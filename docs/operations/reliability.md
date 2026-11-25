@@ -25,6 +25,7 @@ The [exit code table](#exit-codes-and-whether-to-retry) says which codes a rerun
 | Failure | What Atlas does | Section |
 | --- | --- | --- |
 | Microsoft Graph `429`, `500`, `502`, `503`, `504`, network error | Retries up to 12 times with backoff, honouring `Retry-After` | [Microsoft Graph requests](#microsoft-graph-requests) |
+| Microsoft Graph outage outlasts the retry budget during a backup | Stops the run after one budget, commits what finished, exits `3` | [When retries run out](#when-retries-run-out-on-a-throttle) |
 | A large file transfer stalls or its URL expires | Retries the range, refreshes the URL, resumes at the failed range | [File transfers](#file-transfers-onedrive-and-sharepoint) |
 | S3 request fails | The AWS SDK retries. Writes that must not collide are conditional | [Storage](#storage) |
 | You press Ctrl+C | Commits what finished, exits `2` | [Ctrl+C and signals](#ctrl-c-and-signals) |
@@ -57,7 +58,7 @@ Every Microsoft Graph call goes through one retry loop. The Graph SDK's own retr
 
 An Outlook MIME download (`GET /messages/{id}/$value`) that answers `200` with an empty body is requested again, up to 3 requests in all, 2 s and then 4 s apart. Zero bytes are never an RFC 5322 message, and storing them would pass every later check, since `verify` compares a checksum of zero bytes with zero bytes. If the body stays empty, the message is handled as a failed MIME capture (see [Partial runs](#partial-runs)). Attachments and files can be empty legitimately, so the check covers MIME only. A body shorter than its `Content-Length` fails in transport as `UND_ERR_SOCKET` and is retried as above.
 
-The 24-minute budget sits just above the full exponential schedule (1 + 2 + 4 + ... capped at 5 minutes comes to about 23.5 minutes), so backoff alone always gets all 12 retries. Time spent inside a request does not count, so a slow download keeps its retries. One call therefore waits at most about 24 minutes plus one cooldown.
+The 24-minute budget sits just above the full exponential schedule (1 + 2 + 4 + ... capped at 5 minutes comes to about 23.5 minutes), so backoff alone always gets all 12 retries. Time spent inside a request does not count, so a slow download keeps its retries. One call therefore waits at most about 24 minutes plus one cooldown, and so does a whole backup run: see [When retries run out](#when-retries-run-out-on-a-throttle).
 
 ### Cooldowns shared across requests
 
@@ -80,12 +81,22 @@ Concurrency is fixed, not adaptive. A `429` does not lower it; the shared cooldo
 
 ### When retries run out {#when-retries-run-out-on-a-throttle}
 
-| What ran out | Inside a folder, drive or library, file download, or Teams channel | Anywhere else, such as resolving the mailbox or site before any item is read |
-| --- | --- | --- |
-| A `429` (12 retries or the 24-minute budget) | `ThrottledError` (`ATLAS_THROTTLED`) with the last `Retry-After` attached. That unit fails and the run continues | The command ends with exit `3` |
-| A `500`, `502`, `503`, `504`, or network error | `GraphUnavailableError` (`ATLAS_GRAPH_UNAVAILABLE`). That unit fails, the run continues with the rest, and the command exits `2` | The command ends with exit `3` |
+| What ran out | Error | Backup | Restore and save |
+| --- | --- | --- | --- |
+| A `429` (12 retries or the 24-minute budget), or a `Retry-After` above 1 hour | `ThrottledError` (`ATLAS_THROTTLED`) with the last `Retry-After` attached | The run stops, exit `3` | That item fails and the command continues, exit `2` |
+| A `500`, `502`, `503`, `504`, or network error | `GraphUnavailableError` (`ATLAS_GRAPH_UNAVAILABLE`) | The run stops, exit `3` | That item fails and the command continues, exit `2` |
 
-An exhausted Outlook folder is marked as failed and keeps its previous sync checkpoint, so the next run reads those changes again. See [Microsoft Graph unavailable after retries](/troubleshooting#microsoft-graph-unavailable-after-retries) for the message and what to do.
+A call that spends its whole budget has met an incident at Microsoft or on the network, not a fault of one item, so a backup treats it as an outage of the whole run. From that moment no Graph call of the run sends a request or starts a wait. Each fails at once with the same error, and requests already sent finish. The run then:
+
+1. Writes the snapshot for every folder, drive, library, calendar, contact folder, or channel it finished before the outage.
+2. Leaves each unit it did not finish at its previous sync checkpoint, so the next run reads those changes again. A Graph call the outage stopped is not recorded as a failed file or thread, so it spends none of their retry attempts.
+3. Releases the owner lease and exits `3` with the error of the first exhausted call.
+
+One outage therefore holds a backup for about one budget: 1,411 s of backoff for a `503` without `Retry-After` (1 + 2 + 4 + ... + 256 s, then three waits of 300 s), plus the requests in flight.
+
+The scope is one run, meaning one owner under one lease. A host that backs up many owners at once lets each one spend its own budget, because one mailbox's exhausted calls can come from its own Exchange server rather than from all of Microsoft 365, and the shared [cooldowns](#cooldowns-shared-across-requests) already spread a `429` across owners. Within a run the stop covers every pool: a run that cannot read one pool is incomplete and is rerun either way. A command that loops over owners stops at the first one that ends on an outage: `atlas teams backup --all` does not start the next team, and `atlas sharepoint backup --include-subsites` does not start the next subsite.
+
+A call that is not retried to exhaustion stays the item's own failure and the run continues, as described in [Partial runs](#partial-runs). See [Microsoft Graph unavailable after retries](/troubleshooting#microsoft-graph-unavailable-after-retries) for the message and what to do.
 
 ### Writes that are sent once
 
@@ -204,6 +215,8 @@ A failure that belongs to one item is recorded against that item and the run con
 | One drive or library (for example its delta query) | That drive's error. Other drives run |
 | One Teams channel | A channel error. Other channels run. With `--all`, one team's failure does not stop the others |
 | One calendar or contact folder | That folder's error |
+
+An exhausted retry budget is never one of these. It stops the backup, see [When retries run out](#when-retries-run-out-on-a-throttle).
 
 Some failures are not the item's fault. Atlas stops the larger unit instead of failing every remaining item the same way:
 

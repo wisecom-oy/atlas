@@ -4,7 +4,7 @@ import {
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { attach_run_retention } from '@wisecom/atlas-core/services/shared/run-object-lock';
-import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
+import { run_cancellable_backup } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { run_with_owner_lease } from '@wisecom/atlas-core/services/lease/run-with-owner-lease';
 import { cursor_describes_head } from '@wisecom/atlas-core/services/shared/delta-cursor-binding';
 import { inject, injectable } from 'inversify';
@@ -66,6 +66,8 @@ export class ContactsBackupService implements ContactsBackupUseCase {
    * run holds the mailbox's contacts lease from before it reads the cursor until it ends.
    *
    * @throws OwnerBusyError when another operation holds the mailbox's contacts backup.
+   * @throws GraphUnavailableError or ThrottledError once a Graph call has spent its retry budget.
+   *   The run starts no further Graph calls, commits what it finished, then rejects (issue #881).
    */
   async backup_contacts(
     tenant_id: string,
@@ -91,7 +93,7 @@ export class ContactsBackupService implements ContactsBackupUseCase {
         { workload: 'contacts', owner_id: mailbox, operation: 'backup' },
         async (lease) => {
           const ctx = await attach_run_retention(tenant_ctx, options.object_lock_request);
-          return run_cancellable(
+          return run_cancellable_backup(
             options,
             () => this.run_backup(ctx, lease, tenant_id, mailbox, options),
             cancelled,

@@ -5,7 +5,7 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { with_summary_unreadable_keys } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
 import { attach_run_retention } from '@wisecom/atlas-core/services/shared/run-object-lock';
-import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
+import { run_cancellable_backup } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { randomBytes } from 'node:crypto';
 import {
   begin_operation_progress,
@@ -91,6 +91,8 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
    * The run holds the owner's OneDrive lease from before it reads the cursor until it ends.
    *
    * @throws OwnerBusyError when another operation holds the owner's OneDrive backup.
+   * @throws GraphUnavailableError or ThrottledError once a Graph call has spent its retry budget.
+   *   The run starts no further Graph calls, commits what it finished, then rejects (issue #881).
    */
   async backup_onedrive(
     tenant_id: string,
@@ -100,7 +102,11 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
     owner_id = normalize_owner_id(owner_id);
     const cancelled = (): OneDriveBackupResult => interrupted_before_scan(owner_id, options);
     if (begin_operation_progress(options, 'backup', 'onedrive')) return cancelled();
-    return run_cancellable(options, () => this.run_backup(tenant_id, owner_id, options), cancelled);
+    return run_cancellable_backup(
+      options,
+      () => this.run_backup(tenant_id, owner_id, options),
+      cancelled,
+    );
   }
 
   private async run_backup(

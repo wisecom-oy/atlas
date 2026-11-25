@@ -121,11 +121,16 @@ describe('SharePoint re-read of a listed file during an outage (issue #857)', ()
   }
 
   async function reread_failing_with(err: unknown, ledger: FailedItemLedger) {
+    const library = library_with(ledger);
+    await reread_into(library, err);
+    return library.failed_items;
+  }
+
+  function reread_into(library: LibraryProcessingState, err: unknown): Promise<unknown> {
     const connector = {
       fetch_item_by_id: vi.fn().mockRejectedValue(err),
     } as unknown as SharePointSiteConnector;
-    const library = library_with(ledger);
-    await retry_failed_items(
+    return retry_failed_items(
       connector,
       'tenant-1',
       'site-1',
@@ -137,19 +142,30 @@ describe('SharePoint re-read of a listed file during an outage (issue #857)', ()
       { watermarks: {}, rows: new Map() } as never,
       { total_versions_stored: 0, total_versions_unavailable: 0, total_versions_failed: 0 },
     );
-    return library.failed_items;
   }
 
-  it.each([
-    ['an exhausted Graph retry', outage()],
-    ['an exhausted throttle', new ThrottledError('throttled', 1_000)],
-    ['a connection reset', Object.assign(new Error('reset'), { code: 'ECONNRESET' })],
-  ])('does not spend an attempt on %s', async (_label, err) => {
-    const ledger = await reread_failing_with(err, ledger_with_attempts(4));
+  it('does not spend an attempt on a connection reset', async () => {
+    const reset = Object.assign(new Error('reset'), { code: 'ECONNRESET' });
+
+    const ledger = await reread_failing_with(reset, ledger_with_attempts(4));
 
     expect(ledger['item-1']).toMatchObject({ attempts: 4 });
     expect(ledger['item-1']?.reason).toContain('Retry fetch failed');
     expect(retryable_items(ledger, 'drive-1')).toHaveLength(1);
+  });
+
+  // An exhausted budget is a Graph outage: it fails the library instead of touching the ledger, so
+  // the item keeps its attempts and stays listed for the next run (issue #881).
+  it.each([
+    ['an exhausted Graph retry', outage()],
+    ['an exhausted throttle', new ThrottledError('throttled', 1_000)],
+  ])('fails the library on %s and leaves the attempts as they were', async (_label, err) => {
+    const library = library_with(ledger_with_attempts(4));
+
+    await expect(reread_into(library, err)).rejects.toBe(err);
+
+    expect(library.failed_items['item-1']).toMatchObject({ attempts: 4 });
+    expect(retryable_items(library.failed_items, 'drive-1')).toHaveLength(1);
   });
 
   it('spends an attempt on a Graph 400, which belongs to the request for this file', async () => {

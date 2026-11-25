@@ -1,3 +1,4 @@
+import { is_graph_outage } from '@wisecom/atlas-core/services/shared/graph-outage-latch';
 import type {
   DriveEntryKind,
   DriveFolderColor,
@@ -225,8 +226,9 @@ export async function process_item_guarded(
     );
   } catch (err) {
     // A cancelled transfer is the run stopping, not the item failing. Recording it would spend one
-    // of the item's five ledger attempts and eventually skip the file for good (issue #344).
-    if (abort_signal?.aborted === true) throw err;
+    // of the item's five ledger attempts and eventually skip the file for good (issue #344). A Graph
+    // outage is not the item's failure either: it fails the library, which keeps its delta link (#881).
+    if (abort_signal?.aborted === true || is_graph_outage(err)) throw err;
     const reason = err instanceof Error ? err.message : String(err);
     logger.warn(`SharePoint item ${item.item_id} (${item.file_name}) failed: ${reason}`);
     library_state.failed_item_ids.add(item.item_id);

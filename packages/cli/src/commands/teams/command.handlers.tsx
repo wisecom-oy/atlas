@@ -1,6 +1,7 @@
 import type { Container } from 'inversify';
 import { Box } from 'ink';
 import { logger } from '@wisecom/atlas-core';
+import { is_graph_outage } from '@wisecom/atlas-core/services/shared/graph-outage-latch';
 import type {
   TeamsBackupOptions,
   TeamsBackupResult,
@@ -203,9 +204,10 @@ interface TeamsBackupRun {
 
 /**
  * Backs up each team in turn and hands each result to `report` as it finishes. A failing team is
- * recorded and the rest still run. A single-team run or an auth failure stops the run and is
- * rethrown after reporting. Ctrl+C aborting the team in flight stops the run without recording
- * the cancelled team as failed.
+ * recorded and the rest still run. A single-team run, an auth failure, or a Graph outage (an
+ * exhausted retry budget) stops the run and is rethrown after reporting: with `--all`, each later
+ * team would otherwise spend its own budget on the same outage (issue #881). Ctrl+C aborting the
+ * team in flight stops the run without recording the cancelled team as failed.
  */
 async function run_team_backups(
   backup: TeamsBackupUseCase,
@@ -239,7 +241,7 @@ async function run_team_backups(
         break;
       }
       const error = thrown instanceof Error ? thrown : new Error(String(thrown));
-      if (team_ids.length === 1 || error instanceof AuthError) {
+      if (team_ids.length === 1 || error instanceof AuthError || is_graph_outage(error)) {
         run.fatal = error;
         break;
       }

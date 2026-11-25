@@ -9,6 +9,7 @@ import {
   type TeamsRootFetchResult,
   type TeamsThread,
 } from '@wisecom/atlas-types';
+import { is_graph_outage } from '@wisecom/atlas-core/services/shared/graph-outage-latch';
 import type { BackupRunScope } from '@/services/backup/backup-run-scope';
 import { MAX_HOSTED_RECHECK_ATTEMPTS } from '@/services/backup/hosted-recheck';
 import {
@@ -67,8 +68,10 @@ export function drop_unlisted_root_tracking(
 }
 
 /**
- * Applies one root task. An auth failure is rethrown so the channel stops. A failure during an
- * interrupt is reported as `interrupted`, not as a root failure.
+ * Applies one root task. An auth failure is rethrown so the channel stops, and so is a Graph outage
+ * (an exhausted retry budget): recording it would spend a ledger attempt on every root left in the
+ * channel (issue #881). A failure during an interrupt is reported as `interrupted`, not as a root
+ * failure.
  */
 async function apply_task(
   scope: BackupRunScope,
@@ -83,7 +86,7 @@ async function apply_task(
     const thread = await apply_one_root(scope, channel_id, fetched.change, previous, warnings);
     return { kind: 'applied', thread };
   } catch (err) {
-    if (err instanceof AuthError) throw err;
+    if (err instanceof AuthError || is_graph_outage(err)) throw err;
     if (scope.should_interrupt()) return { kind: 'interrupted' };
     if (err instanceof RootRefusal) {
       return err.status === 400 ? { kind: 'refused', message: err.message } : { kind: 'missing' };

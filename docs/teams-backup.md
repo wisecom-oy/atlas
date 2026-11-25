@@ -346,7 +346,7 @@ Each inline image is journaled as its own small encrypted object under `hosted/`
 
 ## When a channel cannot be backed up {#failed-channels}
 
-A channel that cannot be read is recorded as an error, and the run continues with the next channel. Teams under `--all` or repeated `--team` are isolated the same way.
+A channel that cannot be read is recorded as an error, and the run continues with the next channel. Teams under `--all` or repeated `--team` are isolated the same way. A Microsoft Graph outage is the exception: once a call spends its retry budget, the run starts no other channel and no other team, and exits `3`. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
 
 A thread that fails is added to its channel's list of failed threads and retried on later runs:
 

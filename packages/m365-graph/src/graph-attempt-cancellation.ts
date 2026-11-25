@@ -75,6 +75,41 @@ export function race_abort<T>(promise: Promise<T>, signal: AbortSignal | undefin
   );
 }
 
+/** A signal that fires when either of two signals fires, and the function that detaches it. */
+export interface LinkedSignal {
+  readonly signal: AbortSignal | undefined;
+  readonly release: () => void;
+}
+
+const NOTHING_TO_RELEASE = (): void => undefined;
+
+/**
+ * Links two optional signals into one that fires with the reason of whichever fires first, so a
+ * cancellation keeps its identity. One listener per input, removed by `release`, rather than
+ * `AbortSignal.any` per call: the inputs outlive every Graph call of the run.
+ */
+export function link_signals(
+  first: AbortSignal | undefined,
+  second: AbortSignal | undefined,
+): LinkedSignal {
+  if (first === undefined || first.aborted || second === undefined) {
+    return { signal: first ?? second, release: NOTHING_TO_RELEASE };
+  }
+  if (second.aborted) return { signal: second, release: NOTHING_TO_RELEASE };
+  const linked = new AbortController();
+  const forward_first = (): void => linked.abort(first.reason);
+  const forward_second = (): void => linked.abort(second.reason);
+  first.addEventListener('abort', forward_first, { once: true });
+  second.addEventListener('abort', forward_second, { once: true });
+  return {
+    signal: linked.signal,
+    release: (): void => {
+      first.removeEventListener('abort', forward_first);
+      second.removeEventListener('abort', forward_second);
+    },
+  };
+}
+
 /**
  * Races a promise against a timeout. On expiry it rejects with ETIMEDOUT first, then aborts
  * `attempt`, so the caller sees the timeout rather than the abort it causes.

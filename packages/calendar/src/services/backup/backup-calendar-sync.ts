@@ -2,6 +2,7 @@ import type { CalendarEventEntry, GraphCalendar, GraphEventPayload } from '@wise
 import { type EventStoreDeps, store_event_entry } from '@/services/backup/backup-event-store';
 import { error_message } from '@/services/shared/error-message';
 import { is_run_fatal } from '@/services/shared/run-fatal-error';
+import { is_graph_outage } from '@wisecom/atlas-core/services/shared/graph-outage-latch';
 
 /** Exchange allows four concurrent requests per mailbox; more only queue in the limiter. */
 const EVENT_CONCURRENCY = 4;
@@ -44,8 +45,9 @@ interface CalendarMerge {
 }
 
 /**
- * Stores one event into the merge. A non-fatal failure is recorded and the event falls back to
- * its previous entry; a run-fatal failure is thrown.
+ * Stores one event into the merge. A failure of the event's own is recorded and the event falls
+ * back to its previous entry. A run-fatal failure is thrown, and so is a Graph outage, which fails
+ * the calendar so it keeps its previous state rather than one failure per remaining event.
  */
 async function apply_event(
   deps: CalendarSyncDeps,
@@ -62,7 +64,7 @@ async function apply_event(
       merge.warnings.push(`Event ${describe_event(event)} in ${calendar.display_name}: ${warning}`);
     }
   } catch (err) {
-    if (is_run_fatal(err)) throw err;
+    if (is_run_fatal(err) || is_graph_outage(err)) throw err;
     merge.errors.push(
       `Event ${describe_event(event)} in ${calendar.display_name} failed: ${error_message(err)}`,
     );

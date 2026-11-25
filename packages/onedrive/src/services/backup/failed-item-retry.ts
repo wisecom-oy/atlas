@@ -1,3 +1,4 @@
+import { is_graph_outage } from '@wisecom/atlas-core/services/shared/graph-outage-latch';
 import type { OneDriveConnector, OneDriveDeltaItem } from '@wisecom/atlas-types';
 import { AuthError } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -74,8 +75,9 @@ export async function resolve_retry_items(
  * A fetch failure that must not be recorded against the item. A revoked grant is not a per-item
  * fault, and re-recording it 12 times per run tells the operator nothing; this matches the
  * SharePoint twin (issue #371). A fetch cut short by cancellation keeps the attempt count the item
- * already had, and the drive scan treats the throw as the run stopping (issue #673).
+ * already had, and the drive scan treats the throw as the run stopping (issue #673). A Graph outage
+ * (an exhausted retry budget) is not the item's fault either, and fails the drive (issue #881).
  */
 function is_unrecordable_fetch_failure(err: unknown): boolean {
-  return err instanceof AuthError || is_active_run_cancelled();
+  return err instanceof AuthError || is_graph_outage(err) || is_active_run_cancelled();
 }
