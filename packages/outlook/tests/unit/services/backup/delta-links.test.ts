@@ -57,6 +57,7 @@ describe('MailboxSyncService - delta link continuity', () => {
       'folder-1',
       'https://prev-delta',
       expect.any(Function),
+      undefined,
     );
   });
 
@@ -74,6 +75,7 @@ describe('MailboxSyncService - delta link continuity', () => {
       'folder-1',
       undefined,
       expect.any(Function),
+      undefined,
     );
   });
 
@@ -100,6 +102,7 @@ describe('MailboxSyncService - delta link continuity', () => {
       'folder-1',
       'https://prev-delta',
       expect.any(Function),
+      undefined,
     );
     expect(result.summary.unreadable_keys).toEqual([damaged]);
     expect(harness.mock_cursors.save).toHaveBeenCalledOnce();

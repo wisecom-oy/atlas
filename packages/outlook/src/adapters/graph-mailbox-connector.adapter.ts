@@ -37,7 +37,6 @@ import type { GraphDeltaMessage } from '@/adapters/graph-delta-message-mapper';
 import { graph_message_to_mail_message } from '@/adapters/graph-delta-message-mapper';
 import {
   IMMUTABLE_ID_PREFER,
-  MAIL_DELTA_PAGE_SIZE,
   create_delta_handover,
   fetch_mail_continuation_page,
   run_mail_delta_pass,
@@ -145,7 +144,7 @@ export class GraphMailboxConnector implements MailboxConnector {
         ? `fetch_delta: resuming from saved delta link`
         : `fetch_delta: starting initial full sync`,
     );
-    const pass = { owner_id, folder_id, page_size: page_size ?? MAIL_DELTA_PAGE_SIZE, on_page };
+    const pass = { owner_id, folder_id, page_size: page_size ?? 10, on_page };
     const handover = create_delta_handover();
 
     try {

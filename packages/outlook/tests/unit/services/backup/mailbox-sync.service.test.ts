@@ -212,6 +212,7 @@ describe('MailboxSyncService', () => {
       'f1',
       undefined,
       expect.any(Function),
+      undefined,
     );
     expect(mock_connector.fetch_delta).toHaveBeenCalledWith(
       't',
@@ -219,6 +220,7 @@ describe('MailboxSyncService', () => {
       'f2',
       undefined,
       expect.any(Function),
+      undefined,
     );
   });
 

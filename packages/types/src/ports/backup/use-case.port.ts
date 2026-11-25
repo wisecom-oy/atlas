@@ -61,6 +61,7 @@ export interface BackupProgressReporter {
 export interface SyncOptions extends OperationControlOptions {
   readonly folder_filter?: string[] | undefined;
   readonly force_full?: boolean | undefined;
+  readonly page_size?: number | undefined;
   readonly object_lock_policy?: ObjectLockPolicy | undefined;
   readonly object_lock_request?: ObjectLockRequest | undefined;
   readonly progress?: BackupProgressReporter | undefined;

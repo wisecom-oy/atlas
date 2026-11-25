@@ -83,6 +83,7 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
             owner_email: mailbox.mail,
             owner_display_name: mailbox.display_name,
             force_full: options.force_full,
+            page_size: options.page_size,
             object_lock_request: options.object_lock_request,
             object_lock_policy: options.object_lock_policy,
             should_interrupt,

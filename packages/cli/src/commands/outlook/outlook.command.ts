@@ -79,7 +79,8 @@ function register_outlook_backup(group: Command, get_container: ContainerFactory
     .option(
       '--include-recoverable-items',
       'also back up hard-deleted and hold-retained mail from Recoverable Items',
-    );
+    )
+    .option('-P, --page-size <n>', 'Graph API page size per delta request (1-100)', '10');
   with_repeatable_folder(
     command,
     'folder to back up; repeat for more (e.g. -f Inbox -f "Sent Items")',
