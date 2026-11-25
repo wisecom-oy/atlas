@@ -272,7 +272,7 @@ The summary is AES-256-GCM encrypted with the tenant DEK and bound to its direct
 | Backup, summary write fails | The backup still succeeds and logs a warning, because the manifest is the record |
 | Backup, another writer changed it | Conditional write: `If-None-Match` creates it, `If-Match` on the ETag read replaces it. On a conflict Atlas reads, reconciles, and writes once more, then gives up with a warning. A backend that ignores conditional headers lets the later write win, which leaves a stale summary at worst |
 | Backup lost its owner lease | The run checks its [owner lease](#owner-leases) right before the write, because seeding rows can take long. A run that lost it raises `OwnerLeaseLostError` and writes neither the summary nor the cursor |
-| OneDrive or SharePoint backup with retention | Written with the run's retention, like the delta cursor, so each rewrite keeps a locked version until it expires |
+| Backup with retention | Written without the run's retention, like the delta cursor, so the noncurrent-version rule expires replaced versions. See [What Object Lock covers](/operations/immutability#what-object-lock-covers) |
 | `delete -s`, `quarantine` | The snapshot's row is removed under the owner's lease, after the manifest is gone and, for `delete -s`, after the delta cursor. The rewrite is a compare-and-swap on the summary just read and never creates one. If it fails, the command succeeds with a warning and readers skip the row |
 | Contacts and Calendar `delete -s` | Runs without the tenant key, so it cannot rewrite the summary. It leaves the row, readers drop it, and the next backup removes it |
 | Deleting an owner, mailbox, or site | The summary is removed with the owner's other `_meta` objects, and its lease last |

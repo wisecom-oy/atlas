@@ -865,7 +865,7 @@ atlas onedrive backup -o user@example.com --retention-days 30 --lock-mode govern
 | `-o, --owner <id>`     | User email or Entra object ID (required)                                                            |
 | `--full`               | Force a full backup, ignoring saved delta links                                                     |
 | `--folder <path>`      | Back up only this folder and its subfolders (see below)                                             |
-| `--retention-days <n>` | Lock every object this run writes for `n` days (see below)                                          |
+| `--retention-days <n>` | Lock the backup data this run writes for `n` days (see below)                                       |
 | `--lock-mode <mode>`   | Object Lock mode, `governance` or `compliance` (default `governance`). Requires `--retention-days`. |
 | `-t, --tenant <id>`    | Override the tenant ID from config                                                                  |
 
@@ -874,11 +874,11 @@ atlas onedrive backup -o user@example.com --retention-days 30 --lock-mode govern
 - **Ctrl+C** stops the run at once, wherever it is, including a file transfer, a Graph call, and any retry or throttle wait. The run exits `2` without advancing the delta cursor. The interrupted file is not recorded as a failed item, so it keeps its retry budget. A second Ctrl+C exits at once with status `130`.
 
 ::: details Object Lock for OneDrive and SharePoint
-- Retention is stamped on each object the run writes: files, file versions, manifests, version indexes, and delta cursors. The retain-until date is computed once, when the run starts. The bucket's own Object Lock configuration is never changed, so two runs with different `--retention-days` each lock exactly what they wrote.
+- Retention is stamped on the backup data the run writes: files, file versions, manifests, and version indexes. The retain-until date is computed once, when the run starts. The bucket's own Object Lock configuration is never changed, so two runs with different `--retention-days` each lock exactly what they wrote.
 - The staging multipart upload for a large file is written without a lock. Its bytes are copied to a locked object and the staging copy is deleted. A bucket default retention still locks it.
 - Versions before 6.1.0 set a bucket default retention instead. A default left by them stays in force until you remove it; see [Removing a bucket default retention](/self-hosting/storage#removing-a-bucket-default-retention). An explicit per-object date always takes precedence.
 - The bucket must be created with Object Lock (see `atlas storage-check`). Otherwise the backup fails before it contacts Microsoft Graph: `ObjectLockVersioningDisabledError` when versioning is off, `ObjectLockUnsupportedError` when Object Lock is not enabled, or `ObjectLockModeRejectedError` when the backend refuses the mode.
-- Small objects overwritten often, such as cursors and indexes, accumulate locked noncurrent versions until retention expires. The bucket housekeeping lifecycle rules remove them afterwards.
+- The delta cursor and the snapshot summary index are replaced by every run, so they are written without a lock and their old versions expire under the noncurrent-version rule. See [What Object Lock covers](/operations/immutability#what-object-lock-covers).
 
 See [Erasure](/security#erasure) and [Immutability and Object Lock](/operations/immutability).
 :::
@@ -1157,7 +1157,7 @@ atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering 
 | `--site <url-or-id>`   | SharePoint site URL or Graph site ID (required)                                                     |
 | `--full`               | Force a full backup, ignoring saved delta links                                                     |
 | `--include-subsites`   | Also back up every subsite beneath the site, one snapshot per subsite                               |
-| `--retention-days <n>` | Lock every object this run writes for `n` days (same semantics as OneDrive)                         |
+| `--retention-days <n>` | Lock the backup data this run writes for `n` days (same semantics as OneDrive)                      |
 | `--lock-mode <mode>`   | Object Lock mode, `governance` or `compliance` (default `governance`). Requires `--retention-days`. |
 | `-t, --tenant <id>`    | Override the tenant ID from config                                                                  |
 
@@ -1401,7 +1401,7 @@ atlas teams backup --all --concurrency 8
 | `--channel <id>`       | Back up only this channel. Requires exactly one `--team`, not allowed with `--all`. Others carry forward                         |
 | `--full`               | Force a full read: ignores saved delta links and cached files folders, and rebuilds a channel whose previous shard is unreadable |
 | `--concurrency <n>`    | Channels backed up at once within a team, 1 to 16 (default 4). Requests stay paced, see [Pacing](../teams-backup.md#pacing)      |
-| `--retention-days <n>` | Lock every object this run writes for `n` days (same semantics as OneDrive)                                                      |
+| `--retention-days <n>` | Lock the backup data this run writes for `n` days (same semantics as OneDrive)                                                   |
 | `--lock-mode <mode>`   | Object Lock mode, `governance` or `compliance` (default `governance`). Requires `--retention-days`                               |
 | `-t, --tenant <id>`    | Override the tenant ID from config                                                                                               |
 

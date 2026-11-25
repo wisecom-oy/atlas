@@ -96,7 +96,7 @@ atlas teams list-teams
 | `--channel <id>`       | Back up only this channel. Needs exactly one `--team`, not allowed with `--all`                   | All channels   |
 | `--full`               | Ignore saved sync checkpoints and cached files folders, and read every channel in full            | `false`        |
 | `--concurrency <n>`    | Channels backed up at once within a team, 1 to 16                                                 | `4`            |
-| `--retention-days <n>` | Lock every object this run writes for `n` days with Object Lock                                   | Off            |
+| `--retention-days <n>` | Lock the backup data this run writes for `n` days with Object Lock                                | Off            |
 | `--lock-mode <mode>`   | `governance` or `compliance`; requires `--retention-days`                                         | `governance`   |
 | `-t, --tenant <id>`    | Tenant GUID                                                                                       | Config default |
 

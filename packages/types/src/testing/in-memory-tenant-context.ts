@@ -90,6 +90,8 @@ function build_storage(bucket: Bucket): ObjectStorage {
       const body = Buffer.from(read(source_key).body);
       bucket.data.set(dest_key, { body, etag: etag_of(body) });
     },
+    /** Accepts every policy, as a lock-capable bucket would, so a run can attach retention. */
+    async validate_object_lock_policy(): Promise<void> {},
   };
   return storage as unknown as ObjectStorage;
 }

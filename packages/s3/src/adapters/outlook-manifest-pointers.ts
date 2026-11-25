@@ -3,6 +3,7 @@ import { StorageError } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
 import { write_encrypted_json } from '@wisecom/atlas-core/services/shared/stored-json-writer';
+import { UNLOCKED_STATE_WRITE } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { OUTLOOK_MANIFEST_PREFIX } from '@/adapters/outlook-manifest-reader';
 import { OUTLOOK_MANIFEST_POINTER_PREFIX as MANIFEST_POINTER_PREFIX } from '@/adapters/outlook-snapshot-summary-layout';
 
@@ -62,7 +63,8 @@ export function pointer_manifest_key(parsed: unknown): string | undefined {
 
 /**
  * Stores one pointer, overwriting any previous one. A pointer is a shortcut: every read that finds
- * it missing or unusable falls back to listing the manifests, so it is not read back.
+ * it missing or unusable falls back to listing the manifests, so it is not read back, and it
+ * carries no Object Lock retention (#919).
  */
 export async function write_manifest_pointer(
   ctx: TenantContext,
@@ -77,6 +79,7 @@ export async function write_manifest_pointer(
       reader_check: require_pointer_names_manifest,
       write: 'overwrite',
       confirm_read_back: false,
+      object_lock_policy: UNLOCKED_STATE_WRITE,
     },
     pointer,
   );

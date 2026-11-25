@@ -4,6 +4,7 @@ import {
   attach_run_retention,
   ObjectLockingStorage,
   UNLOCKED_STAGING_UPLOAD,
+  UNLOCKED_STATE_WRITE,
 } from '@/services/shared/run-object-lock';
 
 function make_storage(): ObjectStorage {
@@ -74,6 +75,44 @@ describe('ObjectLockingStorage', () => {
 
     expect(vi.mocked(inner.put).mock.calls[0]?.[3]).toBe(POLICY);
     expect(vi.mocked(inner.copy).mock.calls[0]?.[3]).toBe(POLICY);
+  });
+
+  it('puts without a lock when the state opt-out is passed, keeping the conditions', async () => {
+    const inner = make_storage();
+
+    await new ObjectLockingStorage(inner, POLICY).put(
+      'cursor',
+      Buffer.from('x'),
+      undefined,
+      UNLOCKED_STATE_WRITE,
+      '"etag"',
+      false,
+    );
+
+    expect(inner.put).toHaveBeenCalledWith(
+      'cursor',
+      Buffer.from('x'),
+      undefined,
+      undefined,
+      '"etag"',
+      false,
+    );
+  });
+
+  it('locks a copy or multipart upload that passes the state opt-out', async () => {
+    const inner = make_storage();
+    const locked = new ObjectLockingStorage(inner, POLICY);
+
+    await locked.copy('src', 'dst', undefined, UNLOCKED_STATE_WRITE);
+    await locked.begin_multipart_upload('big', undefined, UNLOCKED_STATE_WRITE);
+
+    expect(vi.mocked(inner.copy).mock.calls[0]?.[3]).toBe(POLICY);
+    expect(vi.mocked(inner.begin_multipart_upload).mock.calls[0]?.[2]).toBe(POLICY);
+  });
+
+  it('keeps the two opt-outs distinct, so neither unlocks what only the other may', () => {
+    expect(UNLOCKED_STATE_WRITE).not.toBe(UNLOCKED_STAGING_UPLOAD);
+    expect(Object.isFrozen(UNLOCKED_STATE_WRITE)).toBe(true);
   });
 
   it('passes reads and deletes through unchanged', async () => {
