@@ -71,7 +71,7 @@ function graph_segments(path) {
 }
 
 const OUTLOOK_SEGMENT =
-  /^(messages|mailfolders|events|calendar|calendars|calendarview|calendargroups|contacts|contactfolders|sendmail|mailboxsettings|outlook|inferenceclassification)$/;
+  /^(messages|mailfolders|events|calendar|calendars|calendarview|calendargroups|contacts|contactfolders|sendmail|mailboxsettings|outlook|inferenceclassification)(\(.*\))?$/;
 const TEAMS_SEGMENT = /^(chats|joinedteams|teamwork|channels)$/;
 
 /** Classifies a graph.microsoft.com path into a service. */
