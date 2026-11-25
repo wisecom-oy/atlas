@@ -49,6 +49,9 @@ The API is grouped by workload (`atlas.outlook`, `atlas.onedrive`, `atlas.sharep
 | `s3SecretKey`          | `string`                               | Yes      | S3 secret key                                                                                                                     |
 | `s3Region`             | `string`                               | No       | S3 region. Default `us-east-1`                                                                                                    |
 | `s3Bucket`             | `string`                               | No       | Bucket to use instead of `atlas-{tenantId}`. Bound to `tenantId` and never created. See [Bucket override](#bucket-override)       |
+| `s3ConnectionTimeoutMs` | `number`                              | No       | Milliseconds for the TCP connection to the S3 endpoint to open, 1000 to 600000, or `0` for none. Default `10000`. See [S3 timeouts and retries](/self-hosting/storage#s3-timeouts-and-retries) |
+| `s3IdleTimeoutMs`      | `number`                               | No       | Milliseconds an S3 request's socket may stay silent before the attempt is cut off, 1000 to 3600000, or `0` for none. Default `300000` |
+| `s3MaxAttempts`        | `number`                               | No       | Attempts per S3 request, the first one included, 1 to 10. Default `3`                                                               |
 | `encryptionPassphrase` | `string`                               | Yes      | Protects the tenant's data key. At least 14 UTF-8 bytes. Must match the passphrase of existing backups                            |
 | `logger`               | `LogSink`                              | No       | Receives SDK log lines. The SDK is silent without it. See [Logging](#logging)                                                     |
 | `onStorageRequest`     | `(event: StorageRequestEvent) => void` | No       | Receives one event per S3 request. See [Storage request events](#storage-request-events)                                          |
@@ -60,7 +63,8 @@ Construction is synchronous and makes no network requests. It throws `ConfigErro
 - a required field is missing or blank, or the passphrase is shorter than 14 UTF-8 bytes;
 - `s3Endpoint` is not a valid URL as described above, or `s3Bucket` is not a valid S3 bucket name;
 - `onStorageRequest` is not a function, or `throttleCoordinator` lacks `wait` and `raise` functions;
-- `teamsPacingShare` is outside the range above 0 and at most 1.
+- `teamsPacingShare` is outside the range above 0 and at most 1;
+- `s3ConnectionTimeoutMs`, `s3IdleTimeoutMs`, or `s3MaxAttempts` is not an integer in its range.
 
 ### Naming
 
@@ -99,7 +103,7 @@ try {
 | Unwrap `_meta/dek.enc`, if it exists     | `WrongPassphraseError`, `ATLAS_WRONG_PASSPHRASE` | Use the passphrase that created this tenant's backups. In a multi-tenant service, confirm each tenant has its own passphrase  |
 | Microsoft Graph token                    | `AuthError`, `ATLAS_AUTH_DENIED`                 | Check the tenant ID, client ID, client secret, and connectivity to Microsoft Entra ID                                         |
 
-- A code names the stage that failed, not necessarily bad credentials. DNS, TLS, and transport failures also fail a stage. The original failure is kept in `cause`.
+- A code names the stage that failed, not necessarily bad credentials. DNS, TLS, and transport failures also fail a stage. The original failure is kept in `cause`. An S3 endpoint that never answers fails a storage check as `StorageError` with a `StorageUnavailableError` cause.
 - When S3 refuses `atlas-{tenantId}` as an invalid bucket name, the first check throws `ConfigError` (`ATLAS_CONFIG_INVALID`) naming the rule. See [Bucket name is not valid](/troubleshooting#bucket-name-is-not-valid).
 - The key check makes at most one storage `GET` and opens the key locally with AES-256-GCM. It never creates a key, writes an object, or logs key material. A new tenant with no key passes, and the first backup creates the key.
 - `validate()` does not check write permission, Object Lock readiness, or workload-specific Microsoft Graph consent. Use [`checkStorage()`](#checkstorage) for Object Lock and conditional writes. See [Security](/security#kek-derivation-scrypt) for passphrase guidance.
@@ -1789,6 +1793,7 @@ try {
 | `WrongPassphraseError`              | `ATLAS_WRONG_PASSPHRASE`     | The passphrase could not unwrap the data key. A damaged content object is a per-file entry in a restore result's `errors`, not this error                       |
 | `ObjectLockRetainedError`           | `ATLAS_OBJECT_LOCK_RETAINED` | The object is under retention or a legal hold. `key` is set                                                                                                     |
 | `StorageError`                      | `ATLAS_STORAGE_FAILURE`      | Storage failed for a reason other than permission, retention, or absence                                                                                        |
+| `StorageUnavailableError`           | `ATLAS_STORAGE_UNAVAILABLE`  | The S3 endpoint never answered: the connection was refused or did not open, or the socket stayed silent past `s3IdleTimeoutMs`, on every attempt. An HTTP answer, even a 5xx, is not this error. Transient. See [S3 timeouts and retries](/self-hosting/storage#s3-timeouts-and-retries) |
 | `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | A conditional write lost a race (HTTP 412)                                                                                                                      |
 | `StoredObjectConflictError`         | `ATLAS_STORAGE_FAILURE`      | A create-only manifest or index write found a different object at its path and left it in place. `key` is set. A new run uses a new snapshot ID                |
 | `ConfigError`                       | `ATLAS_CONFIG_INVALID`       | Credentials, endpoint, passphrase, option, or tenant is missing or unusable                                                                                     |
@@ -1808,6 +1813,7 @@ try {
 | every `AtlasError`             | `code`, and `cause` with the underlying Graph or AWS SDK error, for logging. Branching never depends on it     |
 | `ThrottledError`               | `retry_after_ms`                                                                                               |
 | `GraphUnavailableError`        | `status_code`, `graph_code`, `retries`, `elapsed_ms`                                                           |
+| `StorageUnavailableError`      | `attempts`                                                                                                     |
 | `GraphAccessRefusedError`      | `site_id`, `drive_id`, `owner_id`, `reason`, `status_code`, `graph_code`                                       |
 | `MissingGraphPermissionsError` | `permissions`, `status_code`, `graph_code`                                                                     |
 | `OwnerBusyError`, `OwnerLeaseLostError` | `workload`, `owner_id`, `held_by_operation`, `lease_expires_at`                                       |

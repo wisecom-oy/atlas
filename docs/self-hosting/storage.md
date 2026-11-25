@@ -509,6 +509,47 @@ While the copy runs, the file is stored twice, so peak usage during a backup exc
 
 The practical ceiling is S3's 5 TB per object. Microsoft 365 caps a single OneDrive or SharePoint file at 250 GB, so that limit is never reached.
 
+## S3 timeouts and retries
+
+```bash
+# A backend behind a slow WAN link that pauses long on large copies
+export ATLAS_S3_IDLE_TIMEOUT_MS=900000
+export ATLAS_S3_MAX_ATTEMPTS=4
+atlas storage-check
+```
+
+A backend that accepts a connection and never answers would otherwise hold a run, and the owner lease it renews, until someone kills the process. Atlas bounds every S3 request instead, and fails it as `ATLAS_STORAGE_UNAVAILABLE` (exit `3`), so a scheduled run ends and the next one can start.
+
+| Setting | Variable / SDK option | Default | What it measures |
+| --- | --- | --- | --- |
+| Connection timeout | `ATLAS_S3_CONNECTION_TIMEOUT_MS` / `s3ConnectionTimeoutMs` | 10 s | Time for the TCP connection to open. Covers a firewall that drops packets or a host that is down |
+| Idle timeout | `ATLAS_S3_IDLE_TIMEOUT_MS` / `s3IdleTimeoutMs` | 5 min | Time the request's socket may stay silent, no byte sent and none received. Restarts with every byte |
+| Attempts | `ATLAS_S3_MAX_ATTEMPTS` / `s3MaxAttempts` | 3 | Attempts per request, the first one included |
+
+The idle timeout is not a limit on how long a request takes. An 8 MiB part upload or a large download on a slow link keeps moving bytes and never reaches it, however long it runs. It ends only an attempt where nothing crosses the socket for the whole interval: a backend that stopped answering, or a server-side operation that sends nothing until it finishes. The 5-minute default lets a 5 GB `CopyObject` complete at 17 MB/s on a backend that sends no progress bytes while it copies. AWS S3 sends keep-alive whitespace during long copies and multipart completions, so it never sits silent that long. Raise the timeout for a slower backend that does not.
+
+Atlas sets no wall-clock request timeout. The AWS SDK's `requestTimeout` runs from the start of the request until the response headers arrive, which includes sending the whole body, so it would fail a part upload on a slow link.
+
+### Retries
+
+Each request retries timeouts, connection errors, `429`, `500`, `502`, `503`, and `504` up to its attempt limit, with exponential backoff and full jitter: a random wait up to 100 ms doubling per retry (500 ms after throttling), capped at 20 s, and stretched toward a `Retry-After` hint by at most 5 s. Other `4xx` answers are not retried.
+
+Every request has its own attempts. The AWS SDK's default shares one retry budget across the whole process (500 tokens, 10 per timeout or connection retry, refilled by one per success), so a burst of about 50 retried failures early in a run left later requests with no retry until hundreds of requests had succeeded. Atlas never shares retries between requests. Its own concurrency settings bound the extra load, at most the attempt limit per request.
+
+### How long a dead backend takes to fail
+
+| Backend state | Fails after, with defaults |
+| --- | --- |
+| Connection refused | Immediately on each attempt, under 1 s in total |
+| Host unreachable, packets dropped | 3 × 10 s plus backoff, about 30 s |
+| Accepts the connection, never answers | 3 × 5 min plus backoff, about 15 min |
+
+A request that ends this way is reported with its last cause, such as `TimeoutError` or `ECONNREFUSED`. An HTTP answer, even a `503` after every attempt, is reported as that answer instead. See [Exit codes](/reference/cli#exit-codes).
+
+::: warning Limits of the idle timeout
+The timeout watches each request until its response starts. With an idle timeout of 6 s or more, the AWS SDK arms the socket timer 3 s into the request, so a download whose response headers arrive sooner is not watched while its body streams. A backend that sends headers and then stalls the body is not cut off by this setting. Setting either timeout to `0` turns it off and restores the old unbounded wait.
+:::
+
 ## Measuring a storage backend
 
 When you run Atlas against a storage service you do not operate, provider metrics are often unavailable. An SDK host can measure the backend with [storage request events](/reference/storage-request-events): one event per S3 request with its latency, the time it waited for a connection, SDK retries and backoff after throttling, and the payload size. The CLI does not report these events.

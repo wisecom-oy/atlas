@@ -46,6 +46,18 @@ Shared settings apply to every tenant profile. Each has an environment variable,
 
 Two more variables select what a run works on: `ATLAS_PROFILE` (see [Selecting a profile](#selecting-a-profile)) and `ATLAS_S3_BUCKET` (see [Bucket override](#bucket-override)).
 
+### S3 timeouts and retries
+
+Three variables bound how long the S3 client waits on a backend that stops answering. They are read from the environment or `.env` only, not from the config file or `atlas config`. The SDK takes the same values as `s3ConnectionTimeoutMs`, `s3IdleTimeoutMs`, and `s3MaxAttempts`.
+
+| Environment variable             | Default  | Accepted                       | Description                                                                         |
+| -------------------------------- | -------- | ------------------------------ | ----------------------------------------------------------------------------------- |
+| `ATLAS_S3_CONNECTION_TIMEOUT_MS` | `10000`  | `0` (no timeout), 1000–600000  | Time for the TCP connection to the endpoint to open                                 |
+| `ATLAS_S3_IDLE_TIMEOUT_MS`       | `300000` | `0` (no timeout), 1000–3600000 | Time a request's socket may stay silent, nothing sent or received, before the attempt is cut off |
+| `ATLAS_S3_MAX_ATTEMPTS`          | `3`      | 1–10                           | Attempts per request, the first one included                                        |
+
+A value outside its range exits `6` (`ATLAS_CONFIG_INVALID`) before any request. A backend that never answers fails with exit `3` (`ATLAS_STORAGE_UNAVAILABLE`). [S3 timeouts and retries](/self-hosting/storage#s3-timeouts-and-retries) explains what each timeout measures and when to change it.
+
 ## Tenant profiles
 
 A tenant profile holds one Microsoft Entra app registration: a tenant ID, a client ID, and a client secret. Add a profile, then check that it can sign in:
