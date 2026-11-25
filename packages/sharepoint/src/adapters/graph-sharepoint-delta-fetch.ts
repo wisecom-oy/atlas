@@ -7,6 +7,7 @@ import {
   DRIVE_DELTA_SELECT_FIELDS,
 } from '@wisecom/atlas-drive/graph/graph-drive-item';
 import { plan_delta_start } from '@wisecom/atlas-drive/graph/saved-delta-link';
+import { final_delta_link } from '@wisecom/atlas-drive/backup/delta-listing-end';
 import {
   has_item_id,
   map_delta_item,
@@ -63,7 +64,8 @@ export async function fetch_initial_delta_page(
 
 /**
  * Pages one library's delta to its end and maps every item. `reset_detected` is set by the caller
- * when Graph rejected the saved link and this is the fresh enumeration that replaces it.
+ * when Graph rejected the saved link and this is the fresh enumeration that replaces it. Throws
+ * when the last page carries no `@odata.deltaLink`, because the listing then stopped early.
  */
 export async function execute_sharepoint_delta(
   client: Client,
@@ -85,7 +87,7 @@ export async function execute_sharepoint_delta(
 
     const next = page['@odata.nextLink'];
     if (!next) {
-      if (page['@odata.deltaLink']) delta_link = page['@odata.deltaLink'];
+      delta_link = final_delta_link(page, `library ${drive_id}`);
       break;
     }
     page = await with_graph_retry(
