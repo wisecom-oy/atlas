@@ -78,7 +78,7 @@ Every command takes `-o, --owner <id>` (required) and `-t, --tenant <id>` (defau
 atlas onedrive backup -o user@example.com --folder /Projects --full
 ```
 
-Each run picks up from a sync checkpoint (a Microsoft Graph delta link) saved by the previous one. See [incremental sync](/operations/delta-sync).
+Each run picks up from a sync checkpoint (a Microsoft Graph delta link) saved by the previous one. A run that reads a drive in full records a deletion for each file that is gone, but only once the drive's listing reached its end. See [incremental sync](/operations/delta-sync) and [Deletions found by a full read](/operations/delta-sync#drive-full-read-deletions).
 
 ::: warning Object Lock
 Object Lock makes stored objects undeletable until the retention period ends. Use `compliance` mode only when no one, including tenant administrators, should be able to shorten it. See [immutability](/operations/immutability).
@@ -281,7 +281,7 @@ Direct grants use `invite`, by object ID and then by address, with `sendInvitati
 Sync checkpoints saved before sharing was captured do not mark which items are shared. The first backup after upgrading detects this and lists each drive in full once.
 
 - Unchanged files are not downloaded again.
-- Files deleted since the last run are still recorded as deleted.
+- Files deleted since the last run are still recorded as deleted. A listing that Microsoft Graph ends early fails the drive and records no deletions. See [Deletions found by a full read](/operations/delta-sync#drive-full-read-deletions).
 - The run reads the permissions of every shared item, so expect it to take longer than an incremental backup.
 
 ## Folder colours

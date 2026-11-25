@@ -111,7 +111,7 @@ Lists every site the tenant's site search returns, with its ID, name, kind, and 
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering --include-subsites
 ```
 
-Each run picks up from a sync checkpoint (a Microsoft Graph delta link) saved by the previous one. Each library keeps its own checkpoint. See [incremental sync](/operations/delta-sync).
+Each run picks up from a sync checkpoint (a Microsoft Graph delta link) saved by the previous one. Each library keeps its own checkpoint. A run that reads a library in full records a deletion for each file that is gone, but only once the library's listing reached its end. See [incremental sync](/operations/delta-sync) and [Deletions found by a full read](/operations/delta-sync#drive-full-read-deletions).
 
 ::: warning Object Lock
 Object Lock makes stored objects undeletable until the retention period ends. Use `compliance` mode only when no one, including tenant administrators, should be able to shorten it. See [immutability](/operations/immutability).

@@ -46,6 +46,7 @@ import {
   type DriveItemMetadataCapture,
 } from '@wisecom/atlas-drive/backup/item-metadata-capture';
 import { accumulate_drive_result } from '@/services/backup/drive-result-accumulator';
+import { assert_delta_listing_complete } from '@wisecom/atlas-drive/backup/delta-listing-end';
 
 export interface SingleDriveResult {
   entries: OneDriveManifestEntry[];
@@ -148,11 +149,9 @@ export async function scan_all_drives(
       // Scoping filters the delta result rather than the query, because Graph's driveItem delta is
       // drive-wide. Enumeration still pages the whole drive; nothing outside the scope is
       // downloaded, hashed, version-synced or written, which is where the time goes.
-      const delta = scoped_delta(
-        await connector.fetch_delta(tenant_id, owner_id, drive.drive_id, prev_delta),
-        folder_scope,
-        tracking_state.previous_path_by_file_id,
-      );
+      const fetched = await connector.fetch_delta(tenant_id, owner_id, drive.drive_id, prev_delta);
+      assert_delta_listing_complete(fetched, `drive ${drive.drive_id}`);
+      const delta = scoped_delta(fetched, folder_scope, tracking_state.previous_path_by_file_id);
       progress?.set_row_total?.(index, delta.items.length);
       totals.total += delta.items.length;
       progress?.mark_active(index);

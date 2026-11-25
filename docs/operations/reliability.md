@@ -196,6 +196,7 @@ What an interrupted run leaves behind:
 | --- | --- |
 | An Outlook folder fails, or a message in it fails | The folder keeps its previous sync checkpoint (delta link), so the run reads those changes again |
 | A drive or library fails | That drive keeps its previous checkpoint. Drives that finished advance |
+| A drive or library's delta listing ends without `@odata.deltaLink` | The listing stopped early, so the drive fails, keeps its previous checkpoint, and records no deletions. See [Deletions found by a full read](/operations/delta-sync#drive-full-read-deletions) |
 | Microsoft Graph rejects the checkpoint (`syncStateNotFound`, `resyncRequired`, `syncStateInvalid`) | Reads the folder, drive, or calendar in full |
 | Stale-delta safeguard (Outlook) | A saved checkpoint returns nothing while the previous manifest stored nothing: the checkpoint is discarded and the folder read in full |
 | The cursor's snapshot was deleted or quarantined | The checkpoints would skip what that snapshot held, so they are ignored and the owner is read in full |

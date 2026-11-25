@@ -48,6 +48,18 @@ Checkpoints expire after a period of inactivity, which breaks the incremental ch
 
 A full read is scoped to the folder, drive, or library that triggered it. Checkpoints are kept per drive, so a site with several libraries, or a user with several drives, keeps working checkpoints for the rest. Files in the drive read in full are recorded again as `created`. Files elsewhere keep their history, and an edit there is still reported as `updated`.
 
+### Deletions found by a full read (OneDrive and SharePoint) {#drive-full-read-deletions}
+
+A full listing names the files that exist, not the ones removed since the last run. After a full read of a drive or library, Atlas compares the listing with the earlier snapshots and records a deletion for each file they list that the listing no longer returns. Without that entry, a point-in-time restore of the new snapshot would bring the deleted file back.
+
+The comparison is only sound when the listing is complete. Microsoft Graph marks the end of a delta listing by putting `@odata.deltaLink` (the next checkpoint) on its last page, and every page before it carries `@odata.nextLink`. A page with neither link means the listing stopped early, and a file missing from it may still exist. Atlas then fails that drive or library:
+
+- No entries and no deletions are recorded for it, so a snapshot never marks a live file as deleted.
+- It keeps the checkpoint the run started from, and the next run reads the same changes again. A run started by `--full`, a changed `--folder`, or a deleted snapshot has no checkpoint to keep, so the next run reads that drive in full again.
+- The other drives and libraries continue, and the command exits `2`.
+
+The same rule covers an interrupted run: a drive whose listing or processing did not finish records no deletions.
+
 ::: details How a checkpoint is matched to its snapshot
 **Outlook, Contacts, and Calendar** cursors record the snapshot that was newest when they were saved. When that snapshot is no longer the newest readable manifest, Atlas ignores the checkpoints and reads every folder in full.
 
@@ -250,12 +262,13 @@ Every message in a page is read, including messages without reactions and messag
 
 ## Retry and error handling
 
-Atlas retries `429 Too Many Requests` (honouring `Retry-After`) and `500`, `502`, `503`, `504` on its own, up to 12 times. `501` and every other `4xx` are not retried, because the same request returns the same error. [Retries and fail-safes](/operations/reliability#microsoft-graph-requests) lists every parameter. For incremental backup, two outcomes matter:
+Atlas retries `429 Too Many Requests` (honouring `Retry-After`) and `500`, `502`, `503`, `504` on its own, up to 12 times. `501` and every other `4xx` are not retried, because the same request returns the same error. [Retries and fail-safes](/operations/reliability#microsoft-graph-requests) lists every parameter. For incremental backup, these outcomes matter:
 
 | Response | Effect on the checkpoint |
 | --- | --- |
 | `syncStateNotFound`, `resyncRequired`, `syncStateInvalid` | The checkpoint is no longer valid. Atlas reads the folder in full |
 | Retries exhausted on a folder | Atlas marks the folder as failed and continues with the remaining folders. The failed folder keeps its previous checkpoint |
+| A drive or library's last delta page carries neither `@odata.nextLink` nor `@odata.deltaLink` | The listing stopped early. Atlas fails that drive or library, which keeps its previous checkpoint and records no deletions. See [Deletions found by a full read](#drive-full-read-deletions) |
 
 ## Stopping a run {#interruption}
 

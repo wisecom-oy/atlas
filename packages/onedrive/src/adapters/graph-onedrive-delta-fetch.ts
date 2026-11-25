@@ -3,6 +3,7 @@ import { with_graph_retry } from '@wisecom/atlas-m365-graph';
 import type { OneDriveDeltaItem, OneDriveDeltaResult } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { plan_delta_start, type DeltaStartPlan } from '@wisecom/atlas-drive/graph/saved-delta-link';
+import { final_delta_link } from '@wisecom/atlas-drive/backup/delta-listing-end';
 import {
   DRIVE_DELTA_PREFER,
   DRIVE_DELTA_SELECT_FIELDS,
@@ -55,7 +56,8 @@ async function fetch_initial_delta_page(
 
 /**
  * Pages one drive's delta to its end and maps every item. `reset_detected` is set by the caller
- * when Graph rejected the saved link and this is the fresh enumeration that replaces it.
+ * when Graph rejected the saved link and this is the fresh enumeration that replaces it. Throws
+ * when the last page carries no `@odata.deltaLink`, because the listing then stopped early.
  */
 export async function execute_onedrive_delta(
   client: Client,
@@ -83,7 +85,7 @@ export async function execute_onedrive_delta(
 
     const next = page['@odata.nextLink'];
     if (!next) {
-      if (page['@odata.deltaLink']) delta_link = page['@odata.deltaLink'];
+      delta_link = final_delta_link(page, `drive ${drive_id}`);
       break;
     }
     page = await with_graph_retry(
