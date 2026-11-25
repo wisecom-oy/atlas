@@ -48,7 +48,7 @@ Every Microsoft Graph call goes through one retry loop. The Graph SDK's own retr
 | `Retry-After` | Honoured up to 1 hour, plus a release delay of up to a tenth of the wait, kept between 1 and 5 s. Both RFC 9110 forms are read: seconds or an HTTP date |
 | `Retry-After` missing, unreadable, or in the past | Exponential backoff as above |
 | `Retry-After` below 1 s | Raised to 1 s |
-| `Retry-After` above 1 hour | The call fails at once with `ThrottledError` naming the value |
+| `Retry-After` above 1 hour | The call fails at once with `ThrottledError` naming the value. The pool or mailbox still cools down for the hour, for the rest of the run |
 | `429` without `Retry-After` | 30 s cooldown for the pool |
 | Waiting budget per call | 24 minutes of backoff, `Retry-After`, and cooldown waits. A wait already started runs in full |
 | Per-attempt timeout | 60 s by default. A timed-out request is aborted before the next attempt is sent |
@@ -60,6 +60,8 @@ The 24-minute budget sits just above the full exponential schedule (1 + 2 + 4 + 
 ### Cooldowns shared across requests
 
 A `429` starts a cooldown for every request to the same budget, not only a wait for the one call. Outlook and Teams cooldowns cover one mailbox or team, because Microsoft Graph meters them that way. SharePoint and OneDrive share one tenant-wide cooldown. Overlapping cooldowns do not add up: the longest one wins. When a cooldown ends, waiting requests resume one by one over the release delay instead of in a single burst.
+
+A cooldown keeps the CLI process running only while the command is still working. Once the command has finished or failed, it exits with its code straight away, even when a cooldown of up to an hour is still in force. Requests still waiting on that cooldown are dropped with the process, not sent early.
 
 A host coordinator passed through the SDK fails open: if its shared store is unreachable, requests proceed on their own backoff and a warning is logged, so a coordinator outage never stops a backup. [Throttle handling](/operations/graph-rate-limits#throttle-handling) covers the budgets and the coordinator.
 

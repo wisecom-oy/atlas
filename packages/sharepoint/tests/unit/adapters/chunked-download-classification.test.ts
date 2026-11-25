@@ -96,14 +96,14 @@ describe('SharePoint chunked download failure handling (issue #632)', () => {
 
   it('records a 403 service refusal as DownloadRefusedError, without a /content fallback', async () => {
     const mock = make_client();
-    fetch_mock.mockRejectedValue({ statusCode: 403, code: 'notAllowed' });
+    fetch_mock.mockRejectedValue({ statusCode: 403, code: 'malwareDetected' });
 
     const error = await download_with_fallback(mock.client, make_item()).catch(
       (err: unknown) => err,
     );
 
     expect(error).toBeInstanceOf(DownloadRefusedError);
-    expect((error as DownloadRefusedError).graph_code).toBe('notAllowed');
+    expect((error as DownloadRefusedError).graph_code).toBe('malwareDetected');
     expect(mock.get).not.toHaveBeenCalled();
     expect(mock.get_stream).not.toHaveBeenCalled();
   });

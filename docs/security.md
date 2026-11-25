@@ -20,7 +20,7 @@ Atlas encrypts every backup before it leaves the host, checks every object befor
 | Someone who holds | Can | Cannot |
 | --- | --- | --- |
 | Read access to the bucket | List object names, sizes, and counts. See which objects hold identical content. Read `x-message-id` metadata and the Entra object IDs in paths. Copy the wrapped data key and guess the passphrase offline | Read content. Confirm that a known file is stored, for objects with keyed names |
-| Write or delete access to the bucket | Delete or overwrite backups not under Object Lock. Make a snapshot unreadable, which is reported by key on every run. Replay an older valid ciphertext of an object. Remove or forge an owner lease. Add locked objects that cost storage until they expire | Create content that decrypts. Move an object to another owner's path undetected. Shorten an existing lock |
+| Write or delete access to the bucket | Delete or overwrite backups not under Object Lock. Make a snapshot unreadable, which is reported by key on every run. Replay an older valid ciphertext of an object. Remove or forge an owner lease. Delete or damage a delta cursor or summary index, which forces a full read or stops the next run until an operator acts. Add locked objects that cost storage until they expire | Create content that decrypts. Move an object to another owner's path undetected. Shorten an existing lock |
 | The passphrase alone | Nothing without a copy of the bucket or of `_meta/dek.enc` | |
 | The passphrase and read access to a bucket | Read every backup in that bucket, on the primary and on any replica | Change backups without write access |
 | An old passphrase after a re-wrap, plus `s3:GetObjectVersion` | Unwrap the unchanged data key from a noncurrent `_meta/dek.enc` version until it is purged | Open the current wrapper |
@@ -527,7 +527,9 @@ Atlas classifies uncertain cases as failures. An IAM gap reported as retained wo
 
 ### Retention is stamped per object
 
-Every workload locks only the objects a run with `--retention-days` writes, by sending `ObjectLockMode` and `ObjectLockRetainUntilDate` on each `PutObject`, `CopyObject`, and `CreateMultipartUpload`. Atlas never sets a bucket default retention: a default would lock every write in the bucket, including runs that did not ask for immutability, so the erasure exposure would exceed what any operator requested. The one upload written without a lock is the staging multipart upload for a large file, whose bytes are copied to their final, locked object and then deleted.
+Every workload locks only the backup data a run with `--retention-days` writes, by sending `ObjectLockMode` and `ObjectLockRetainUntilDate` on each `PutObject`, `CopyObject`, and `CreateMultipartUpload`. Atlas never sets a bucket default retention: a default would lock every write in the bucket, including runs that did not ask for immutability, so the erasure exposure would exceed what any operator requested.
+
+Within a run, content, manifests, Teams indexes and shards, and run version indexes are locked. Delta cursors, checkpoints, snapshot summary indexes, Outlook pointers, leases, and the staging upload for a large file are not. Each state repository opts out by name, and the opt-out applies to a plain `PutObject` only, so a write that forgets to choose stays locked. See [What Object Lock covers](/operations/immutability#what-object-lock-covers) for why a lock on state protects nothing.
 
 A bucket backed up by OneDrive or SharePoint with `--retention-days` on Atlas before 6.1.0 may still carry a bucket default retention, which keeps locking objects that should not be locked. `atlas storage-check` reports a default when it finds one. Remove it as described in [Removing a bucket default retention](/self-hosting/storage#removing-a-bucket-default-retention). Objects already stamped keep their retain-until date either way.
 

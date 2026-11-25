@@ -40,7 +40,8 @@ export interface DriveDownloadExecutor {
   ): Promise<Buffer>;
   /**
    * Resolves a fresh pre-authenticated URL. A Graph 403 gets the same classification as a download
-   * failure, so a missing grant stops the run and a service refusal is recorded (issue #246).
+   * failure, so a missing grant stops the run, a known permanent refusal is recorded (issue #246),
+   * and any other 403 fails the file for this run only (issue #866).
    */
   resolve_download_url(
     client: DriveGraphClient,
@@ -140,8 +141,8 @@ async function download_with_fallback(context: DownloadAttemptContext): Promise<
 
 /**
  * Runs a download attempt, acting on the cause of a failure rather than assuming every 403 is a
- * stale URL (issue #246): a stale URL is re-resolved once, a refusal or a missing grant stops, and
- * anything else falls back to `/content`.
+ * stale URL (issue #246): a stale URL is re-resolved once, a Graph 403 or a missing grant stops,
+ * and anything else falls back to `/content`.
  */
 async function attempt_download_with_refresh(
   context: DownloadAttemptContext,
@@ -193,8 +194,9 @@ async function retry_with_refreshed_url(
 }
 
 /**
- * Throws for the two 403 causes that neither a URL refresh nor the `/content` fallback can
- * resolve, so the caller stops instead of spending a second retry budget on a refusal (#246).
+ * Throws for the 403 causes that neither a URL refresh nor the `/content` fallback can resolve, so
+ * the caller stops instead of spending a second retry budget on a refusal (#246). Only a missing
+ * grant and a known permanent refusal outlive the run; an unrecognised 403 fails this attempt only.
  */
 function rethrow_if_unrecoverable(
   context: DownloadAttemptContext,
@@ -221,6 +223,18 @@ function rethrow_if_unrecoverable(
         `Graph returned 403 ${code}. This is a protection or policy state on the ` +
         `item, not a transient failure.`,
       code,
+    );
+  }
+
+  // Nothing says this refusal will last, so the file fails for this run and the failed-item
+  // ledger retries it next run, within its attempt budget (issue #866).
+  if (kind === 'unrecognised_refusal') {
+    const { item } = context;
+    throw new Error(
+      `Microsoft 365 refused ${item.file_name} (${item.item_id}): Graph returned 403 ` +
+        `${read_graph_error_code(err)}, which Atlas does not recognise as permanent. ` +
+        `The file is retried by the next run.`,
+      { cause: err },
     );
   }
 }

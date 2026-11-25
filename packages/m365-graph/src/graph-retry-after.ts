@@ -8,6 +8,8 @@
  * not bound by that.
  */
 
+import { ThrottledError } from '@wisecom/atlas-types';
+
 /**
  * The longest Retry-After Atlas waits out. Anything longer is clamped by `parse_retry_after_ms`, and
  * `with_graph_retry` fails the call naming the value rather than waiting it.
@@ -91,4 +93,17 @@ function read_header(headers: unknown, name: string): string | undefined {
   const match = Object.entries(headers).find(([key]) => key.toLowerCase() === name);
   const value: unknown = match?.[1];
   return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * Whether `err` is the `ThrottledError` `with_graph_retry` raises at once for a `Retry-After` above
+ * `MAX_RETRY_AFTER_MS`. It is the only one that carries the unclamped value, so the value tells it
+ * apart from a retry budget that ran out.
+ */
+export function is_retry_after_above_cap_error(err: unknown): boolean {
+  return (
+    err instanceof ThrottledError &&
+    err.retry_after_ms !== undefined &&
+    err.retry_after_ms > MAX_RETRY_AFTER_MS
+  );
 }

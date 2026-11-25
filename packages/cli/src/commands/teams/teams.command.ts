@@ -76,7 +76,7 @@ function register_teams_backup(group: Command, get_container: ContainerFactory):
     .option('--channel <id>', 'back up only this channel; other channels carry forward')
     .option('--full', 'force full crawl ignoring saved delta state')
     .option('--concurrency <n>', 'channels backed up at once, 1 to 16 (default 4)');
-  with_object_lock(command, 'lock every object this run writes for N days');
+  with_object_lock(command, 'lock the backup data this run writes for N days');
   with_tenant(command).action((options: TeamsBackupCommandOptions) =>
     execute_teams_backup(get_container(), options),
   );

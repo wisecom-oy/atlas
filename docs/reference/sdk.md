@@ -39,20 +39,20 @@ The API is grouped by workload (`atlas.outlook`, `atlas.onedrive`, `atlas.sharep
 
 `createAtlasInstance(config)` takes every setting explicitly. The SDK reads nothing from the environment, `.env`, or config files (the CLI, `@wisecom/atlas-cli`, does), so a stale file or another tenant's configuration can never select credentials.
 
-| Option                 | Type                                   | Required | Description                                                                                                                                                                                             |
-| ---------------------- | -------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tenantId`             | `string`                               | Yes      | Microsoft Entra tenant ID. Bound at creation, so every call stays in this tenant                                                                                                                        |
-| `clientId`             | `string`                               | Yes      | Application (client) ID of the app registration                                                                                                                                                         |
-| `clientSecret`         | `string`                               | Yes      | Client secret of the app registration                                                                                                                                                                   |
-| `s3Endpoint`           | `string`                               | Yes      | Absolute HTTP or HTTPS URL with no embedded credentials, query, or fragment. Use HTTPS across untrusted networks                                                                                        |
-| `s3AccessKey`          | `string`                               | Yes      | S3 access key                                                                                                                                                                                           |
-| `s3SecretKey`          | `string`                               | Yes      | S3 secret key                                                                                                                                                                                           |
-| `s3Region`             | `string`                               | No       | S3 region. Default `us-east-1`                                                                                                                                                                          |
-| `s3Bucket`             | `string`                               | No       | Bucket to use instead of `atlas-{tenantId}`. Bound to `tenantId` and never created. See [Bucket override](#bucket-override)                                                                             |
-| `encryptionPassphrase` | `string`                               | Yes      | Protects the tenant's data key. At least 14 UTF-8 bytes. Must match the passphrase of existing backups                                                                                                  |
-| `logger`               | `LogSink`                              | No       | Receives SDK log lines. The SDK is silent without it. See [Logging](#logging)                                                                                                                           |
-| `onStorageRequest`     | `(event: StorageRequestEvent) => void` | No       | Receives one event per S3 request. See [Storage request events](#storage-request-events)                                                                                                                |
-| `throttleCoordinator`  | `ThrottleCoordinator`                  | No       | Shares Microsoft Graph throttling cooldowns between processes. See [Sharing throttle cooldowns](#sharing-throttle-cooldowns)                                                                            |
+| Option                 | Type                                   | Required | Description                                                                                                                       |
+| ---------------------- | -------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `tenantId`             | `string`                               | Yes      | Microsoft Entra tenant ID. Bound at creation, so every call stays in this tenant                                                  |
+| `clientId`             | `string`                               | Yes      | Application (client) ID of the app registration                                                                                   |
+| `clientSecret`         | `string`                               | Yes      | Client secret of the app registration                                                                                             |
+| `s3Endpoint`           | `string`                               | Yes      | Absolute HTTP or HTTPS URL with no embedded credentials, query, or fragment. Use HTTPS across untrusted networks                   |
+| `s3AccessKey`          | `string`                               | Yes      | S3 access key                                                                                                                     |
+| `s3SecretKey`          | `string`                               | Yes      | S3 secret key                                                                                                                     |
+| `s3Region`             | `string`                               | No       | S3 region. Default `us-east-1`                                                                                                    |
+| `s3Bucket`             | `string`                               | No       | Bucket to use instead of `atlas-{tenantId}`. Bound to `tenantId` and never created. See [Bucket override](#bucket-override)       |
+| `encryptionPassphrase` | `string`                               | Yes      | Protects the tenant's data key. At least 14 UTF-8 bytes. Must match the passphrase of existing backups                            |
+| `logger`               | `LogSink`                              | No       | Receives SDK log lines. The SDK is silent without it. See [Logging](#logging)                                                     |
+| `onStorageRequest`     | `(event: StorageRequestEvent) => void` | No       | Receives one event per S3 request. See [Storage request events](#storage-request-events)                                          |
+| `throttleCoordinator`  | `ThrottleCoordinator`                  | No       | Shares Microsoft Graph throttling cooldowns between processes. See [Sharing throttle cooldowns](#sharing-throttle-cooldowns)      |
 | `teamsPacingShare`     | `number`                               | No       | Share of the tenant's Teams request budget this instance uses, above 0 and at most 1. Default `1`. Set `1 / n` when `n` processes back up teams of one tenant. See [Teams pacing](/teams-backup#pacing) |
 
 Construction is synchronous and makes no network requests. It throws `ConfigError` (`ATLAS_CONFIG_INVALID`) when:
@@ -93,11 +93,11 @@ try {
 
 `validate(): Promise<void>` runs three checks in order and stops at the first failure. The tenant bucket is `s3Bucket` when set, otherwise `atlas-{tenantId}`.
 
-| Check                                | Failure                                          | What to do                                                                                                                   |
-| ------------------------------------ | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| S3 `HeadBucket` on the tenant bucket | `StorageError`, `ATLAS_STORAGE_FAILURE`          | Check the endpoint, region, credentials, and `s3:ListBucket` access. A missing bucket fails: provision it first              |
-| Unwrap `_meta/dek.enc`, if it exists | `WrongPassphraseError`, `ATLAS_WRONG_PASSPHRASE` | Use the passphrase that created this tenant's backups. In a multi-tenant service, confirm each tenant has its own passphrase |
-| Microsoft Graph token                | `AuthError`, `ATLAS_AUTH_DENIED`                 | Check the tenant ID, client ID, client secret, and connectivity to Microsoft Entra ID                                        |
+| Check                                    | Failure                                          | What to do                                                                                                                    |
+| ---------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| S3 `HeadBucket` on the tenant bucket     | `StorageError`, `ATLAS_STORAGE_FAILURE`          | Check the endpoint, region, credentials, and `s3:ListBucket` access. A missing bucket fails: provision it first               |
+| Unwrap `_meta/dek.enc`, if it exists     | `WrongPassphraseError`, `ATLAS_WRONG_PASSPHRASE` | Use the passphrase that created this tenant's backups. In a multi-tenant service, confirm each tenant has its own passphrase  |
+| Microsoft Graph token                    | `AuthError`, `ATLAS_AUTH_DENIED`                 | Check the tenant ID, client ID, client secret, and connectivity to Microsoft Entra ID                                         |
 
 - A code names the stage that failed, not necessarily bad credentials. DNS, TLS, and transport failures also fail a stage. The original failure is kept in `cause`.
 - When S3 refuses `atlas-{tenantId}` as an invalid bucket name, the first check throws `ConfigError` (`ATLAS_CONFIG_INVALID`) naming the rule. See [Bucket name is not valid](/troubleshooting#bucket-name-is-not-valid).
@@ -177,6 +177,7 @@ await atlas.outlook.backup('user@example.com');
 - `dispose()` closes the socket pools, clears the bucket cache, and unbinds the container. It is idempotent and never throws: a failing step is logged and the remaining steps still run. Do not use the instance afterwards.
 - A service that creates an instance per request and never disposes it accumulates socket pools for the life of the process.
 - Disposal does not wait for operations in flight. Let them finish or cancel them first, or each one leaves its [owner lease](#concurrent-operations) to expire.
+- A throttle cooldown still in force when an operation ends keeps a timer running for up to an hour, which holds the Node.js process open. `dispose()` clears it. A script that skips disposal does not exit until the cooldown ends. A `throttleCoordinator` you pass in is yours to clear.
 - Bucket caches are per instance. Two instances with different endpoints and same-named buckets do not share answers about bucket existence or Object Lock support.
 
 ::: warning
@@ -187,11 +188,11 @@ await atlas.outlook.backup('user@example.com');
 
 Methods accept the same identifiers as the CLI and normalize them the same way.
 
-| Namespace                                     | Accepts                                                                               | Normalization                                                                                            |
-| --------------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `outlook`, `onedrive`, `contacts`, `calendar` | Email or UPN, or Entra object ID                                                      | An argument containing `@` is looked up through Microsoft Graph. Anything else is used as given          |
+| Namespace                                     | Accepts                                                                    | Normalization                                                                                         |
+| --------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `outlook`, `onedrive`, `contacts`, `calendar` | Email or UPN, or Entra object ID                                           | An argument containing `@` is looked up through Microsoft Graph. Anything else is used as given       |
 | `sharepoint`                                  | Site URL or hostname, or site ID (`siteGuid,webGuid`, with or without a leading host) | An argument without commas is looked up through Graph. A site ID drops its hostname without a Graph call |
-| `teams`                                       | Graph team ID (GUID)                                                                  | Trimmed, lowercased, and checked as a GUID. No Graph call                                                |
+| `teams`                                       | Graph team ID (GUID)                                                       | Trimmed, lowercased, and checked as a GUID. No Graph call                                             |
 
 - A failed lookup throws, so a mistyped address fails instead of addressing an empty scope. Lookups are cached per instance. `resolveUser` and `resolveSite` are available on their own.
 - Backups record the resolved email and display name in the snapshot, so later listings show readable owners. Object paths always use the object ID.
@@ -229,18 +230,18 @@ export function siteKey(graphSiteId: string): string {
 
 `@wisecom/atlas-sdk/contract` exports the rules an application has to apply before or outside an SDK call: validating a passphrase in an onboarding form, or keying a SharePoint inventory in a Cloudflare Worker the same way Atlas keys its backups. It imports no Node built-ins and no third-party packages, so it bundles for a browser or a Worker. The main `@wisecom/atlas-sdk` entry exports the same names.
 
-| Export                               | Type                          | Rule                                                                                                                                                                                                                                                                                                        |
-| ------------------------------------ | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MIN_PASSPHRASE_BYTES`               | `14`                          | The shortest `encryptionPassphrase` Atlas accepts, in UTF-8 bytes                                                                                                                                                                                                                                           |
-| `passphraseByteLength(passphrase)`   | `number`                      | The passphrase's length in UTF-8 bytes. `'ä'` counts as 2                                                                                                                                                                                                                                                   |
-| `isAcceptablePassphrase(passphrase)` | `boolean`                     | `true` when `createAtlasInstance`, `rewrapDataKey`, and `keys.rewrapTenantKeys` would accept the passphrase                                                                                                                                                                                                 |
-| `tenantBucketName(tenantId)`         | `string`                      | The bucket Atlas uses when `s3Bucket` is not set: `atlas-{tenantId}`, with the tenant ID's case kept                                                                                                                                                                                                        |
-| `isValidBucketName(bucket)`          | `boolean`                     | `true` when `createAtlasInstance` would accept the name as `s3Bucket`: 3 to 63 lowercase letters, digits, dots, and dashes, a letter or digit at both ends, and no two adjacent dots                                                                                                                        |
-| `canonicalSiteId(siteId)`            | `string`                      | Drops the hostname from Graph's `hostname,siteGuid,webGuid`. An ID already in `siteGuid,webGuid` form is returned unchanged                                                                                                                                                                                 |
-| `normalizeOwnerId(ownerId)`          | `string`                      | The form Atlas stores an Entra object ID or a site ID under: lowercased. Compose it with `canonicalSiteId` for a SharePoint site. An email address or UPN is not a key; the SDK resolves it to the object ID through Graph                                                                                  |
-| `parseTeamId(teamId)`                | `string \| undefined`         | The form Atlas stores a Teams team ID under: trimmed and lowercased. `undefined` when the result is not a GUID, the same values `teams.backup` refuses with `ConfigError`                                                                                                                                   |
-| `isFileStorageContainerSite(webUrl)` | `boolean`                     | `true` when the site's first path segment is `contentstorage` in any case, a [SharePoint Embedded container](/sharepoint-backup#sharepoint-embedded-containers) Atlas cannot back up. `false` for a value that is not a URL. `sharepoint.listSites()` marks the same sites `kind: 'file_storage_container'` |
-| `GRAPH_SERVICE_POOLS`                | `readonly GraphServicePool[]` | `outlook`, `sharepoint_onedrive`, `identity`, `teams`: the pool names used in `graphCost.byService` and `GRAPH_SERVICE_LIMITS`                                                                                                                                                                              |
+| Export | Type | Rule |
+| --- | --- | --- |
+| `MIN_PASSPHRASE_BYTES` | `14` | The shortest `encryptionPassphrase` Atlas accepts, in UTF-8 bytes |
+| `passphraseByteLength(passphrase)` | `number` | The passphrase's length in UTF-8 bytes. `'ä'` counts as 2 |
+| `isAcceptablePassphrase(passphrase)` | `boolean` | `true` when `createAtlasInstance`, `rewrapDataKey`, and `keys.rewrapTenantKeys` would accept the passphrase |
+| `tenantBucketName(tenantId)` | `string` | The bucket Atlas uses when `s3Bucket` is not set: `atlas-{tenantId}`, with the tenant ID's case kept |
+| `isValidBucketName(bucket)` | `boolean` | `true` when `createAtlasInstance` would accept the name as `s3Bucket`: 3 to 63 lowercase letters, digits, dots, and dashes, a letter or digit at both ends, and no two adjacent dots |
+| `canonicalSiteId(siteId)` | `string` | Drops the hostname from Graph's `hostname,siteGuid,webGuid`. An ID already in `siteGuid,webGuid` form is returned unchanged |
+| `normalizeOwnerId(ownerId)` | `string` | The form Atlas stores an Entra object ID or a site ID under: lowercased. Compose it with `canonicalSiteId` for a SharePoint site. An email address or UPN is not a key; the SDK resolves it to the object ID through Graph |
+| `parseTeamId(teamId)` | `string \| undefined` | The form Atlas stores a Teams team ID under: trimmed and lowercased. `undefined` when the result is not a GUID, the same values `teams.backup` refuses with `ConfigError` |
+| `isFileStorageContainerSite(webUrl)` | `boolean` | `true` when the site's first path segment is `contentstorage` in any case, a [SharePoint Embedded container](/sharepoint-backup#sharepoint-embedded-containers) Atlas cannot back up. `false` for a value that is not a URL. `sharepoint.listSites()` marks the same sites `kind: 'file_storage_container'` |
+| `GRAPH_SERVICE_POOLS` | `readonly GraphServicePool[]` | `outlook`, `sharepoint_onedrive`, `identity`, `teams`: the pool names used in `graphCost.byService` and `GRAPH_SERVICE_LIMITS` |
 
 These are the values Atlas enforces with, not copies of them, and they are part of the semver contract. A change to any of them is a major release.
 
@@ -259,10 +260,7 @@ const mailboxes = await atlas.outlook.listMailboxes();
 const snapshots = await atlas.outlook.listSnapshots('user@example.com');
 const verification = await atlas.outlook.verify('snapshot-id');
 const restore = await atlas.outlook.restore('snapshot-id', { folderName: 'Inbox' });
-const save = await atlas.outlook.save('snapshot-id', {
-  folderName: 'Inbox',
-  outputPath: 'backup.zip',
-});
+const save = await atlas.outlook.save('snapshot-id', { folderName: 'Inbox', outputPath: 'backup.zip' });
 const message = await atlas.outlook.readMessage('snapshot-id', '42');
 const status = await atlas.outlook.checkMailboxStatus('user@example.com');
 
@@ -294,39 +292,39 @@ Method names mirror the CLI: `atlas outlook backup` is `atlas.outlook.backup()`,
 
 Options shared by every long-running method are documented once:
 
-| Topic                    | Applies to                                                                | Section                                                 |
-| ------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `onProgress`, `signal`   | `backup`, `restore`, `restoreVersion`, `save`, `verify` of every workload | [Progress and cancellation](#progress-and-cancellation) |
-| `objectLockRequest`      | Every `backup`                                                            | [Object Lock](#object-lock)                             |
-| `targetTenant`           | Every `restore`, and Outlook `restoreMailbox`                             | [Cross-tenant restore](#cross-tenant-restore)           |
-| `output`                 | Every `save`, and Outlook `saveMailbox`                                   | [Streaming exports](#streaming-exports)                 |
-| `quarantine(storageKey)` | Every workload                                                            | [Damaged stored objects](#damaged-stored-objects)       |
-| `listSnapshotSummaries`  | Outlook, OneDrive, SharePoint, Contacts, Calendar                         | [Snapshot summaries](#snapshot-summaries)               |
+| Topic                         | Applies to                                                                 | Section                                               |
+| ----------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `onProgress`, `signal`        | `backup`, `restore`, `restoreVersion`, `save`, `verify` of every workload  | [Progress and cancellation](#progress-and-cancellation) |
+| `objectLockRequest`           | Every `backup`                                                             | [Object Lock](#object-lock)                            |
+| `targetTenant`                | Every `restore`, and Outlook `restoreMailbox`                              | [Cross-tenant restore](#cross-tenant-restore)          |
+| `output`                      | Every `save`, and Outlook `saveMailbox`                                    | [Streaming exports](#streaming-exports)                |
+| `quarantine(storageKey)`      | Every workload                                                             | [Damaged stored objects](#damaged-stored-objects)      |
+| `listSnapshotSummaries`       | Outlook, OneDrive, SharePoint, Contacts, Calendar                          | [Snapshot summaries](#snapshot-summaries)              |
 
 ## Outlook
 
 `atlas.outlook` backs up, restores, exports, and inspects mailboxes. Mailbox arguments accept an email address or Entra object ID.
 
-| Method                                | CLI equivalent             | Description                                                                                     |
-| ------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------- |
-| `backup(mailboxId, options?)`         | `atlas outlook backup -m`  | Back up one mailbox                                                                             |
-| `verify(snapshotId, options?)`        | `atlas outlook verify`     | Verify the restorable state, attachments and the chain of older snapshots included              |
-| `restore(snapshotId, options?)`       | `atlas outlook restore -s` | Restore from a snapshot                                                                         |
-| `restoreMailbox(mailboxId, options?)` | `atlas outlook restore -m` | Restore all snapshots of a mailbox                                                              |
-| `save(snapshotId, options?)`          | `atlas outlook save -s`    | Export a snapshot as a zip of EML files                                                         |
-| `saveMailbox(mailboxId, options?)`    | `atlas outlook save -m`    | Export all snapshots of a mailbox as a zip of EML files                                         |
-| `listMailboxes()`                     | `atlas outlook list`       | List backed-up mailboxes                                                                        |
-| `listSnapshots(mailboxId)`            | _(none)_                   | List a mailbox's snapshot manifests, entries included. Decrypts every manifest                  |
-| `listSnapshotSummaries(mailboxId)`    | `atlas outlook list -m`    | List a mailbox's snapshots without entries. See [Snapshot summaries](#snapshot-summaries)       |
-| `getSnapshotDetail(snapshotId)`       | _(none)_                   | Read one snapshot manifest with its folders and entries, or `undefined`                         |
-| `readMessage(snapshotId, messageRef)` | `atlas outlook read`       | Read one stored message, or `undefined`                                                         |
-| `checkMailboxStatus(mailboxId)`       | `atlas outlook status`     | Count pending changes without moving the sync checkpoint. See [Status results](#status-results) |
-| `listAvailableMailboxes(options?)`    | _(discovery)_              | List the tenant's mailboxes through Microsoft Graph                                             |
-| `getMailboxStats(mailboxId)`          | `atlas stats -m`           | Mailbox-level statistics                                                                        |
-| `deleteSnapshot(snapshotId)`          | `atlas outlook delete -s`  | Delete the mailbox's newest snapshot                                                            |
-| `deleteMailboxData(mailboxId)`        | `atlas outlook delete -m`  | Delete all data of a mailbox                                                                    |
-| `purgeTenantData()`                   | `atlas delete --purge`     | Delete the entire tenant bucket, all workloads                                                  |
-| `quarantine(storageKey)`              | `atlas outlook quarantine` | Move an unreadable manifest aside                                                               |
+| Method                                | CLI equivalent             | Description                                                                                         |
+| ------------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------- |
+| `backup(mailboxId, options?)`         | `atlas outlook backup -m`  | Back up one mailbox                                                                                 |
+| `verify(snapshotId, options?)`        | `atlas outlook verify`     | Verify the restorable state, attachments and the chain of older snapshots included                  |
+| `restore(snapshotId, options?)`       | `atlas outlook restore -s` | Restore from a snapshot                                                                             |
+| `restoreMailbox(mailboxId, options?)` | `atlas outlook restore -m` | Restore all snapshots of a mailbox                                                                  |
+| `save(snapshotId, options?)`          | `atlas outlook save -s`    | Export a snapshot as a zip of EML files                                                             |
+| `saveMailbox(mailboxId, options?)`    | `atlas outlook save -m`    | Export all snapshots of a mailbox as a zip of EML files                                             |
+| `listMailboxes()`                     | `atlas outlook list`       | List backed-up mailboxes                                                                            |
+| `listSnapshots(mailboxId)`            | _(none)_                   | List a mailbox's snapshot manifests, entries included. Decrypts every manifest                      |
+| `listSnapshotSummaries(mailboxId)`    | `atlas outlook list -m`    | List a mailbox's snapshots without entries. See [Snapshot summaries](#snapshot-summaries)           |
+| `getSnapshotDetail(snapshotId)`       | _(none)_                   | Read one snapshot manifest with its folders and entries, or `undefined`                             |
+| `readMessage(snapshotId, messageRef)` | `atlas outlook read`       | Read one stored message, or `undefined`                                                             |
+| `checkMailboxStatus(mailboxId)`       | `atlas outlook status`     | Count pending changes without moving the sync checkpoint. See [Status results](#status-results)     |
+| `listAvailableMailboxes(options?)`    | _(discovery)_              | List the tenant's mailboxes through Microsoft Graph                                                 |
+| `getMailboxStats(mailboxId)`          | `atlas stats -m`           | Mailbox-level statistics                                                                            |
+| `deleteSnapshot(snapshotId)`          | `atlas outlook delete -s`  | Delete the mailbox's newest snapshot                                                                |
+| `deleteMailboxData(mailboxId)`        | `atlas outlook delete -m`  | Delete all data of a mailbox                                                                        |
+| `purgeTenantData()`                   | `atlas delete --purge`     | Delete the entire tenant bucket, all workloads                                                      |
+| `quarantine(storageKey)`              | `atlas outlook quarantine` | Move an unreadable manifest aside                                                                   |
 
 ### outlook.backup
 
@@ -340,32 +338,32 @@ for (const folder of result.summary.excludedFolders) {
 }
 ```
 
-| Option                           | Type                | Description                                                                                             |
-| -------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------- |
-| `forceFull`                      | `boolean`           | Ignore saved sync checkpoints and read every folder in full                                             |
-| `folderFilter`                   | `string[]`          | Back up only these folders, by name, path, or Graph well-known name such as `inbox` or `sentitems`      |
-| `excludeJunk`                    | `boolean`           | Skip Junk Email and its subfolders. Junk is captured by default                                         |
-| `includeRecoverableItems`        | `boolean`           | Also capture the Recoverable Items folders. Off by default. See [Recoverable Items](#recoverable-items) |
-| `ownerEmail`, `ownerDisplayName` | `string`            | Owner labels recorded in the snapshot. Default: the values looked up for an email argument              |
-| `objectLockRequest`              | `ObjectLockRequest` | Retention for every object written. See [Object Lock](#object-lock)                                     |
-| `hardStopSignal`                 | `AbortSignal`       | Faster stop than `signal`. See [Outlook escalation](#outlook-escalation)                                |
-| `onProgress`, `signal`           |                     | See [Progress and cancellation](#progress-and-cancellation)                                             |
+| Option                    | Type          | Description                                                                                                                   |
+| ------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `forceFull`               | `boolean`     | Ignore saved sync checkpoints and read every folder in full                                                                   |
+| `folderFilter`            | `string[]`    | Back up only these folders, by name, path, or Graph well-known name such as `inbox` or `sentitems`                            |
+| `excludeJunk`             | `boolean`     | Skip Junk Email and its subfolders. Junk is captured by default                                                               |
+| `includeRecoverableItems` | `boolean`     | Also capture the Recoverable Items folders. Off by default. See [Recoverable Items](#recoverable-items)                        |
+| `ownerEmail`, `ownerDisplayName` | `string` | Owner labels recorded in the snapshot. Default: the values looked up for an email argument                                  |
+| `objectLockRequest`       | `ObjectLockRequest` | Retention for every object written. See [Object Lock](#object-lock)                                                    |
+| `hardStopSignal`          | `AbortSignal` | Faster stop than `signal`. See [Outlook escalation](#outlook-escalation)                                                      |
+| `onProgress`, `signal`    |               | See [Progress and cancellation](#progress-and-cancellation)                                                                   |
 
-| Result field                                                       | Description                                                                                                   |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| `snapshot`                                                         | `id`, `ownerId`, `ownerEmail`, `ownerDisplayName`, `startedAt`, `completedAt`, `objectCount`, `status`        |
-| `manifest`                                                         | The stored snapshot manifest. See [Snapshot folders](#snapshot-folders) and [Message sender](#message-sender) |
-| `mode`                                                             | `'full'`, `'incremental'`, or `'initial'`                                                                     |
-| `interrupted`, `snapshotStored`                                    | Whether the run was cancelled, and whether `snapshot` was actually stored                                     |
-| `summary.stored`, `deduplicated`, `attachmentsStored`, `processed` | Message counters                                                                                              |
-| `summary.completedFolderCount`, `totalFolderCount`, `elapsedMs`    | Progress of the run                                                                                           |
-| `summary.folderErrors`                                             | One line per failed folder or unmatched `folderFilter` selector                                               |
-| `summary.warnings`                                                 | One line per notable event, such as a folder whose reactions could not be read                                |
-| `summary.excludedFolders`                                          | Folders not captured, with `folderPath` and `reason`                                                          |
-| `summary.reactionsNotCaptured`                                     | Messages stored without their reactions and pin                                                               |
-| `summary.unreadableKeys`                                           | Damaged manifests the run skipped. See [Damaged stored objects](#damaged-stored-objects)                      |
-| `summary.interrupted`                                              | Same as `interrupted`                                                                                         |
-| `graphCost`                                                        | Microsoft Graph requests made. See [Graph cost tracking](#graph-cost-tracking)                                |
+| Result field                        | Description                                                                                                         |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `snapshot`                          | `id`, `ownerId`, `ownerEmail`, `ownerDisplayName`, `startedAt`, `completedAt`, `objectCount`, `status`              |
+| `manifest`                          | The stored snapshot manifest. See [Snapshot folders](#snapshot-folders) and [Message sender](#message-sender)       |
+| `mode`                              | `'full'`, `'incremental'`, or `'initial'`                                                                           |
+| `interrupted`, `snapshotStored`     | Whether the run was cancelled, and whether `snapshot` was actually stored                                           |
+| `summary.stored`, `deduplicated`, `attachmentsStored`, `processed` | Message counters                                                                     |
+| `summary.completedFolderCount`, `totalFolderCount`, `elapsedMs`   | Progress of the run                                                                   |
+| `summary.folderErrors`              | One line per failed folder or unmatched `folderFilter` selector                                                     |
+| `summary.warnings`                  | One line per notable event, such as a folder whose reactions could not be read                                      |
+| `summary.excludedFolders`           | Folders not captured, with `folderPath` and `reason`                                                                |
+| `summary.reactionsNotCaptured`      | Messages stored without their reactions and pin                                                                     |
+| `summary.unreadableKeys`            | Damaged manifests the run skipped. See [Damaged stored objects](#damaged-stored-objects)                            |
+| `summary.interrupted`               | Same as `interrupted`                                                                                               |
+| `graphCost`                         | Microsoft Graph requests made. See [Graph cost tracking](#graph-cost-tracking)                                      |
 
 - **Every folder is covered.** The run walks every mail folder at any depth, including Drafts, Outbox, Junk Email, and folders Exchange hides (`MailFolder.isHidden`).
 - **Excluded folders say why.** `reason` is `'junk-excluded'`, `'hidden-system-folder'`, `'recoverable-items-not-mail'`, `'recoverable-items-unrecognised'`, or `'deleted-during-listing'` (Microsoft Graph answered 404 for a folder deleted while the run listed folders). The manifest stores the same list as `excludedFolders`, so a stored snapshot shows whether a folder was captured.
@@ -403,19 +401,19 @@ const report = await atlas.outlook.verify('snapshot-id', { fast: true });
 if (report.failed.length > 0 || report.unverifiable.length > 0) alert(report);
 ```
 
-| Option                 | Type      | Description                                                                        |
-| ---------------------- | --------- | ---------------------------------------------------------------------------------- |
-| `fast`                 | `boolean` | Check only that each object exists. Catches deleted objects at almost no bandwidth |
-| `onProgress`, `signal` |           | See [Progress and cancellation](#progress-and-cancellation)                        |
+| Option                 | Type      | Description                                                                         |
+| ---------------------- | --------- | ----------------------------------------------------------------------------------- |
+| `fast`                 | `boolean` | Check only that each object exists. Catches deleted objects at almost no bandwidth  |
+| `onProgress`, `signal` |           | See [Progress and cancellation](#progress-and-cancellation)                         |
 
-| Result field             | Description                                                            |
-| ------------------------ | ---------------------------------------------------------------------- |
-| `snapshotId`             | The snapshot checked                                                   |
-| `totalChecked`, `passed` | Objects checked, and objects that passed                               |
-| `failed`                 | Objects that are missing or fail decryption or their checksum          |
-| `unverifiable`           | Objects that never had a stored copy. They count against restorability |
-| `manifestsInChain`       | Snapshots in the chain this check covered                              |
-| `interrupted`            | Whether the run was cancelled                                          |
+| Result field                  | Description                                                                        |
+| ----------------------------- | ---------------------------------------------------------------------------------- |
+| `snapshotId`                  | The snapshot checked                                                               |
+| `totalChecked`, `passed`      | Objects checked, and objects that passed                                           |
+| `failed`                      | Objects that are missing or fail decryption or their checksum                      |
+| `unverifiable`                | Objects that never had a stored copy. They count against restorability             |
+| `manifestsInChain`            | Snapshots in the chain this check covered                                          |
+| `interrupted`                 | Whether the run was cancelled                                                      |
 
 ### outlook.restore and restoreMailbox
 
@@ -425,16 +423,16 @@ if (report.failed.length > 0 || report.unverifiable.length > 0) alert(report);
 await atlas.outlook.restore('snapshot-id', { destination: 'Recovered/2026-03 incident' });
 ```
 
-| Option                    | Type          | Description                                                                                              |
-| ------------------------- | ------------- | -------------------------------------------------------------------------------------------------------- |
-| `folderName`              | `string`      | Restore only this folder and its subfolders, by name or path                                             |
-| `messageRef`              | `string`      | Restore one message by index or ID. `restore` only                                                       |
-| `targetMailbox`           | `string`      | Mailbox to restore into. An email address is looked up to its Entra object ID first                      |
-| `targetTenant`            | `AtlasTenant` | Restore into another tenant. Requires `targetMailbox`. See [Cross-tenant restore](#cross-tenant-restore) |
-| `destination`             | `string`      | Folder path to restore under, created if missing. Default: a generated `Restore-<timestamp>` folder      |
-| `includeRecoverableItems` | `boolean`     | Also restore entries captured from Recoverable Items                                                     |
-| `startDate`, `endDate`    | `Date`        | Include snapshots on or after, and on or before, these dates                                             |
-| `onProgress`, `signal`    |               | See [Progress and cancellation](#progress-and-cancellation)                                              |
+| Option                    | Type          | Description                                                                                                  |
+| ------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------ |
+| `folderName`              | `string`      | Restore only this folder and its subfolders, by name or path                                                 |
+| `messageRef`              | `string`      | Restore one message by index or ID. `restore` only                                                           |
+| `targetMailbox`           | `string`      | Mailbox to restore into. An email address is looked up to its Entra object ID first                          |
+| `targetTenant`            | `AtlasTenant` | Restore into another tenant. Requires `targetMailbox`. See [Cross-tenant restore](#cross-tenant-restore)     |
+| `destination`             | `string`      | Folder path to restore under, created if missing. Default: a generated `Restore-<timestamp>` folder          |
+| `includeRecoverableItems` | `boolean`     | Also restore entries captured from Recoverable Items                                                         |
+| `startDate`, `endDate`    | `Date`        | Include snapshots on or after, and on or before, these dates                                                 |
+| `onProgress`, `signal`    |               | See [Progress and cancellation](#progress-and-cancellation)                                                  |
 
 Both return a `RestoreResult`:
 
@@ -463,13 +461,13 @@ interface RestoredMessageReport {
 }
 ```
 
-| Field                  | Description                                                                                                                                            |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `errorCount`, `errors` | Message-level failures, one detail line each. `errorCount` equals `errors.length`                                                                      |
-| `attachmentErrorCount` | Attachment-level failures, as a count. Details are logged during the restore                                                                           |
+| Field                  | Description                                                                                                                         |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `errorCount`, `errors` | Message-level failures, one detail line each. `errorCount` equals `errors.length`                                                   |
+| `attachmentErrorCount` | Attachment-level failures, as a count. Details are logged during the restore                                                        |
 | `verificationWarnings` | Per-folder warnings, including failures that prevented a count check, and one line per message that received fewer attachments than its snapshot holds |
-| `messages`             | One report per message created in the target mailbox, in restore order. IDs and counts only, never names or content                                    |
-| `restoreFolderName`    | The destination path                                                                                                                                   |
+| `messages`             | One report per message created in the target mailbox, in restore order. IDs and counts only, never names or content                 |
+| `restoreFolderName`    | The destination path                                                                                                                |
 
 - **Destination.** `destination` is relative to the top of the target mailbox and uses `/` between levels, as the drive restores do. Each level, and each source folder beneath it, is reused when it exists, matched case-insensitively. The call rejects before writing any message when the path is empty, `/`, has an empty level, or lies inside a well-known folder such as Inbox. See [atlas outlook restore](/reference/cli#atlas-outlook-restore).
 - **No deduplication.** Restoring the same snapshot twice into one destination creates every message twice.
@@ -488,23 +486,20 @@ interface RestoredMessageReport {
 Exports a snapshot, or every snapshot of a mailbox, as a zip archive of EML files. A save reads only storage and never writes to Microsoft 365.
 
 ```ts
-const result = await atlas.outlook.save('snapshot-id', {
-  folderName: 'Inbox',
-  outputPath: 'inbox.zip',
-});
+const result = await atlas.outlook.save('snapshot-id', { folderName: 'Inbox', outputPath: 'inbox.zip' });
 if (result.integrityFailures.length > 0) console.warn(result.integrityFailures);
 ```
 
-| Option                    | Type       | Description                                                                            |
-| ------------------------- | ---------- | -------------------------------------------------------------------------------------- |
-| `folderName`              | `string`   | Save only this folder and its subfolders, by name or path                              |
-| `messageRef`              | `string`   | Save one message by index or ID. `save` only                                           |
-| `startDate`, `endDate`    | `Date`     | Include snapshots on or after, and on or before, these dates                           |
-| `outputPath`              | `string`   | Output zip path. Default `Restore-<timestamp>.zip`                                     |
+| Option                    | Type       | Description                                                                          |
+| ------------------------- | ---------- | ------------------------------------------------------------------------------------ |
+| `folderName`              | `string`   | Save only this folder and its subfolders, by name or path                            |
+| `messageRef`              | `string`   | Save one message by index or ID. `save` only                                         |
+| `startDate`, `endDate`    | `Date`     | Include snapshots on or after, and on or before, these dates                         |
+| `outputPath`              | `string`   | Output zip path. Default `Restore-<timestamp>.zip`                                   |
 | `output`                  | `Writable` | Stream the archive here instead of a file. See [Streaming exports](#streaming-exports) |
-| `skipIntegrityCheck`      | `boolean`  | Skip the SHA-256 check of each object. Default `false`                                 |
-| `includeRecoverableItems` | `boolean`  | Also export entries captured from Recoverable Items                                    |
-| `onProgress`, `signal`    |            | See [Progress and cancellation](#progress-and-cancellation)                            |
+| `skipIntegrityCheck`      | `boolean`  | Skip the SHA-256 check of each object. Default `false`                               |
+| `includeRecoverableItems` | `boolean`  | Also export entries captured from Recoverable Items                                  |
+| `onProgress`, `signal`    |            | See [Progress and cancellation](#progress-and-cancellation)                          |
 
 Both return a `SaveResult`:
 
@@ -525,11 +520,11 @@ interface SaveResult {
 
 #### messageRef rules
 
-| Call                            | `messageRef`                     | Result                                                                                                                                                                                            |
-| ------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `restoreMailbox`, `saveMailbox` | Any value, including `''`        | `ConfigError` (`ATLAS_CONFIG_INVALID`) before the mailbox is looked up, storage is read, or Graph is called. An index counts the messages of one snapshot, and these methods merge every snapshot |
-| `restore`, `save`               | Empty or whitespace only         | `ConfigError` before any Graph call, because it would otherwise read as every message                                                                                                             |
-| `restore`, `save`               | Names no message in the snapshot | `NotFoundError` (`ATLAS_NOT_FOUND`) before any restore folder or archive is created                                                                                                               |
+| Call                                            | `messageRef`                       | Result                                                                                              |
+| ----------------------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `restoreMailbox`, `saveMailbox`                 | Any value, including `''`          | `ConfigError` (`ATLAS_CONFIG_INVALID`) before the mailbox is looked up, storage is read, or Graph is called. An index counts the messages of one snapshot, and these methods merge every snapshot |
+| `restore`, `save`                               | Empty or whitespace only           | `ConfigError` before any Graph call, because it would otherwise read as every message               |
+| `restore`, `save`                               | Names no message in the snapshot   | `NotFoundError` (`ATLAS_NOT_FOUND`) before any restore folder or archive is created                 |
 
 A `save` or `saveMailbox` that rejects destroys its `output` stream. A `folderName` that matches nothing rejects `restore` and `save` with `NotFoundError`.
 
@@ -600,11 +595,11 @@ Microsoft Graph cannot read In-Place Archive (Online Archive) mailboxes, so a su
 
 ### Deleting Outlook data
 
-| Method                         | Deletes                                                                                                                    |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| `deleteSnapshot(snapshotId)`   | The mailbox's newest snapshot and its sync checkpoint                                                                      |
-| `deleteMailboxData(mailboxId)` | Everything of the mailbox: content, snapshots, the sync checkpoint, and the deleted snapshots' Atlas 6 replication records |
-| `purgeTenantData()`            | The entire tenant bucket, every workload. Takes the [tenant lease](#tenant-lease)                                          |
+| Method                         | Deletes                                                                                                                              |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `deleteSnapshot(snapshotId)`   | The mailbox's newest snapshot and its sync checkpoint                                                                                |
+| `deleteMailboxData(mailboxId)` | Everything of the mailbox: content, snapshots, the sync checkpoint, and the deleted snapshots' Atlas 6 replication records          |
+| `purgeTenantData()`            | The entire tenant bucket, every workload. Takes the [tenant lease](#tenant-lease)                                                    |
 
 Each returns `deletedObjects`, `deletedManifests`, `retainedObjects`, `retainedManifests`, `failedObjects`, and `failedManifests`. Retained counts are objects Object Lock kept.
 
@@ -616,24 +611,24 @@ Each returns `deletedObjects`, `deletedManifests`, `retainedObjects`, `retainedM
 
 `atlas.onedrive` works per drive owner (email or Entra object ID) and `atlas.sharepoint` per site (URL or site ID). They expose the same operations.
 
-| Method                                               | CLI equivalent                                     | Description                                                                                        |
-| ---------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `backup(id, options?)`                               | `atlas onedrive backup`, `atlas sharepoint backup` | Back up every drive of an owner, or every library of a site                                        |
-| `verify(id, snapshotId, options?)`                   | `verify`                                           | Download, decrypt, and checksum every file of a snapshot                                           |
-| `restore(id, options)`                               | `restore`                                          | Restore a snapshot. `options.snapshotId` is required                                               |
-| `restoreVersion(id, options)`                        | `restore-version`                                  | Push stored file versions back into the live drive or library                                      |
-| `save(id, options)`                                  | `save`                                             | Export a snapshot as a zip archive. `options.snapshotId` is required                               |
-| `listSnapshots(id)`                                  | _(none)_                                           | Snapshot manifests, entries included. Decrypts every manifest                                      |
-| `listSnapshotSummaries(id)`                          | `list-snapshots`                                   | Snapshots without entries. See [Snapshot summaries](#snapshot-summaries)                           |
-| `listFileVersions(id, fileRef)`                      | `list-versions`                                    | Stored versions of one file                                                                        |
-| `listPermissions(id, snapshotId?)`                   | `list-permissions`                                 | Who had access to which file or folder, and folder colours, at a snapshot. See [Sharing](#sharing) |
-| `checkStatus(id)`                                    | `status`                                           | Pending changes per drive or library. See [Status results](#status-results)                        |
-| `getStats(id?)`                                      | `atlas stats`                                      | Backup statistics. Omit the argument for every drive or site in the tenant                         |
-| `deleteSnapshot(id, snapshotId)`                     | `delete -s`                                        | Delete the newest snapshot                                                                         |
-| `deleteOwnerData(ownerId)`, `deleteSiteData(siteId)` | `delete`                                           | Delete everything of a drive owner or site                                                         |
-| `quarantine(storageKey)`                             | `quarantine`                                       | Move an unreadable manifest or version index aside                                                 |
-| `sharepoint.listSites()`                             | `atlas sharepoint list-sites`                      | Sites the application can read                                                                     |
-| `sharepoint.resolveSite(urlOrId)`                    | _(none)_                                           | Look up one site                                                                                   |
+| Method                                         | CLI equivalent                         | Description                                                                         |
+| ---------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------- |
+| `backup(id, options?)`                         | `atlas onedrive backup`, `atlas sharepoint backup` | Back up every drive of an owner, or every library of a site                |
+| `verify(id, snapshotId, options?)`             | `verify`                               | Download, decrypt, and checksum every file of a snapshot                            |
+| `restore(id, options)`                         | `restore`                              | Restore a snapshot. `options.snapshotId` is required                                |
+| `restoreVersion(id, options)`                  | `restore-version`                      | Push stored file versions back into the live drive or library                       |
+| `save(id, options)`                            | `save`                                 | Export a snapshot as a zip archive. `options.snapshotId` is required                |
+| `listSnapshots(id)`                            | _(none)_                               | Snapshot manifests, entries included. Decrypts every manifest                       |
+| `listSnapshotSummaries(id)`                    | `list-snapshots`                       | Snapshots without entries. See [Snapshot summaries](#snapshot-summaries)            |
+| `listFileVersions(id, fileRef)`                | `list-versions`                        | Stored versions of one file                                                         |
+| `listPermissions(id, snapshotId?)`             | `list-permissions`                     | Who had access to which file or folder, and folder colours, at a snapshot. See [Sharing](#sharing) |
+| `checkStatus(id)`                              | `status`                               | Pending changes per drive or library. See [Status results](#status-results)         |
+| `getStats(id?)`                                | `atlas stats`                          | Backup statistics. Omit the argument for every drive or site in the tenant          |
+| `deleteSnapshot(id, snapshotId)`               | `delete -s`                            | Delete the newest snapshot                                                          |
+| `deleteOwnerData(ownerId)`, `deleteSiteData(siteId)` | `delete`                         | Delete everything of a drive owner or site                                          |
+| `quarantine(storageKey)`                       | `quarantine`                           | Move an unreadable manifest or version index aside                                  |
+| `sharepoint.listSites()`                       | `atlas sharepoint list-sites`          | Sites the application can read                                                      |
+| `sharepoint.resolveSite(urlOrId)`              | _(none)_                               | Look up one site                                                                    |
 
 `listSites()` and `resolveSite()` return `siteId`, `siteUrl`, `displayName`, and `kind`: `site`, or `file_storage_container` for a [SharePoint Embedded container](/sharepoint-backup#sharepoint-embedded-containers), which Atlas cannot back up. `listSites()` returns containers rather than leaving them out, so filter on `kind`.
 
@@ -648,30 +643,30 @@ if (!sp.snapshot && sp.summary.noSnapshotReason === 'no_content') {
 }
 ```
 
-| Option                           | On         | Description                                                           |
-| -------------------------------- | ---------- | --------------------------------------------------------------------- |
-| `forceFull`                      | both       | Ignore saved sync checkpoints and read every drive or library in full |
-| `folderScope`                    | OneDrive   | Back up one folder of the drive instead of the whole drive            |
-| `ownerEmail`, `ownerDisplayName` | OneDrive   | Owner labels recorded in the snapshot                                 |
-| `siteUrl`, `siteDisplayName`     | SharePoint | Site labels recorded in the snapshot                                  |
-| `includeSubsites`                | SharePoint | Also back up every subsite. The call returns one result per site      |
-| `objectLockRequest`              | both       | See [Object Lock](#object-lock)                                       |
-| `onProgress`, `signal`           | both       | See [Progress and cancellation](#progress-and-cancellation)           |
+| Option                  | On         | Description                                                                              |
+| ----------------------- | ---------- | ---------------------------------------------------------------------------------------- |
+| `forceFull`             | both       | Ignore saved sync checkpoints and read every drive or library in full                    |
+| `folderScope`           | OneDrive   | Back up one folder of the drive instead of the whole drive                               |
+| `ownerEmail`, `ownerDisplayName` | OneDrive | Owner labels recorded in the snapshot                                          |
+| `siteUrl`, `siteDisplayName` | SharePoint | Site labels recorded in the snapshot                                               |
+| `includeSubsites`       | SharePoint | Also back up every subsite. The call returns one result per site                         |
+| `objectLockRequest`     | both       | See [Object Lock](#object-lock)                                                          |
+| `onProgress`, `signal`  | both       | See [Progress and cancellation](#progress-and-cancellation)                              |
 
 OneDrive returns one result; SharePoint returns an array with one result per site.
 
-| Result field                                                               | Description                                                            |
-| -------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `ownerId` / `siteId`                                                       | The owner or site backed up                                            |
-| `snapshot`                                                                 | The snapshot manifest, or `undefined` when none was written            |
-| `interrupted`                                                              | Whether the run was cancelled                                          |
-| `summary.drivesScanned` / `librariesScanned`                               | Drives or libraries read                                               |
-| `summary.filesChanged`, `filesStored`, `filesDeduplicated`, `deletedItems` | File counters                                                          |
-| `summary.versionsStored`, `versionsUnavailable`                            | Historical versions stored, and versions Microsoft 365 no longer holds |
-| `summary.snapshotCreated`, `noSnapshotReason`                              | Whether a snapshot was written, and why not                            |
-| `summary.cursorUpdated`                                                    | Whether the run saved its sync checkpoint                              |
-| `summary.errors`, `warnings`, `healthy`                                    | Failures, notices, and whether the run is healthy                      |
-| `summary.unreadableKeys`                                                   | Damaged manifests the run skipped                                      |
+| Result field                         | Description                                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `ownerId` / `siteId`                 | The owner or site backed up                                                                       |
+| `snapshot`                           | The snapshot manifest, or `undefined` when none was written                                       |
+| `interrupted`                        | Whether the run was cancelled                                                                     |
+| `summary.drivesScanned` / `librariesScanned` | Drives or libraries read                                                                  |
+| `summary.filesChanged`, `filesStored`, `filesDeduplicated`, `deletedItems` | File counters                                               |
+| `summary.versionsStored`, `versionsUnavailable` | Historical versions stored, and versions Microsoft 365 no longer holds                 |
+| `summary.snapshotCreated`, `noSnapshotReason` | Whether a snapshot was written, and why not                                              |
+| `summary.cursorUpdated`              | Whether the run saved its sync checkpoint                                                         |
+| `summary.errors`, `warnings`, `healthy` | Failures, notices, and whether the run is healthy                                              |
+| `summary.unreadableKeys`             | Damaged manifests the run skipped                                                                 |
 
 - **`noSnapshotReason`** is set only when a completed run created no snapshot: `'no_changes'` when content exists and nothing changed, `'no_content'` when the drive or site holds nothing to protect. It is absent when a snapshot was created. Interrupted or unhealthy runs report `interrupted` and `errors` instead.
 - **`cursorUpdated`** is `true` when the run saved its sync checkpoint, the position the next run resumes from. A completed run saves it whether or not it created a snapshot, and so does a run that recorded failed files or was cancelled after its scan started; in that case only the drives and libraries it finished advance. It is `false` when the run was cancelled before its scan started, for example with an already-aborted signal or while the drive, library, or subsite list was loading, including a throttle wait on that list. Nothing was read or stored, and the next run resumes from the previous checkpoint.
@@ -695,18 +690,18 @@ await atlas.onedrive.restore('owner-id', { snapshotId, destination: '/DR-drill' 
 await atlas.onedrive.restore('owner-id', { snapshotId, inPlace: true });
 ```
 
-| Option                           | Type                              | Description                                                                                  |
-| -------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------- |
-| `snapshotId`                     | `string`                          | Required. The snapshot to restore                                                            |
-| `fileFilter`                     | `string[]`                        | Restore only these files, by Graph item ID, rooted path, or file name                        |
-| `destination`                    | `string`                          | Folder to restore under. Default: a generated `/Restore-<timestamp>` root                    |
-| `inPlace`                        | `boolean`                         | Write back to the original paths                                                             |
-| `renameTo`                       | `string`                          | New name for the restored file. Only when the restore resolves to exactly one file           |
-| `conflictBehavior`               | `'replace' \| 'rename' \| 'fail'` | What to do when a file exists at the target. Default `'rename'`                              |
-| `restorePermissions`             | `boolean`                         | Reapply captured grants and recreate sharing links. Default `false`. See [Sharing](#sharing) |
-| `targetOwnerId` / `targetSiteId` | `string`                          | Restore into another owner or site. Required with `targetTenant`                             |
-| `targetTenant`                   | `AtlasTenant`                     | See [Cross-tenant restore](#cross-tenant-restore)                                            |
-| `onProgress`, `signal`           |                                   | See [Progress and cancellation](#progress-and-cancellation)                                  |
+| Option                          | Type                                | Description                                                                                        |
+| ------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `snapshotId`                    | `string`                            | Required. The snapshot to restore                                                                  |
+| `fileFilter`                    | `string[]`                          | Restore only these files, by Graph item ID, rooted path, or file name                              |
+| `destination`                   | `string`                            | Folder to restore under. Default: a generated `/Restore-<timestamp>` root                          |
+| `inPlace`                       | `boolean`                           | Write back to the original paths                                                                   |
+| `renameTo`                      | `string`                            | New name for the restored file. Only when the restore resolves to exactly one file                 |
+| `conflictBehavior`              | `'replace' \| 'rename' \| 'fail'`   | What to do when a file exists at the target. Default `'rename'`                                    |
+| `restorePermissions`            | `boolean`                           | Reapply captured grants and recreate sharing links. Default `false`. See [Sharing](#sharing)       |
+| `targetOwnerId` / `targetSiteId`| `string`                            | Restore into another owner or site. Required with `targetTenant`                                   |
+| `targetTenant`                  | `AtlasTenant`                       | See [Cross-tenant restore](#cross-tenant-restore)                                                  |
+| `onProgress`, `signal`          |                                     | See [Progress and cancellation](#progress-and-cancellation)                                        |
 
 The result has `snapshotId`, `filesRestored`, `foldersCreated`, `filesSkipped`, `errors`, `interrupted`, `unreadableKeys`, and `unmatchedFileFilters`.
 
@@ -743,9 +738,9 @@ for (const item of result.skippedItems ?? []) {
 
 ### Folder colours
 
-| Result field              | Meaning                                                |
-| ------------------------- | ------------------------------------------------------ |
-| `folderColorsNotRestored` | Restored folders whose captured colour was not applied |
+| Result field              | Meaning                                                    |
+| ------------------------- | ---------------------------------------------------------- |
+| `folderColorsNotRestored` | Restored folders whose captured colour was not applied     |
 
 Microsoft Graph refuses every write to a folder's colour, so a restore never attempts one. Like the sharing fields, `folderColorsNotRestored` is present only when non-zero and is never added to `errors`. See [Folder colours](/onedrive-backup#folder-colours).
 
@@ -839,10 +834,10 @@ Entries can also describe more than files:
 
 ### Deleting drive data
 
-| Method                                                                                          | Deletes                                                           |
-| ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Method                                                          | Deletes                                                    |
+| --------------------------------------------------------------- | ---------------------------------------------------------- |
 | `onedrive.deleteSnapshot(ownerId, snapshotId)`, `sharepoint.deleteSnapshot(siteId, snapshotId)` | The newest snapshot of the owner or site, and its sync checkpoint |
-| `onedrive.deleteOwnerData(ownerId)`, `sharepoint.deleteSiteData(siteId)`                        | Everything of the owner or site                                   |
+| `onedrive.deleteOwnerData(ownerId)`, `sharepoint.deleteSiteData(siteId)` | Everything of the owner or site                   |
 
 - `deleteSnapshot` accepts only the newest snapshot, because a drive snapshot stores only its own run's changes and newer snapshots are built on it. Any other rejects with `SnapshotNotNewestError` (`ATLAS_SNAPSHOT_NOT_NEWEST`), naming `err.snapshot_id` and `err.newer_snapshot_ids` to delete first. Nothing is deleted.
 - While a manifest of the owner or site is unreadable, the order cannot be checked and the call rejects with `UnreadableObjectsError` naming the manifest to quarantine.
@@ -853,16 +848,16 @@ Entries can also describe more than files:
 
 `atlas.teams` backs up channel messages, one team per call, identified by its Microsoft Graph team ID. Restore is not available. `save` exports a snapshot as a zip archive and makes no Graph calls.
 
-| Method                                 | CLI equivalent                                 | Description                                                                      |
-| -------------------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------- |
-| `listTeams()`                          | `atlas teams list-teams`                       | Teams the application can read, as Microsoft Graph returns them                  |
-| `backup(teamId, options?)`             | `atlas teams backup --team <id>`               | Back up one team's channels                                                      |
-| `verify(teamId, snapshotId, options?)` | `atlas teams verify --team <id> -s <snapshot>` | Decrypt each channel shard and every blob it references, and compare its SHA-256 |
-| `save(teamId, options)`                | `atlas teams save --team <id> -s <snapshot>`   | Export one snapshot as a zip archive                                             |
-| `listSnapshots(teamId)`                | `atlas teams list-snapshots --team <id>`       | `{ indexes, unreadableKeys, unsupportedKeys }` for one team                      |
-| `status()`                             | `atlas teams status`                           | Newest snapshot of each team in the tenant                                       |
-| `delete(teamId, snapshotId?)`          | `atlas teams delete --team <id>`               | Delete all data of a team, or only one snapshot's index                          |
-| `quarantine(storageKey)`               | `atlas teams quarantine --key <key>`           | Move an unreadable snapshot index aside                                          |
+| Method                                 | CLI equivalent                                 | Description                                                                         |
+| -------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `listTeams()`                          | `atlas teams list-teams`                       | Teams the application can read, as Microsoft Graph returns them                     |
+| `backup(teamId, options?)`             | `atlas teams backup --team <id>`               | Back up one team's channels                                                         |
+| `verify(teamId, snapshotId, options?)` | `atlas teams verify --team <id> -s <snapshot>` | Decrypt each channel shard and every blob it references, and compare its SHA-256    |
+| `save(teamId, options)`                | `atlas teams save --team <id> -s <snapshot>`   | Export one snapshot as a zip archive                                                |
+| `listSnapshots(teamId)`                | `atlas teams list-snapshots --team <id>`       | `{ indexes, unreadableKeys, unsupportedKeys }` for one team                         |
+| `status()`                             | `atlas teams status`                           | Newest snapshot of each team in the tenant                                          |
+| `delete(teamId, snapshotId?)`          | `atlas teams delete --team <id>`               | Delete all data of a team, or only one snapshot's index                             |
+| `quarantine(storageKey)`               | `atlas teams quarantine --key <key>`           | Move an unreadable snapshot index aside                                             |
 
 ```ts
 const run = await atlas.teams.backup(teamId);
@@ -874,30 +869,30 @@ if (run.snapshot) {
 }
 ```
 
-| Backup option          | Description                                                 |
-| ---------------------- | ----------------------------------------------------------- |
-| `channelId`            | Back up only this channel                                   |
-| `concurrency`          | Channels backed up at once, 1 to 16. Default 4              |
-| `forceFull`            | Read every channel in full                                  |
-| `teamDisplayName`      | Team label recorded in the snapshot                         |
-| `objectLockRequest`    | See [Object Lock](#object-lock)                             |
-| `onProgress`, `signal` | See [Progress and cancellation](#progress-and-cancellation) |
+| Backup option          | Description                                                                         |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| `channelId`            | Back up only this channel                                                           |
+| `concurrency`          | Channels backed up at once, 1 to 16. Default 4                                      |
+| `forceFull`            | Read every channel in full                                                          |
+| `teamDisplayName`      | Team label recorded in the snapshot                                                 |
+| `objectLockRequest`    | See [Object Lock](#object-lock)                                                     |
+| `onProgress`, `signal` | See [Progress and cancellation](#progress-and-cancellation)                         |
 
 The instance `tenantId` must be a GUID, not a domain, or `backup` throws `ConfigError`.
 
-| Result field                                                                                                | Description                                                                                                                                        |
-| ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `teamId`, `snapshot`, `interrupted`                                                                         | The team, its new snapshot index or `undefined`, and whether the run was cancelled                                                                 |
-| `graphCost`                                                                                                 | Microsoft Graph requests, counted in the `teams` pool                                                                                              |
-| `summary.channelsScanned`, `channelsFullRead`                                                               | Channels read, and channels read in full                                                                                                           |
-| `summary.threadsChanged`, `messagesStored`, `messagesDeduplicated`, `hostedContentStored`, `threadsDeleted` | Run counters                                                                                                                                       |
-| `summary.cursorUpdated`, `snapshotCreated`, `noSnapshotReason`                                              | As on [drive backup](#drive-backup)                                                                                                                |
-| `summary.errors`, `warnings`, `healthy`                                                                     | `healthy` reflects channel failures only                                                                                                           |
-| `summary.elapsedMs`                                                                                         | Run time                                                                                                                                           |
-| `summary.channels`                                                                                          | One entry per channel: `channelId`, `outcome`, `readMode`, `rootsApplied`, `resumedFromCheckpoint`, `elapsedMs`                                    |
-| `summary.requests`                                                                                          | `messages` and `default`, each with `requests`, `throttled`, and `achievedRps`                                                                     |
-| `summary.unreadableKeys`                                                                                    | Snapshot indexes newer than the run's baseline that could not be read. The run still finishes                                                      |
-| `summary.repairedShardKeys`                                                                                 | Unreadable channel shards a `forceFull` run rewrote at the same key. See [Unreadable channel shards](../teams-backup.md#unreadable-channel-shards) |
+| Result field                    | Description                                                                                                                       |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `teamId`, `snapshot`, `interrupted` | The team, its new snapshot index or `undefined`, and whether the run was cancelled                                            |
+| `graphCost`                     | Microsoft Graph requests, counted in the `teams` pool                                                                             |
+| `summary.channelsScanned`, `channelsFullRead` | Channels read, and channels read in full                                                                            |
+| `summary.threadsChanged`, `messagesStored`, `messagesDeduplicated`, `hostedContentStored`, `threadsDeleted` | Run counters                                          |
+| `summary.cursorUpdated`, `snapshotCreated`, `noSnapshotReason` | As on [drive backup](#drive-backup)                                                                |
+| `summary.errors`, `warnings`, `healthy` | `healthy` reflects channel failures only                                                                                  |
+| `summary.elapsedMs`             | Run time                                                                                                                          |
+| `summary.channels`              | One entry per channel: `channelId`, `outcome`, `readMode`, `rootsApplied`, `resumedFromCheckpoint`, `elapsedMs`                   |
+| `summary.requests`              | `messages` and `default`, each with `requests`, `throttled`, and `achievedRps`                                                    |
+| `summary.unreadableKeys`        | Snapshot indexes newer than the run's baseline that could not be read. The run still finishes                                     |
+| `summary.repairedShardKeys`     | Unreadable channel shards a `forceFull` run rewrote at the same key. See [Unreadable channel shards](../teams-backup.md#unreadable-channel-shards) |
 
 - `outcome` is `completed`, `incomplete`, `interrupted`, `failed`, or `not_started`. `readMode` is `full` or `delta`.
 - Each `processing` progress event of a Teams backup carries `etaMs`, the estimated time left.
@@ -911,16 +906,16 @@ See [Teams backup](../teams-backup.md#backup) for what each counter means and [P
 
 `atlas.contacts` backs up, restores, verifies, and deletes one mailbox's personal contacts. Mailbox arguments accept an email address or Entra object ID.
 
-| Method                                  | CLI equivalent                | Description                                           |
-| --------------------------------------- | ----------------------------- | ----------------------------------------------------- |
-| `backup(mailbox, options?)`             | `atlas contacts backup -m`    | Back up changed contacts                              |
-| `restore(mailbox, options)`             | `atlas contacts restore -m`   | Restore a snapshot without overwriting                |
-| `verify(mailbox, snapshotId, options?)` | `atlas contacts verify -m`    | Verify a snapshot                                     |
-| `listSnapshots(mailbox)`                | `atlas contacts list -m`      | Snapshots with entries. Decrypts every manifest       |
-| `listSnapshotSummaries(mailbox)`        | `atlas contacts list -m`      | Snapshots without entries                             |
-| `deleteMailboxData(mailbox)`            | `atlas contacts delete -m`    | Delete all contacts data of a mailbox                 |
-| `deleteSnapshot(mailbox, snapshotId)`   | `atlas contacts delete -m -s` | Delete one snapshot and the mailbox's sync checkpoint |
-| `quarantine(storageKey)`                | `atlas contacts quarantine`   | Move an unreadable manifest aside                     |
+| Method                                  | CLI equivalent                | Description                                                               |
+| --------------------------------------- | ----------------------------- | ------------------------------------------------------------------------- |
+| `backup(mailbox, options?)`             | `atlas contacts backup -m`    | Back up changed contacts                                                  |
+| `restore(mailbox, options)`             | `atlas contacts restore -m`   | Restore a snapshot without overwriting                                    |
+| `verify(mailbox, snapshotId, options?)` | `atlas contacts verify -m`    | Verify a snapshot                                                         |
+| `listSnapshots(mailbox)`                | `atlas contacts list -m`      | Snapshots with entries. Decrypts every manifest                           |
+| `listSnapshotSummaries(mailbox)`        | `atlas contacts list -m`      | Snapshots without entries                                                 |
+| `deleteMailboxData(mailbox)`            | `atlas contacts delete -m`    | Delete all contacts data of a mailbox                                     |
+| `deleteSnapshot(mailbox, snapshotId)`   | `atlas contacts delete -m -s` | Delete one snapshot and the mailbox's sync checkpoint                     |
+| `quarantine(storageKey)`                | `atlas contacts quarantine`   | Move an unreadable manifest aside                                         |
 
 ```ts
 const run = await atlas.contacts.backup('user@example.com');
@@ -937,16 +932,16 @@ See [Contacts backup](/contacts-backup) for the storage layout and restore behav
 
 `atlas.calendar` backs up, restores, verifies, and deletes one mailbox's Outlook calendars, including recurring series and file attachments on events. Mailbox arguments accept an email address or Entra object ID.
 
-| Method                                  | CLI equivalent                | Description                                           |
-| --------------------------------------- | ----------------------------- | ----------------------------------------------------- |
-| `backup(mailbox, options?)`             | `atlas calendar backup -m`    | Back up changed calendars and events                  |
-| `restore(mailbox, options)`             | `atlas calendar restore -m`   | Restore a snapshot without overwriting                |
-| `verify(mailbox, snapshotId, options?)` | `atlas calendar verify -m`    | Verify a snapshot                                     |
-| `listSnapshots(mailbox)`                | `atlas calendar list -m`      | Snapshots with entries. Decrypts every manifest       |
-| `listSnapshotSummaries(mailbox)`        | `atlas calendar list -m`      | Snapshots without entries                             |
-| `deleteMailboxData(mailbox)`            | `atlas calendar delete -m`    | Delete all calendar data of a mailbox                 |
-| `deleteSnapshot(mailbox, snapshotId)`   | `atlas calendar delete -m -s` | Delete one snapshot and the mailbox's sync checkpoint |
-| `quarantine(storageKey)`                | `atlas calendar quarantine`   | Move an unreadable manifest aside                     |
+| Method                                  | CLI equivalent                | Description                                                               |
+| --------------------------------------- | ----------------------------- | ------------------------------------------------------------------------- |
+| `backup(mailbox, options?)`             | `atlas calendar backup -m`    | Back up changed calendars and events                                      |
+| `restore(mailbox, options)`             | `atlas calendar restore -m`   | Restore a snapshot without overwriting                                    |
+| `verify(mailbox, snapshotId, options?)` | `atlas calendar verify -m`    | Verify a snapshot                                                         |
+| `listSnapshots(mailbox)`                | `atlas calendar list -m`      | Snapshots with entries. Decrypts every manifest                           |
+| `listSnapshotSummaries(mailbox)`        | `atlas calendar list -m`      | Snapshots without entries                                                 |
+| `deleteMailboxData(mailbox)`            | `atlas calendar delete -m`    | Delete all calendar data of a mailbox                                     |
+| `deleteSnapshot(mailbox, snapshotId)`   | `atlas calendar delete -m -s` | Delete one snapshot and the mailbox's sync checkpoint                     |
+| `quarantine(storageKey)`                | `atlas calendar quarantine`   | Move an unreadable manifest aside                                         |
 
 ```ts
 const run = await atlas.calendar.backup('user@example.com');
@@ -962,17 +957,17 @@ See [Calendar backup](/calendar-backup) for the storage layout and restore behav
 
 ## Tenant-wide methods
 
-| Method                          | Description                                                                                                      |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `validate()`                    | Checks storage, the passphrase, and Microsoft Graph access. See [Validation](#validation)                        |
-| `checkStorage(request?)`        | Reports what the bucket supports. See [checkStorage](#checkstorage)                                              |
-| `getBucketStats()`              | Logical totals across the tenant: mailboxes, snapshots, messages, and sizes                                      |
-| `getStorageUsage(options?)`     | Bytes the bucket physically holds. See [Storage usage](#storage-usage)                                           |
-| `resolveUser(email)`            | Looks up an address's Entra object ID through Microsoft Graph                                                    |
-| `listUsers()`                   | The tenant's identity registry, or `undefined` when none exists yet                                              |
-| `rewrapDataKey(newPassphrase?)` | Re-wraps the tenant data key. See [Key re-wrap](#key-re-wrap)                                                    |
+| Method                          | Description                                                                                     |
+| ------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `validate()`                    | Checks storage, the passphrase, and Microsoft Graph access. See [Validation](#validation)       |
+| `checkStorage(request?)`        | Reports what the bucket supports. See [checkStorage](#checkstorage)                             |
+| `getBucketStats()`              | Logical totals across the tenant: mailboxes, snapshots, messages, and sizes                     |
+| `getStorageUsage(options?)`     | Bytes the bucket physically holds. See [Storage usage](#storage-usage)                          |
+| `resolveUser(email)`            | Looks up an address's Entra object ID through Microsoft Graph                                   |
+| `listUsers()`                   | The tenant's identity registry, or `undefined` when none exists yet                             |
+| `rewrapDataKey(newPassphrase?)` | Re-wraps the tenant data key. See [Key re-wrap](#key-re-wrap)                                   |
 | `keys`                          | Re-wraps and purges key wrappers across tenants. See [Re-wrapping several tenants](#re-wrapping-several-tenants) |
-| `dispose()`                     | Releases the instance. See [Instance lifecycle](#instance-lifecycle)                                             |
+| `dispose()`                     | Releases the instance. See [Instance lifecycle](#instance-lifecycle)                            |
 
 ### checkStorage
 
@@ -1106,13 +1101,13 @@ if (!report.complete) {
 
 **`rewrapTenantKeys`** resolves with `outcomes` (one per tenant, in request order), `passphraseChanged`, and `complete`.
 
-| Outcome `status`    | Meaning                                      |
-| ------------------- | -------------------------------------------- |
-| `rewrapped`         | Done. Carries `previousKdfId` and `kdfId`    |
-| `already_rewrapped` | Already under the new passphrase             |
-| `no_key`            | The tenant has no data key yet               |
-| `unopenable`        | The current passphrase does not open the key |
-| `busy`, `failed`    | Not done. Carries `detail`                   |
+| Outcome `status`             | Meaning                                          |
+| ---------------------------- | ------------------------------------------------ |
+| `rewrapped`                  | Done. Carries `previousKdfId` and `kdfId`        |
+| `already_rewrapped`          | Already under the new passphrase                 |
+| `no_key`                     | The tenant has no data key yet                   |
+| `unopenable`                 | The current passphrase does not open the key     |
+| `busy`, `failed`             | Not done. Carries `detail`                       |
 
 `complete` is `true` only when every tenant is `rewrapped`, `already_rewrapped`, or `no_key`. Only then may the old passphrase be retired. One tenant failing does not stop the others, and the promise resolves rather than rejects for per-tenant results. It rejects with `ConfigError` before touching any tenant when `newPassphrase` is shorter than 14 UTF-8 bytes. Each tenant runs under its tenant lease.
 
@@ -1133,21 +1128,21 @@ const newest = snapshots[0]; // { snapshotId, createdAt, manifestKey, entryCount
 
 `listSnapshotSummaries` on `atlas.outlook`, `atlas.onedrive`, `atlas.sharepoint`, `atlas.contacts`, and `atlas.calendar` returns an owner's snapshots newest first from its [snapshot summary index](/operations/storage-layout#snapshot-summary-index): one storage listing and one small read, whatever the number of snapshots. `listSnapshots` returns whole manifests and decrypts every one, so use it only when you need the entries.
 
-| Field                              | On                   | Meaning                                                                |
-| ---------------------------------- | -------------------- | ---------------------------------------------------------------------- |
-| `snapshotId`, `createdAt`          | all                  | Snapshot identity and time                                             |
-| `manifestKey`                      | all                  | Object path of the snapshot's manifest                                 |
-| `entryCount`                       | all                  | Entries in this snapshot's own manifest, which holds one run's changes |
-| `totalSizeBytes`                   | all                  | The manifest's `totalSizeBytes`                                        |
-| `ownerId` / `siteId` / `mailboxId` | all                  | The owner                                                              |
-| `objectCount`                      | Outlook              | Messages in the snapshot's chain, after recorded removals              |
-| `totalObjects`, `removedCount`     | Outlook              | Message high-water mark, and message IDs the run recorded removed      |
-| `objectLock`                       | Outlook              | Effective Object Lock mode and `retainUntil`, when set                 |
-| `mailboxPurpose`, `aggregates`     | Outlook              | Mailbox purpose, and per-folder totals when recorded                   |
-| `totalFiles`                       | OneDrive, SharePoint | The manifest's `totalFiles`                                            |
-| `totalContacts` / `totalEvents`    | Contacts / Calendar  | Items in the snapshot                                                  |
-| `ownerEmail`, `ownerDisplayName`   | Outlook, OneDrive    | Owner labels recorded at backup time                                   |
-| `siteUrl`, `siteDisplayName`       | SharePoint           | Site labels recorded at backup time                                    |
+| Field                            | On                   | Meaning                                                           |
+| -------------------------------- | -------------------- | ----------------------------------------------------------------- |
+| `snapshotId`, `createdAt`        | all                  | Snapshot identity and time                                        |
+| `manifestKey`                    | all                  | Object path of the snapshot's manifest                            |
+| `entryCount`                     | all                  | Entries in this snapshot's own manifest, which holds one run's changes |
+| `totalSizeBytes`                 | all                  | The manifest's `totalSizeBytes`                                   |
+| `ownerId` / `siteId` / `mailboxId` | all                | The owner                                                         |
+| `objectCount`                    | Outlook              | Messages in the snapshot's chain, after recorded removals         |
+| `totalObjects`, `removedCount`   | Outlook              | Message high-water mark, and message IDs the run recorded removed |
+| `objectLock`                     | Outlook              | Effective Object Lock mode and `retainUntil`, when set            |
+| `mailboxPurpose`, `aggregates`   | Outlook              | Mailbox purpose, and per-folder totals when recorded              |
+| `totalFiles`                     | OneDrive, SharePoint | The manifest's `totalFiles`                                       |
+| `totalContacts` / `totalEvents`  | Contacts / Calendar  | Items in the snapshot                                             |
+| `ownerEmail`, `ownerDisplayName` | Outlook, OneDrive    | Owner labels recorded at backup time                              |
+| `siteUrl`, `siteDisplayName`     | SharePoint           | Site labels recorded at backup time                               |
 
 A summary row stands in for its manifest without decrypting it, so a manifest damaged after its row was written is still listed. A manifest with no row that cannot be decrypted is reported through the partial result described in [Damaged stored objects](#damaged-stored-objects). Run `verify` to check manifests at rest.
 
@@ -1162,34 +1157,34 @@ if (!status.isUpToDate) scheduleBackup(status.ownerId, status.totalPendingChange
 
 Each result has `lastBackupAt`, `lastSnapshotId`, `isUpToDate`, `totalPendingChanges`, and one row per folder (`folders`, Outlook), drive (`drives`), or library (`libraries`) with `hasBackup`, `isUpToDate`, and its pending counts.
 
-| Field                          | On                                  | Meaning                                                                                                       |
-| ------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `pendingNew`, `pendingRemoved` | Each Outlook folder                 | Messages added and removed since the last backup                                                              |
-| `pendingChanges`               | Each drive or library               | Changed files. Counts files only, as backup does, and is exact                                                |
-| `pendingCapped`                | Each folder, and the mailbox result | The check stopped at 5 pages of 50 messages, so the pending counts are a lower bound                          |
-| `peekError`                    | Each folder, drive, or library      | `<ErrorClass>: <message>` when the check failed for another reason. The row and the result are not up to date |
-| `failedItems`                  | Each drive or library               | Files of that drive in the list of failed files                                                               |
-| `totalFailedItems`             | OneDrive and SharePoint results     | Every failed file. Any makes `isUpToDate` false                                                               |
-| `unreadableKeys`               | Every status result                 | Damaged snapshot manifests. `lastSnapshotId` is then the newest readable snapshot                             |
-| `graphCost`                    | Outlook                             | Microsoft Graph requests made                                                                                 |
+| Field              | On                                  | Meaning                                                                                                      |
+| ------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `pendingNew`, `pendingRemoved` | Each Outlook folder     | Messages added and removed since the last backup                                                             |
+| `pendingChanges`   | Each drive or library               | Changed files. Counts files only, as backup does, and is exact                                               |
+| `pendingCapped`    | Each folder, and the mailbox result | The check stopped at 5 pages of 50 messages, so the pending counts are a lower bound                         |
+| `peekError`        | Each folder, drive, or library      | `<ErrorClass>: <message>` when the check failed for another reason. The row and the result are not up to date |
+| `failedItems`      | Each drive or library               | Files of that drive in the list of failed files                                                              |
+| `totalFailedItems` | OneDrive and SharePoint results     | Every failed file. Any makes `isUpToDate` false                                                              |
+| `unreadableKeys`   | Every status result                 | Damaged snapshot manifests. `lastSnapshotId` is then the newest readable snapshot                            |
+| `graphCost`        | Outlook                             | Microsoft Graph requests made                                                                                |
 
 A permission problem is never reported as pending changes:
 
-| Situation                                                                 | Result                                                          |
-| ------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Microsoft Graph answers `401`, or a `403` for a missing grant             | Rejects with `AuthError` (`ATLAS_AUTH_DENIED`)                  |
-| A drive or library refused with a `403` not attributed to a missing grant | That row's `peekError` names `GraphAccessRefusedError`          |
-| A SharePoint site refused that way                                        | Rejects with `GraphAccessRefusedError` (`ATLAS_ACCESS_REFUSED`) |
-| An unlicensed mailbox                                                     | `checkMailboxStatus` rejects with `MailboxNotLicensedError`     |
+| Situation                                                                   | Result                                                                |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Microsoft Graph answers `401`, or a `403` for a missing grant               | Rejects with `AuthError` (`ATLAS_AUTH_DENIED`)                        |
+| A drive or library refused with a `403` not attributed to a missing grant   | That row's `peekError` names `GraphAccessRefusedError`                |
+| A SharePoint site refused that way                                          | Rejects with `GraphAccessRefusedError` (`ATLAS_ACCESS_REFUSED`)       |
+| An unlicensed mailbox                                                       | `checkMailboxStatus` rejects with `MailboxNotLicensedError`           |
 
 ## Progress and cancellation
 
 Every `backup`, `restore`, `save`, and `verify` of Outlook, OneDrive, and SharePoint accepts `onProgress` and `signal`, and so do `restoreVersion`, Outlook `restoreMailbox` and `saveMailbox`, Teams `backup`, `verify`, and `save`, and Calendar and Contacts `backup`, `restore`, and `verify`.
 
-| Option       | Type                                      | Description                                                                                      |
-| ------------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `onProgress` | `(event: OperationProgressEvent) => void` | Receives discovery, per-item, finalization, and terminal events                                  |
-| `signal`     | `AbortSignal`                             | Requests cancellation. The request or transfer in flight ends, and the run stops at a safe point |
+| Option       | Type                                      | Description                                                                                         |
+| ------------ | ----------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `onProgress` | `(event: OperationProgressEvent) => void` | Receives discovery, per-item, finalization, and terminal events                                     |
+| `signal`     | `AbortSignal`                             | Requests cancellation. The request or transfer in flight ends, and the run stops at a safe point    |
 
 ```ts
 const controller = new AbortController();
@@ -1230,13 +1225,13 @@ The callback runs inline. Keep it fast and hand network or database writes to yo
 
 Cancellation does not throw. The call resolves normally with `interrupted: true`.
 
-| What was running                    | Result                                                                                                                                            |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A backup                            | Completed folders, drives, and libraries stay committed. The one in progress keeps its previous sync checkpoint, so the next run reads it again   |
-| A restore                           | Reports what it wrote before the stop. The item in flight is neither counted nor listed in `errors`                                               |
-| A save                              | Partial counts. A file export still finalizes a valid zip of the entries it completed. A [stream export](#streaming-exports) is destroyed instead |
-| An already-aborted signal           | No `discovering` event. The stream is `finalizing`, then `interrupted`                                                                            |
-| The first listings, before any item | Resolves with `interrupted: true` and writes no snapshot or checkpoint                                                                            |
+| What was running         | Result                                                                                                                                         |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| A backup                 | Completed folders, drives, and libraries stay committed. The one in progress keeps its previous sync checkpoint, so the next run reads it again |
+| A restore                | Reports what it wrote before the stop. The item in flight is neither counted nor listed in `errors`                                            |
+| A save                   | Partial counts. A file export still finalizes a valid zip of the entries it completed. A [stream export](#streaming-exports) is destroyed instead |
+| An already-aborted signal | No `discovering` event. The stream is `finalizing`, then `interrupted`                                                                        |
+| The first listings, before any item | Resolves with `interrupted: true` and writes no snapshot or checkpoint                                                              |
 
 - **Waits end at once.** In every backup, every restore and version restore, and `outlook.save()`, the signal reaches every Microsoft Graph call of the run. It ends the request in flight and any retry backoff or throttle wait, including a `Retry-After` of up to an hour, so the call resolves within moments.
 - **Accepted requests still complete.** Microsoft Graph has no cancel, so a request it already accepted completes on its side and Atlas drops the answer. A Calendar or Contacts restore whose create landed anyway recognises the item by its source tag on the next run.
@@ -1264,10 +1259,10 @@ const result = await atlas.outlook.backup('user@example.com', {
 });
 ```
 
-| Signal           | Effect                                                                                                                                      |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `signal`         | Ends the Graph request in flight, stops at the next message, and saves the checkpoint of every completed folder. The next run resumes there |
-| `hardStopSignal` | Drops the page in flight and its pending attachments. That folder keeps its previous checkpoint and is read again on the next run           |
+| Signal           | Effect                                                                                                                                         |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `signal`         | Ends the Graph request in flight, stops at the next message, and saves the checkpoint of every completed folder. The next run resumes there    |
+| `hardStopSignal` | Drops the page in flight and its pending attachments. That folder keeps its previous checkpoint and is read again on the next run              |
 
 Both return `interrupted: true` and keep the snapshot written so far. `hardStopSignal` trades re-reading one folder for a faster exit; use it when the deadline matters more than the lost work. OneDrive and SharePoint need no escalation signal.
 
@@ -1308,14 +1303,14 @@ await atlas.sharepoint.save('https://contoso.sharepoint.com/sites/Engineering', 
 
 Any Node.js `Writable` works: an HTTP response, an upload stream, or a compressor.
 
-| Situation                           | What happens                                                                                           |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `outputPath` in the result          | Empty string. There is no file                                                                         |
-| Counts, errors, `integrityFailures` | Reported as for a file export                                                                          |
-| Failed run                          | The stream is destroyed, not ended, including failures during setup before any bytes are written       |
-| Interrupted run                     | The stream is destroyed without finalizing the archive. The result reports `interrupted: true`         |
-| `output` together with `outputPath` | Rejected with `ConfigError`. Atlas writes one archive, and dropping either value would lose the export |
-| The consumer disconnects            | See [When the consumer disconnects](#when-the-consumer-disconnects)                                    |
+| Situation                           | What happens                                                                                               |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `outputPath` in the result          | Empty string. There is no file                                                                             |
+| Counts, errors, `integrityFailures` | Reported as for a file export                                                                              |
+| Failed run                          | The stream is destroyed, not ended, including failures during setup before any bytes are written           |
+| Interrupted run                     | The stream is destroyed without finalizing the archive. The result reports `interrupted: true`             |
+| `output` together with `outputPath` | Rejected with `ConfigError`. Atlas writes one archive, and dropping either value would lose the export     |
+| The consumer disconnects            | See [When the consumer disconnects](#when-the-consumer-disconnects)                                       |
 
 A destroyed stream is deliberate: ending it would hand the consumer a short archive that opens like a complete one. Over HTTP the client sees the transfer break, so treat a body without a completed request as a failed export. Headers are already sent, so the status code cannot report the failure. Check the result, or its absence, on the server.
 
@@ -1462,18 +1457,17 @@ try {
 - **Tenant-wide runs.** `atlas teams backup --all` and the tenant-wide Outlook backup report a busy team or mailbox as that owner's failure and continue.
 
 ::: details Lease protocol
-
-| Property | Value                                                                                                                                                                                                                                                                                                                  |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Object   | One plain JSON object per workload and owner, not encrypted, so operations without the tenant key can take it. See [Owner leases](/operations/storage-layout#owner-leases) for the paths and what it reveals                                                                                                           |
-| Body     | A random ID for the run, the operation (`backup`, `delete`, `quarantine`, `restore`, or `purge` and `rewrap` on the tenant lease), `acquired_at`, and `expires_at`. No host name, user name, or process ID                                                                                                             |
-| Acquire  | A create-only write (`If-None-Match: *`), then a read to confirm this run is the holder: one `PUT` and one `GET`                                                                                                                                                                                                       |
-| Lifetime | 5 minutes after the last write                                                                                                                                                                                                                                                                                         |
-| Renewal  | Every 60 seconds: one `GET`, then one `PUT` with `If-Match` on the ETag just read. The timer does not keep the Node.js process alive                                                                                                                                                                                   |
-| Takeover | An expired lease is replaced by compare-and-swap                                                                                                                                                                                                                                                                       |
+| Property | Value |
+| -------- | ----- |
+| Object   | One plain JSON object per workload and owner, not encrypted, so operations without the tenant key can take it. See [Owner leases](/operations/storage-layout#owner-leases) for the paths and what it reveals |
+| Body     | A random ID for the run, the operation (`backup`, `delete`, `quarantine`, `restore`, or `purge` and `rewrap` on the tenant lease), `acquired_at`, and `expires_at`. No host name, user name, or process ID |
+| Acquire  | A create-only write (`If-None-Match: *`), then a read to confirm this run is the holder: one `PUT` and one `GET` |
+| Lifetime | 10 minutes after the last write |
+| Renewal  | Every 60 seconds: one `GET` to confirm the lease is still this run's. Every 5 minutes: one `PUT` with `If-Match` on the ETag just read, at most 14 versions per held hour. The timer does not keep the Node.js process alive |
+| Takeover | An expired lease is replaced by compare-and-swap |
 | Release  | When the operation ends with a result, an error, or a cancellation: one `GET`, and one `DELETE` if the lease is still this run's. If the delete is refused, one `PUT` with `If-Match` marks it released, and the next operation takes it at once. A failed release is logged and never replaces the operation's result |
-| Cost     | Requests per run and per minute, never per object                                                                                                                                                                                                                                                                      |
-| :::      |
+| Cost     | Requests per run and per minute, never per object |
+:::
 
 ### Tenant lease
 
@@ -1489,12 +1483,12 @@ try {
 
 Operations on different owners of one tenant can run at once, on one instance or in separate processes against the same bucket. Content, manifests, sync checkpoints, version indexes, and staging objects are kept per mailbox, drive owner, or site. The tenant-wide objects are written safely:
 
-| Object                   | How concurrent writers are handled                                                                                                                                 |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `_meta/dek.enc`          | Created with `If-None-Match: *`. A run that loses the race adopts the stored key                                                                                   |
-| `identity-registry.json` | Every write is a compare-and-swap on the ETag. A losing writer re-reads and re-applies its change, up to 8 attempts                                                |
-| The tenant bucket        | A run that loses the `CreateBucket` race uses the bucket the other run created                                                                                     |
-| Object Lock retention    | Applied to each object a run writes. No run changes the bucket's lock configuration. A lease is never written with retention                                       |
+| Object                   | How concurrent writers are handled                                                                                                                                |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `_meta/dek.enc`          | Created with `If-None-Match: *`. A run that loses the race adopts the stored key                                                                                  |
+| `identity-registry.json` | Every write is a compare-and-swap on the ETag. A losing writer re-reads and re-applies its change, up to 8 attempts                                               |
+| The tenant bucket        | A run that loses the `CreateBucket` race uses the bucket the other run created                                                                                    |
+| Object Lock retention    | Applied to each object a run writes. No run changes the bucket's lock configuration. A lease is never written with retention                                      |
 | Per-owner state          | Sync checkpoints, the Outlook `latest.json` pointer, version indexes, staging objects, and Teams checkpoints are written only by the run holding the owner's lease |
 
 These conditional writes, the lease included, need a backend that honours `If-Match` and `If-None-Match`. `checkStorage()` and `atlas storage-check` probe both. See [Storage](/self-hosting/storage#owner-leases-and-conditional-writes).
@@ -1530,10 +1524,10 @@ const throttleCoordinator: ThrottleCoordinator = {
 const atlas = createAtlasInstance({ ...config, throttleCoordinator });
 ```
 
-| Call                                  | When Atlas makes it                                                          |
-| ------------------------------------- | ---------------------------------------------------------------------------- |
-| `wait(pool, scope?)`                  | Before every HTTP attempt made through a Graph connector                     |
-| `raise(pool, retry_after_ms, scope?)` | On every `429`, with Graph's `Retry-After`, or 30 seconds when there is none |
+| Call                                   | When Atlas makes it                                                                                     |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `wait(pool, scope?)`                   | Before every HTTP attempt made through a Graph connector                                                |
+| `raise(pool, retry_after_ms, scope?)`  | On every `429`, with Graph's `Retry-After`, or 30 seconds when there is none                            |
 
 - `pool` is a `GraphServicePool`: `outlook`, `sharepoint_onedrive`, `identity`, or `teams`. `scope` is a `ThrottleScope`, `{ ownerId }`: the normalized mailbox ID on Outlook requests and the normalized team ID on Teams requests. Listing the tenant's teams, and drive and identity requests, pass no scope.
 - Coordinated calls: mailbox backup and restore, mailbox discovery, user lookups, every Teams call, and every OneDrive and SharePoint connector call. Drive downloads from pre-authenticated URLs, whole or chunked, and resumable upload chunks are coordinated on `sharepoint_onedrive` as well: each attempt waits, and a `429` or `503` with `Retry-After` raises the cooldown. Their own retry backoff applies on top.
@@ -1741,14 +1735,14 @@ for (const key of status.unreadableKeys ?? []) {
 }
 ```
 
-| Call                                                 | What it does                                                                                                                                                                                                                                                              |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `listSnapshots`, `listMailboxes`, `listFileVersions` | Rejects with `UnreadableObjectsError`. `unreadable_keys` names the damaged objects, `partial_result` holds everything readable, in the call's camelCase shape                                                                                                             |
-| `checkStatus`, `checkMailboxStatus`                  | Resolves. `unreadableKeys` names the damaged manifests, and `lastSnapshotId` is the newest readable one                                                                                                                                                                   |
-| `backup`                                             | Resolves. `summary.unreadableKeys` names the damaged manifests the run skipped                                                                                                                                                                                            |
-| OneDrive and SharePoint `restore`, `save`, `verify`  | Resolve with `unreadableKeys` when the damaged manifest is newer than the target. Reject with `UnreadableObjectsError` when the target's chain may need it                                                                                                                |
-| Outlook `restore`, `save`, `verify`, `readMessage`   | Reject with `UnreadableObjectsError` while any manifest of the mailbox is damaged                                                                                                                                                                                         |
-| `restoreVersion`                                     | Rejects with `UnreadableObjectsError` while any version index object of the owner or site is damaged                                                                                                                                                                      |
+| Call                                                 | What it does                                                                                                                                                      |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `listSnapshots`, `listMailboxes`, `listFileVersions` | Rejects with `UnreadableObjectsError`. `unreadable_keys` names the damaged objects, `partial_result` holds everything readable, in the call's camelCase shape      |
+| `checkStatus`, `checkMailboxStatus`                  | Resolves. `unreadableKeys` names the damaged manifests, and `lastSnapshotId` is the newest readable one                                                          |
+| `backup`                                             | Resolves. `summary.unreadableKeys` names the damaged manifests the run skipped                                                                                   |
+| OneDrive and SharePoint `restore`, `save`, `verify`  | Resolve with `unreadableKeys` when the damaged manifest is newer than the target. Reject with `UnreadableObjectsError` when the target's chain may need it        |
+| Outlook `restore`, `save`, `verify`, `readMessage`   | Reject with `UnreadableObjectsError` while any manifest of the mailbox is damaged                                                                                |
+| `restoreVersion`                                     | Rejects with `UnreadableObjectsError` while any version index object of the owner or site is damaged                                                             |
 | Teams `listSnapshots`, `status`                      | Resolve. `listSnapshots` names damaged indexes in `unreadableKeys`. `status` names damaged indexes and channel cursors in `unreadableKeys`, and the indexes alone in `unreadableIndexKeys`; only those need `quarantine`, since the next backup rewrites a damaged cursor |
 
 The listings reject rather than resolve because an array has nowhere to carry the keys. The error's own fields are snake_case, like every error property.
@@ -1782,44 +1776,44 @@ try {
 }
 ```
 
-| Class                               | `code`                       | Meaning                                                                                                                                                                                                                                                                                                               |
-| ----------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AtlasError`                        | any of the below             | Base class. Catch it to separate deliberate failures from bugs                                                                                                                                                                                                                                                        |
-| `AuthError`                         | `ATLAS_AUTH_DENIED`          | Microsoft Graph or storage refused the call: missing permission or admin consent. Also thrown when Microsoft Entra ID refuses the Graph token request: wrong tenant, client ID, or client secret                                                                                                                      |
-| `MissingGraphPermissionsError`      | `ATLAS_AUTH_DENIED`          | Subclass of `AuthError`: Graph answered 403 with a missing-grant code and nothing showed the grant working. `permissions` names what to grant                                                                                                                                                                         |
-| `GraphAccessRefusedError`           | `ATLAS_ACCESS_REFUSED`       | Graph refused one site, drive, or owner. Permanent for that resource, not an `AuthError`. See [Graph failures](#graph-failures)                                                                                                                                                                                       |
+| Class                               | `code`                       | Meaning                                                                                                                                                         |
+| ----------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AtlasError`                        | any of the below             | Base class. Catch it to separate deliberate failures from bugs                                                                                                  |
+| `AuthError`                         | `ATLAS_AUTH_DENIED`          | Microsoft Graph or storage refused the call: missing permission or admin consent. Also thrown when Microsoft Entra ID refuses the Graph token request: wrong tenant, client ID, or client secret |
+| `MissingGraphPermissionsError`      | `ATLAS_AUTH_DENIED`          | Subclass of `AuthError`: Graph answered 403 with a missing-grant code and nothing showed the grant working. `permissions` names what to grant                    |
+| `GraphAccessRefusedError`           | `ATLAS_ACCESS_REFUSED`       | Graph refused one site, drive, or owner. Permanent for that resource, not an `AuthError`. See [Graph failures](#graph-failures)                                  |
 | `GraphUnavailableError`             | `ATLAS_GRAPH_UNAVAILABLE`    | Graph answered 500, 502, 503, or 504, or the connection failed or timed out, until retries ran out. Also covers a Graph token request that Microsoft Entra ID did not answer, or answered with 408, 429, a 5xx, or `temporarily_unavailable`, until retries ran out. Transient. See [Graph failures](#graph-failures) |
-| `ThrottledError`                    | `ATLAS_THROTTLED`            | Graph kept throttling until retries ran out. See `retry_after_ms` below                                                                                                                                                                                                                                               |
-| `MailboxNotLicensedError`           | `ATLAS_MAILBOX_NOT_LICENSED` | No Exchange Online license, so Graph does not serve the mailbox                                                                                                                                                                                                                                                       |
-| `NotFoundError`                     | `ATLAS_NOT_FOUND`            | Snapshot, mailbox, drive, site, or object does not exist, or a folder, file, or message selector matched nothing                                                                                                                                                                                                      |
-| `WrongPassphraseError`              | `ATLAS_WRONG_PASSPHRASE`     | The passphrase could not unwrap the data key. A damaged content object is a per-file entry in a restore result's `errors`, not this error                                                                                                                                                                             |
-| `ObjectLockRetainedError`           | `ATLAS_OBJECT_LOCK_RETAINED` | The object is under retention or a legal hold. `key` is set                                                                                                                                                                                                                                                           |
-| `StorageError`                      | `ATLAS_STORAGE_FAILURE`      | Storage failed for a reason other than permission, retention, or absence                                                                                                                                                                                                                                              |
-| `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | A conditional write lost a race (HTTP 412)                                                                                                                                                                                                                                                                            |
-| `StoredObjectConflictError`         | `ATLAS_STORAGE_FAILURE`      | A create-only manifest or index write found a different object at its path and left it in place. `key` is set. A new run uses a new snapshot ID                                                                                                                                                                       |
-| `ConfigError`                       | `ATLAS_CONFIG_INVALID`       | Credentials, endpoint, passphrase, option, or tenant is missing or unusable                                                                                                                                                                                                                                           |
-| `ObjectLockVersioningDisabledError` | `ATLAS_CONFIG_INVALID`       | Retention requested, but bucket versioning is off                                                                                                                                                                                                                                                                     |
-| `ObjectLockUnsupportedError`        | `ATLAS_CONFIG_INVALID`       | Retention requested, but the bucket has no Object Lock                                                                                                                                                                                                                                                                |
-| `ObjectLockModeRejectedError`       | `ATLAS_CONFIG_INVALID`       | The backend rejected the requested retention mode                                                                                                                                                                                                                                                                     |
-| `RefusedWriteError`                 | `ATLAS_WRITE_REFUSED`        | Atlas refused to store a manifest, index, or checkpoint it built: too large for one JSON document, rejected by its own reader's checks, or not decrypting back. Nothing was written. `key` is set. See [Refused and unconfirmed metadata writes](/troubleshooting#refused-and-unconfirmed-metadata-writes)            |
-| `UnreadableContentError`            | `ATLAS_CONTENT_UNREADABLE`   | Stored data or MIME content could not be decoded. Not exported                                                                                                                                                                                                                                                        |
-| `UnreadableObjectsError`            | `ATLAS_CONTENT_UNREADABLE`   | Named manifests or version indexes could not be read. See `unreadable_keys` and [Damaged stored objects](#damaged-stored-objects)                                                                                                                                                                                     |
-| `UnsupportedFormatVersionError`     | `ATLAS_FORMAT_UNSUPPORTED`   | Stored content was written by a newer Atlas format. Upgrade Atlas. Not exported                                                                                                                                                                                                                                       |
-| `SnapshotNotNewestError`            | `ATLAS_SNAPSHOT_NOT_NEWEST`  | `deleteSnapshot` refused a snapshot that newer snapshots are built on. See `snapshot_id` and `newer_snapshot_ids`                                                                                                                                                                                                     |
-| `OwnerBusyError`                    | `ATLAS_OWNER_BUSY`           | Another operation holds the mailbox, drive owner, site, or team, or a purge or key re-wrap holds the tenant. Nothing was written. See [Concurrent operations](#concurrent-operations)                                                                                                                                 |
-| `OwnerLeaseLostError`               | `ATLAS_OWNER_BUSY`           | Subclass of `OwnerBusyError`: this run lost its lease before a commit point, so it stopped without writing the manifest, checkpoint, or deletion that followed                                                                                                                                                        |
+| `ThrottledError`                    | `ATLAS_THROTTLED`            | Graph kept throttling until retries ran out. See `retry_after_ms` below                                                                                         |
+| `MailboxNotLicensedError`           | `ATLAS_MAILBOX_NOT_LICENSED` | No Exchange Online license, so Graph does not serve the mailbox                                                                                                 |
+| `NotFoundError`                     | `ATLAS_NOT_FOUND`            | Snapshot, mailbox, drive, site, or object does not exist, or a folder, file, or message selector matched nothing                                                |
+| `WrongPassphraseError`              | `ATLAS_WRONG_PASSPHRASE`     | The passphrase could not unwrap the data key. A damaged content object is a per-file entry in a restore result's `errors`, not this error                       |
+| `ObjectLockRetainedError`           | `ATLAS_OBJECT_LOCK_RETAINED` | The object is under retention or a legal hold. `key` is set                                                                                                     |
+| `StorageError`                      | `ATLAS_STORAGE_FAILURE`      | Storage failed for a reason other than permission, retention, or absence                                                                                        |
+| `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | A conditional write lost a race (HTTP 412)                                                                                                                      |
+| `StoredObjectConflictError`         | `ATLAS_STORAGE_FAILURE`      | A create-only manifest or index write found a different object at its path and left it in place. `key` is set. A new run uses a new snapshot ID                |
+| `ConfigError`                       | `ATLAS_CONFIG_INVALID`       | Credentials, endpoint, passphrase, option, or tenant is missing or unusable                                                                                     |
+| `ObjectLockVersioningDisabledError` | `ATLAS_CONFIG_INVALID`       | Retention requested, but bucket versioning is off                                                                                                               |
+| `ObjectLockUnsupportedError`        | `ATLAS_CONFIG_INVALID`       | Retention requested, but the bucket has no Object Lock                                                                                                          |
+| `ObjectLockModeRejectedError`       | `ATLAS_CONFIG_INVALID`       | The backend rejected the requested retention mode                                                                                                               |
+| `RefusedWriteError`                 | `ATLAS_WRITE_REFUSED`        | Atlas refused to store a manifest, index, or checkpoint it built: too large for one JSON document, rejected by its own reader's checks, or not decrypting back. Nothing was written. `key` is set. See [Refused and unconfirmed metadata writes](/troubleshooting#refused-and-unconfirmed-metadata-writes) |
+| `UnreadableContentError`            | `ATLAS_CONTENT_UNREADABLE`   | Stored data or MIME content could not be decoded. Not exported                                                                                                  |
+| `UnreadableObjectsError`            | `ATLAS_CONTENT_UNREADABLE`   | Named manifests or version indexes could not be read. See `unreadable_keys` and [Damaged stored objects](#damaged-stored-objects)                               |
+| `UnsupportedFormatVersionError`     | `ATLAS_FORMAT_UNSUPPORTED`   | Stored content was written by a newer Atlas format. Upgrade Atlas. Not exported                                                                                 |
+| `SnapshotNotNewestError`            | `ATLAS_SNAPSHOT_NOT_NEWEST`  | `deleteSnapshot` refused a snapshot that newer snapshots are built on. See `snapshot_id` and `newer_snapshot_ids`                                               |
+| `OwnerBusyError`                    | `ATLAS_OWNER_BUSY`           | Another operation holds the mailbox, drive owner, site, or team, or a purge or key re-wrap holds the tenant. Nothing was written. See [Concurrent operations](#concurrent-operations) |
+| `OwnerLeaseLostError`               | `ATLAS_OWNER_BUSY`           | Subclass of `OwnerBusyError`: this run lost its lease before a commit point, so it stopped without writing the manifest, checkpoint, or deletion that followed  |
 
-| Error                                                                       | Properties                                                                                                 |
-| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| every `AtlasError`                                                          | `code`, and `cause` with the underlying Graph or AWS SDK error, for logging. Branching never depends on it |
-| `ThrottledError`                                                            | `retry_after_ms`                                                                                           |
-| `GraphUnavailableError`                                                     | `status_code`, `graph_code`, `retries`, `elapsed_ms`                                                       |
-| `GraphAccessRefusedError`                                                   | `site_id`, `drive_id`, `owner_id`, `reason`, `status_code`, `graph_code`                                   |
-| `MissingGraphPermissionsError`                                              | `permissions`, `status_code`, `graph_code`                                                                 |
-| `OwnerBusyError`, `OwnerLeaseLostError`                                     | `workload`, `owner_id`, `held_by_operation`, `lease_expires_at`                                            |
-| `SnapshotNotNewestError`                                                    | `snapshot_id`, `newer_snapshot_ids`                                                                        |
-| `UnreadableObjectsError`                                                    | `unreadable_keys`, `partial_result`                                                                        |
-| `ObjectLockRetainedError`, `StoredObjectConflictError`, `RefusedWriteError` | `key`                                                                                                      |
+| Error                          | Properties                                                                                                     |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| every `AtlasError`             | `code`, and `cause` with the underlying Graph or AWS SDK error, for logging. Branching never depends on it     |
+| `ThrottledError`               | `retry_after_ms`                                                                                               |
+| `GraphUnavailableError`        | `status_code`, `graph_code`, `retries`, `elapsed_ms`                                                           |
+| `GraphAccessRefusedError`      | `site_id`, `drive_id`, `owner_id`, `reason`, `status_code`, `graph_code`                                       |
+| `MissingGraphPermissionsError` | `permissions`, `status_code`, `graph_code`                                                                     |
+| `OwnerBusyError`, `OwnerLeaseLostError` | `workload`, `owner_id`, `held_by_operation`, `lease_expires_at`                                       |
+| `SnapshotNotNewestError`       | `snapshot_id`, `newer_snapshot_ids`                                                                            |
+| `UnreadableObjectsError`       | `unreadable_keys`, `partial_result`                                                                            |
+| `ObjectLockRetainedError`, `StoredObjectConflictError`, `RefusedWriteError` | `key`                                                             |
 
 **`ThrottledError`** is thrown when Microsoft Graph keeps throttling past 12 retries, when a call that has already waited 24 minutes would have to wait again, or at once when `Retry-After` is longer than one hour (the message then names the value). `retry_after_ms` is the last `Retry-After` Graph sent, in milliseconds, or `undefined` when it sent none. The CLI exits with code `3` for this error. [Retries and fail-safes](/operations/reliability#microsoft-graph-requests) lists the backoff, jitter, and wait budget in full.
 
@@ -1846,11 +1840,11 @@ try {
 }
 ```
 
-| Code                      | Retry?                                                                               | Fields                                                                                                                                                                                                        |
-| ------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Code                      | Retry?                                                                               | Fields                                                                                                                                                                                                                            |
+| ------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ATLAS_GRAPH_UNAVAILABLE` | Yes, later. The call already spent its retry budget                                  | `status_code` (last HTTP status, `undefined` when no response arrived), `graph_code` (`undefined` without a response), `retries` (up to 12, fewer when the 24-minute wait budget ran out first), `elapsed_ms` |
-| `ATLAS_ACCESS_REFUSED`    | Not as is. A container is unsupported; check another resource's per-site grant first | `site_id`, `drive_id`, `owner_id` (what the call addressed, the others `undefined`), `reason`, `status_code`, `graph_code`                                                                                    |
-| `ATLAS_AUTH_DENIED`       | No. Grant the permission first                                                       | `MissingGraphPermissionsError` adds `permissions`, `status_code`, `graph_code`                                                                                                                                |
+| `ATLAS_ACCESS_REFUSED`    | Not as is. A container is unsupported; check another resource's per-site grant first | `site_id`, `drive_id`, `owner_id` (what the call addressed, the others `undefined`), `reason`, `status_code`, `graph_code`                                                                                                        |
+| `ATLAS_AUTH_DENIED`       | No. Grant the permission first                                                       | `MissingGraphPermissionsError` adds `permissions`, `status_code`, `graph_code`                                                                                                                                                    |
 
 - **`GraphUnavailableError` messages are never empty.** They name the retry count, the elapsed time, the HTTP status when there was one, the Graph error code when Graph sent one, and an excerpt of the response body when Graph sent no message, or `no HTTP response` with the transport error when the connection failed:
 

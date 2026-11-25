@@ -41,17 +41,26 @@ describe('classify_download_failure', () => {
       },
     );
 
-    it.each(['notAllowed', 'malwareDetected', 'someFutureCode', ''])(
-      'reads 403 with code %s as a service refusal',
+    it.each([
+      'malwareDetected',
+      'fileDoubleKeyEncrypted',
+      'fileDecryptionNotSupported',
+      'MALWAREDETECTED',
+    ])('reads 403 with code %s as a permanent service refusal', (code) => {
+      expect(classify_download_failure({ statusCode: 403, code })).toBe('service_refused');
+    });
+
+    // Issue #866: an unknown code says nothing about permanence, so it neither aborts the tenant
+    // backup nor hides the file for good. The attempt budget decides.
+    it.each(['notAllowed', 'someFutureCode', ''])(
+      'reads 403 with code %s as an unrecognised refusal',
       (code) => {
-        expect(classify_download_failure({ statusCode: 403, code })).toBe('service_refused');
+        expect(classify_download_failure({ statusCode: 403, code })).toBe('unrecognised_refusal');
       },
     );
 
-    // Conservative on purpose: an unrecognised 403 records one item rather than
-    // aborting a whole tenant backup.
-    it('reads a 403 with no code at all as a service refusal', () => {
-      expect(classify_download_failure({ statusCode: 403 })).toBe('service_refused');
+    it('reads a 403 with no code at all as an unrecognised refusal', () => {
+      expect(classify_download_failure({ statusCode: 403 })).toBe('unrecognised_refusal');
     });
 
     it.each([404, 429, 500])('leaves statusCode %i unclassified', (status) => {

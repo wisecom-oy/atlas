@@ -10,6 +10,7 @@ import { UnreadableContentError } from '@wisecom/atlas-types';
 import { ConcurrencySemaphore } from '@wisecom/atlas-core/services/shared/concurrency-semaphore';
 import { load_encrypted_json } from '@wisecom/atlas-core/services/shared/encrypted-state-reader';
 import { write_encrypted_json } from '@wisecom/atlas-core/services/shared/stored-json-writer';
+import { UNLOCKED_STATE_WRITE } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import {
   assert_checkpoint_head_shape,
   assert_checkpoint_hosted_entry_shape,
@@ -28,9 +29,14 @@ const HOSTED_ENTRY_READ_CONCURRENCY = 8;
 
 /**
  * A checkpoint object is rewritten as the read advances, once per page and per hosted item, so it
- * is overwritten in place and never read back: its checks must cost no extra request.
+ * is overwritten in place and never read back: its checks must cost no extra request. It is run
+ * state, not backup data, so it carries no Object Lock retention (#919).
  */
-const CHECKPOINT_WRITE = { write: 'overwrite', confirm_read_back: false } as const;
+const CHECKPOINT_WRITE = {
+  write: 'overwrite',
+  confirm_read_back: false,
+  object_lock_policy: UNLOCKED_STATE_WRITE,
+} as const;
 
 /**
  * Persists one channel's read checkpoint as encrypted JSON: a head, append-only segments, and one

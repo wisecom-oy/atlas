@@ -34,7 +34,11 @@ const KNOWN_METHOD_GAPS: Record<string, string> = {
 };
 
 /** DI tokens the CLI resolves and the SDK does not. */
-const KNOWN_TOKEN_GAPS: Record<string, string> = {};
+const KNOWN_TOKEN_GAPS: Record<string, string> = {
+  // Infrastructure, not a capability: the CLI resolves it to stop an armed cooldown holding the
+  // process open once a command has ended. The SDK clears it in dispose() instead (#873).
+  THROTTLE_COORDINATOR_TOKEN: 'intentional',
+};
 
 /** Reads every source file under dir. */
 function collect_sources(dir: string): string[] {

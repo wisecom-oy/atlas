@@ -373,11 +373,21 @@ One file that cannot be read never stops the rest of the library. Atlas keeps th
 | Download fails                              | Records the file in the list of failed files and retries it next run | Nothing, unless it reaches 5 attempts |
 | Download link expired                       | Fetches a fresh link and continues                                   | Nothing |
 | Malware quarantine                          | Skips the download and reports the file as permanently skipped by service policy | Resolve the file in Microsoft 365 if it should be backed up |
-| Sensitivity label, IRM, or retention rule   | Records a permanent failure for that file, with the Graph error code | Review the policy on that file |
-| Application permission missing (`403`)      | Stops the run                                                        | Grant the permission, see [Permissions](#permissions) |
-| Any other unrecognised `403`                | Fails that one file, not the run                                     | Check the Graph error code in the output |
+| `403` with a protection code, listed below  | Records a permanent failure for that file, with the Graph error code | Review the policy on that file |
+| Application permission missing (`403 accessDenied` or `403 ErrorAccessDenied`) | Stops the run                           | Grant the permission, see [Permissions](#permissions) |
+| Any other `403`, including one with no code | Fails that file for this run and retries it next run, up to 5 attempts | Check the Graph error code in the run output |
 | File changes size during the download       | Reads the file again at its current size                             | Nothing, unless it keeps changing |
 | Earlier version cannot be downloaded        | Marks the run UNHEALTHY, or counts the version as `unavailable`      | See [version failures](#version-failures) |
+
+A `403` is permanent on the first occurrence only for these Graph error codes:
+
+| Code                         | Meaning                                                              |
+| ---------------------------- | -------------------------------------------------------------------- |
+| `malwareDetected`            | Microsoft 365 quarantined the content as malware                     |
+| `fileDoubleKeyEncrypted`     | A sensitivity label encrypts the file with Double Key Encryption     |
+| `fileDecryptionNotSupported` | A sensitivity label encrypts the file in a way the service cannot decrypt |
+
+Microsoft does not document which code a download returns for an IRM or retention block. A refusal with any code outside this list is retried like an ordinary failure, and reported as `PERMANENTLY SKIPPED after 5 attempts` once the budget is spent. Atlas does not treat an unknown code as permanent, because one transient or misread `403` would then hide the file from every later backup.
 
 ### Failed files
 
@@ -404,7 +414,7 @@ A `401` or `403` from the download link means it expired.
 | Over 4 MiB, under 64 MiB | Link from the change listing    | Fetch a fresh link once, restart from byte zero, then fall back to `/content`            |
 | 64 MiB and larger        | Fresh link, one Graph request   | Fetch a fresh link and resume at the 4 MiB range that failed                             |
 
-For files of 64 MiB and larger, a run can refresh the link any number of times, as long as each fresh link delivers at least one more range. If three fresh links in a row expire before any new range arrives, Atlas records the file as not backed up, without counting an attempt. A Graph refusal while fetching a fresh link is handled like the other `403` cases: a missing grant stops the run, and a service refusal is recorded as permanent. The fresh link costs one Graph request per file of 64 MiB or more.
+For files of 64 MiB and larger, a run can refresh the link any number of times, as long as each fresh link delivers at least one more range. If three fresh links in a row expire before any new range arrives, Atlas records the file as not backed up, without counting an attempt. A Graph refusal while fetching a fresh link is handled like the other `403` cases: a missing grant stops the run, a protection code is recorded as permanent, and any other `403` fails the file for that run. The fresh link costs one Graph request per file of 64 MiB or more.
 :::
 
 ### Version failures

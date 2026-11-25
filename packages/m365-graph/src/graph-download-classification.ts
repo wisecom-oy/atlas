@@ -9,9 +9,13 @@
  *   retrying is correct, and this is the only case where it is.
  * - The tenant has not granted the application permission. Re-resolving cannot
  *   help, and the run should stop and name the missing grant.
- * - The service will not release the item (IRM, sensitivity label, policy).
+ * - The service will not release the item (malware, IRM, sensitivity label).
  *   Neither a refresh nor a second download budget changes the answer, so the
  *   item is recorded against the snapshot and the run continues.
+ *
+ * A 403 whose code names none of these is a fourth case. Nothing says it will
+ * last, so the item fails for this run and is retried by the next one, within
+ * the failed-item attempt budget (issue #866).
  *
  * Classification keys on the transport the error came from and on the Graph error
  * code, never on the message text. Microsoft's own error guidance is explicit
@@ -31,6 +35,8 @@ export type DownloadFailureKind =
   | 'missing_permission'
   /** The service refuses to release this item and will keep refusing. */
   | 'service_refused'
+  /** A Graph 403 whose code names no known cause: fail the item now, retry it next run. */
+  | 'unrecognised_refusal'
   /** Graph rejected the credential itself, which a URL refresh cannot fix. */
   | 'unauthorized'
   /** Nothing in the error identifies a cause; the caller falls back as before. */
@@ -38,13 +44,31 @@ export type DownloadFailureKind =
 
 /**
  * Graph error codes that mean the application is missing a grant. Only these abort
- * a run: any other 403 code is treated as a per-item refusal, because aborting a
- * whole tenant backup on an unrecognised code is the worse failure.
+ * a run, because aborting a whole tenant backup on an unrecognised code is the
+ * worse failure.
  *
  * Both spellings are real: driveItem returns `accessDenied`, while the Exchange
  * backed APIs return `ErrorAccessDenied`.
  */
 const MISSING_PERMISSION_CODES = new Set(['accessdenied', 'erroraccessdenied']);
+
+/**
+ * Graph error codes that mean the service will never release this item's content. Only these are
+ * recorded as permanent on the first 403. Any other code, or none, fails the item for one run and
+ * leaves it to the attempt budget, so one transient or misread 403 cannot hide a file for good.
+ *
+ * - `malwareDetected`: the content is quarantined by Microsoft 365 malware policy.
+ * - `fileDoubleKeyEncrypted`, `fileDecryptionNotSupported`: a sensitivity label encrypts the
+ *   content in a way the service cannot decrypt for the caller.
+ *
+ * Keep this list in step with "When a file cannot be backed up" in `docs/onedrive-backup.md` and
+ * `docs/sharepoint-backup.md`.
+ */
+const PERMANENT_REFUSAL_CODES = new Set([
+  'malwaredetected',
+  'filedoublekeyencrypted',
+  'filedecryptionnotsupported',
+]);
 
 /** Thrown for a 403 the service will not reverse. Permanent for the item, not the run. */
 export class DownloadRefusedError extends Error {
@@ -108,7 +132,8 @@ export function classify_download_failure(err: unknown): DownloadFailureKind {
     if (candidate.statusCode === 401) return 'unauthorized';
     if (candidate.statusCode !== 403) return 'unclassified';
     const code = typeof candidate.code === 'string' ? candidate.code.toLowerCase() : '';
-    return MISSING_PERMISSION_CODES.has(code) ? 'missing_permission' : 'service_refused';
+    if (MISSING_PERMISSION_CODES.has(code)) return 'missing_permission';
+    return PERMANENT_REFUSAL_CODES.has(code) ? 'service_refused' : 'unrecognised_refusal';
   }
 
   return 'unclassified';
