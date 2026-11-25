@@ -77,6 +77,8 @@ Atlas paces requests below Microsoft's published limits rather than waiting for 
 | Outlook | Per mailbox: 9,600 requests per sliding 10-minute window (96% of Microsoft Graph's 10,000) and 4 concurrent requests |
 | Teams | 80% of the Microsoft Graph Teams limits, per tenant, per team, and per channel |
 
+A request that finds its mailbox's window spent waits until earlier requests age out of it, up to 10 minutes, and the run then continues. That wait keeps the CLI process running only while the command is still working, like a cooldown does.
+
 Concurrency is fixed, not adaptive. A `429` does not lower it; the shared cooldown is what slows the instance down. `atlas teams backup --concurrency` sets how many channels run at once (default 4, maximum 16).
 
 ### When retries run out {#when-retries-run-out-on-a-throttle}

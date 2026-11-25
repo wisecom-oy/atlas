@@ -21,6 +21,7 @@ import {
   release_command_process_holds,
   track_command_container,
 } from '@/adapters/command-process-holds';
+import { fail_exit_while_command_pending } from '@/adapters/unsettled-command-exit';
 import type { Container } from 'inversify';
 
 let _container: Container | undefined;
@@ -74,4 +75,6 @@ function register_commands(program: Command): void {
 
 const program = create_program();
 register_commands(program);
-program.parseAsync(process.argv).catch(handle_fatal_error).finally(release_command_process_holds);
+const command = program.parseAsync(process.argv);
+fail_exit_while_command_pending(command);
+command.catch(handle_fatal_error).finally(release_command_process_holds);

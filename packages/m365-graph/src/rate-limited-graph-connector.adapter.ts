@@ -204,6 +204,14 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     );
   }
 
+  /**
+   * Stops callers parked on a mailbox's request window from keeping the process alive, for once
+   * the command that sent them has ended (issue #859). They stay parked; nothing is sent early.
+   */
+  release_process_hold(): void {
+    this._factory.release_process_hold();
+  }
+
   /** Shuts down all per-mailbox limiters. */
   shutdown(): void {
     this._factory.shutdown_all();

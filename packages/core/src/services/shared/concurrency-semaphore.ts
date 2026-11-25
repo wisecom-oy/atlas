@@ -2,6 +2,9 @@
  * Promise-based semaphore for limiting concurrent in-flight operations.
  *
  * Outlook service limit: 4 concurrent requests per app per mailbox.
+ *
+ * Needs no timer to hold the process open: a caller waits only while every slot is taken, and each
+ * holder's request, retry timer, or cooldown keeps Node alive until it calls `release()`.
  */
 
 const DEFAULT_CONCURRENCY = 4;
