@@ -8,7 +8,8 @@
  * When the last timer expires, each parked caller resumes after its own random delay, bounded by
  * `cooldown_release_jitter_bound_ms` for the longest cooldown raised. Releasing them all in one
  * instant sent every request back to Graph at once and drew the next 429 (issue #641). `clear()`
- * releases callers at once, since it is for shutdown.
+ * releases callers at once, since it is for shutdown. `release_process_hold()` lets the process exit
+ * with a cooldown still armed, for after the run that raised it has ended.
  *
  * Inspired by Corso's (alcionai/corso) timedFence.
  */
@@ -23,6 +24,7 @@ export class ThrottleFence {
   private _timers = new Map<number, ReturnType<typeof setTimeout>>();
   private _next_id = 0;
   private _longest_ms = 0;
+  private _holds_process = true;
 
   /** Returns true when a fence is currently active. */
   get is_raised(): boolean {
@@ -52,12 +54,26 @@ export class ThrottleFence {
       }
     }, seconds * 1000);
 
-    // Deliberately not unref'd. This timer is the only thing that will ever
-    // release the callers parked in wait(), and an awaited promise is not a
+    // Not unref'd while a run is going. This timer is the only thing that will
+    // ever release the callers parked in wait(), and an awaited promise is not a
     // libuv handle, so an unref'd timer lets Node exit 0 with the whole
     // workload still parked -- a truncated backup reported as a success.
-    // Bounded by Retry-After, and clear() exists for shutdown.
+    // Bounded by Retry-After; clear() and release_process_hold() end the hold.
+    if (!this._holds_process) timer.unref();
     this._timers.set(id, timer);
+  }
+
+  /**
+   * Stops this fence's timers, current and future, from keeping the process alive. Parked callers
+   * stay parked and the cooldown still runs its course for anything that waits on it.
+   *
+   * For once the run that raised the cooldown has ended, so the process can exit with its result
+   * instead of sitting out a Retry-After of up to an hour (issue #873). Unlike `clear()`, nothing
+   * left parked is released into a pool that Graph is still throttling.
+   */
+  release_process_hold(): void {
+    this._holds_process = false;
+    for (const timer of this._timers.values()) timer.unref();
   }
 
   /**
