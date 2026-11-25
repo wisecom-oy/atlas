@@ -11,6 +11,12 @@ import { DELTA_SELECT_FIELDS, extract_page_messages } from '@/adapters/graph-del
 export const IMMUTABLE_ID_PREFER = 'IdType="ImmutableId"';
 
 /**
+ * Messages requested per backup delta page. Measured on an 8,989-message folder, 100 needed
+ * 7.75x fewer delta requests than 10 at about 7 MiB per page (issue #797).
+ */
+export const MAIL_DELTA_PAGE_SIZE = 100;
+
+/**
  * What one `fetch_delta` call has already reported. An invalid delta link can be rejected after
  * earlier pages were handed to `on_page`, so the full re-enumeration that follows must neither hand
  * those messages over again nor drop the removals those pages carried (issue #642).

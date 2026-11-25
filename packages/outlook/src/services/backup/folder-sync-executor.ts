@@ -68,7 +68,6 @@ export interface FolderSyncParams {
   operation_control: OperationControlOptions;
   prev_delta_link?: string;
   previous_manifest_entries?: number;
-  page_size?: number;
   object_lock_policy?: ObjectLockPolicy;
 }
 
@@ -114,7 +113,6 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
     operation_control,
     prev_delta_link,
     folder_total,
-    page_size,
     object_lock_policy,
   } = params;
   const previous_manifest_entries = params.previous_manifest_entries ?? 0;
@@ -215,14 +213,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
     return !aborted;
   };
 
-  let delta = await connector.fetch_delta(
-    tenant_id,
-    owner_id,
-    folder_id,
-    prev_delta_link,
-    on_page,
-    page_size,
-  );
+  let delta = await connector.fetch_delta(tenant_id, owner_id, folder_id, prev_delta_link, on_page);
 
   if (
     is_stale_delta_read({
@@ -233,14 +224,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       previous_manifest_entries,
     })
   ) {
-    delta = await connector.fetch_delta(
-      tenant_id,
-      owner_id,
-      folder_id,
-      undefined,
-      on_page,
-      page_size,
-    );
+    delta = await connector.fetch_delta(tenant_id, owner_id, folder_id, undefined, on_page);
   }
 
   if (!aborted) assert_delta_round_finished(delta);
