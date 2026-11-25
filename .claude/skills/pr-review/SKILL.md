@@ -2,14 +2,14 @@
 name: pr-review
 description: >-
   Open a pull request for this repository and drive it to merge-ready,
-  including triaging and answering the review comments CodeRabbit raises on it.
+  including triaging and answering the review comments Wisecom Trace raises on it.
 when_to_use: >-
   Use whenever the user asks to open, create, or submit a PR or pull request,
-  and whenever CodeRabbit (or any reviewer) has raised comments on a PR that
+  and whenever Wisecom Trace (or any reviewer) has raised comments on a PR that
   need to be addressed, answered, or resolved.
 ---
 
-# Pull Requests and CodeRabbit Reviews
+# Pull Requests and Wisecom Trace Reviews
 
 The rule: **a normal PR targets `dev`, carries a release-notes label, and is
 not done until every review finding is either fixed or answered.** Release and
@@ -47,12 +47,17 @@ substitution table in the `write-issue` skill applies here unchanged. Write the
 body per the `write-comment` skill: first person, plain, no attribution to any
 assistant or model.
 
-## Handling CodeRabbit's review
+## Requesting and handling a Wisecom Trace review
 
-`.coderabbit.yaml` auto-reviews every PR targeting `dev` and re-reviews on each
-push. Release PRs (`chore(release):` titles) are skipped on purpose.
+Wisecom Trace reviews a PR only when a maintainer asks: a PR comment
+`@wisecom-trace review`, or **Actions → Wisecom Trace review → Run workflow**
+with the PR number (`.github/workflows/trace-review.yml`). Nothing runs on open
+or push. A request from anyone without the maintain or admin role is ignored; an
+accepted comment gets an 👀 reaction from `wisecom-trace[bot]`. Request a review
+only when the user asks for one.
 
-Wait for the walkthrough comment before triaging, then pull the inline findings:
+Wait for the summary comment from `wisecom-trace[bot]` before triaging, then pull
+the inline findings:
 
 ```bash
 gh api --paginate repos/{owner}/{repo}/pulls/<N>/comments \
@@ -68,13 +73,15 @@ Triage every finding into exactly one bucket:
 - **Out of scope** — file it with the `write-issue` skill or add evidence to an
   existing issue. Do not silently widen the PR.
 
-**REQUIRED SUB-SKILL:** Use `receiving-code-review` for the triage. CodeRabbit
-is wrong often enough that blind agreement ships bugs; performative agreement
-ships churn.
+**REQUIRED SUB-SKILL:** Use `receiving-code-review` for the triage. An automated
+reviewer is wrong often enough that blind agreement ships bugs; performative
+agreement ships churn.
 
 Apply accepted fixes as focused commits, run the targeted test plus
-`pnpm run lint` and `pnpm run typecheck`, and push. CodeRabbit re-reviews each
-push automatically.
+`pnpm run lint` and `pnpm run typecheck`, and push. Pushes are not reviewed
+automatically: request another review once the fixes are in. A follow-up review
+rechecks the earlier findings, resolves the threads of fixed ones itself, and
+reviews what changed since.
 
 ## Answering and resolving threads
 
@@ -110,21 +117,6 @@ Reply to an inline comment in place rather than starting a loose PR comment:
 ```bash
 gh api repos/{owner}/{repo}/pulls/<N>/comments/<comment-id>/replies -f body="<reply>"
 ```
-
-## CodeRabbit commands
-
-Post as a PR comment when needed:
-
-| Command                  | Effect                                    |
-| ------------------------ | ----------------------------------------- |
-| `@coderabbitai review`   | incremental review of new commits         |
-| `@coderabbitai full review` | re-review everything from scratch      |
-| `@coderabbitai pause`    | stop automatic reviews on this PR         |
-| `@coderabbitai resume`   | restart automatic reviews                 |
-
-Normally none are needed: pushes trigger incremental reviews until the pause
-limit. Use `full review` after a rebase or large restructuring, where
-incremental context would be stale.
 
 ## Ready to merge
 

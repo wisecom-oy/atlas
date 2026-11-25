@@ -10,15 +10,14 @@
 # trigger works once this file is on main. Run workflow works from any branch that has it.
 #
 # This repository is public, so Trace runs in public mode (TRACE_PUBLIC): the PR comments
-# and this log show no model, cost, coverage, timings or reviewer internals. Model settings
-# come from repository variables, not this file, for the same reason.
+# and this log show no model, cost, coverage, timings or reviewer internals. Trace's own
+# settings live in one secret, never in this file or in plain env values, which the log
+# prints.
 #
 # Settings -> Secrets and variables -> Actions:
-#   vars.TRACE_GITHUB_APP_ID      GitHub App id (required)
-#   secrets.TRACE_GITHUB_APP_KEY  GitHub App private key, PEM (required)
-#   secrets.OPENROUTER_API_KEY    OpenRouter key (required)
-#   vars.TRACE_MODEL, vars.TRACE_PROVIDER, vars.TRACE_REASONING_EFFORT (optional; unset
-#   uses Trace's defaults)
+#   vars.TRACE_GITHUB_APP_ID      GitHub App id
+#   secrets.TRACE_GITHUB_APP_KEY  GitHub App private key, PEM
+#   secrets.TRACE_SETTINGS        Trace's settings file (JSON), including its API key
 name: Wisecom Trace review
 
 on:
@@ -112,7 +111,19 @@ jobs:
           node-version: 22
       - run: ./build.sh
         working-directory: trace
-      # Trace checks the requester's role again and does not run the PR's code.
+      # The settings file is written outside the workspace, readable only by this user.
+      - name: Write Trace settings
+        env:
+          TRACE_SETTINGS: ${{ secrets.TRACE_SETTINGS }}
+        run: |
+          if [ -z "$TRACE_SETTINGS" ]; then
+            echo "::error::The TRACE_SETTINGS secret is not set."
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$TRACE_SETTINGS" > "${RUNNER_TEMP}/trace-settings.json"
+      # Trace checks the requester's role again. It reads the PR's code; it never installs
+      # dependencies or runs it.
       - name: Review and publish
         run: |
           comment_args=()
@@ -121,10 +132,7 @@ jobs:
         env:
           PR_NUMBER: ${{ github.event.issue.number || inputs.pr }}
           COMMENT_ID: ${{ github.event.comment.id }}
+          TRACE_CONFIG: ${{ runner.temp }}/trace-settings.json
           TRACE_PUBLIC: 'true'
-          TRACE_MODEL: ${{ vars.TRACE_MODEL }}
-          TRACE_PROVIDER: ${{ vars.TRACE_PROVIDER }}
-          TRACE_REASONING_EFFORT: ${{ vars.TRACE_REASONING_EFFORT }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           TRACE_GITHUB_APP_ID: ${{ vars.TRACE_GITHUB_APP_ID }}
           TRACE_GITHUB_APP_KEY: ${{ secrets.TRACE_GITHUB_APP_KEY }}
