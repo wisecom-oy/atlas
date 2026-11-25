@@ -85,7 +85,7 @@ A run with `--retention-days` locks the objects a restore needs. It writes the s
 | Teams read checkpoints | No | Rewritten after every page and deleted when the channel's read finishes |
 | Snapshot summary indexes | No | Replaced by every run, and rebuilt from the manifests when missing or damaged |
 | Outlook `latest.json` and snapshot pointers | No | Shortcuts. A read that finds one missing or damaged lists the manifests instead |
-| Owner and tenant leases | No | Renewed every 60 seconds and deleted when the operation ends |
+| Owner and tenant leases | No | Rewritten every 5 minutes while held and deleted when the operation ends |
 | Staging uploads of files of 64 MiB and larger | No | Copied to their locked content key, then deleted |
 
 A lock on an object Atlas replaces every run protects nothing. Object Lock never stops a new version from becoming current, and a delete without a version ID only adds a delete marker, so a credential that could replace or hide the state could do so while it was locked. All the lock did was keep each replaced version until its retain-until date, out of reach of the noncurrent-version rule. Backing up hourly with 365-day retention kept 8,760 locked versions of every cursor, and a drive cursor grows with the number of files in the drive. Earlier versions of Atlas locked the delta cursors and summary indexes of every workload except Outlook this way. Versions already locked keep their retain-until date.
@@ -126,14 +126,19 @@ Data under retention stays in the bucket, and readable with the tenant key, unti
 
 ## Lifecycle rules
 
-Atlas requests two lifecycle rules when it creates a bucket:
+Atlas requests these lifecycle rules when it creates a bucket:
 
 | Rule | Purpose |
 | --- | --- |
 | `atlas-housekeeping` | Removes orphaned delete markers (`ExpiredObjectDeleteMarker`). On AWS S3 it also aborts incomplete multipart uploads after 7 days (`AbortIncompleteMultipartUpload`) |
-| `atlas-expire-noncurrent-versions` | Removes noncurrent object versions 30 days after they are replaced. A locked version stays until its lock expires |
+| `atlas-expire-noncurrent-versions` | Removes noncurrent object versions 30 days after they are replaced |
+| `atlas-state-versions-*` | Removes noncurrent versions of leases, delta cursors, Teams checkpoints, Outlook latest pointers, and snapshot summaries 1 day after they are replaced. One rule per prefix, listed in [Lifecycle rules](/self-hosting/storage#lifecycle-rules) |
 
-MinIO cleans up incomplete uploads on its own schedule. See [Storage](/self-hosting/storage#bucket-provisioning-and-object-lock). The rules are best effort. If the backend does not support lifecycle configuration, Atlas continues without them. Buckets that already exist are left as they are.
+A lifecycle rule never shortens Object Lock. A locked version stays until its lock expires, whatever the rule says. Every key the one-day rules cover is written without retention, even with `--retention-days`, so the rules apply to all of it. See [What Object Lock covers](#what-object-lock-covers). A cursor or summary version an earlier release locked keeps its retain-until date and is removed after it.
+
+The one-day window narrows what an attacker who can overwrite objects leaves you to recover from noncurrent versions, but only for state Atlas can rebuild: a lost cursor costs one full sync, and pointers and summaries are rebuilt from the manifests. Manifests, content, and `_meta/dek.enc` keep the 30-day window, and Object Lock is what protects them against deletion.
+
+MinIO cleans up incomplete uploads on its own schedule. See [Storage](/self-hosting/storage#bucket-provisioning-and-object-lock). The rules are best effort. If the backend does not support lifecycle configuration, Atlas continues without them. Atlas changes the rules of an existing bucket only when you run `atlas storage-check --apply-lifecycle`, which adds the missing Atlas rules, resets broken state-key rules, and keeps every other rule. See [Applying the rules to an existing bucket](/self-hosting/storage#applying-the-rules-to-an-existing-bucket).
 
 ## Operational checklist
 

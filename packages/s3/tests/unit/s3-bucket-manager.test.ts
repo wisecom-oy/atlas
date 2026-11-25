@@ -3,8 +3,12 @@ import { BucketCache } from '@/adapters/bucket-cache';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ensure_bucket_exists, probe_bucket_immutability } from '@/adapters/s3-bucket-manager';
 
+/**
+ * Commands a test does not script answer `{}`, so the lifecycle read-back after a create sees a
+ * configuration it can verify. An unanswered read-back now falls back to the base rules (#918).
+ */
 function make_mock_s3(): { send: ReturnType<typeof vi.fn> } {
-  return { send: vi.fn() };
+  return { send: vi.fn().mockResolvedValue({}) };
 }
 
 describe('s3-bucket-manager', () => {
@@ -24,14 +28,15 @@ describe('s3-bucket-manager', () => {
 
     await ensure_bucket_exists(mock_s3 as never, 'new-bucket', buckets);
 
-    expect(mock_s3.send).toHaveBeenCalledTimes(3);
+    // HeadBucket, CreateBucket, the lifecycle put and its read-back (issue #918).
+    expect(mock_s3.send).toHaveBeenCalledTimes(4);
     const create_cmd = mock_s3.send.mock.calls[1][0];
     expect(create_cmd.input.Bucket).toBe('new-bucket');
     expect(create_cmd.input.ObjectLockEnabledForBucket).toBe(true);
     const lifecycle_cmd = mock_s3.send.mock.calls[2][0];
     expect(lifecycle_cmd.input.Bucket).toBe('new-bucket');
     const rules = lifecycle_cmd.input.LifecycleConfiguration.Rules;
-    expect(rules).toHaveLength(2);
+    expect(rules).toHaveLength(11);
     // Combined rule: MinIO rejects AbortIncompleteMultipartUpload as a sole action
     expect(rules[0].AbortIncompleteMultipartUpload).toEqual({ DaysAfterInitiation: 7 });
     expect(rules[0].Expiration?.ExpiredObjectDeleteMarker).toBe(true);
@@ -47,7 +52,7 @@ describe('s3-bucket-manager', () => {
 
     await ensure_bucket_exists(mock_s3 as never, 'plain-bucket', buckets);
 
-    expect(mock_s3.send).toHaveBeenCalledTimes(4);
+    expect(mock_s3.send).toHaveBeenCalledTimes(5);
     const retry_cmd = mock_s3.send.mock.calls[2][0];
     expect(retry_cmd.input.Bucket).toBe('plain-bucket');
     expect(retry_cmd.input.ObjectLockEnabledForBucket).toBeUndefined();
@@ -74,7 +79,7 @@ describe('s3-bucket-manager', () => {
 
     // Lifecycle rules are still applied: the 409 may be an SDK retry of this run's own create,
     // in which case nobody else will. The put is idempotent and best-effort.
-    expect(mock_s3.send).toHaveBeenCalledTimes(3);
+    expect(mock_s3.send).toHaveBeenCalledTimes(4);
     expect(mock_s3.send.mock.calls[2][0].input.LifecycleConfiguration).toBeDefined();
     expect(buckets.is_bucket_checked('raced')).toBe(true);
   });
@@ -87,7 +92,7 @@ describe('s3-bucket-manager', () => {
       .mockResolvedValueOnce({});
 
     await expect(ensure_bucket_exists(mock_s3 as never, 'raced', buckets)).resolves.toBeUndefined();
-    expect(mock_s3.send).toHaveBeenCalledTimes(4);
+    expect(mock_s3.send).toHaveBeenCalledTimes(5);
     expect(buckets.is_bucket_checked('raced')).toBe(true);
   });
 
@@ -104,12 +109,14 @@ describe('s3-bucket-manager', () => {
     mock_s3.send
       .mockRejectedValueOnce(Object.assign(new Error(), { name: 'NotFound' }))
       .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('NotImplemented'))
       .mockRejectedValueOnce(new Error('NotImplemented'));
 
     await expect(
       ensure_bucket_exists(mock_s3 as never, 'no-lifecycle', buckets),
     ).resolves.toBeUndefined();
-    expect(mock_s3.send).toHaveBeenCalledTimes(3);
+    // The full rule set, then the two base rules (issue #918).
+    expect(mock_s3.send).toHaveBeenCalledTimes(4);
   });
 
   it('skips creation when bucket already exists', async () => {

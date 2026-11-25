@@ -8,7 +8,9 @@ import {
   MINUTE_MS,
   OUTLOOK_BACKUP,
   OUTLOOK_KEY,
+  RENEW_MS,
   START_MS,
+  TTL_MS,
 } from './owner-lease-harness';
 
 /** A purge or re-wrap of the tenant; the owner id is the tenant id (issue #739). */
@@ -108,19 +110,19 @@ describe('tenant lease', () => {
     // The purge process was killed: it never releases the lease.
     await h.leases.acquire(h.ctx, PURGE);
 
-    h.advance(6 * MINUTE_MS);
+    h.advance(TTL_MS + MINUTE_MS);
     const backup = await h.leases.acquire(h.ctx, OUTLOOK_BACKUP);
 
     expect(h.stored(OUTLOOK_KEY)?.holder_id).toBe('holder-2');
     await backup.release();
   });
 
-  it('renews the tenant lease every minute, like an owner lease', async () => {
+  it('renews the tenant lease on the same schedule as an owner lease', async () => {
     const h = lease_harness();
     const lease = await h.leases.acquire(h.ctx, PURGE);
     const first_expiry = Date.parse(h.stored(TENANT_LEASE_KEY)!.expires_at);
 
-    h.advance(MINUTE_MS);
+    h.advance(RENEW_MS);
     await h.tick();
 
     expect(Date.parse(h.stored(TENANT_LEASE_KEY)!.expires_at)).toBeGreaterThan(first_expiry);

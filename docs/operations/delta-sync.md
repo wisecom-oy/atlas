@@ -261,7 +261,7 @@ Atlas retries `429 Too Many Requests` (honouring `Retry-After`) and `500`, `502`
 | Action | Effect on checkpoints |
 | --- | --- |
 | First Ctrl+C | Completed folders and their checkpoints are saved to a partial manifest, and the command exits `2`. The dashboard marks interrupted folders. The next run resumes from those checkpoints, and an interrupted folder is read again from its previous one |
-| Second Ctrl+C | Exits at once with `130`. No manifest is written, so no checkpoint moves. Objects already uploaded stay in storage and deduplicate on the next run. The [lease](/reference/sdk#concurrent-operations) is not released, so a backup of the same mailbox started within 5 minutes exits `12` |
+| Second Ctrl+C | Exits at once with `130`. No manifest is written, so no checkpoint moves. Objects already uploaded stay in storage and deduplicate on the next run. The [lease](/reference/sdk#concurrent-operations) is not released, so a backup of the same mailbox started within 10 minutes exits `12` |
 
 A partial manifest from the first Ctrl+C is a valid snapshot. Microsoft Graph has no cancel, so a request it already accepted still completes on its side, and Atlas drops the result. [Ctrl+C and signals](/operations/reliability#ctrl-c-and-signals) covers the other commands.
 

@@ -2,8 +2,12 @@ import { BucketCache } from '@/adapters/bucket-cache';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ensure_bucket_exists } from '@/adapters/s3-bucket-manager';
 
+/**
+ * Commands a test does not script answer `{}`, so the lifecycle read-back after a create sees a
+ * configuration it can verify. An unanswered read-back now falls back to the base rules (#918).
+ */
 function make_mock_s3(): { send: ReturnType<typeof vi.fn> } {
-  return { send: vi.fn() };
+  return { send: vi.fn().mockResolvedValue({}) };
 }
 
 function s3_error(name: string, message: string): Error {
@@ -52,7 +56,7 @@ describe('s3-bucket-manager lock-capability fallback (issue #640)', () => {
 
     await ensure_bucket_exists(mock_s3 as never, 'lock-refused', buckets);
 
-    expect(mock_s3.send).toHaveBeenCalledTimes(4);
+    expect(mock_s3.send).toHaveBeenCalledTimes(5);
     expect(mock_s3.send.mock.calls[2][0].input.ObjectLockEnabledForBucket).toBeUndefined();
   });
 });

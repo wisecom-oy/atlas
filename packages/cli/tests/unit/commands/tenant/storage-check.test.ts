@@ -4,6 +4,7 @@ import { Container } from 'inversify';
 import type { ReactElement } from 'react';
 import {
   STORAGE_CHECK_USE_CASE_TOKEN,
+  type StorageCheckRequest,
   type StorageCheckResult,
   type StorageCheckUseCase,
   type StorageConditionalWriteCheck,
@@ -27,15 +28,29 @@ function lock_capable_bucket(conditional_writes: StorageConditionalWriteCheck): 
 }
 
 /** Runs `atlas storage-check` against a stubbed use case and returns the rows it rendered. */
-async function rendered_rows(result: StorageCheckResult): Promise<KeyValueItem[]> {
+async function rendered_rows(
+  result: StorageCheckResult,
+  extra_args: string[] = [],
+  requests: (StorageCheckRequest | undefined)[] = [],
+): Promise<KeyValueItem[]> {
   const container = new Container();
-  container
-    .bind(STORAGE_CHECK_USE_CASE_TOKEN)
-    .toConstantValue({ check_storage: async () => result } as StorageCheckUseCase);
+  container.bind(STORAGE_CHECK_USE_CASE_TOKEN).toConstantValue({
+    check_storage: async (_tenant, request) => {
+      requests.push(request);
+      return result;
+    },
+  } as StorageCheckUseCase);
   const program = new Command();
   register_storage_check_command(program, () => container);
 
-  await program.parseAsync(['node', 'atlas', 'storage-check', '--tenant', 'tenant-example']);
+  await program.parseAsync([
+    'node',
+    'atlas',
+    'storage-check',
+    '--tenant',
+    'tenant-example',
+    ...extra_args,
+  ]);
 
   const view = vi.mocked(render_static_view).mock.calls.at(-1)?.[0] as ReactElement<{
     children: ReactElement<{ items: KeyValueItem[] }>[];
@@ -106,17 +121,80 @@ describe('atlas storage-check', () => {
       lifecycle: {
         status: 'checked',
         missing_actions: [
-          { rule_id: 'atlas-housekeeping', action: 'AbortIncompleteMultipartUpload' },
+          {
+            rule_id: 'atlas-housekeeping',
+            action: 'AbortIncompleteMultipartUpload',
+            fixed_by_apply: false,
+          },
+          { rule_id: 'atlas-state-versions-teams', action: 'Prefix', fixed_by_apply: true },
         ],
       },
     });
 
     expect(row(rows, 'Lifecycle rules')).toEqual({
       label: 'Lifecycle rules',
-      value: 'missing Atlas actions: atlas-housekeeping/AbortIncompleteMultipartUpload',
+      value:
+        'missing Atlas actions: atlas-state-versions-teams/Prefix (fix with --apply-lifecycle); ' +
+        'atlas-housekeeping/AbortIncompleteMultipartUpload ' +
+        '(--apply-lifecycle keeps these rules as they are)',
       color: 'yellow',
     });
     expect(row(rows, 'Status')?.value).toBe('ready');
     expect(process.exitCode).toBeUndefined();
+  });
+
+  it('asks for no lifecycle change and shows no update row without --apply-lifecycle', async () => {
+    const requests: (StorageCheckRequest | undefined)[] = [];
+    const rows = await rendered_rows(lock_capable_bucket({ support: 'supported' }), [], requests);
+
+    expect(requests).toEqual([{}]);
+    expect(row(rows, 'Lifecycle update')).toBeUndefined();
+  });
+
+  it('passes --apply-lifecycle through and names the rules it added (issue #918)', async () => {
+    const requests: (StorageCheckRequest | undefined)[] = [];
+    const rows = await rendered_rows(
+      {
+        ...lock_capable_bucket({ support: 'supported' }),
+        lifecycle_update: {
+          status: 'applied',
+          added_rule_ids: ['atlas-state-versions-outlook-leases', 'atlas-state-versions-teams'],
+          replaced_rule_ids: ['atlas-state-versions-onedrive'],
+        },
+      },
+      ['--apply-lifecycle'],
+      requests,
+    );
+
+    expect(requests).toEqual([{ apply_lifecycle: true }]);
+    expect(row(rows, 'Lifecycle update')).toEqual({
+      label: 'Lifecycle update',
+      value:
+        'added 2 rules: atlas-state-versions-outlook-leases, atlas-state-versions-teams; ' +
+        'reset 1 rule: atlas-state-versions-onedrive',
+      color: 'green',
+    });
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('exits 1 when the lifecycle update failed, even on a ready bucket', async () => {
+    const rows = await rendered_rows(
+      {
+        ...lock_capable_bucket({ support: 'supported' }),
+        lifecycle_update: {
+          status: 'failed',
+          detail: 'access denied (requires s3:PutLifecycleConfiguration)',
+        },
+      },
+      ['--apply-lifecycle'],
+    );
+
+    expect(row(rows, 'Lifecycle update')).toEqual({
+      label: 'Lifecycle update',
+      value: 'FAILED: access denied (requires s3:PutLifecycleConfiguration)',
+      color: 'red',
+    });
+    expect(row(rows, 'Status')?.value).toBe('ready');
+    expect(process.exitCode).toBe(1);
   });
 });

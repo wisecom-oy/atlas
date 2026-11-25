@@ -269,7 +269,11 @@ describe('createAtlasInstance', () => {
         lifecycle: {
           status: 'checked',
           missing_actions: [
-            { rule_id: 'atlas-housekeeping', action: 'AbortIncompleteMultipartUpload' },
+            {
+              rule_id: 'atlas-housekeeping',
+              action: 'AbortIncompleteMultipartUpload',
+              fixed_by_apply: false,
+            },
           ],
         },
       };

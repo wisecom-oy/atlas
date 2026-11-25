@@ -14,10 +14,11 @@ import {
   OUTLOOK_BACKUP,
   OUTLOOK_KEY,
   START_MS,
+  TTL_MS,
 } from './owner-lease-harness';
 
 describe('acquiring an owner lease (issue #623)', () => {
-  it('writes a lease for a free owner that names the run, the operation and a 5 minute expiry', async () => {
+  it('writes a lease for a free owner that names the run, the operation and a 10 minute expiry', async () => {
     const harness = lease_harness();
 
     const lease = await harness.leases.acquire(harness.ctx, OUTLOOK_BACKUP);
@@ -28,8 +29,9 @@ describe('acquiring an owner lease (issue #623)', () => {
       holder_id: 'holder-1',
       operation: 'backup',
       acquired_at: new Date(START_MS).toISOString(),
-      expires_at: new Date(START_MS + 5 * MINUTE_MS).toISOString(),
+      expires_at: new Date(START_MS + TTL_MS).toISOString(),
     });
+    expect(TTL_MS).toBe(10 * MINUTE_MS);
     expect(() => lease.assert_held()).not.toThrow();
   });
 
@@ -64,7 +66,7 @@ describe('acquiring an owner lease (issue #623)', () => {
   it('fails a second acquire while the lease is live, naming the operation and the expiry', async () => {
     const harness = lease_harness();
     await harness.leases.acquire(harness.ctx, OUTLOOK_BACKUP);
-    harness.advance(4 * MINUTE_MS);
+    harness.advance(TTL_MS - MINUTE_MS);
 
     const second = harness.leases.acquire(harness.ctx, { ...OUTLOOK_BACKUP, operation: 'delete' });
 
@@ -75,17 +77,17 @@ describe('acquiring an owner lease (issue #623)', () => {
       workload: 'outlook',
       owner_id: 'owner-1',
       held_by_operation: 'backup',
-      lease_expires_at: new Date(START_MS + 5 * MINUTE_MS).toISOString(),
+      lease_expires_at: new Date(START_MS + TTL_MS).toISOString(),
     });
     expect((error as Error).message).toContain('Another backup is running on outlook owner');
-    expect((error as Error).message).toContain(new Date(START_MS + 5 * MINUTE_MS).toISOString());
+    expect((error as Error).message).toContain(new Date(START_MS + TTL_MS).toISOString());
     expect(harness.stored()?.holder_id).toBe('holder-1');
   });
 
   it('takes over a lease whose expiry has passed', async () => {
     const harness = lease_harness();
     harness.store({ holder_id: 'killed-run' });
-    harness.advance(5 * MINUTE_MS);
+    harness.advance(TTL_MS);
 
     const lease = await harness.leases.acquire(harness.ctx, OUTLOOK_BACKUP);
 
@@ -148,7 +150,7 @@ describe('acquiring an owner lease (issue #623)', () => {
       },
     }));
     harness.store({ holder_id: 'killed-run' });
-    harness.advance(5 * MINUTE_MS);
+    harness.advance(TTL_MS);
 
     const error = await harness.leases
       .acquire(harness.ctx, OUTLOOK_BACKUP)

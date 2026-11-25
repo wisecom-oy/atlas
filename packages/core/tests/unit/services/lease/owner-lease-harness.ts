@@ -4,11 +4,19 @@ import {
   type InMemoryTenantContext,
 } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
 import { owner_lease_key } from '@/services/lease/owner-lease-key';
+import {
+  OWNER_LEASE_RENEW_INTERVAL_MS,
+  OWNER_LEASE_TTL_MS,
+} from '@/services/lease/owner-lease-timing';
 import type { OwnerLeaseRecord } from '@/services/lease/owner-lease-record';
 import { StorageOwnerLeases } from '@/services/lease/storage-owner-leases';
 
 export const START_MS = Date.parse('2026-03-01T10:00:00.000Z');
 export const MINUTE_MS = 60_000;
+/** A lease's lifetime after its last write. */
+export const TTL_MS = OWNER_LEASE_TTL_MS;
+/** How long after its last write a holder writes its lease again. */
+export const RENEW_MS = OWNER_LEASE_RENEW_INTERVAL_MS;
 
 export const OUTLOOK_BACKUP: OwnerLeaseRequest = {
   workload: 'outlook',
@@ -82,7 +90,7 @@ export function lease_harness(
         holder_id: 'another-run',
         operation: 'backup',
         acquired_at: new Date(now_ms).toISOString(),
-        expires_at: new Date(now_ms + 5 * MINUTE_MS).toISOString(),
+        expires_at: new Date(now_ms + TTL_MS).toISOString(),
         ...record,
       };
       bucket.set_raw(key, Buffer.from(JSON.stringify(body)));

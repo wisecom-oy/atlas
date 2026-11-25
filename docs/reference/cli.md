@@ -84,7 +84,7 @@ What each code covers:
 - **`9`** means the stored bytes cannot be parsed back, or were written by a newer Atlas format. Repeating the command will not help. For a newer format, upgrade Atlas. For a named manifest or version index, see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes). Otherwise extract the raw content with `save`.
 - **`10`** is reserved and not returned.
 - **`11`**: `outlook delete -s`, `onedrive delete -s`, or `sharepoint delete -s` named a snapshot that newer snapshots of the same mailbox, owner, or site are built on. Delete the newer snapshots first, newest first, or delete the whole backup of that mailbox, owner, or site by leaving out `-s`.
-- **`12`**: another backup, restore, deletion, or quarantine holds the lease on the same mailbox, drive owner, site, or team, a purge or key re-wrap holds the tenant, or this run lost its lease before it could commit. Nothing was committed. If the other process was killed, its lease expires 5 minutes after its last renewal, and the message names that time. See [Another operation holds the owner](/troubleshooting#another-operation-holds-the-owner).
+- **`12`**: another backup, restore, deletion, or quarantine holds the lease on the same mailbox, drive owner, site, or team, a purge or key re-wrap holds the tenant, or this run lost its lease before it could commit. Nothing was committed. If the other process was killed, its lease expires 10 minutes after its last renewal, and the message names that time. See [Another operation holds the owner](/troubleshooting#another-operation-holds-the-owner).
 
 How failures are classified:
 
@@ -1510,13 +1510,15 @@ Check whether the bucket can hold immutable backups and keep concurrent runs apa
 atlas storage-check
 atlas storage-check --lock-mode governance --retention-days 30
 atlas storage-check --lock-mode compliance --retention-days 365
+atlas storage-check --apply-lifecycle
 ```
 
-| Option                 | Description                                             |
-| ---------------------- | ------------------------------------------------------- |
-| `--lock-mode <mode>`   | Planned Object Lock mode (`governance` or `compliance`) |
-| `--retention-days <n>` | Planned retention period in days                        |
-| `-t, --tenant <id>`    | Override the tenant ID from config                      |
+| Option                 | Description                                                                 |
+| ---------------------- | --------------------------------------------------------------------------- |
+| `--lock-mode <mode>`   | Planned Object Lock mode (`governance` or `compliance`)                     |
+| `--retention-days <n>` | Planned retention period in days                                            |
+| `--apply-lifecycle`    | Add the Atlas lifecycle rules the bucket lacks, keeping every existing rule |
+| `-t, --tenant <id>`    | Override the tenant ID from config                                          |
 
 The command reports versioning, Object Lock status, the bucket class, and conditional-write support. It checks the effective bucket, including a [bucket override](/configuration#bucket-override), and exits `1` when the bucket is not ready, so it can gate scheduled jobs.
 
@@ -1538,7 +1540,8 @@ The `Conditional writes` row reports a probe of the two writes that keep concurr
 
 - **The probe is the only write.** It puts one plaintext object of a few bytes under `_meta/storage-check/` and deletes it, with its versions, before the command returns. It needs `s3:PutObject` and `s3:DeleteObject` on that prefix. On a bucket with a default retention the probe's versions stay until that retention ends.
 - **Bucket default retention.** On a lock-capable bucket the command also reports the bucket's default retention. Atlas does not set one, because it would lock every object written without its own retention: backups without `--retention-days`, and the staging uploads Atlas deletes after copying them. A default found here was left by a version before 6.1.0 or set by hand. It is shown in yellow and does not change the exit code. See [Removing a bucket default retention](/self-hosting/storage#removing-a-bucket-default-retention).
-- **Lifecycle rules.** The command names each missing action in the enabled Atlas rules. The read requires `s3:GetLifecycleConfiguration`. If the configuration cannot be read, the row reports `not checked` with the reason. The row is advisory and does not affect the exit code.
+- **Lifecycle rules.** The command names each missing action in the enabled Atlas rules, including the one-day `atlas-state-versions-*` rules for leases, cursors, pointers, and summaries. `Prefix` means a state rule is stored with a filter other than its own prefix. Each group says whether `--apply-lifecycle` fixes it; a base rule that is present but disabled, edited, or trimmed by the backend is kept as it is. The read requires `s3:GetLifecycleConfiguration`. If the configuration cannot be read, the row reports `not checked` with the reason. The row is advisory and does not affect the exit code.
+- **`--apply-lifecycle`** is the only option that changes the bucket configuration. It reads the lifecycle configuration, adds each Atlas rule whose ID is missing, resets each `atlas-state-versions-*` rule that is disabled, has no expiry, or has another prefix, writes the result back with every other rule unchanged, and reads it back. A disabled or edited base rule is kept. The `Lifecycle update` row lists the rules it added and reset, or `nothing to change`. If the read, the write, or the read-back check fails, the row shows `FAILED` with the reason, the previous rules stay in place, and the command exits `1`. It requires `s3:PutLifecycleConfiguration` as well. See [Applying the rules to an existing bucket](/self-hosting/storage#applying-the-rules-to-an-existing-bucket).
 
 ## atlas stats
 

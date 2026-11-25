@@ -461,7 +461,7 @@ Restore targets (`-T`, `--target-owner`) always resolve through Microsoft Graph 
 ### Another operation holds the owner
 
 ```
-Another backup is running on onedrive owner <owner-id>, so this operation did not start and wrote nothing. Its lease expires at 2026-03-01T10:05:00.000Z unless that operation is still running and renews it. Retry once the other operation ends, or after the lease expires.
+Another backup is running on onedrive owner <owner-id>, so this operation did not start and wrote nothing. Its lease expires at 2026-03-01T10:10:00.000Z unless that operation is still running and renews it. Retry once the other operation ends, or after the lease expires.
   Atlas code: ATLAS_OWNER_BUSY
 ```
 
@@ -469,13 +469,13 @@ Atlas runs one operation at a time per mailbox, drive owner, site, or team. A ba
 
 | Situation | What to do |
 | --- | --- |
-| The other operation is still running | Wait for it and rerun. The expiry in the message moves forward every minute while it runs, so it is not a completion time |
-| Its process was killed, or exited on a second Ctrl+C | Wait until the time in the message, at most 5 minutes after the kill, and rerun. The next run takes the expired lease over and logs `Taking over the lease a backup left behind` |
+| The other operation is still running | Wait for it and rerun. The expiry in the message moves forward every 5 minutes while it runs, so it is not a completion time |
+| Its process was killed, or exited on a second Ctrl+C | Wait until the time in the message, at most 10 minutes after the kill, and rerun. The next run takes the expired lease over and logs `Taking over the lease a backup left behind` |
 | Two scheduled jobs overlap every night | Space them out, or wrap them in `flock` as in [Scheduling](/self-hosting/scheduling). The lease keeps the data safe, but the second job still fails with exit `12` |
-| `This run lost its lease on ...` | This run held the owner and could not renew its lease for 5 minutes, or another host took it over. It stopped before writing its manifest or cursor. Check storage reachability and the clocks of the hosts that share the bucket, then rerun |
+| `This run lost its lease on ...` | This run held the owner and could not renew its lease before it expired, or another host took it over. It stopped before writing its manifest or cursor. Check storage reachability and the clocks of the hosts that share the bucket, then rerun |
 
 ::: warning Do not delete a live lease
-Delete or edit the lease object by hand only when you are certain no operation on that owner is running anywhere. Deleting a live lease lets a second run start next to the first. The first run notices at its next renewal, within 60 seconds, and stops before its next commit, but until then both write the same owner's state. Waiting out the 5 minutes is always safe.
+Delete or edit the lease object by hand only when you are certain no operation on that owner is running anywhere. Deleting a live lease lets a second run start next to the first. The first run notices at its next check, within 60 seconds, and stops before its next commit, but until then both write the same owner's state. Waiting out the 10 minutes is always safe.
 :::
 
 A host whose clock runs several minutes ahead sees a live lease as expired and takes it over. If runs fail with `lost its lease` while storage is healthy, compare the hosts' clocks against NTP.

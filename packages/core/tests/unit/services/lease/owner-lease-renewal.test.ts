@@ -1,10 +1,11 @@
 /**
- * Issue #623: a held lease is renewed every minute, and a run that can no longer prove it holds the
- * lease must stop before it writes a manifest or a cursor.
+ * Issue #623: a held lease is checked every minute and rewritten every five (issue #918), and a run
+ * that can no longer prove it holds the lease must stop before it writes a manifest or a cursor.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OwnerBusyError, OwnerLeaseLostError } from '@wisecom/atlas-types';
 import {
+  OWNER_LEASE_CHECK_INTERVAL_MS,
   OWNER_LEASE_RENEW_INTERVAL_MS,
   OWNER_LEASE_TTL_MS,
   SYSTEM_OWNER_LEASE_RUNTIME,
@@ -16,7 +17,9 @@ import {
   OUTLOOK_BACKUP,
   OUTLOOK_KEY,
   precondition_failed,
+  RENEW_MS,
   START_MS,
+  TTL_MS,
 } from './owner-lease-harness';
 
 afterEach(() => {
@@ -28,25 +31,26 @@ function silence_warnings(): ReturnType<typeof vi.spyOn> {
 }
 
 describe('renewing an owner lease (issue #623)', () => {
-  it('keeps a 5 minute lifetime and a 1 minute renewal', () => {
-    expect(OWNER_LEASE_TTL_MS).toBe(5 * MINUTE_MS);
-    expect(OWNER_LEASE_RENEW_INTERVAL_MS).toBe(MINUTE_MS);
+  it('keeps a 10 minute lifetime, a 5 minute renewal and a 1 minute check', () => {
+    expect(OWNER_LEASE_TTL_MS).toBe(10 * MINUTE_MS);
+    expect(OWNER_LEASE_RENEW_INTERVAL_MS).toBe(5 * MINUTE_MS);
+    expect(OWNER_LEASE_CHECK_INTERVAL_MS).toBe(MINUTE_MS);
   });
 
   it('extends the stored expiry by a full lifetime on every renewal', async () => {
     const harness = lease_harness();
     const lease = await harness.leases.acquire(harness.ctx, OUTLOOK_BACKUP);
 
-    harness.advance(MINUTE_MS);
+    harness.advance(RENEW_MS);
     await harness.tick();
 
     expect(harness.stored()).toMatchObject({
       holder_id: 'holder-1',
       acquired_at: new Date(START_MS).toISOString(),
-      expires_at: new Date(START_MS + 6 * MINUTE_MS).toISOString(),
+      expires_at: new Date(START_MS + RENEW_MS + TTL_MS).toISOString(),
     });
     // Past the original expiry, and still a minute short of the renewed one.
-    harness.advance(4 * MINUTE_MS);
+    harness.advance(TTL_MS - MINUTE_MS);
     expect(() => lease.assert_held()).not.toThrow();
   });
 
@@ -61,6 +65,7 @@ describe('renewing an owner lease (issue #623)', () => {
     await harness.leases.acquire(harness.ctx, OUTLOOK_BACKUP);
     const { etag } = await harness.bucket.ctx.storage.get_with_etag(OUTLOOK_KEY);
 
+    harness.advance(RENEW_MS);
     await harness.tick();
 
     expect(if_matches).toEqual([undefined, etag]);
@@ -77,6 +82,7 @@ describe('renewing an owner lease (issue #623)', () => {
     }));
     const lease = await harness.leases.acquire(harness.ctx, OUTLOOK_BACKUP);
 
+    harness.advance(RENEW_MS);
     await harness.tick();
 
     const error = capture(() => lease.assert_held());
@@ -124,7 +130,7 @@ describe('renewing an owner lease (issue #623)', () => {
     const lease = await harness.leases.acquire(harness.ctx, OUTLOOK_BACKUP);
     storage_down = true;
 
-    for (let minute = 1; minute <= 4; minute++) {
+    for (let minute = 1; minute < TTL_MS / MINUTE_MS; minute++) {
       harness.advance(MINUTE_MS);
       await harness.tick();
       expect(() => lease.assert_held()).not.toThrow();
@@ -148,15 +154,16 @@ describe('renewing an owner lease (issue #623)', () => {
       },
     }));
     const lease = await harness.leases.acquire(harness.ctx, OUTLOOK_BACKUP);
-    harness.advance(2 * MINUTE_MS);
+    harness.advance(RENEW_MS);
     await harness.tick();
     storage_down = false;
 
     harness.advance(MINUTE_MS);
     await harness.tick();
 
-    expect(harness.stored()?.expires_at).toBe(new Date(START_MS + 8 * MINUTE_MS).toISOString());
-    harness.advance(4 * MINUTE_MS);
+    const renewed_at = START_MS + RENEW_MS + MINUTE_MS;
+    expect(harness.stored()?.expires_at).toBe(new Date(renewed_at + TTL_MS).toISOString());
+    harness.advance(TTL_MS - MINUTE_MS);
     expect(() => lease.assert_held()).not.toThrow();
   });
 
@@ -165,11 +172,11 @@ describe('renewing an owner lease (issue #623)', () => {
     const harness = lease_harness();
     const lease = await harness.leases.acquire(harness.ctx, OUTLOOK_BACKUP);
 
-    harness.advance(5 * MINUTE_MS);
+    harness.advance(TTL_MS);
     await harness.tick();
 
     expect(() => lease.assert_held()).toThrow(/expired before it could be renewed/);
-    expect(harness.stored()?.expires_at).toBe(new Date(START_MS + 5 * MINUTE_MS).toISOString());
+    expect(harness.stored()?.expires_at).toBe(new Date(START_MS + TTL_MS).toISOString());
   });
 
   it('counts a refused swap as renewed when the stored lease is its own retried write', async () => {
@@ -182,15 +189,15 @@ describe('renewing an owner lease (issue #623)', () => {
     }));
     const lease = await harness.leases.acquire(harness.ctx, OUTLOOK_BACKUP);
 
-    harness.advance(MINUTE_MS);
+    harness.advance(RENEW_MS);
     await harness.tick();
 
-    harness.advance(4 * MINUTE_MS);
+    harness.advance(TTL_MS - MINUTE_MS);
     expect(() => lease.assert_held()).not.toThrow();
     expect(harness.active_timers()).toBe(1);
   });
 
-  it('detects at the next renewal that a backend ignoring conditions let a second run in', async () => {
+  it('detects at the next check that a backend ignoring conditions let a second run in', async () => {
     silence_warnings();
     const harness = lease_harness((inner) => ({
       put: async (key, data) => inner.put(key, data),

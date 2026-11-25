@@ -8,6 +8,8 @@ import { S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
 import { probe_conditional_writes } from '@/adapters/s3-conditional-write-probe';
 import { ConfiguredBucketNameResolver } from '@/adapters/configured-bucket-name-resolver';
 import { BUCKET_NAME_RESOLVER_TOKEN } from '@wisecom/atlas-types';
+import { ATLAS_LIFECYCLE_RULES, STATE_KEY_PREFIXES } from '@/adapters/s3-lifecycle-rules';
+import { fake_lifecycle_s3 } from './fake-lifecycle-s3';
 
 // The probe writes objects and has its own tests; here it would only shift the request counts.
 vi.mock('@/adapters/s3-conditional-write-probe', () => ({
@@ -16,6 +18,25 @@ vi.mock('@/adapters/s3-conditional-write-probe', () => ({
 
 function make_mock_s3(): { send: ReturnType<typeof vi.fn> } {
   return { send: vi.fn() };
+}
+
+/** The one-day state-key rules a bucket created before issue #918 lacks. */
+const STATE_RULES_MISSING = STATE_KEY_PREFIXES.map(({ rule_id }) => ({
+  rule_id,
+  action: 'NoncurrentVersionExpiration',
+  fixed_by_apply: true,
+}));
+
+/** A service over the given S3 client. */
+function service_over(client: unknown): StorageCheckService {
+  const container = new Container();
+  container.bind(S3_CLIENT_TOKEN).toConstantValue(client);
+  container.bind(BucketCache).toConstantValue(new BucketCache());
+  container
+    .bind(BUCKET_NAME_RESOLVER_TOKEN)
+    .toConstantValue(new ConfiguredBucketNameResolver(undefined));
+  container.bind(StorageCheckService).toSelf();
+  return container.get(StorageCheckService);
 }
 
 describe('StorageCheckService', () => {
@@ -116,7 +137,12 @@ describe('StorageCheckService', () => {
     expect(result.lifecycle).toEqual({
       status: 'checked',
       missing_actions: [
-        { rule_id: 'atlas-housekeeping', action: 'AbortIncompleteMultipartUpload' },
+        {
+          rule_id: 'atlas-housekeeping',
+          action: 'AbortIncompleteMultipartUpload',
+          fixed_by_apply: false,
+        },
+        ...STATE_RULES_MISSING,
       ],
     });
     expect(mock_s3.send.mock.lastCall?.[0]).toBeInstanceOf(GetBucketLifecycleConfigurationCommand);
@@ -139,7 +165,21 @@ describe('StorageCheckService', () => {
           Expiration: { ExpiredObjectDeleteMarker: true },
         },
       ],
+      missing_actions: STATE_RULES_MISSING,
+    },
+    {
+      name: 'retains every Atlas rule, including the state-key rules',
+      rules: [...ATLAS_LIFECYCLE_RULES],
       missing_actions: [],
+    },
+    {
+      name: 'stored a state-key rule without its prefix',
+      rules: ATLAS_LIFECYCLE_RULES.map((rule) =>
+        rule.ID === 'atlas-state-versions-teams' ? { ...rule, Filter: {} } : rule,
+      ),
+      missing_actions: [
+        { rule_id: 'atlas-state-versions-teams', action: 'Prefix', fixed_by_apply: true },
+      ],
     },
     {
       name: 'retains only the abort action and an unrelated expiry rule',
@@ -157,8 +197,17 @@ describe('StorageCheckService', () => {
         },
       ],
       missing_actions: [
-        { rule_id: 'atlas-housekeeping', action: 'ExpiredObjectDeleteMarker' },
-        { rule_id: 'atlas-expire-noncurrent-versions', action: 'NoncurrentVersionExpiration' },
+        {
+          rule_id: 'atlas-housekeeping',
+          action: 'ExpiredObjectDeleteMarker',
+          fixed_by_apply: false,
+        },
+        {
+          rule_id: 'atlas-expire-noncurrent-versions',
+          action: 'NoncurrentVersionExpiration',
+          fixed_by_apply: true,
+        },
+        ...STATE_RULES_MISSING,
       ],
     },
   ])('reports the Atlas actions when the backend $name', async ({ rules, missing_actions }) => {
@@ -185,11 +234,41 @@ describe('StorageCheckService', () => {
     expect(result.lifecycle).toEqual({
       status: 'checked',
       missing_actions: [
-        { rule_id: 'atlas-housekeeping', action: 'AbortIncompleteMultipartUpload' },
-        { rule_id: 'atlas-housekeeping', action: 'ExpiredObjectDeleteMarker' },
-        { rule_id: 'atlas-expire-noncurrent-versions', action: 'NoncurrentVersionExpiration' },
+        {
+          rule_id: 'atlas-housekeeping',
+          action: 'AbortIncompleteMultipartUpload',
+          fixed_by_apply: true,
+        },
+        {
+          rule_id: 'atlas-housekeeping',
+          action: 'ExpiredObjectDeleteMarker',
+          fixed_by_apply: true,
+        },
+        {
+          rule_id: 'atlas-expire-noncurrent-versions',
+          action: 'NoncurrentVersionExpiration',
+          fixed_by_apply: true,
+        },
+        ...STATE_RULES_MISSING,
       ],
     });
+    expect(result.lifecycle_update).toBeUndefined();
+  });
+
+  it('adds the missing rules before checking when asked to apply them (issue #918)', async () => {
+    const s3 = fake_lifecycle_s3();
+
+    const result = await service_over(s3.client).check_storage('tenant-1', {
+      apply_lifecycle: true,
+    });
+
+    expect(result.lifecycle_update).toEqual({
+      status: 'applied',
+      added_rule_ids: ATLAS_LIFECYCLE_RULES.map((rule) => rule.ID),
+      replaced_rule_ids: [],
+    });
+    expect(result.lifecycle).toEqual({ status: 'checked', missing_actions: [] });
+    expect(s3.stored()).toEqual(ATLAS_LIFECYCLE_RULES);
   });
 
   it('reports a lifecycle read permission failure without preventing the other checks', async () => {
