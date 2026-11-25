@@ -220,7 +220,11 @@ check('timing is recorded', () => {
 check_body('byte counts are recorded', () => {
   const upload = records.find((r) => r.method === 'POST');
   assert.equal(upload.tx, 17, 'request body bytes'); // {"hello":"world"} is 17 bytes
-  assert.ok(records.every((r) => r.rx > 0));
+  const answered = records.filter((r) => r.status !== undefined);
+  assert.ok(
+    answered.every((r) => r.rx > 0),
+    'a request that got a response recorded no bytes',
+  );
 });
 
 check('request bodies are not recorded without --bodies', () => {
