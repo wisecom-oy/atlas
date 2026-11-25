@@ -45,6 +45,7 @@ export async function sync_single_folder_with_progress(
       operation_control: options,
       ...(prev_link !== undefined ? { prev_delta_link: prev_link } : {}),
       previous_manifest_entries: previous_entry_count,
+      ...(options.page_size !== undefined ? { page_size: options.page_size } : {}),
       ...(options.object_lock_policy !== undefined
         ? { object_lock_policy: options.object_lock_policy }
         : {}),
