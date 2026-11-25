@@ -1,6 +1,7 @@
 import { PassThrough, Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stream_to_buffer, with_timeout } from '@/backup/stream-drain';
+import { TransferTimeoutError } from '@/backup/transfer-timeout';
 
 const DRAIN_TIMEOUT_MS = 60_000;
 
@@ -53,7 +54,7 @@ describe('stream_to_buffer', () => {
 
     await vi.advanceTimersByTimeAsync(DRAIN_TIMEOUT_MS);
 
-    expect(await outcome).toEqual(new Error('Graph content stream timed out'));
+    expect(await outcome).toEqual(new TransferTimeoutError('Graph content stream timed out'));
     expect(stream.destroyed).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -87,7 +88,7 @@ describe('stream_to_buffer', () => {
 
     await vi.advanceTimersByTimeAsync(DRAIN_TIMEOUT_MS);
 
-    expect(await outcome).toEqual(new Error('Graph content stream timed out'));
+    expect(await outcome).toEqual(new TransferTimeoutError('Graph content stream timed out'));
     expect(cancelled).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -121,7 +122,7 @@ describe('with_timeout', () => {
 
     await vi.advanceTimersByTimeAsync(1_000);
 
-    expect(await outcome).toEqual(new Error('late'));
+    expect(await outcome).toEqual(new TransferTimeoutError('late'));
     expect(vi.getTimerCount()).toBe(0);
   });
 });

@@ -33,7 +33,7 @@ export function record_item_outcome_failure(
     name: item.file_name,
     reason,
     ...(outcome.permanent === true ? { permanent: true } : {}),
-    ...(outcome.url_expired === true ? { consumes_attempt: false } : {}),
+    ...(outcome.consumes_attempt === false ? { consumes_attempt: false } : {}),
   });
 }
 
