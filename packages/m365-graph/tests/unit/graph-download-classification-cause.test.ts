@@ -15,10 +15,10 @@ describe('classify_download_failure through cause', () => {
 
   it('classifies a wrapped Graph refusal and reads its code', () => {
     const wrapped = new Error('Failed chunk 1/2', {
-      cause: { statusCode: 403, code: 'notAllowed' },
+      cause: { statusCode: 403, code: 'malwareDetected' },
     });
     expect(classify_download_failure(wrapped)).toBe('service_refused');
-    expect(read_graph_error_code(wrapped)).toBe('notAllowed');
+    expect(read_graph_error_code(wrapped)).toBe('malwareDetected');
   });
 
   it('prefers the outer status over a cause', () => {

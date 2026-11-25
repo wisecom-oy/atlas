@@ -95,7 +95,7 @@ describe('get_graph_bytes', () => {
 
   it('keeps the code of a 403, so a missing grant and a refusal classify apart', async () => {
     const denied = await bytes_error(graph_error_response(403, 'accessDenied'));
-    const refused = await bytes_error(graph_error_response(403, 'notAllowed'));
+    const refused = await bytes_error(graph_error_response(403, 'malwareDetected'));
 
     expect(denied).toMatchObject({ statusCode: 403, code: 'accessDenied' });
     expect(classify_download_failure(denied)).toBe('missing_permission');

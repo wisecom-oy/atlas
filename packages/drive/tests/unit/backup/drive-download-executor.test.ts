@@ -108,7 +108,10 @@ describe.each(BINDINGS)('shared download executor bound to %s', (label, binding)
 
   // Issue #718: the re-resolve of a large file's URL gets the same 403 handling as a download (#246).
   it('classifies a Graph 403 from the re-resolve as a refusal or a missing grant', async () => {
-    const refusal = Object.assign(new Error('Forbidden'), { statusCode: 403, code: 'notAllowed' });
+    const refusal = Object.assign(new Error('Forbidden'), {
+      statusCode: 403,
+      code: 'malwareDetected',
+    });
     const refused = await executor
       .resolve_download_url(make_client(undefined, () => Promise.reject(refusal)).client, ITEM)
       .catch((err: unknown) => err);
@@ -217,8 +220,11 @@ describe('is_expired_url_error', () => {
     expect(classify_download_failure({ statusCode: 403, code: 'accessDenied' })).toBe(
       'missing_permission',
     );
-    expect(classify_download_failure({ statusCode: 403, code: 'notAllowed' })).toBe(
+    expect(classify_download_failure({ statusCode: 403, code: 'malwareDetected' })).toBe(
       'service_refused',
+    );
+    expect(classify_download_failure({ statusCode: 403, code: 'notAllowed' })).toBe(
+      'unrecognised_refusal',
     );
   });
 
