@@ -1,0 +1,130 @@
+# Wisecom Trace: AI code review on request, posted as the Wisecom Trace GitHub App bot.
+#
+# Manual only. Nothing runs when a pull request is opened or pushed. To request a review:
+# - comment `@wisecom-trace review` on the pull request, or
+# - Actions -> Wisecom Trace review -> Run workflow, with the PR number.
+# Only repository maintainers and admins can request one. A comment request gets an eyes
+# reaction as soon as it is accepted, before Trace is built; anyone else's is ignored.
+#
+# GitHub runs issue_comment workflows from the default branch (main), so the comment
+# trigger works once this file is on main. Run workflow works from any branch that has it.
+#
+# This repository is public, so Trace runs in public mode (TRACE_PUBLIC): the PR comments
+# and this log show no model, cost, coverage, timings or reviewer internals. Model settings
+# come from repository variables, not this file, for the same reason.
+#
+# Settings -> Secrets and variables -> Actions:
+#   vars.TRACE_GITHUB_APP_ID      GitHub App id (required)
+#   secrets.TRACE_GITHUB_APP_KEY  GitHub App private key, PEM (required)
+#   secrets.OPENROUTER_API_KEY    OpenRouter key (required)
+#   vars.TRACE_MODEL, vars.TRACE_PROVIDER, vars.TRACE_REASONING_EFFORT (optional; unset
+#   uses Trace's defaults)
+name: Wisecom Trace review
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        type: number
+        required: true
+
+# The workflow token only reads; reactions and reviews use the App's own token.
+permissions:
+  contents: read
+
+jobs:
+  request:
+    name: Check the review request
+    # A cheap filter on the event. The role check below is the real gate: a comment on a
+    # fork PR also runs here with this repository's secrets.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue.pull_request && github.event.sender.type != 'Bot' &&
+        contains(github.event.comment.body, '@wisecom-trace review'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      allowed: ${{ steps.role.outputs.allowed }}
+    steps:
+      # Token for this repository, so the reaction comes from the Trace bot.
+      - id: token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.TRACE_GITHUB_APP_ID }}
+          private-key: ${{ secrets.TRACE_GITHUB_APP_KEY }}
+          permission-issues: write
+      - id: role
+        name: Require a maintainer and acknowledge
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REQUESTER: ${{ github.event.comment.user.login || github.actor }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          # A failed lookup (not a collaborator) counts as no role: the gate fails closed.
+          role=$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${REQUESTER}/permission" --jq .role_name 2>/dev/null || echo none)
+          case "$role" in
+            admin | maintain)
+              if [ -n "$COMMENT_ID" ]; then
+                gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}/reactions" -f content=eyes --silent
+              fi
+              echo "allowed=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::notice::@${REQUESTER} (role: ${role}) requested a review; only maintainers and admins can."
+              echo "allowed=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+  review:
+    needs: request
+    if: needs.request.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # A new request for the same PR supersedes the one in progress.
+    concurrency:
+      group: trace-review-${{ github.event.issue.number || inputs.pr }}
+      cancel-in-progress: true
+    steps:
+      # Read-only token for the private Trace source, minted from the App.
+      - id: source
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.TRACE_GITHUB_APP_ID }}
+          private-key: ${{ secrets.TRACE_GITHUB_APP_KEY }}
+          owner: wisecom-oy
+          repositories: trace
+          permission-contents: read
+      - uses: actions/checkout@v7
+        with:
+          repository: wisecom-oy/trace
+          token: ${{ steps.source.outputs.token }}
+          path: trace
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: trace/go.mod
+          cache-dependency-path: trace/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: ./build.sh
+        working-directory: trace
+      # Trace checks the requester's role again and does not run the PR's code.
+      - name: Review and publish
+        run: |
+          comment_args=()
+          if [ -n "$COMMENT_ID" ]; then comment_args=(--comment-id "$COMMENT_ID"); fi
+          trace/bin/trace pr --target "github:${GITHUB_REPOSITORY}#${PR_NUMBER}" "${comment_args[@]}"
+        env:
+          PR_NUMBER: ${{ github.event.issue.number || inputs.pr }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          TRACE_PUBLIC: 'true'
+          TRACE_MODEL: ${{ vars.TRACE_MODEL }}
+          TRACE_PROVIDER: ${{ vars.TRACE_PROVIDER }}
+          TRACE_REASONING_EFFORT: ${{ vars.TRACE_REASONING_EFFORT }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          TRACE_GITHUB_APP_ID: ${{ vars.TRACE_GITHUB_APP_ID }}
+          TRACE_GITHUB_APP_KEY: ${{ secrets.TRACE_GITHUB_APP_KEY }}
