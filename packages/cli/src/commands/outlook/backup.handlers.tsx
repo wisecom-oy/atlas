@@ -26,7 +26,6 @@ export interface OutlookBackupOptions {
   mailbox?: string;
   folder?: string[];
   full?: boolean;
-  pageSize?: string;
   retentionDays?: string;
   lockMode?: string;
   excludeJunk?: boolean;
@@ -42,13 +41,11 @@ function resolve_tenant_id(container: Container, options: OutlookBackupOptions):
 
 /** Builds SyncOptions from CLI flags. */
 function build_sync_options(options: OutlookBackupOptions): SyncOptions {
-  const page_size = Math.max(1, Math.min(100, parseInt(options.pageSize ?? '10', 10) || 10));
   const object_lock_request = build_object_lock_request(options);
   const object_lock_policy = build_object_lock_policy(options);
   return {
     folder_filter: options.folder,
     force_full: options.full ?? false,
-    page_size,
     object_lock_request,
     object_lock_policy,
     exclude_junk: options.excludeJunk ?? false,

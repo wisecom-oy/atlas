@@ -237,7 +237,6 @@ Back up one mailbox to object storage, with a per-folder progress dashboard.
 atlas outlook backup -m user@example.com                               # incremental backup
 atlas outlook backup -m user@example.com --full                        # ignore saved sync checkpoints
 atlas outlook backup -m user@example.com -f Inbox -f "Sent Items"      # specific folders only
-atlas outlook backup -m user@example.com -P 50                         # larger page size
 atlas outlook backup -m user@example.com --retention-days 30 --lock-mode governance
 atlas outlook backup -m user@example.com --retention-days 365 --lock-mode compliance
 atlas outlook backup -t <tenant-id> -m user@example.com                # explicit tenant
@@ -248,7 +247,6 @@ atlas outlook backup -t <tenant-id> -m user@example.com                # explici
 | `-m, --mailbox <id>`          | Mailbox email address or Entra object ID to back up (required)               |
 | `-f, --folder <name>`         | Limit to one folder by name or path. Repeat for several.                     |
 | `--full`                      | Ignore saved delta links and run a full backup                               |
-| `-P, --page-size <n>`         | Graph API page size per delta request (1 to 100, default 10)                 |
 | `--retention-days <n>`        | Apply Object Lock retention for `n` days                                     |
 | `--lock-mode <mode>`          | Object Lock mode, `governance` or `compliance`. Requires `--retention-days`. |
 | `-t, --tenant <id>`           | Override the tenant ID from config                                           |
@@ -319,8 +317,8 @@ Graph cannot write into Recoverable Items. Recovered items land in the normal re
 
 #### Page size and folder selection {#page-size-nested-folders-and-immutability}
 
-- **Page size.** `--page-size` sets the `Prefer: odata.maxpagesize` hint for each delta request, and the server can return fewer items when messages are large. Smaller pages save progress more often during an interrupt. Larger pages use fewer round trips. The default of 10 suits most mailboxes.
-- **Request cost.** Each new or changed message costs one `/$value` request for its MIME, plus one `$batch` round trip per page for reactions and the pin: N/10 round trips for N messages at the default page size, N/20 at `--page-size 100`. Each message in a batch still counts once against the mailbox's 10,000-request window. See [Reactions, flag, and pin](/operations/delta-sync#reactions-flag-and-pin).
+- **Page size.** Atlas requests up to 100 messages per delta page to reduce round trips, including during concurrent mailbox backups. Graph can return fewer. An interrupted folder keeps its previous delta cursor.
+- **Request cost.** Each new or changed message costs one `/$value` request for its MIME. Atlas reads reactions and pins in batches of up to 20 messages from the same page. Each message in a batch still counts once against the mailbox's 10,000-request window. See [Reactions, flag, and pin](/operations/delta-sync#reactions-flag-and-pin).
 - **Nested folders.** Atlas walks the whole folder hierarchy, not only the top-level folders that `GET /users/{id}/mailFolders` returns. Folders are identified by root-relative path, such as `Inbox/Projects/2026`, and `status`, backup progress, and `save` show that path. Recursion stops at 300 levels, matching Exchange's own limit, and deeper folders are skipped with a warning. Excluded system folders are pruned with their subtrees.
 - **Matching `--folder`.** A value matches a full path (`Inbox/Projects`) or a folder name at any depth (`Projects`), case-insensitively, and always includes everything beneath it: `--folder Inbox` covers `Inbox`, `Inbox/Projects`, and `Inbox/Projects/2026`. Use the full path when one name exists under several parents. `restore` and `save` match `--folder` the same way.
 - **Well-known names.** A value can also be `inbox`, `drafts`, `sentitems`, `deleteditems`, `junkemail`, `archive`, `outbox`, or `conversationhistory`. Display names follow the mailbox language, so `--folder sentitems` selects Sent Items in a mailbox of any language, while `--folder "Sent Items"` matches only an English display name.
