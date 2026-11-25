@@ -269,6 +269,7 @@ Atlas retries `429 Too Many Requests` (honouring `Retry-After`) and `500`, `502`
 | `syncStateNotFound`, `resyncRequired`, `syncStateInvalid` | The checkpoint is no longer valid. Atlas reads the folder in full |
 | Retries exhausted on a folder | Atlas marks the folder as failed and continues with the remaining folders. The failed folder keeps its previous checkpoint |
 | A drive or library's last delta page carries neither `@odata.nextLink` nor `@odata.deltaLink` | The listing stopped early. Atlas fails that drive or library, which keeps its previous checkpoint and records no deletions. See [Deletions found by a full read](#drive-full-read-deletions) |
+| An Outlook folder's last delta page carries neither `@odata.nextLink` nor `@odata.deltaLink` | The read stopped early, so messages on the pages never requested are missing. Atlas fails that folder, which keeps its previous checkpoint, and the run records no removals and exits `2`. The next run reads the folder again |
 
 ## Stopping a run {#interruption}
 

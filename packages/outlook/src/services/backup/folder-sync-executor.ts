@@ -14,6 +14,7 @@ import type {
   OperationControlOptions,
 } from '@wisecom/atlas-types';
 import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
+import { assert_delta_round_finished } from '@/services/backup/delta-round-end';
 
 export interface FolderSyncResult {
   entries: ManifestEntry[];
@@ -68,6 +69,30 @@ export interface FolderSyncParams {
   prev_delta_link?: string;
   previous_manifest_entries?: number;
   object_lock_policy?: ObjectLockPolicy;
+}
+
+/** What the stale-delta safeguard looks at once a folder's delta round has been read. */
+interface DeltaReadOutcome {
+  readonly aborted: boolean;
+  readonly prev_delta_link: string | undefined;
+  readonly folder_processed: number;
+  readonly folder_total: number;
+  readonly previous_manifest_entries: number;
+}
+
+/**
+ * Stale-delta safeguard: a saved link that returned nothing for a folder holding messages, while
+ * the previous manifest stored nothing, means the earlier run stopped before storing anything, so
+ * the folder is read again in full.
+ */
+function is_stale_delta_read(read: DeltaReadOutcome): boolean {
+  return (
+    !read.aborted &&
+    Boolean(read.prev_delta_link) &&
+    read.folder_processed === 0 &&
+    read.folder_total > 0 &&
+    read.previous_manifest_entries === 0
+  );
 }
 
 /** Runs a delta sync for one folder, processing messages inline as pages arrive. */
@@ -191,14 +216,18 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
   let delta = await connector.fetch_delta(tenant_id, owner_id, folder_id, prev_delta_link, on_page);
 
   if (
-    !aborted &&
-    prev_delta_link &&
-    folder_processed === 0 &&
-    folder_total > 0 &&
-    previous_manifest_entries === 0
+    is_stale_delta_read({
+      aborted,
+      prev_delta_link,
+      folder_processed,
+      folder_total,
+      previous_manifest_entries,
+    })
   ) {
     delta = await connector.fetch_delta(tenant_id, owner_id, folder_id, undefined, on_page);
   }
+
+  if (!aborted) assert_delta_round_finished(delta);
 
   if (!streamed) {
     const properties = await capture_page_extended_properties(
