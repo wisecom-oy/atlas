@@ -18,6 +18,8 @@ const EXCHANGE_CONCURRENCY = GRAPH_SERVICE_LIMITS.outlook.max_concurrent_request
 export interface MailboxRateLimiter {
   acquire(cost?: number, scope?: ThrottleScope): Promise<void>;
   release(): void;
+  /** Stops a caller parked on the request window from keeping the process alive. */
+  release_process_hold(): void;
   shutdown(): void;
 }
 
@@ -48,6 +50,11 @@ export class DefaultMailboxRateLimiter implements MailboxRateLimiter {
     this._semaphore.release();
   }
 
+  /** Lets the process exit with callers still parked on the window; for once the run has ended. */
+  release_process_hold(): void {
+    this._window.release_process_hold();
+  }
+
   /** Shuts down the sliding window timer. */
   shutdown(): void {
     this._window.shutdown();
@@ -56,6 +63,8 @@ export class DefaultMailboxRateLimiter implements MailboxRateLimiter {
 
 export interface MailboxRateLimiterFactory {
   create(): MailboxRateLimiter;
+  /** Releases the process hold of every limiter, created now or later. */
+  release_process_hold(): void;
   shutdown_all(): void;
 }
 
@@ -64,6 +73,7 @@ export class DefaultMailboxRateLimiterFactory implements MailboxRateLimiterFacto
   private readonly _window_capacity: number;
   private readonly _concurrency: number;
   private readonly _created: MailboxRateLimiter[] = [];
+  private _holds_process = true;
 
   constructor(throttle: ThrottleCoordinator, window_capacity?: number, concurrency?: number) {
     this._throttle = throttle;
@@ -78,8 +88,18 @@ export class DefaultMailboxRateLimiterFactory implements MailboxRateLimiterFacto
       this._window_capacity,
       this._concurrency,
     );
+    if (!this._holds_process) limiter.release_process_hold();
     this._created.push(limiter);
     return limiter;
+  }
+
+  /**
+   * Stops every limiter's window, created now or later, from keeping the process alive. For once
+   * the run has ended; see {@link SlidingWindowLimiter.release_process_hold}.
+   */
+  release_process_hold(): void {
+    this._holds_process = false;
+    for (const limiter of this._created) limiter.release_process_hold();
   }
 
   /** Shuts down all created limiters. */

@@ -4,6 +4,9 @@
  * Outlook service limit: 10,000 API requests per 10-minute window per app per mailbox.
  * Default capacity is 9,600 (96%) to leave breathing room.
  *
+ * The slide timer holds the process open only while a caller is parked, since nothing else may be
+ * left to wake it (issue #859). `release_process_hold()` ends that hold once the run has ended.
+ *
  * Inspired by Corso's (alcionai/corso) sliding window implementation.
  *
  * @see https://learn.microsoft.com/en-us/graph/throttling-limits#outlook-service-limits
@@ -33,6 +36,7 @@ export class SlidingWindowLimiter {
   private _timer: ReturnType<typeof setInterval> | undefined;
   private _queue: PendingAcquire[] = [];
   private _shut_down = false;
+  private _holds_process = true;
 
   constructor(
     window_ms = DEFAULT_WINDOW_MS,
@@ -56,7 +60,7 @@ export class SlidingWindowLimiter {
     this._prev_counts = new Array<number>(this._num_intervals).fill(0);
 
     this._timer = setInterval(() => this.slideWindow(), this._slide_ms);
-    if (this._timer.unref) this._timer.unref();
+    this.syncProcessHold();
   }
 
   /** Acquires `n` tokens, blocking until they are available. */
@@ -71,6 +75,7 @@ export class SlidingWindowLimiter {
 
     return new Promise<void>((resolve) => {
       this._queue.push({ needed: n, resolve });
+      this.syncProcessHold();
     });
   }
 
@@ -90,6 +95,16 @@ export class SlidingWindowLimiter {
     this._prev_counts.fill(0);
     this._available = this._capacity;
     this.drainQueue();
+  }
+
+  /**
+   * Stops the slide timer from keeping the process alive, now and for callers parked later. Parked
+   * callers stay parked until tokens slide back. For once the run that parked them has ended, so a
+   * failed command exits with its result instead of after the window refills.
+   */
+  release_process_hold(): void {
+    this._holds_process = false;
+    this.syncProcessHold();
   }
 
   /** Stops the slide timer. The limiter cannot be used after shutdown. */
@@ -135,5 +150,18 @@ export class SlidingWindowLimiter {
       this.grantTokens(head.needed);
       head.resolve();
     }
+    this.syncProcessHold();
+  }
+
+  /**
+   * Refs the slide timer while a caller is parked and unrefs it otherwise. A parked caller waits on
+   * a promise, which is not a libuv handle, and with no Graph request in flight this timer is the
+   * only thing left to wake it. Unref'd, Node exits 0 mid-run with nothing committed (issue #859).
+   * Unref'd while idle, so a finished run whose limiter is never shut down still exits at once.
+   */
+  private syncProcessHold(): void {
+    if (this._timer === undefined) return;
+    if (this._holds_process && this._queue.length > 0) this._timer.ref();
+    else this._timer.unref();
   }
 }
