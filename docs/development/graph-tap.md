@@ -100,7 +100,8 @@ therefore aggregate into one row instead of four thousand near-identical lines.
 The rules live in `tools/graph-tap/redact.mjs`, shared with
 [outagesoft-365](/development/outagesoft-365#security), and also template ids by
 position, path-addressed file names as `{path}`, SharePoint tenants and sites as
-`{tenant}` and `{site}`, and quoted query literals as `'{value}'`.
+`{tenant}` and `{site}`, Teams channel and chat IDs (`19:…@thread.tacv2`) as
+`{channel}` and `{thread}`, and quoted query literals as `'{value}'`.
 
 **Opaque values are reduced to their size.** Delta and skip tokens run to
 kilobytes of base64 that no analysis reads, so `$deltatoken=<1840b>` is recorded
