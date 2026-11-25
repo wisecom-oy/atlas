@@ -4,7 +4,7 @@ import {
   CALENDARS_READ,
   CALENDARS_READ_WRITE,
   CREATE_ONCE,
-  collect_pages,
+  collect_listing,
   graph_call,
   mailbox_url,
   string_field,
@@ -26,12 +26,17 @@ function to_calendar(payload: CalendarPayload): GraphCalendar {
   };
 }
 
-/** Lists the mailbox's calendars with the default calendar first. */
+/**
+ * Lists the mailbox's calendars with the default calendar first.
+ *
+ * @throws ListingIncompleteError when the pages hold fewer calendars than Graph counted.
+ */
 export async function list_calendars(client: Client, mailbox_id: string): Promise<GraphCalendar[]> {
-  const payloads = await collect_pages<CalendarPayload>(
+  const payloads = await collect_listing<CalendarPayload>(
     client,
     `${mailbox_url(mailbox_id)}/calendars?$select=id,name,isDefaultCalendar,canEdit`,
     CALENDARS_READ,
+    'calendars',
   );
   const calendars = payloads.map(to_calendar);
   return [...calendars.filter((c) => c.is_default), ...calendars.filter((c) => !c.is_default)];

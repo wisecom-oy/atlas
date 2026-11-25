@@ -1,5 +1,9 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { rethrow_if_teams_access_denied, with_graph_retry } from '@wisecom/atlas-m365-graph';
+import {
+  reported_collection_count,
+  rethrow_if_teams_access_denied,
+  with_graph_retry,
+} from '@wisecom/atlas-m365-graph';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /** One Graph collection page: its items and the links that continue or finish the read. */
@@ -39,18 +43,25 @@ export async function read_collection_page<T>(
   );
 }
 
-/**
- * Follows every `@odata.nextLink` from `start`. Returns all items and the delta link of the last
- * page, which is set only for delta reads.
- */
+/** Every item of a paged read, with the links and count its pages reported. */
+export interface CollectedPages<T> {
+  readonly items: T[];
+  /** The delta link of the last page, set only for delta reads. */
+  readonly delta_link: string | undefined;
+  /** The latest `@odata.count`, set only when the read asked for `$count=true`. */
+  readonly reported_count: number | undefined;
+}
+
+/** Follows every `@odata.nextLink` from `start` and returns every item. */
 export async function read_all_pages<T>(
   client: Client,
   start: string,
   extra_headers: Readonly<Record<string, string>> = {},
-): Promise<{ items: T[]; delta_link: string | undefined }> {
+): Promise<CollectedPages<T>> {
   const items: T[] = [];
   let next: string | undefined = start;
   let delta_link: string | undefined;
+  let reported_count: number | undefined;
   while (next !== undefined) {
     const page: GraphCollectionResponse<T> = await read_collection_page<T>(
       client,
@@ -59,7 +70,8 @@ export async function read_all_pages<T>(
     );
     append_all(items, page.value ?? []);
     delta_link = page['@odata.deltaLink'] ?? delta_link;
+    reported_count = reported_collection_count(page, reported_count);
     next = page['@odata.nextLink'];
   }
-  return { items, delta_link };
+  return { items, delta_link, reported_count };
 }

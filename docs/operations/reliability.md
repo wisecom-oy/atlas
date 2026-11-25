@@ -201,6 +201,7 @@ What an interrupted run leaves behind:
 | An Outlook folder fails, or a message in it fails | The folder keeps its previous sync checkpoint (delta link), so the run reads those changes again |
 | A drive or library fails | That drive keeps its previous checkpoint. Drives that finished advance |
 | A drive or library's delta listing ends without `@odata.deltaLink` | The listing stopped early, so the drive fails, keeps its previous checkpoint, and records no deletions. See [Deletions found by a full read](/operations/delta-sync#drive-full-read-deletions) |
+| The listing of calendars, contact folders, mail folders, or teams holds fewer items than Microsoft Graph counted | Nothing moves. The run stops before reading any unit and exits `2`. See [Unit listings that end early](#unit-listings) |
 | An Outlook folder's delta read ends without `@odata.deltaLink` | The read stopped early, so the folder fails and keeps its previous checkpoint. The run records no removals. See [Retry and error handling](/operations/delta-sync#retry-and-error-handling) |
 | Microsoft Graph rejects the checkpoint (`syncStateNotFound`, `resyncRequired`, `syncStateInvalid`) | Reads the folder, drive, or calendar in full |
 | Stale-delta safeguard (Outlook) | A saved checkpoint returns nothing while the previous manifest stored nothing: the checkpoint is discarded and the folder read in full |
@@ -235,6 +236,18 @@ Some failures are not the item's fault. Atlas stops the larger unit instead of f
 | `AuthError` while capturing an Outlook message | That folder, recorded as a folder error. The next folder runs |
 | `AuthError` before any item is read, such as resolving the owner | The command, with exit `4` |
 | Wrong passphrase, unreadable cursor, storage failure while committing | The command, before anything is written past the last commit |
+| A unit listing that ends short of Microsoft Graph's count | The command, before any unit is read, with exit `2`. See [Unit listings that end early](#unit-listings) |
+
+### Unit listings that end early {#unit-listings}
+
+Every backup first lists the units it will read: calendars, contact folders, mail folders, Teams channels, and with `atlas teams backup --all` the teams. Microsoft Graph pages a listing with `@odata.nextLink` and ends it with a page that has none. A page that lost its link looks the same as the last page, so a listing that ended early would otherwise be taken as the whole collection, and the units on the pages never read would drop out of the snapshot or be recorded as deleted. Atlas therefore checks every unit listing against a second signal:
+
+| Listing | Check | When the check fails |
+| --- | --- | --- |
+| Calendars, contact folders, mail folders (every level of the tree), teams for `--all` | Requested with `$count=true`. The pages must hold at least as many items as the latest `@odata.count` Graph reported. A listing with no count at all fails too | `ListingIncompleteError` (`ATLAS_LISTING_INCOMPLETE`), exit `2`. The run stops before it reads any unit, so no snapshot is written, no checkpoint moves, and nothing is recorded as removed |
+| Channels of a team | Microsoft Graph refuses `$count` on this listing with `400`. A channel the previous snapshot holds as live that the listing omits is read by ID instead | Only a `404` marks the channel deleted. A channel Graph still returns keeps its previous entry, checkpoint, and threads unchanged, and is reported as a channel error, exit `2`. Any other error fails the team |
+
+The count costs no extra request. The channel check costs one request for each channel that disappears, once: a channel already marked deleted is not read again. More items than counted is accepted, since a unit created while the listing paged is still a real unit. A unit deleted while the listing paged can leave one fewer than counted, which fails that run; the next run lists again.
 
 ## Concurrency guards
 

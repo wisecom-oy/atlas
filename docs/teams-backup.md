@@ -42,7 +42,7 @@ Channel messages are read with `ChannelMessage.Read.All`, a protected Microsoft 
 | File attachments                       | Recorded as links only. The files live in SharePoint; see [Team files](#team-files)                                            |
 | Team settings, members, channels, tabs | Stored as Microsoft Graph returned them                                                                                        |
 
-Each edit stores a new version, and earlier versions stay for every snapshot that references them. A deleted message or channel is carried forward in later snapshots with its last live version (its `kept` entry) and a `deleted_at` time. Nothing is removed from storage when a message is deleted in Teams.
+Each edit stores a new version, and earlier versions stay for every snapshot that references them. A deleted message or channel is carried forward in later snapshots with its last live version (its `kept` entry) and a `deleted_at` time. A channel is marked deleted only after Microsoft Graph answers `404` for it by ID, because the channel listing carries no count to show it is complete. See [Unit listings that end early](/operations/reliability#unit-listings). Nothing is removed from storage when a message is deleted in Teams.
 
 ### What is not backed up
 
@@ -107,7 +107,7 @@ atlas teams backup --all --concurrency 8
 atlas teams backup --team <team-id> --channel <channel-id>
 ```
 
-With `--channel`, the other channels carry forward from the previous snapshot. More channels in flight raise throughput only until the team's request budget is reached; see [Pacing](#pacing).
+With `--channel`, the other channels carry forward from the previous snapshot. With `--all`, the team listing is checked against the count Microsoft Graph reports for it. A listing that ends early stops the command with `ATLAS_LISTING_INCOMPLETE` and exit `2` before any team is backed up. More channels in flight raise throughput only until the team's request budget is reached; see [Pacing](#pacing).
 
 Each team runs independently and is reported when it finishes. A run that creates a snapshot prints these counters:
 
@@ -346,7 +346,7 @@ Each inline image is journaled as its own small encrypted object under `hosted/`
 
 ## When a channel cannot be backed up {#failed-channels}
 
-A channel that cannot be read is recorded as an error, and the run continues with the next channel. Teams under `--all` or repeated `--team` are isolated the same way. A Microsoft Graph outage is the exception: once a call spends its retry budget, the run starts no other channel and no other team, and exits `3`. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
+A channel that cannot be read is recorded as an error, and the run continues with the next channel. So is a channel the previous snapshot holds that the channel listing left out while Microsoft Graph still returns it by ID: its previous entry is kept unchanged rather than marked deleted. Teams under `--all` or repeated `--team` are isolated the same way. A Microsoft Graph outage is the exception: once a call spends its retry budget, the run starts no other channel and no other team, and exits `3`. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
 
 A thread that fails is added to its channel's list of failed threads and retried on later runs:
 

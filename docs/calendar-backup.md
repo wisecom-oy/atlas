@@ -31,7 +31,7 @@ atlas calendar restore -m user@example.com -s cal-snap-1735689600000-a1b2c3 -T o
 | File attachments on events | Separate encrypted objects, named by keyed HMAC-SHA256 like other content  |
 | Calendar list              | Each calendar's ID, display name, and default flag                         |
 
-Each snapshot is complete. It lists every calendar and every event that existed at that run, so restoring one snapshot never needs an older one. An unchanged event is stored once however many snapshots include it. Events Microsoft 365 reports as removed drop out of the next snapshot.
+Each snapshot is complete. It lists every calendar and every event that existed at that run, so restoring one snapshot never needs an older one. An unchanged event is stored once however many snapshots include it. Events Microsoft 365 reports as removed drop out of the next snapshot. The calendar listing is checked against the count Microsoft Graph reports for it, so a listing that ends early stops the run with exit `2` before anything is written, rather than dropping the unlisted calendars from the snapshot. See [Unit listings that end early](/operations/reliability#unit-listings).
 
 Not backed up:
 

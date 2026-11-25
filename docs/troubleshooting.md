@@ -68,6 +68,7 @@ Microsoft Graph returns `429` when it throttles a request, and occasionally `500
 | Persistent `500` or `502` on the same item | Retries ran out against a server-side fault, not throttling | Rerun the backup later. If it repeats, open a Microsoft support case with the time of the failure and the affected item |
 | `ATLAS_GRAPH_UNAVAILABLE`, exit `3` | Microsoft Graph kept failing a call the run depends on | See [Microsoft Graph unavailable after retries](#microsoft-graph-unavailable-after-retries) |
 | `ATLAS_THROTTLED`, exit `3` | A `429` outlasted the retry budget on a call the run depends on | Schedule the run again later, or run fewer jobs at once for that mailbox or tenant |
+| `ATLAS_LISTING_INCOMPLETE`, exit `2` | A listing of calendars, contact folders, mail folders, or teams ended with fewer items than Microsoft Graph counted. Nothing was written | Rerun. If it repeats for the same mailbox or tenant, open an issue with the message, which names both counts. See [Unit listings that end early](/operations/reliability#unit-listings) |
 
 Throttling caps throughput even with unlimited bandwidth. For a first full tenant backup, measure the real transfer rate and plan the schedule from it. See [Scheduling and bandwidth](/self-hosting/scheduling).
 

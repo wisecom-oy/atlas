@@ -1788,6 +1788,7 @@ try {
 | `MissingGraphPermissionsError`      | `ATLAS_AUTH_DENIED`          | Subclass of `AuthError`: Graph answered 403 with a missing-grant code and nothing showed the grant working. `permissions` names what to grant                    |
 | `GraphAccessRefusedError`           | `ATLAS_ACCESS_REFUSED`       | Graph refused one site, drive, or owner. Permanent for that resource, not an `AuthError`. See [Graph failures](#graph-failures)                                  |
 | `GraphUnavailableError`             | `ATLAS_GRAPH_UNAVAILABLE`    | Graph answered 500, 502, 503, or 504, or the connection failed or timed out, until retries ran out. Also covers a Graph token request that Microsoft Entra ID did not answer, or answered with 408, 429, a 5xx, or `temporarily_unavailable`, until retries ran out. Transient. See [Graph failures](#graph-failures) |
+| `ListingIncompleteError`            | `ATLAS_LISTING_INCOMPLETE`   | A listing of calendars, contact folders, mail folders, or teams held fewer items than Microsoft Graph's `@odata.count`, or carried no count. The backup stopped before it read or wrote anything. See [Unit listings that end early](/operations/reliability#unit-listings) |
 | `ThrottledError`                    | `ATLAS_THROTTLED`            | Graph kept throttling until retries ran out. See `retry_after_ms` below                                                                                         |
 | `MailboxNotLicensedError`           | `ATLAS_MAILBOX_NOT_LICENSED` | No Exchange Online license, so Graph does not serve the mailbox                                                                                                 |
 | `NotFoundError`                     | `ATLAS_NOT_FOUND`            | Snapshot, mailbox, drive, site, or object does not exist, or a folder, file, or message selector matched nothing                                                |
@@ -1815,6 +1816,7 @@ try {
 | `ThrottledError`               | `retry_after_ms`                                                                                               |
 | `GraphUnavailableError`        | `status_code`, `graph_code`, `retries`, `elapsed_ms`                                                           |
 | `StorageUnavailableError`      | `attempts`                                                                                                     |
+| `ListingIncompleteError`       | `listing`, `listed_count`, `reported_count` (`undefined` when no page carried a count)                         |
 | `GraphAccessRefusedError`      | `site_id`, `drive_id`, `owner_id`, `reason`, `status_code`, `graph_code`                                       |
 | `MissingGraphPermissionsError` | `permissions`, `status_code`, `graph_code`                                                                     |
 | `OwnerBusyError`, `OwnerLeaseLostError` | `workload`, `owner_id`, `held_by_operation`, `lease_expires_at`                                       |

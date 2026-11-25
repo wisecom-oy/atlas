@@ -39,6 +39,9 @@ const ATLAS_EXIT_CODES = {
   // The storage backend never answered through every attempt: it timed out or the connection
   // failed. Transient like an unavailable Graph, so a scheduler retries later (issue #924).
   ATLAS_STORAGE_UNAVAILABLE: 3,
+  // A unit listing ended short of the count Graph reported. Nothing was written and every unit
+  // kept its checkpoint: an incomplete run, the same category as a failed folder (issue #853).
+  ATLAS_LISTING_INCOMPLETE: 2,
 } satisfies Record<AtlasErrorCode, number>;
 
 const NETWORK_CODES: Readonly<Record<string, true>> = {

@@ -53,3 +53,8 @@ export {
 export type { GraphFileSystemInfo, GraphIdentitySet } from './graph-drive-metadata';
 export { list_drive_item_versions } from './graph-drive-version-listing';
 export type { DriveItemVersionRecord } from './graph-drive-version-listing';
+export {
+  assert_listing_complete,
+  reported_collection_count,
+  with_collection_count,
+} from '@/graph-counted-listing';

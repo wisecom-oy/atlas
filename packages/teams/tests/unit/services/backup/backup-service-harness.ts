@@ -56,6 +56,8 @@ export interface PortOptions {
   readonly team?: TeamsGraphResource;
   /** Channels Graph lists for the team. Defaults to channel-1 and channel-2. */
   readonly channels?: TeamsGraphResource[];
+  /** Channels Graph answers for when read by id. Any other id answers 404. */
+  readonly existing_channel_ids?: readonly string[];
   readonly previous?: TeamsSnapshotIndex;
   readonly unsupported_keys?: string[];
   readonly unreadable_keys?: string[];
@@ -68,7 +70,12 @@ export interface Ports {
   readonly service: TeamsBackupService;
   /** Write and read calls in the order they happened: shard, index, cursor. */
   readonly order: string[];
-  readonly connector: { get_team: Mock; list_team_members: Mock; list_channels: Mock };
+  readonly connector: {
+    get_team: Mock;
+    list_team_members: Mock;
+    list_channels: Mock;
+    channel_exists: Mock;
+  };
   readonly indexes: { find_latest_readable: Mock; save: Mock };
   readonly shards: { load: Mock; save: Mock };
   readonly cursors: { load: Mock; save: Mock };
@@ -87,6 +94,10 @@ export function make_ports(options: PortOptions = {}): Ports {
     list_team_members: vi.fn(async () => []),
     list_channels: vi.fn(
       async () => options.channels ?? [{ id: 'channel-1' }, { id: 'channel-2' }],
+    ),
+    channel_exists: vi.fn(
+      async (_tenant: string, _team: string, channel_id: string) =>
+        options.existing_channel_ids?.includes(channel_id) === true,
     ),
   };
   const indexes = {

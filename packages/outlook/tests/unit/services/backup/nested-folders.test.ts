@@ -9,6 +9,7 @@ import {
   MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
   OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
+  ListingIncompleteError,
   NotFoundError,
 } from '@wisecom/atlas-types';
 import type {
@@ -58,6 +59,7 @@ function synced_folder_ids(connector: MailboxConnector): unknown[] {
 
 describe('MailboxSyncService - nested folders', () => {
   let mock_connector: MailboxConnector;
+  let mock_manifests: ManifestRepository;
   let service: MailboxSyncService;
 
   beforeEach(() => {
@@ -75,7 +77,7 @@ describe('MailboxSyncService - nested folders', () => {
       fetch_attachments: vi.fn().mockResolvedValue([]),
     };
 
-    const mock_manifests: ManifestRepository = {
+    mock_manifests = {
       save: vi.fn(),
       forget_snapshot_summary: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
@@ -119,6 +121,19 @@ describe('MailboxSyncService - nested folders', () => {
     await service.sync_mailbox('t', 'user@test.com');
 
     expect(synced_folder_ids(mock_connector)).toEqual(['f1', 'f2', 'f3']);
+  });
+
+  it('fails before reading or writing anything when the folder listing ends early (issue #853)', async () => {
+    vi.mocked(mock_connector.list_mail_folders).mockRejectedValue(
+      new ListingIncompleteError('mail folders', 1, 2),
+    );
+
+    await expect(service.sync_mailbox('t', 'user@test.com')).rejects.toBeInstanceOf(
+      ListingIncompleteError,
+    );
+
+    expect(mock_connector.fetch_delta).not.toHaveBeenCalled();
+    expect(mock_manifests.save).not.toHaveBeenCalled();
   });
 
   it('selecting a parent folder includes its whole subtree', async () => {
