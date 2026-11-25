@@ -13,9 +13,9 @@
  * Shared by the OneDrive and SharePoint pipelines so both behave identically.
  */
 
-import type { FailedItemLedger, FailedItemRecord } from '@wisecom/atlas-types';
+import type { FailedItemLedger, FailedItemRecord, NotFoundStreak } from '@wisecom/atlas-types';
 
-export type { FailedItemLedger, FailedItemRecord };
+export type { FailedItemLedger, FailedItemRecord, NotFoundStreak };
 /**
  * Retry budget per item. Past this an item is reported on every run but no
  * longer re-fetched, so a permanently broken file costs one line of output
@@ -39,6 +39,8 @@ export function record_item_failure(
     permanent?: boolean;
     /** False when the failure says nothing about the file, so it is retried without spending an attempt. */
     consumes_attempt?: boolean;
+    /** The item's re-read answered "not found" this many runs in a row; omitted, the streak ends. */
+    not_found?: NotFoundStreak;
   },
 ): FailedItemLedger {
   const now = new Date().toISOString();
@@ -54,6 +56,7 @@ export function record_item_failure(
       reason: failure.reason,
       attempts: failure.consumes_attempt === false ? previous_attempts : previous_attempts + 1,
       ...(failure.permanent === true ? { permanent: true } : {}),
+      ...(failure.not_found ? { not_found: failure.not_found } : {}),
       first_failed_at: previous?.first_failed_at ?? now,
       last_failed_at: now,
     },

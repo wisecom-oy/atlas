@@ -146,7 +146,7 @@ describe('SharePoint backup — persistently failing items', () => {
     expect(result.summary.healthy).toBe(true);
   });
 
-  it('clears a recorded item that no longer exists without reporting an error', async () => {
+  it('keeps a recorded item without spending an attempt when the re-read answers not found', async () => {
     const cursors = make_cursors(make_previous_cursor({ gone: make_failed_record('gone', 2) }));
     const connector = make_connector({
       fetch_delta: make_delta([], 'https://next'),
@@ -157,10 +157,11 @@ describe('SharePoint backup — persistently failing items', () => {
     const result = await service.backup_site('tenant-1', 'site-1');
 
     expect(connector.fetch_item_by_id).toHaveBeenCalledTimes(1);
-    expect(last_saved_cursor(cursors).failed_items).toEqual({});
-    expect(result.summary.errors).toEqual([]);
-    expect(result.summary.warnings).toEqual([]);
-    expect(result.summary.healthy).toBe(true);
+    expect(last_saved_cursor(cursors).failed_items!['gone']).toMatchObject({
+      attempts: 2,
+      not_found: { reads: 1 },
+    });
+    expect(result.summary.healthy).toBe(false);
   });
 
   it('stops re-fetching an exhausted item but keeps reporting it', async () => {

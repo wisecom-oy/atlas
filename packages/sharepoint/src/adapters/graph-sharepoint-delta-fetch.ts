@@ -113,7 +113,8 @@ export async function execute_sharepoint_delta(
 /**
  * Fetches one drive item by id with the same field selection as the delta call,
  * so a retried item maps identically to one delivered by delta.
- * Resolves undefined when Graph reports the item no longer exists.
+ * Resolves undefined when Graph answers "not found", which the caller does not
+ * take as proof of deletion on its own (issue #850).
  */
 export async function fetch_drive_item_by_id(
   client: Client,

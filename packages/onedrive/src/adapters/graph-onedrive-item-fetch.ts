@@ -19,9 +19,10 @@ function is_item_not_found(err: unknown): boolean {
  * Reads one drive item directly, for retrying an item that delta will never
  * re-present because it has not changed since it failed.
  *
- * Resolves undefined only for a genuine "gone" answer. Every other Graph error
- * propagates: mistaking a throttle or an outage for a deletion would silently
- * drop the item from the failure ledger and lose the file for good.
+ * Resolves undefined only for a "not found" answer. That answer is not proof of
+ * deletion, so the caller keeps the item listed until it is confirmed (issue #850).
+ * Every other Graph error propagates: mistaking a throttle or an outage for a
+ * deletion would drop the item from the failure ledger and lose the file for good.
  */
 export async function graph_onedrive_fetch_item_by_id(
   client: Client,

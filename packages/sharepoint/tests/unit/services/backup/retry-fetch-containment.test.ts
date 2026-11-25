@@ -72,8 +72,8 @@ describe('a transient fetch failure while retrying a failed SharePoint item', ()
     const ledger = await run(new Error('500 Internal Server Error'));
 
     expect(ledger['item-1']?.reason).toContain('Retry fetch failed');
-    // item-2 answered "gone" and was cleared, which only happens if the loop kept going.
-    expect(ledger['item-2']).toBeUndefined();
+    // item-2 answered "not found" and started a streak, which only happens if the loop kept going.
+    expect(ledger['item-2']?.not_found?.reads).toBe(1);
   });
 
   it('still stops the run for a revoked permission', async () => {
