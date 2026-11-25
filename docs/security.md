@@ -510,7 +510,7 @@ Every delete removes each object and its noncurrent versions, addressed by versi
 
 `atlas delete --purge` lists the whole bucket instead of a fixed list of prefixes, so a newly added workload cannot be missed and the purge never erases less than it reports. The encrypted DEK is deleted last, and only after the sweep reports nothing remaining. Deleting the key first would leave ciphertext that could neither be restored nor reported as erased.
 
-The purge and the key re-wrap take a tenant lease first, so a backup, restore, deletion, or quarantine cannot write into a bucket being erased, and a purge cannot start while an owner operation runs. Both sides check the other's lease after writing their own, so the two cannot both proceed. A process killed during the purge leaves the lease behind for 5 minutes, after which it stops blocking. The purge removes the lease last, with its versions, so an erased bucket holds no lease object.
+The purge and the key re-wrap take a tenant lease first, so a backup, restore, deletion, or quarantine cannot write into a bucket being erased, and a purge cannot start while an owner operation runs. Both sides check the other's lease after writing their own, so the two cannot both proceed. A process killed during the purge leaves the lease behind for 10 minutes, after which it stops blocking. The purge removes the lease last, with its versions, so an erased bucket holds no lease object.
 
 ### Per-user erasure is not available for Teams
 

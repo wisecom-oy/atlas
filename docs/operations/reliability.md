@@ -146,13 +146,13 @@ Object Lock retention is set per object at write time, and a delete it refuses e
 | Signal | Result |
 | --- | --- |
 | First Ctrl+C (`SIGINT`) | Soft stop. Microsoft Graph requests, retries, and cooldown waits end at once; restore writes already sent finish. Completed work is committed, the lease is released, and the command exits `2` |
-| Second Ctrl+C | Exits at once with `130`. Nothing more is committed and the lease is left to expire, so a run on the same owner within 5 minutes exits `12` |
+| Second Ctrl+C | Exits at once with `130`. Nothing more is committed and the lease is left to expire, so a run on the same owner within 10 minutes exits `12` |
 | `SIGTERM` | Atlas installs no handler, so Node ends the process at once, as with a second Ctrl+C. The shell reports `143` |
 
 The soft stop covers the long-running commands, such as backup, restore, `restore-version`, and save. A command without it ends at once on the first Ctrl+C. A cooldown raised during the run is dropped on Ctrl+C, so an hour-long `Retry-After` does not hold the process open. [Stopping a run](/operations/delta-sync#interruption) describes what a soft-stopped backup saves.
 
 ::: tip Soft stop under systemd
-`systemctl stop` sends `SIGTERM` by default. Set `KillSignal=SIGINT` in the service unit so a stopped backup commits what it finished and releases its lease, rather than leaving the next run to wait out the 5-minute lease.
+`systemctl stop` sends `SIGTERM` by default. Set `KillSignal=SIGINT` in the service unit so a stopped backup commits what it finished and releases its lease, rather than leaving the next run to wait out the 10-minute lease.
 :::
 
 ### Crash safety and resume
@@ -171,7 +171,7 @@ What an interrupted run leaves behind:
 - **Content uploaded before the stop.** Each unique item is stored once, so the next run finds it already stored and skips the upload.
 - **No cursor past the last manifest.** The next run starts from the previous cursor and reads the same changes again. A crash between manifest and cursor costs a second snapshot of the same interval and the Microsoft 365 reads, nothing else.
 - **Staging objects and multipart parts** for large files, collected as described in [Abandoned multipart uploads](#abandoned-multipart-uploads).
-- **The owner lease**, if the process was killed. It expires 5 minutes after its last renewal.
+- **The owner lease**, if the process was killed. It expires 10 minutes after its last renewal.
 
 [Commit order for OneDrive and SharePoint](/operations/delta-sync#commit-order-for-onedrive-and-sharepoint) explains why the cursor must come last.
 
@@ -227,12 +227,13 @@ Atlas runs one operation at a time per mailbox, drive owner, site, or team. It e
 
 | Lease parameter | Value |
 | --- | --- |
-| Lifetime | 5 minutes after the last renewal |
-| Renewal | Every 60 s, by compare-and-swap on the lease's ETag |
+| Lifetime | 10 minutes after the last renewal |
+| Check | Every 60 s the holder reads its lease back, which leaves no version |
+| Renewal | Every 5 minutes, by compare-and-swap on the lease's ETag. At most 14 versions per held hour in a versioned bucket |
 | Commit margin | A commit is refused once 30 s or less of the lease remain |
 | Acquire attempts | 3 |
 
-A storage error during renewal is logged and retried on the next tick. Only a lease that is gone, replaced, or expired counts as lost. A restore whose storage credentials cannot write the lease (`403`) runs without one and warns that concurrent-run protection is off. [Another operation holds the owner](/troubleshooting#another-operation-holds-the-owner) lists what to do for each case.
+A storage error during a check or renewal is logged and retried on the next check, a minute later. Only a lease that is gone, replaced, or expired counts as lost. A restore whose storage credentials cannot write the lease (`403`) runs without one and warns that concurrent-run protection is off. [Another operation holds the owner](/troubleshooting#another-operation-holds-the-owner) lists what to do for each case.
 
 ::: warning Keep host clocks in sync
 Hosts that share a bucket must keep their clocks within a few minutes of each other. A host running ahead sees a live lease as expired and takes it over.
@@ -296,7 +297,7 @@ When a scheduled run did not exit `0`:
 | `8` | Object Lock retention or legal hold | No, not before the retention ends |
 | `9` | Unreadable or newer-format stored content | No. Quarantine, `save`, or upgrade Atlas |
 | `11` | Snapshot is not the newest | No. Delete newer snapshots first |
-| `12` | Owner or tenant busy, or lease lost | Yes, after the other operation ends or within 5 minutes |
+| `12` | Owner or tenant busy, or lease lost | Yes, after the other operation ends or within 10 minutes |
 | `130` | Second Ctrl+C | Yes |
 
 `StorageError` (`ATLAS_STORAGE_FAILURE`) covers many causes, so its cause decides the exit: `4` for a `401` or `403`, `7` for a `404`, `3` for a network error or a transient status, and `1` otherwise. The full contract, including how scripts should branch, is in [CLI exit codes](/reference/cli#exit-codes).

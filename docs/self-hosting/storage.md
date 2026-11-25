@@ -279,19 +279,72 @@ MinIO cannot enable Object Lock on an existing bucket, and Atlas never enables i
 
 Backends that do not implement `ObjectLockEnabledForBucket` (`NotImplemented`), or that reject it with an error naming Object Lock, get a plain bucket and a warning. Immutability does not work there: `storage-check` reports `unversioned (legacy)`, and a backup with `--retention-days` fails before writing anything. Any other creation error, such as `InvalidArgument` without Object Lock wording, aborts bucket creation rather than leaving an unlocked bucket behind.
 
+### Lifecycle rules
+
 Atlas requests these lifecycle rules when it creates a bucket:
 
-| Rule | Action | Effect |
-| --- | --- | --- |
-| `atlas-housekeeping` | `AbortIncompleteMultipartUpload` | AWS S3 aborts incomplete uploads after 7 days |
-| `atlas-housekeeping` | `ExpiredObjectDeleteMarker` | Removes orphaned delete markers |
-| `atlas-expire-noncurrent-versions` | `NoncurrentVersionExpiration` | Expires noncurrent object versions after 30 days |
+| Rule | Prefix | Action | Effect |
+| --- | --- | --- | --- |
+| `atlas-housekeeping` | whole bucket | `AbortIncompleteMultipartUpload` | AWS S3 aborts incomplete uploads after 7 days |
+| `atlas-housekeeping` | whole bucket | `ExpiredObjectDeleteMarker` | Removes orphaned delete markers |
+| `atlas-expire-noncurrent-versions` | whole bucket | `NoncurrentVersionExpiration` | Expires noncurrent versions after 30 days |
+| `atlas-state-versions-*` | one state-key prefix each, listed below | `NoncurrentVersionExpiration` | Expires noncurrent versions after 1 day |
+
+The one-day rules cover the objects Atlas rewrites on every run or every few minutes: owner and tenant leases, delta cursors, Teams read checkpoints, Outlook latest pointers, and snapshot summaries.
+
+| Rule ID | Prefix |
+| --- | --- |
+| `atlas-state-versions-outlook-leases` | `_meta/outlook-leases/` |
+| `atlas-state-versions-outlook-cursors` | `_meta/outlook-cursors/` |
+| `atlas-state-versions-outlook-owners` | `_meta/outlook-manifests/owners/` |
+| `atlas-state-versions-tenant-lease` | `_meta/tenant-lease.json` |
+| `atlas-state-versions-onedrive` | `onedrive/_meta/` |
+| `atlas-state-versions-sharepoint` | `sharepoint/_meta/` |
+| `atlas-state-versions-contacts` | `contacts/_meta/` |
+| `atlas-state-versions-calendar` | `calendar/_meta/` |
+| `atlas-state-versions-teams` | `teams/_meta/` |
+
+The rules overlap on purpose. On AWS S3 and MinIO every enabled rule that matches a noncurrent version can expire it, so the shorter window wins: one day under these prefixes, 30 days everywhere else. No rule covers `_meta/` as a whole, so `_meta/dek.enc`, the [wrapped data key](#protecting-the-tenant-data-key), keeps its old versions for 30 days as a recovery path after a key re-wrap. Both providers round expiry up to the next midnight UTC and process it in the background, so a one-day noncurrent version typically lives one to two days.
 
 MinIO drops `AbortIncompleteMultipartUpload` from the lifecycle configuration. Its server-wide cleanup checks every 6 hours for incomplete multipart uploads older than 24 hours by default. Configure those intervals with `MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL` and `MINIO_API_STALE_UPLOADS_EXPIRY`. [MinIO server settings](https://github.com/minio/minio/blob/RELEASE.2025-06-13T11-33-47Z/docs/config/README.md#api)
 
-Run `atlas storage-check` to see which actions are missing from the enabled Atlas rules on the bucket. A missing action is advisory and does not affect the readiness verdict.
+A backend that refuses the full set gets the two whole-bucket rules only, and Atlas logs a warning. A backend that stores a one-day rule without its prefix would expire every noncurrent version after one day, `_meta/dek.enc` included, so Atlas reads the rules back after writing them and falls back to the two whole-bucket rules when a prefix is missing.
 
-Atlas never reads noncurrent versions. Its own version history is stored as separate objects, so the expiry removes only superseded sync checkpoints, indexes, [owner leases](#owner-leases-and-conditional-writes), and the [staging copies](/operations/storage-usage#what-the-staging-prefix-costs) that Atlas 7.0.1 and earlier left behind. Atlas leaves lifecycle configuration on existing buckets as it finds it, including buckets opened with a [bucket override](/configuration#bucket-override).
+Atlas never reads noncurrent versions. Its own version history is stored as separate objects, so the expiry removes only superseded sync checkpoints, indexes, [owner leases](#owner-leases-and-conditional-writes), and the [staging copies](/operations/storage-usage#what-the-staging-prefix-costs) that Atlas 7.0.1 and earlier left behind. A version under [Object Lock](/operations/immutability) stays until its lock expires, whatever the rule says.
+
+### Version caps of hosted providers
+
+Some S3 providers limit how many versions one object key may hold. Without the one-day rules, an owner lease rewritten through a long or frequent backup reaches these caps within days, and every later backup of that owner fails to take its lease.
+
+| Provider | Limit per object key | What happens at the limit |
+| --- | --- | --- |
+| Scaleway, Exoscale | 1,000 versions | Writes to the key fail |
+| OVHcloud | 100,000 versions | `403 MaxVersionsReached` |
+| AWS S3 | No cap. AWS recommends fewer than 100,000 | Millions of versions cause `503` responses for the bucket |
+| MinIO | No cap | Writes to the key slow down: about 23 ms per `PUT` at 10,000 versions and 53 ms at 20,000 |
+
+A lease held for one hour leaves at most 14 versions: the acquire, 12 renewals, and the release. With the one-day rule, an owner whose operations run around the clock stays below about 1,000 versions per lease key even when expiry runs two days late.
+
+### Applying the rules to an existing bucket
+
+```bash
+atlas storage-check --apply-lifecycle
+```
+
+Atlas changes the lifecycle configuration of a bucket only when it creates the bucket. A bucket created by an earlier release, or opened with a [bucket override](/configuration#bucket-override), keeps whatever it has until you run the command above. `atlas storage-check` lists each missing rule under `Lifecycle rules`.
+
+| Step | What Atlas does |
+| --- | --- |
+| Read | Reads the current configuration. If it cannot, it writes nothing and the command exits `1` |
+| Merge | Adds each Atlas rule whose ID the bucket does not have. Every other rule stays as it is, in its order, including an Atlas rule you edited or disabled |
+| Write | Writes the merged configuration in one `PutBucketLifecycleConfiguration`, which replaces the stored one, and keeps the bucket's `TransitionDefaultMinimumObjectSize` |
+| Verify | Reads the rules back. If the backend stored an added one-day rule without its prefix, it restores the previous configuration and the command exits `1` |
+
+The command needs `s3:GetLifecycleConfiguration` and `s3:PutLifecycleConfiguration` on the bucket. Running it again adds nothing. The read and the write are not atomic, so do not edit the lifecycle configuration by other means while it runs.
+
+To keep a longer window for some state keys, change the matching `atlas-state-versions-*` rule rather than deleting it: a deleted rule is added again by the next `--apply-lifecycle`.
+
+Run `atlas storage-check` to see which actions are missing from the enabled Atlas rules on the bucket. A missing action is advisory and does not affect the readiness verdict.
 
 Only commands that write create a bucket. Read-only commands (`list`, `read`, `status`, `verify`, `stats`, `list-users`) never create a bucket or a data key. They fail with `No backups found for tenant <id>` when the tenant has no stored key, so a mistyped `-t` cannot create an empty, billable bucket.
 
@@ -412,15 +465,15 @@ Atlas runs one operation at a time per mailbox, drive owner, site, or team. A ba
 | Consideration | Detail |
 | --- | --- |
 | Backend | Must refuse a create-only write onto an existing object and a compare-and-swap with a stale ETag, both with `412`. A backend that accepts them lets two runs hold one lease for up to 60 seconds |
-| Requests | Per operation: 2 to acquire and 2 to release, 3 when the delete is refused. While it runs: 2 per minute, one `GET` and one `PUT` of about 200 bytes. Nothing per object |
+| Requests | Per operation: 2 to acquire and 2 to release, 3 when the delete is refused. While it runs: one `GET` per minute, and one `PUT` of about 200 bytes every 5 minutes. Nothing per object |
 | Permissions | `s3:PutObject` and `s3:GetObject` on the lease objects, and `s3:DeleteObject` to remove a lease when its run ends |
 | Delete denied | Under a policy that denies `DeleteObject`, such as on `_meta/*`, the run marks its lease released with a conditional `PUT`, and the object stays as a free lease |
-| Versioned bucket | Each renewal replaces the lease, leaving one noncurrent version per minute of the run, plus a delete marker. The `atlas-expire-noncurrent-versions` and delete marker rules remove them |
-| Other buckets | A bucket Atlas did not create has no such rule. Add a noncurrent-version expiry, or the lease versions accumulate |
+| Versioned bucket | Each renewal replaces the lease, leaving one noncurrent version per 5 minutes of the run, plus a delete marker: at most 14 versions per held hour. The [one-day state-key rules](#lifecycle-rules) remove them |
+| Other buckets | A bucket Atlas did not create, or created before the one-day rules existed, lacks them. Run `atlas storage-check --apply-lifecycle`, or the lease versions accumulate for 30 days or longer |
 | Default retention | A lease is never written with retention, but a bucket default retention locks every version of it. See [Removing a bucket default retention](#removing-a-bucket-default-retention) |
 | Clocks | Hosts that share a bucket must agree on the time to within a few minutes, because expiry compares one host's timestamp with another host's clock |
 
-A 6-hour backup renews its lease 360 times, which in a versioned bucket is about 72 KB of noncurrent versions until the lifecycle rule removes them.
+A 6-hour backup renews its lease 72 times, which in a versioned bucket is about 15 KB of noncurrent versions until the lifecycle rule removes them.
 
 ::: details How a lease is taken
 The lease is taken with `If-None-Match: *`, renewed and taken over with `If-Match`, and read back after every acquire.

@@ -78,7 +78,7 @@ Backups write manifests, sync checkpoints, and the summary index. Written into a
 
 ### Leases on a replica
 
-Provider replication copies the [lease objects](/operations/storage-layout#owner-leases) a running backup writes, and a lease expires 5 minutes after its holder last renewed it. A restore from the replica may therefore refuse an owner with exit code `12` for up to 5 minutes after the primary's backup of that owner stopped. Wait and rerun.
+Provider replication copies the [lease objects](/operations/storage-layout#owner-leases) a running backup writes, and a lease expires 10 minutes after its holder last renewed it. A restore from the replica may therefore refuse an owner with exit code `12` for up to 10 minutes after the primary's backup of that owner stopped. Wait and rerun.
 
 ## Consistency
 

@@ -981,6 +981,15 @@ The result has `bucket`, `reachable`, `versioningEnabled`, `objectLockEnabled`, 
 
 `lifecycle` reports the readback of the bucket's lifecycle configuration. When `status` is `checked`, `missingActions` lists the missing Atlas actions as `{ ruleId, action }` entries. When `status` is `not_checked`, `detail` explains why the configuration could not be read.
 
+```ts
+const check = await atlas.checkStorage({ applyLifecycle: true });
+if (check.lifecycleUpdate?.status === 'failed') {
+  console.error(check.lifecycleUpdate.detail);
+}
+```
+
+`applyLifecycle: true` first adds the Atlas lifecycle rules the bucket lacks, keeping every rule already there, so `lifecycle` reports the result. `lifecycleUpdate` is then `{ status: 'applied', addedRuleIds }`, `{ status: 'unchanged' }`, or `{ status: 'failed', detail }`, and is absent otherwise. A failed update leaves the previous rules in place. It needs `s3:GetLifecycleConfiguration` and `s3:PutLifecycleConfiguration`. See [Applying the rules to an existing bucket](/self-hosting/storage#applying-the-rules-to-an-existing-bucket).
+
 ### Storage usage
 
 `getStorageUsage(options?)` lists the tenant bucket and reports the bytes it physically holds. `getBucketStats()` and the workload `getStats()` methods report logical sizes instead. See [Storage usage](/operations/storage-usage) for categories, request cost, and required permissions.
@@ -1441,8 +1450,8 @@ try {
 ```
 
 - **Scope.** A lease covers one workload and one owner. Mail, contacts, calendar, and OneDrive of one user are four leases and do not block each other, and neither do two owners.
-- **A killed process** cannot release its lease. The owner stays busy until it expires, at most 5 minutes after the last renewal, and `lease_expires_at` says when. The next operation then takes it over, and of several waiting runs exactly one starts. A lease object that is not valid lease JSON is replaced the same way. One written by a newer Atlas is never replaced: the operation rejects with `ATLAS_FORMAT_UNSUPPORTED`.
-- **A lost lease.** Before each write that advances durable state (the manifest or index, the sync checkpoint, a Teams checkpoint, a deletion), the run checks its lease without reading storage. If a renewal found another holder or no lease, or the lease ran out because storage was unreachable for its whole lifetime, the run rejects with `OwnerLeaseLostError` and commits nothing further. `OwnerLeaseLostError` is an `OwnerBusyError` with the same code and exit status, because the remedy is the same. Content already uploaded stays and is deduplicated by the next run. A failed renewal alone loses nothing: it is retried every minute, and the check starts failing 30 seconds before the unrenewed expiry.
+- **A killed process** cannot release its lease. The owner stays busy until it expires, at most 10 minutes after the last renewal, and `lease_expires_at` says when. The next operation then takes it over, and of several waiting runs exactly one starts. A lease object that is not valid lease JSON is replaced the same way. One written by a newer Atlas is never replaced: the operation rejects with `ATLAS_FORMAT_UNSUPPORTED`.
+- **A lost lease.** Before each write that advances durable state (the manifest or index, the sync checkpoint, a Teams checkpoint, a deletion), the run checks its lease without reading storage. If a renewal found another holder or no lease, or the lease ran out because storage was unreachable for its whole lifetime, the run rejects with `OwnerLeaseLostError` and commits nothing further. `OwnerLeaseLostError` is an `OwnerBusyError` with the same code and exit status, because the remedy is the same. Content already uploaded stays and is deduplicated by the next run. A failed renewal alone loses nothing: it is retried every minute, and the check starts failing 30 seconds before the unrenewed expiry. The lease is read back every minute and rewritten every 5 minutes, so a held hour leaves at most 14 versions in a versioned bucket.
 - **SharePoint subsites.** With `includeSubsites: true`, each site takes its own lease. A busy subsite does not stop the others: its result has `summary.healthy: false` and the busy error in `summary.errors`. A busy root site rejects the call.
 - **Tenant-wide runs.** `atlas teams backup --all` and the tenant-wide Outlook backup report a busy team or mailbox as that owner's failure and continue.
 
@@ -1461,12 +1470,12 @@ try {
 
 ### Tenant lease
 
-`purgeTenantData()`, `rewrapDataKey()`, and the `keys` methods take one lease for the whole tenant, stored at `_meta/tenant-lease.json` with the tenant ID as its owner ID, renewed every 60 seconds and released when the call ends, also on failure.
+`purgeTenantData()`, `rewrapDataKey()`, and the `keys` methods take one lease for the whole tenant, stored at `_meta/tenant-lease.json` with the tenant ID as its owner ID, renewed every 5 minutes and released when the call ends, also on failure.
 
 - The tenant call writes its lease, then lists every owner lease of the tenant. Any live owner lease makes it reject with `OwnerBusyError` before it writes anything else, naming one busy owner in `workload` and `owner_id`.
 - Every owner operation does the reverse: after writing its own lease it reads the tenant lease, and a live one makes it release its own and reject with `OwnerBusyError`, `held_by_operation` set to `purge` or `rewrap`.
 - Because each side writes before it reads, two calls that start at the same moment cannot both proceed. An owner lease that has expired, was released, or does not parse does not block the tenant call.
-- A tenant lease whose purge was killed expires 5 minutes after its last renewal and blocks the tenant's owner operations until then.
+- A tenant lease whose purge was killed expires 10 minutes after its last renewal and blocks the tenant's owner operations until then.
 - Cost: one extra `GET` per owner acquire. The tenant call lists each workload's lease prefix, a listing of that workload's `_meta/` tree, so its cost grows with the number of owners.
 
 ### What Atlas makes safe
@@ -1487,8 +1496,8 @@ These conditional writes, the lease included, need a backend that honours `If-Ma
 
 - **Restores and leases.** Restore takes the source owner's lease in the bucket it reads, also for a cross-tenant restore, so it never runs next to a backup, deletion, quarantine, or second restore of that owner. A restore whose storage credentials cannot write the lease (HTTP `403`) still runs, without a lease, and logs `concurrent-run protection is off for this restore`; a backup, deletion, or second restore of that owner is then not refused. A live lease held by another operation still refuses the restore, owner or tenant, because reading a lease needs no write access.
 - **Readers take no lease.** Save, verify, status, and the listings only read, so they can run next to a backup of the same owner. A deletion or quarantine running at the same time can remove the snapshot they are reading.
-- **Clocks.** Keep the clocks of hosts that share a bucket within a few minutes of each other. A host whose clock is ahead by more than the time left on a live lease (4 to 5 minutes in steady state) sees it as expired and takes over a running operation. The displaced run notices within 60 seconds and stops before its next commit, but both ran for that long.
-- **Backends that ignore write conditions** let two runs take the same lease. Each finds out at its next renewal, so the overlap is bounded at 60 seconds but not prevented. Schedule one operation per owner yourself until `checkStorage()` reports `conditionalWrites.support: 'supported'`.
+- **Clocks.** Keep the clocks of hosts that share a bucket within a few minutes of each other. A host whose clock is ahead by more than the time left on a live lease (5 to 10 minutes in steady state) sees it as expired and takes over a running operation. The displaced run notices within 60 seconds and stops before its next commit, but both ran for that long.
+- **Backends that ignore write conditions** let two runs take the same lease. Each finds out at its next check, so the overlap is bounded at 60 seconds but not prevented. Schedule one operation per owner yourself until `checkStorage()` reports `conditionalWrites.support: 'supported'`.
 - **Mixed versions.** A host running an Atlas version older than the lease does not see it. Upgrade every host that writes to a bucket before relying on it.
 - **Disposal.** Let operations finish or cancel them before `dispose()`. See [Instance lifecycle](#instance-lifecycle).
 

@@ -97,14 +97,19 @@ Data under retention stays in the bucket, and readable with the tenant key, unti
 
 ## Lifecycle rules
 
-Atlas requests two lifecycle rules when it creates a bucket:
+Atlas requests these lifecycle rules when it creates a bucket:
 
 | Rule | Purpose |
 | --- | --- |
 | `atlas-housekeeping` | Removes orphaned delete markers (`ExpiredObjectDeleteMarker`). On AWS S3 it also aborts incomplete multipart uploads after 7 days (`AbortIncompleteMultipartUpload`) |
-| `atlas-expire-noncurrent-versions` | Removes noncurrent object versions 30 days after they are replaced. A locked version stays until its lock expires |
+| `atlas-expire-noncurrent-versions` | Removes noncurrent object versions 30 days after they are replaced |
+| `atlas-state-versions-*` | Removes noncurrent versions of leases, delta cursors, Teams checkpoints, Outlook latest pointers, and snapshot summaries 1 day after they are replaced. One rule per prefix, listed in [Lifecycle rules](/self-hosting/storage#lifecycle-rules) |
 
-MinIO cleans up incomplete uploads on its own schedule. See [Storage](/self-hosting/storage#bucket-provisioning-and-object-lock). The rules are best effort. If the backend does not support lifecycle configuration, Atlas continues without them. Buckets that already exist are left as they are.
+A lifecycle rule never shortens Object Lock. A locked version stays until its lock expires, whatever the rule says. OneDrive and SharePoint backups with `--retention-days` write their delta cursor and snapshot summary with the run's retention, so each of those rewrites keeps a locked version for the full period. Owner leases are never written with retention.
+
+The one-day window narrows what an attacker who can overwrite objects leaves you to recover from noncurrent versions, but only for state Atlas can rebuild: a lost cursor costs one full sync, and pointers and summaries are rebuilt from the manifests. Manifests, content, and `_meta/dek.enc` keep the 30-day window, and Object Lock is what protects them against deletion.
+
+MinIO cleans up incomplete uploads on its own schedule. See [Storage](/self-hosting/storage#bucket-provisioning-and-object-lock). The rules are best effort. If the backend does not support lifecycle configuration, Atlas continues without them. Atlas changes the rules of an existing bucket only when you run `atlas storage-check --apply-lifecycle`, which adds the missing Atlas rules and keeps every other rule. See [Applying the rules to an existing bucket](/self-hosting/storage#applying-the-rules-to-an-existing-bucket).
 
 ## Operational checklist
 
