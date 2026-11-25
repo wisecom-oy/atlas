@@ -110,30 +110,54 @@ describe('SharePoint 403 handling by cause (issue #246)', () => {
 
   it('records a service refusal against the item, naming the code, without a fallback', async () => {
     const mock = make_client();
-    fetch_mock.mockRejectedValue(graph_error(403, 'notAllowed'));
+    fetch_mock.mockRejectedValue(graph_error(403, 'malwareDetected'));
 
     const error = await download_with_fallback(mock.client, make_item()).catch(
       (err: unknown) => err,
     );
 
     expect(error).toBeInstanceOf(DownloadRefusedError);
-    expect((error as DownloadRefusedError).graph_code).toBe('notAllowed');
+    expect((error as DownloadRefusedError).graph_code).toBe('malwareDetected');
     expect((error as Error).message).toContain('Budget.xlsx');
     expect((error as Error).message).toContain('not a transient failure');
     expect(mock.get).not.toHaveBeenCalled();
     expect(mock.get_stream).not.toHaveBeenCalled();
   });
 
-  it('treats an unrecognised 403 code as a per-item refusal rather than aborting the run', async () => {
+  // Issue #866: an unknown code fails the file for this run only, so the next run retries it.
+  it.each(['someFutureCode', 'notAllowed'])(
+    'fails the file for this run on an unrecognised 403 %s, without a permanent refusal',
+    async (code) => {
+      const mock = make_client();
+      const refusal = graph_error(403, code);
+      fetch_mock.mockRejectedValue(refusal);
+
+      const error = await download_with_fallback(mock.client, make_item()).catch(
+        (err: unknown) => err,
+      );
+
+      expect(error).not.toBeInstanceOf(DownloadRefusedError);
+      expect((error as Error).message).toContain(`403 ${code}`);
+      expect((error as Error).message).toContain('retried by the next run');
+      expect((error as Error).cause).toBe(refusal);
+      expect(mock.get_stream).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not record an unrecognised 403 on the fresh-URL lookup as permanent', async () => {
     const mock = make_client();
-    fetch_mock.mockRejectedValue(graph_error(403, 'someFutureCode'));
+    const refusal = graph_error(403, 'notAllowed');
+    fetch_mock.mockResolvedValueOnce({ status: 401, ok: false, headers: new Headers() });
+    mock.get.mockRejectedValueOnce(refusal);
 
     const error = await download_with_fallback(mock.client, make_item()).catch(
       (err: unknown) => err,
     );
 
-    expect(error).toBeInstanceOf(DownloadRefusedError);
-    expect((error as DownloadRefusedError).graph_code).toBe('someFutureCode');
+    expect(mock.get).toHaveBeenCalledOnce();
+    expect(error).not.toBeInstanceOf(DownloadRefusedError);
+    expect((error as Error).message).toContain('Budget.xlsx');
+    expect((error as Error).message).toContain('403 notAllowed');
   });
 
   it('still re-resolves and retries a genuinely expired CDN URL', async () => {
