@@ -48,6 +48,18 @@ describe('lifecycle rules on a new bucket', () => {
     ).toBe(false);
   });
 
+  it('falls back to the base rules when reading the state-key rules back fails', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const s3 = fake_lifecycle_s3({
+      refuse_get: { error: s3_named_error('InternalError'), from_call: 1 },
+    });
+
+    await apply_default_lifecycle(s3.client as never, BUCKET);
+
+    expect(s3.stored()).toEqual(BASE_LIFECYCLE_RULES);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('reading them back failed'));
+  });
+
   it('tries once and warns when the credentials may not configure lifecycle', async () => {
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     const s3 = fake_lifecycle_s3({ refuse_put: () => s3_named_error('AccessDenied') });

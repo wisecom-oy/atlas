@@ -109,7 +109,7 @@ A lifecycle rule never shortens Object Lock. A locked version stays until its lo
 
 The one-day window narrows what an attacker who can overwrite objects leaves you to recover from noncurrent versions, but only for state Atlas can rebuild: a lost cursor costs one full sync, and pointers and summaries are rebuilt from the manifests. Manifests, content, and `_meta/dek.enc` keep the 30-day window, and Object Lock is what protects them against deletion.
 
-MinIO cleans up incomplete uploads on its own schedule. See [Storage](/self-hosting/storage#bucket-provisioning-and-object-lock). The rules are best effort. If the backend does not support lifecycle configuration, Atlas continues without them. Atlas changes the rules of an existing bucket only when you run `atlas storage-check --apply-lifecycle`, which adds the missing Atlas rules and keeps every other rule. See [Applying the rules to an existing bucket](/self-hosting/storage#applying-the-rules-to-an-existing-bucket).
+MinIO cleans up incomplete uploads on its own schedule. See [Storage](/self-hosting/storage#bucket-provisioning-and-object-lock). The rules are best effort. If the backend does not support lifecycle configuration, Atlas continues without them. Atlas changes the rules of an existing bucket only when you run `atlas storage-check --apply-lifecycle`, which adds the missing Atlas rules, resets broken state-key rules, and keeps every other rule. See [Applying the rules to an existing bucket](/self-hosting/storage#applying-the-rules-to-an-existing-bucket).
 
 ## Operational checklist
 

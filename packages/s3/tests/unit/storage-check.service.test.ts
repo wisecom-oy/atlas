@@ -24,6 +24,7 @@ function make_mock_s3(): { send: ReturnType<typeof vi.fn> } {
 const STATE_RULES_MISSING = STATE_KEY_PREFIXES.map(({ rule_id }) => ({
   rule_id,
   action: 'NoncurrentVersionExpiration',
+  fixed_by_apply: true,
 }));
 
 /** A service over the given S3 client. */
@@ -136,7 +137,11 @@ describe('StorageCheckService', () => {
     expect(result.lifecycle).toEqual({
       status: 'checked',
       missing_actions: [
-        { rule_id: 'atlas-housekeeping', action: 'AbortIncompleteMultipartUpload' },
+        {
+          rule_id: 'atlas-housekeeping',
+          action: 'AbortIncompleteMultipartUpload',
+          fixed_by_apply: false,
+        },
         ...STATE_RULES_MISSING,
       ],
     });
@@ -172,7 +177,9 @@ describe('StorageCheckService', () => {
       rules: ATLAS_LIFECYCLE_RULES.map((rule) =>
         rule.ID === 'atlas-state-versions-teams' ? { ...rule, Filter: {} } : rule,
       ),
-      missing_actions: [{ rule_id: 'atlas-state-versions-teams', action: 'Prefix' }],
+      missing_actions: [
+        { rule_id: 'atlas-state-versions-teams', action: 'Prefix', fixed_by_apply: true },
+      ],
     },
     {
       name: 'retains only the abort action and an unrelated expiry rule',
@@ -190,8 +197,16 @@ describe('StorageCheckService', () => {
         },
       ],
       missing_actions: [
-        { rule_id: 'atlas-housekeeping', action: 'ExpiredObjectDeleteMarker' },
-        { rule_id: 'atlas-expire-noncurrent-versions', action: 'NoncurrentVersionExpiration' },
+        {
+          rule_id: 'atlas-housekeeping',
+          action: 'ExpiredObjectDeleteMarker',
+          fixed_by_apply: false,
+        },
+        {
+          rule_id: 'atlas-expire-noncurrent-versions',
+          action: 'NoncurrentVersionExpiration',
+          fixed_by_apply: true,
+        },
         ...STATE_RULES_MISSING,
       ],
     },
@@ -219,9 +234,21 @@ describe('StorageCheckService', () => {
     expect(result.lifecycle).toEqual({
       status: 'checked',
       missing_actions: [
-        { rule_id: 'atlas-housekeeping', action: 'AbortIncompleteMultipartUpload' },
-        { rule_id: 'atlas-housekeeping', action: 'ExpiredObjectDeleteMarker' },
-        { rule_id: 'atlas-expire-noncurrent-versions', action: 'NoncurrentVersionExpiration' },
+        {
+          rule_id: 'atlas-housekeeping',
+          action: 'AbortIncompleteMultipartUpload',
+          fixed_by_apply: true,
+        },
+        {
+          rule_id: 'atlas-housekeeping',
+          action: 'ExpiredObjectDeleteMarker',
+          fixed_by_apply: true,
+        },
+        {
+          rule_id: 'atlas-expire-noncurrent-versions',
+          action: 'NoncurrentVersionExpiration',
+          fixed_by_apply: true,
+        },
         ...STATE_RULES_MISSING,
       ],
     });
@@ -238,6 +265,7 @@ describe('StorageCheckService', () => {
     expect(result.lifecycle_update).toEqual({
       status: 'applied',
       added_rule_ids: ATLAS_LIFECYCLE_RULES.map((rule) => rule.ID),
+      replaced_rule_ids: [],
     });
     expect(result.lifecycle).toEqual({ status: 'checked', missing_actions: [] });
     expect(s3.stored()).toEqual(ATLAS_LIFECYCLE_RULES);

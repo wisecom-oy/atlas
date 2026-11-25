@@ -9,6 +9,7 @@ import type {
   StorageConditionalWriteCheck,
   StorageDefaultRetention,
   StorageLifecycleCheck,
+  StorageLifecycleMissingAction,
   StorageLifecycleUpdate,
 } from '@wisecom/atlas-types';
 import { STORAGE_CHECK_USE_CASE_TOKEN } from '@wisecom/atlas-types';
@@ -150,6 +151,11 @@ function describe_conditional_writes(check: StorageConditionalWriteCheck): KeyVa
   return { label, value: `not probed (${check.detail ?? 'no reason given'})`, color: 'yellow' };
 }
 
+/**
+ * Reports the missing Atlas lifecycle actions, split by what fixes them: `--apply-lifecycle` for
+ * absent rules and state-key rules. A base rule that is present stays as the operator or the
+ * backend left it, for example MinIO dropping AbortIncompleteMultipartUpload.
+ */
 function describe_lifecycle(check: StorageLifecycleCheck): KeyValueItem {
   const label = 'Lifecycle rules';
   if (check.status === 'not_checked') {
@@ -158,25 +164,35 @@ function describe_lifecycle(check: StorageLifecycleCheck): KeyValueItem {
   if (check.missing_actions.length === 0) {
     return { label, value: 'Atlas actions present', color: 'green' };
   }
-  const missing = check.missing_actions.map(({ rule_id, action }) => `${rule_id}/${action}`);
-  return {
-    label,
-    value: `missing Atlas actions: ${missing.join(', ')} (add with --apply-lifecycle)`,
-    color: 'yellow',
-  };
+  const name = ({ rule_id, action }: StorageLifecycleMissingAction): string =>
+    `${rule_id}/${action}`;
+  const by_apply = check.missing_actions.filter((entry) => entry.fixed_by_apply).map(name);
+  const kept_as_is = check.missing_actions.filter((entry) => !entry.fixed_by_apply).map(name);
+  const groups = [
+    ...(by_apply.length > 0 ? [`${by_apply.join(', ')} (fix with --apply-lifecycle)`] : []),
+    ...(kept_as_is.length > 0
+      ? [`${kept_as_is.join(', ')} (--apply-lifecycle keeps these rules as they are)`]
+      : []),
+  ];
+  return { label, value: `missing Atlas actions: ${groups.join('; ')}`, color: 'yellow' };
 }
 
 /** Reports what `--apply-lifecycle` changed. A failure leaves the previous rules in place. */
 function describe_lifecycle_update(update: StorageLifecycleUpdate): KeyValueItem {
   const label = 'Lifecycle update';
-  if (update.status === 'unchanged') return { label, value: 'nothing to add', color: 'green' };
+  if (update.status === 'unchanged') return { label, value: 'nothing to change', color: 'green' };
   if (update.status === 'failed') return { label, value: `FAILED: ${update.detail}`, color: 'red' };
-  const count = update.added_rule_ids.length;
-  return {
-    label,
-    value: `added ${count} rule${count === 1 ? '' : 's'}: ${update.added_rule_ids.join(', ')}`,
-    color: 'green',
-  };
+  const changes = [
+    ...describe_rule_ids('added', update.added_rule_ids),
+    ...describe_rule_ids('reset', update.replaced_rule_ids),
+  ];
+  return { label, value: changes.join('; '), color: 'green' };
+}
+
+function describe_rule_ids(verb: string, rule_ids: readonly string[]): string[] {
+  if (rule_ids.length === 0) return [];
+  const count = rule_ids.length;
+  return [`${verb} ${count} rule${count === 1 ? '' : 's'}: ${rule_ids.join(', ')}`];
 }
 
 function resolve_tenant_id(container: Container, options: StorageCheckOptions): string {

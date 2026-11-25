@@ -29,17 +29,33 @@ export interface StorageConditionalWriteCheck {
   readonly detail?: string | undefined;
 }
 
+/** One Atlas lifecycle action the bucket's enabled rules lack. */
+export interface StorageLifecycleMissingAction {
+  readonly rule_id: string;
+  readonly action: string;
+  /**
+   * True when `apply_lifecycle` restores it: the rule is absent, or it is a state-key rule. A
+   * disabled or edited base rule is the operator's choice and is never overwritten.
+   */
+  readonly fixed_by_apply: boolean;
+}
+
 /** Which Atlas actions are missing from enabled bucket rules, or why they could not be checked. */
 export type StorageLifecycleCheck =
   | {
       readonly status: 'checked';
-      readonly missing_actions: readonly { readonly rule_id: string; readonly action: string }[];
+      readonly missing_actions: readonly StorageLifecycleMissingAction[];
     }
   | { readonly status: 'not_checked'; readonly detail: string };
 
-/** Outcome of adding the Atlas lifecycle rules a bucket lacked. */
+/** Outcome of adding the Atlas lifecycle rules a bucket lacked and resetting broken state rules. */
 export type StorageLifecycleUpdate =
-  | { readonly status: 'applied'; readonly added_rule_ids: readonly string[] }
+  | {
+      readonly status: 'applied';
+      readonly added_rule_ids: readonly string[];
+      /** State-key rules that were disabled, lacked their expiry, or had another prefix. */
+      readonly replaced_rule_ids: readonly string[];
+    }
   | { readonly status: 'unchanged' }
   | { readonly status: 'failed'; readonly detail: string };
 

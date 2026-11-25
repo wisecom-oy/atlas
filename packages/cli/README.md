@@ -77,7 +77,7 @@ atlas teams backup --team <team-id>
 | `atlas teams backup`      | Back up Teams channel messages to object storage                    |
 | `atlas stats`             | Storage statistics                                                  |
 | `atlas stats storage`     | Physical bytes in the bucket: versions, staging, incomplete uploads |
-| `atlas storage-check`     | Check Object Lock, conditional writes, and lifecycle rules; `--apply-lifecycle` adds missing rules |
+| `atlas storage-check`     | Check Object Lock, conditional writes, and lifecycle rules; `--apply-lifecycle` adds or repairs them |
 
 Run `atlas --help` or `atlas <command> --help` for every flag.
 

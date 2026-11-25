@@ -8,7 +8,7 @@ import {
   type TransitionDefaultMinimumObjectSize,
 } from '@aws-sdk/client-s3';
 import { logger } from '@wisecom/atlas-core';
-import type { StorageLifecycleCheck } from '@wisecom/atlas-types';
+import type { StorageLifecycleCheck, StorageLifecycleMissingAction } from '@wisecom/atlas-types';
 import { is_access_denied } from '@/adapters/s3-error-classifier';
 import {
   ATLAS_LIFECYCLE_RULES,
@@ -16,8 +16,8 @@ import {
   HOUSEKEEPING_RULE,
   NONCURRENT_VERSIONS_RULE,
   STATE_KEY_PREFIXES,
+  find_broken_state_action,
   find_misscoped_state_rules,
-  stored_rule_prefix,
 } from '@/adapters/s3-lifecycle-rules';
 
 /** A bucket's lifecycle rules and the configuration-level setting a rewrite must carry over. */
@@ -80,8 +80,9 @@ export async function restore_bucket_lifecycle(
 /**
  * Best-effort lifecycle rules for a bucket Atlas has just created: housekeeping, a 30-day
  * noncurrent window everywhere, and a one-day window under the state-key prefixes (issue #918).
- * A backend that refuses the full set, or stores a state rule without its prefix, gets the two
- * base rules instead, so a one-day window never reaches `_meta/dek.enc`. Failures are logged.
+ * A backend that refuses the full set, stores a state rule without its prefix, or cannot read the
+ * rules back to show they kept their prefixes, gets the two base rules instead, so a one-day window
+ * never reaches `_meta/dek.enc`. Failures are logged.
  */
 export async function apply_default_lifecycle(client: S3Client, bucket: string): Promise<void> {
   try {
@@ -98,12 +99,9 @@ export async function apply_default_lifecycle(client: S3Client, bucket: string):
     await put_base_lifecycle(client, bucket);
     return;
   }
-  const misscoped = await find_misscoped_after_put(client, bucket);
-  if (misscoped.length > 0) {
-    logger.warn(
-      `Bucket "${bucket}" stored ${misscoped.join(', ')} without its prefix; ` +
-        `requesting the two base rules only`,
-    );
+  const unverified = await find_unverified_scope_after_put(client, bucket);
+  if (unverified !== undefined) {
+    logger.warn(`Bucket "${bucket}" ${unverified}; requesting the two base rules only`);
     await put_base_lifecycle(client, bucket);
   }
 }
@@ -116,14 +114,23 @@ async function put_base_lifecycle(client: S3Client, bucket: string): Promise<voi
   }
 }
 
-/** State rules stored without their prefix. A backend that cannot read rules back yields none. */
-async function find_misscoped_after_put(client: S3Client, bucket: string): Promise<string[]> {
+/**
+ * Why the stored state rules cannot be trusted to keep their prefixes, or undefined when they can.
+ * A failed read is not a clean result: the rules it could not show may have lost their filter.
+ */
+async function find_unverified_scope_after_put(
+  client: S3Client,
+  bucket: string,
+): Promise<string | undefined> {
+  let stored: StoredLifecycle;
   try {
-    const stored = await read_bucket_lifecycle(client, bucket);
-    return find_misscoped_state_rules(stored.rules);
-  } catch {
-    return [];
+    stored = await read_bucket_lifecycle(client, bucket);
+  } catch (err) {
+    return `accepted the state-key lifecycle rules, but reading them back failed (${error_text(err)})`;
   }
+  const misscoped = find_misscoped_state_rules(stored.rules);
+  if (misscoped.length === 0) return undefined;
+  return `stored ${misscoped.join(', ')} without its prefix`;
 }
 
 function warn_lifecycle_skipped(bucket: string, err: unknown): void {
@@ -174,55 +181,48 @@ export function describe_lifecycle_read_failure(err: unknown): string {
   return 'could not read the bucket lifecycle configuration';
 }
 
-type MissingAction = { rule_id: string; action: string };
+/**
+ * The actions the enabled Atlas rules lack. A base rule that is present but disabled or edited is
+ * not `fixed_by_apply`, because `--apply-lifecycle` keeps it as the operator left it.
+ */
+function find_missing_actions(rules: readonly LifecycleRule[]): StorageLifecycleMissingAction[] {
+  return [...find_missing_base_actions(rules), ...find_missing_state_actions(rules)];
+}
 
-function find_missing_actions(rules: readonly LifecycleRule[]): MissingAction[] {
+function find_missing_base_actions(
+  rules: readonly LifecycleRule[],
+): StorageLifecycleMissingAction[] {
   const enabled = (id: string): LifecycleRule | undefined =>
     rules.find((rule) => rule.ID === id && rule.Status === 'Enabled');
+  const fixed_by_apply = (id: string): boolean => !rules.some((rule) => rule.ID === id);
   const housekeeping = enabled(HOUSEKEEPING_RULE.ID);
   const noncurrent_versions = enabled(NONCURRENT_VERSIONS_RULE.ID);
 
-  const missing_actions: MissingAction[] = [];
+  const missing: { rule_id: string; action: string }[] = [];
   if ((housekeeping?.AbortIncompleteMultipartUpload?.DaysAfterInitiation ?? 0) <= 0) {
-    missing_actions.push({
-      rule_id: HOUSEKEEPING_RULE.ID,
-      action: 'AbortIncompleteMultipartUpload',
-    });
+    missing.push({ rule_id: HOUSEKEEPING_RULE.ID, action: 'AbortIncompleteMultipartUpload' });
   }
   if (housekeeping?.Expiration?.ExpiredObjectDeleteMarker !== true) {
-    missing_actions.push({ rule_id: HOUSEKEEPING_RULE.ID, action: 'ExpiredObjectDeleteMarker' });
+    missing.push({ rule_id: HOUSEKEEPING_RULE.ID, action: 'ExpiredObjectDeleteMarker' });
   }
-  if (!has_noncurrent_expiration(noncurrent_versions)) {
-    missing_actions.push({
-      rule_id: NONCURRENT_VERSIONS_RULE.ID,
-      action: 'NoncurrentVersionExpiration',
-    });
+  if ((noncurrent_versions?.NoncurrentVersionExpiration?.NoncurrentDays ?? 0) <= 0) {
+    missing.push({ rule_id: NONCURRENT_VERSIONS_RULE.ID, action: 'NoncurrentVersionExpiration' });
   }
+  return missing.map((entry) => ({ ...entry, fixed_by_apply: fixed_by_apply(entry.rule_id) }));
+}
+
+/** State-key rules are always reset by `--apply-lifecycle`, so each entry is `fixed_by_apply`. */
+function find_missing_state_actions(
+  rules: readonly LifecycleRule[],
+): StorageLifecycleMissingAction[] {
+  const missing: StorageLifecycleMissingAction[] = [];
   for (const { rule_id, prefix } of STATE_KEY_PREFIXES) {
-    const missing = find_missing_state_action(rule_id, prefix, enabled(rule_id));
-    if (missing !== undefined) missing_actions.push(missing);
+    const rule = rules.find((candidate) => candidate.ID === rule_id);
+    const action =
+      rule === undefined ? 'NoncurrentVersionExpiration' : find_broken_state_action(rule, prefix);
+    if (action !== undefined) missing.push({ rule_id, action, fixed_by_apply: true });
   }
-  return missing_actions;
-}
-
-/**
- * A state rule needs its expiry and its own prefix. `Prefix` is reported when the stored rule
- * filters on anything else, because a wider filter would shorten the window for the whole bucket.
- */
-function find_missing_state_action(
-  rule_id: string,
-  prefix: string,
-  rule: LifecycleRule | undefined,
-): MissingAction | undefined {
-  if (!has_noncurrent_expiration(rule)) return { rule_id, action: 'NoncurrentVersionExpiration' };
-  if (rule !== undefined && stored_rule_prefix(rule) !== prefix) {
-    return { rule_id, action: 'Prefix' };
-  }
-  return undefined;
-}
-
-function has_noncurrent_expiration(rule: LifecycleRule | undefined): boolean {
-  return (rule?.NoncurrentVersionExpiration?.NoncurrentDays ?? 0) > 0;
+  return missing;
 }
 
 function error_text(err: unknown): string {

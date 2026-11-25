@@ -3,8 +3,12 @@ import { BucketCache } from '@/adapters/bucket-cache';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ensure_bucket_exists, probe_bucket_immutability } from '@/adapters/s3-bucket-manager';
 
+/**
+ * Commands a test does not script answer `{}`, so the lifecycle read-back after a create sees a
+ * configuration it can verify. An unanswered read-back now falls back to the base rules (#918).
+ */
 function make_mock_s3(): { send: ReturnType<typeof vi.fn> } {
-  return { send: vi.fn() };
+  return { send: vi.fn().mockResolvedValue({}) };
 }
 
 describe('s3-bucket-manager', () => {

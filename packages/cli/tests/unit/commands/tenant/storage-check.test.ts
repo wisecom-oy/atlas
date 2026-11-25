@@ -121,7 +121,12 @@ describe('atlas storage-check', () => {
       lifecycle: {
         status: 'checked',
         missing_actions: [
-          { rule_id: 'atlas-housekeeping', action: 'AbortIncompleteMultipartUpload' },
+          {
+            rule_id: 'atlas-housekeeping',
+            action: 'AbortIncompleteMultipartUpload',
+            fixed_by_apply: false,
+          },
+          { rule_id: 'atlas-state-versions-teams', action: 'Prefix', fixed_by_apply: true },
         ],
       },
     });
@@ -129,8 +134,9 @@ describe('atlas storage-check', () => {
     expect(row(rows, 'Lifecycle rules')).toEqual({
       label: 'Lifecycle rules',
       value:
-        'missing Atlas actions: atlas-housekeeping/AbortIncompleteMultipartUpload ' +
-        '(add with --apply-lifecycle)',
+        'missing Atlas actions: atlas-state-versions-teams/Prefix (fix with --apply-lifecycle); ' +
+        'atlas-housekeeping/AbortIncompleteMultipartUpload ' +
+        '(--apply-lifecycle keeps these rules as they are)',
       color: 'yellow',
     });
     expect(row(rows, 'Status')?.value).toBe('ready');
@@ -153,6 +159,7 @@ describe('atlas storage-check', () => {
         lifecycle_update: {
           status: 'applied',
           added_rule_ids: ['atlas-state-versions-outlook-leases', 'atlas-state-versions-teams'],
+          replaced_rule_ids: ['atlas-state-versions-onedrive'],
         },
       },
       ['--apply-lifecycle'],
@@ -162,7 +169,9 @@ describe('atlas storage-check', () => {
     expect(requests).toEqual([{ apply_lifecycle: true }]);
     expect(row(rows, 'Lifecycle update')).toEqual({
       label: 'Lifecycle update',
-      value: 'added 2 rules: atlas-state-versions-outlook-leases, atlas-state-versions-teams',
+      value:
+        'added 2 rules: atlas-state-versions-outlook-leases, atlas-state-versions-teams; ' +
+        'reset 1 rule: atlas-state-versions-onedrive',
       color: 'green',
     });
     expect(process.exitCode).toBeUndefined();

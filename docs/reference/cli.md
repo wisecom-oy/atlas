@@ -17,15 +17,15 @@ atlas --version
 
 A postinstall hook puts the `atlas` command on your PATH. It never fails the install.
 
-| Situation                                                | What happens                                                                                                  |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Local install                                            | The hook links `atlas` into `/usr/local/bin` or `~/.local/bin`                                                |
-| Global install                                           | The hook replaces an older Atlas command, so `atlas --version` reports the version you just installed         |
-| `atlas` is already a shell alias or another command      | The hook skips with a warning and leaves it alone. Use `npx atlas`                                            |
-| `ATLAS_SKIP_POSTINSTALL=1` is set                        | The hook does nothing. Link manually with `npm run link-cli --prefix node_modules/@wisecom/atlas-cli`         |
-| pnpm                                                     | Dependency lifecycle scripts are blocked by default. Run `pnpm approve-builds`                                |
-| Bun                                                      | Dependency lifecycle scripts are blocked by default. Run `bun pm -g trust @wisecom/atlas-cli`                 |
-| Windows                                                  | Global installs use npm's `.cmd` shims                                                                        |
+| Situation                                           | What happens                                                                                          |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Local install                                       | The hook links `atlas` into `/usr/local/bin` or `~/.local/bin`                                        |
+| Global install                                      | The hook replaces an older Atlas command, so `atlas --version` reports the version you just installed |
+| `atlas` is already a shell alias or another command | The hook skips with a warning and leaves it alone. Use `npx atlas`                                    |
+| `ATLAS_SKIP_POSTINSTALL=1` is set                   | The hook does nothing. Link manually with `npm run link-cli --prefix node_modules/@wisecom/atlas-cli` |
+| pnpm                                                | Dependency lifecycle scripts are blocked by default. Run `pnpm approve-builds`                        |
+| Bun                                                 | Dependency lifecycle scripts are blocked by default. Run `bun pm -g trust @wisecom/atlas-cli`         |
+| Windows                                             | Global installs use npm's `.cmd` shims                                                                |
 
 An explicit `link-cli` run, including `pnpm run link-cli` in a source checkout, takes the `atlas` command over from any other Atlas install. Reinstall the other package to point it back.
 
@@ -55,21 +55,21 @@ esac
 exit "$status"
 ```
 
-| Code | Meaning                                                                       | What to do                                                  |
-| ---- | ----------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `0`  | Success, help, or a command with no failure reported                          | Continue                                                    |
-| `1`  | Unclassified failure, invalid usage, or `ATLAS_WRITE_REFUSED`                 | Read stderr. Do not assume it is transient                  |
-| `2`  | Partial run: items failed or were skipped, or a soft interrupt                | Inspect the partial result before relying on it             |
-| `3`  | `ATLAS_THROTTLED` or `ATLAS_GRAPH_UNAVAILABLE` after the retry budget         | Schedule a later attempt                                    |
-| `4`  | `ATLAS_AUTH_DENIED`, `ATLAS_MAILBOX_NOT_LICENSED`, or `ATLAS_ACCESS_REFUSED`  | Fix credentials, permissions, admin consent, or licensing   |
-| `5`  | `ATLAS_WRONG_PASSPHRASE`: the data key would not unwrap                       | Supply the original tenant passphrase                       |
-| `6`  | `ATLAS_CONFIG_INVALID`                                                        | Correct the configuration or its storage access             |
-| `7`  | `ATLAS_NOT_FOUND`, or a selector that matched nothing                         | Check the resource, identifiers, and selectors              |
-| `8`  | `ATLAS_OBJECT_LOCK_RETAINED`                                                  | Respect the retention or legal hold                         |
-| `9`  | `ATLAS_CONTENT_UNREADABLE`, `ATLAS_FORMAT_UNSUPPORTED`, or a damaged manifest | Do not retry unchanged. See the notes below                 |
-| `10` | Unassigned                                                                    | Not returned                                                |
-| `11` | `ATLAS_SNAPSHOT_NOT_NEWEST`                                                   | Delete the newer snapshots first, or the whole backup       |
-| `12` | `ATLAS_OWNER_BUSY`: another operation holds the owner or tenant               | Retry once the other operation ends                         |
+| Code | Meaning                                                                       | What to do                                                |
+| ---- | ----------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `0`  | Success, help, or a command with no failure reported                          | Continue                                                  |
+| `1`  | Unclassified failure, invalid usage, or `ATLAS_WRITE_REFUSED`                 | Read stderr. Do not assume it is transient                |
+| `2`  | Partial run: items failed or were skipped, or a soft interrupt                | Inspect the partial result before relying on it           |
+| `3`  | `ATLAS_THROTTLED` or `ATLAS_GRAPH_UNAVAILABLE` after the retry budget         | Schedule a later attempt                                  |
+| `4`  | `ATLAS_AUTH_DENIED`, `ATLAS_MAILBOX_NOT_LICENSED`, or `ATLAS_ACCESS_REFUSED`  | Fix credentials, permissions, admin consent, or licensing |
+| `5`  | `ATLAS_WRONG_PASSPHRASE`: the data key would not unwrap                       | Supply the original tenant passphrase                     |
+| `6`  | `ATLAS_CONFIG_INVALID`                                                        | Correct the configuration or its storage access           |
+| `7`  | `ATLAS_NOT_FOUND`, or a selector that matched nothing                         | Check the resource, identifiers, and selectors            |
+| `8`  | `ATLAS_OBJECT_LOCK_RETAINED`                                                  | Respect the retention or legal hold                       |
+| `9`  | `ATLAS_CONTENT_UNREADABLE`, `ATLAS_FORMAT_UNSUPPORTED`, or a damaged manifest | Do not retry unchanged. See the notes below               |
+| `10` | Unassigned                                                                    | Not returned                                              |
+| `11` | `ATLAS_SNAPSHOT_NOT_NEWEST`                                                   | Delete the newer snapshots first, or the whole backup     |
+| `12` | `ATLAS_OWNER_BUSY`: another operation holds the owner or tenant               | Retry once the other operation ends                       |
 
 What each code covers:
 
@@ -101,16 +101,16 @@ A confirmation prompt that ends without an answer exits `1` and changes nothing.
 
 These rules apply to Outlook, Contacts, Calendar, OneDrive, and SharePoint. Teams adds its own, listed under [`atlas teams backup`](#atlas-teams-backup) and [`atlas teams save`](#atlas-teams-save).
 
-| Result                                                | Exit | Notes                                                                                     |
-| ----------------------------------------------------- | ---- | ----------------------------------------------------------------------------------------- |
-| Complete, no errors                                   | `0`  |                                                                                           |
-| Per-folder or per-file errors                         | `2`  | Failed items are listed on stderr                                                         |
-| Run prints `Status: UNHEALTHY`                        | `2`  | Unless the only finding is a damaged manifest or index, see below                         |
-| Only finding is a damaged snapshot manifest or index  | `9`  | OneDrive, SharePoint, Teams, Calendar, and Contacts print `Status: UNHEALTHY` and name it |
-| A restore or save skipped a file                      | `2`  | An archive or restore missing some files is not a success                                 |
-| Integrity failure                                     | `2`  | Content did not match its manifest checksum                                               |
-| First Ctrl+C                                          | `2`  | Soft interrupt, see [Stopping a run](#stopping-a-run)                                     |
-| Second Ctrl+C                                         | `130`| Immediate exit, no final report                                                           |
+| Result                                               | Exit  | Notes                                                                                     |
+| ---------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------- |
+| Complete, no errors                                  | `0`   |                                                                                           |
+| Per-folder or per-file errors                        | `2`   | Failed items are listed on stderr                                                         |
+| Run prints `Status: UNHEALTHY`                       | `2`   | Unless the only finding is a damaged manifest or index, see below                         |
+| Only finding is a damaged snapshot manifest or index | `9`   | OneDrive, SharePoint, Teams, Calendar, and Contacts print `Status: UNHEALTHY` and name it |
+| A restore or save skipped a file                     | `2`   | An archive or restore missing some files is not a success                                 |
+| Integrity failure                                    | `2`   | Content did not match its manifest checksum                                               |
+| First Ctrl+C                                         | `2`   | Soft interrupt, see [Stopping a run](#stopping-a-run)                                     |
+| Second Ctrl+C                                        | `130` | Immediate exit, no final report                                                           |
 
 - **Exit `2` does not prove a snapshot was saved.** An interrupted Contacts or Calendar backup saves none, and a Contacts or Calendar run whose only changes failed has nothing new to save. Check the run output, `atlas contacts list`, or `atlas calendar list` for the snapshot.
 - **Unhealthy runs without new errors.** A Calendar run with no event errors that left attachments out (item and reference attachments, or attachments on a single exception of a series) prints `Status: UNHEALTHY`; see [Attachments](/calendar-backup#attachments). So does a OneDrive, SharePoint, or Teams run with no new errors while a file is still in the list of failed files, waiting for a retry or permanently skipped after 5 attempts. Those files are listed as warnings, and the run is not complete until the list is empty.
@@ -132,10 +132,10 @@ A second Ctrl+C exits at once with status `130`, with no cleanup and no final re
 
 Atlas runs one operation at a time per mailbox, drive owner, site, or team. It does this with a lease, stored in the tenant bucket (see [Owner leases](/operations/storage-layout#owner-leases)), that each command takes before it writes:
 
-| Lease        | Taken by                                                                     | Covers                                       |
-| ------------ | ---------------------------------------------------------------------------- | -------------------------------------------- |
-| Owner lease  | Every backup, restore, deletion, and quarantine                              | One mailbox, drive owner, site, or team      |
-| Tenant lease | `atlas delete --purge`, `atlas keys rewrap`, `atlas keys purge-old-wrappers` | The whole tenant, one tenant at a time       |
+| Lease        | Taken by                                                                     | Covers                                  |
+| ------------ | ---------------------------------------------------------------------------- | --------------------------------------- |
+| Owner lease  | Every backup, restore, deletion, and quarantine                              | One mailbox, drive owner, site, or team |
+| Tenant lease | `atlas delete --purge`, `atlas keys rewrap`, `atlas keys purge-old-wrappers` | The whole tenant, one tenant at a time  |
 
 - The two kinds exclude each other. A tenant command is refused while any owner lease in that tenant is live, and an owner command exits `12` while a tenant command holds the tenant.
 - A purge that exits `12` names the busy owner in its message and wrote nothing.
@@ -168,11 +168,11 @@ atlas --profile contoso outlook backup -m john.doe@example.com
 atlas outlook backup -m john.doe@example.com --profile fabrikam
 ```
 
-| Option             | Environment     | Description                                                                                                                                  |
-| ------------------ | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Option             | Environment     | Description                                                                                                                                         |
+| ------------------ | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--profile <name>` | `ATLAS_PROFILE` | Tenant profile whose Graph credentials the run uses. Defaults to the active profile. See [Selecting a profile](/configuration#selecting-a-profile). |
-| `-V, --version`    |                 | Print the installed version                                                                                                                  |
-| `-h, --help`       |                 | Print help for the program or any command                                                                                                    |
+| `-V, --version`    |                 | Print the installed version                                                                                                                         |
+| `-h, --help`       |                 | Print help for the program or any command                                                                                                           |
 
 Place `--profile` before or after the subcommand. Shared settings (S3 and the encryption passphrase) are the same for every profile, so `--profile` changes only the Microsoft Graph identity. Restore commands also accept `--target-profile <name>` to write into a second tenant; see [Cross-tenant restore](/reference/cli-recovery#cross-tenant-restore).
 
@@ -190,11 +190,11 @@ A short flag means one thing across the CLI.
 
 `--site` and `--team` have no short flag, so nothing can shadow `-s` or `-t`. A retired spelling is rejected rather than reinterpreted, and the error names its replacement:
 
-| Retired spelling                 | Pass instead |
-| -------------------------------- | ------------ |
-| `-s <site>` on `atlas stats`     | `--site`     |
-| `-O <path>` on any `save`        | `--output`   |
-| `-o <path>` on `atlas outlook save` | `--output` |
+| Retired spelling                    | Pass instead |
+| ----------------------------------- | ------------ |
+| `-s <site>` on `atlas stats`        | `--site`     |
+| `-O <path>` on any `save`           | `--output`   |
+| `-o <path>` on `atlas outlook save` | `--output`   |
 
 ```console
 $ atlas stats -s https://contoso.sharepoint.com/sites/Engineering
@@ -203,10 +203,10 @@ error: option '-s <value>' argument 'https://...' is invalid. -s no longer means
 
 ## Identifiers
 
-| Target                | Accepted forms                                                                                                                                                              |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mailbox, drive owner  | Email address or Entra object ID                                                                                                                                            |
-| Site (`--site`)       | Browser URL (`https://contoso.sharepoint.com/sites/Engineering`), Graph short form (`contoso.sharepoint.com:/sites/Engineering`), or site ID with or without its hostname (`contoso.sharepoint.com,<siteGuid>,<webGuid>` or `<siteGuid>,<webGuid>`) |
+| Target               | Accepted forms                                                                                                                                                                                                                                      |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mailbox, drive owner | Email address or Entra object ID                                                                                                                                                                                                                    |
+| Site (`--site`)      | Browser URL (`https://contoso.sharepoint.com/sites/Engineering`), Graph short form (`contoso.sharepoint.com:/sites/Engineering`), or site ID with or without its hostname (`contoso.sharepoint.com,<siteGuid>,<webGuid>` or `<siteGuid>,<webGuid>`) |
 
 - An email address is looked up through Microsoft Graph before any object path is built. Object IDs are used as given. Backups are keyed by object ID, so the address is display metadata only.
 - Owner and site IDs are case-insensitive. They are lowercased before they become object paths, so one identifier always addresses one tree.
@@ -665,10 +665,10 @@ atlas delete --purge        # delete everything in the tenant bucket
 atlas delete --purge -y     # skip the typed confirmation
 ```
 
-| Option              | Description                                                                                                                                         |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--purge`           | Delete all data, manifests, and encryption keys. Irreversible.                                                                                      |
-| `-y, --yes`         | Skip the typed confirmation, for scheduled and scripted runs                                                                                        |
+| Option              | Description                                                                                                                  |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `--purge`           | Delete all data, manifests, and encryption keys. Irreversible.                                                               |
+| `-y, --yes`         | Skip the typed confirmation, for scheduled and scripted runs                                                                 |
 | `-t, --tenant <id>` | Override the tenant ID from config. The confirmation checks against this ID, and the purge targets that tenant's own bucket. |
 
 ::: danger A purge is irreversible
@@ -719,12 +719,12 @@ For Outlook, OneDrive, SharePoint, Contacts, and Calendar, `status`, `list -m`, 
 
 **What quarantine refuses:**
 
-| Situation                                                                                                     | Result                                    |
-| ------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| Nothing is stored at the key                                                                                  | Exit `7`                                  |
-| The object reads cleanly                                                                                      | Exit `7`, with `reads cleanly` in the message, so a typo never hides a healthy snapshot |
-| The key is outside the workload's manifest or version index layout, has an empty, `.`, or `..` segment, or spells the owner another way | Exit `1`, before the tenant is opened |
-| An object written by a newer Atlas format                                                                     | Refused; it is intact. Upgrade Atlas      |
+| Situation                                                                                                                               | Result                                                                                  |
+| --------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Nothing is stored at the key                                                                                                            | Exit `7`                                                                                |
+| The object reads cleanly                                                                                                                | Exit `7`, with `reads cleanly` in the message, so a typo never hides a healthy snapshot |
+| The key is outside the workload's manifest or version index layout, has an empty, `.`, or `..` segment, or spells the owner another way | Exit `1`, before the tenant is opened                                                   |
+| An object written by a newer Atlas format                                                                                               | Refused; it is intact. Upgrade Atlas                                                    |
 
 **What the move does:**
 
@@ -734,13 +734,13 @@ For Outlook, OneDrive, SharePoint, Contacts, and Calendar, `status`, `list -m`, 
 
 **What you lose, and what to run next:**
 
-| Quarantined object                     | Effect                                                                                                                                         | Follow-up                                                                                                       |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Outlook manifest                       | That run's changes drop out of every later point in time, because each manifest holds only its own run's changes. The command warns             | Run one `backup --full`, so the newest snapshot holds every current item again                                  |
-| OneDrive or SharePoint manifest        | Same as Outlook                                                                                                                                | `backup --full` when newer snapshots exist. If the newest was quarantined, the next backup reads in full by itself and warns |
-| Contacts or Calendar manifest          | Only that snapshot is lost; each snapshot is complete on its own. The mailbox's delta cursor is removed too                                     | None. The next backup reads every folder or calendar in full                                                    |
-| Teams snapshot index                   | The next backup compares against the newest readable index. A channel whose cursor pointed at the quarantined index's shard is read in full     | None. Channels unchanged since the older index resume                                                          |
-| OneDrive or SharePoint version index   | That run's versions leave `list-versions`, and `restore-version --before` can then pick an older version of those files. The command warns     | Check `list-versions` before a rollback                                                                         |
+| Quarantined object                   | Effect                                                                                                                                      | Follow-up                                                                                                                    |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Outlook manifest                     | That run's changes drop out of every later point in time, because each manifest holds only its own run's changes. The command warns         | Run one `backup --full`, so the newest snapshot holds every current item again                                               |
+| OneDrive or SharePoint manifest      | Same as Outlook                                                                                                                             | `backup --full` when newer snapshots exist. If the newest was quarantined, the next backup reads in full by itself and warns |
+| Contacts or Calendar manifest        | Only that snapshot is lost; each snapshot is complete on its own. The mailbox's delta cursor is removed too                                 | None. The next backup reads every folder or calendar in full                                                                 |
+| Teams snapshot index                 | The next backup compares against the newest readable index. A channel whose cursor pointed at the quarantined index's shard is read in full | None. Channels unchanged since the older index resume                                                                        |
+| OneDrive or SharePoint version index | That run's versions leave `list-versions`, and `restore-version --before` can then pick an older version of those files. The command warns  | Check `list-versions` before a rollback                                                                                      |
 
 A drive delta cursor written before Atlas 7.0 records no snapshot. Until a 7.0 or later backup has run for that owner or site, run `backup --full` after any quarantine. A damaged Teams channel cursor is not quarantined: `status` names it in a warning, and the next backup reads that channel in full and rewrites the cursor.
 
@@ -825,19 +825,19 @@ atlas onedrive list-snapshots -o user@example.com
 atlas onedrive restore -o user@example.com -s od-snap-1735689600000-a1b2c3
 ```
 
-| Subcommand        | Description                                                                                                                              |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `backup`          | Incremental backup. Use `--full` to ignore saved sync checkpoints.                                                                       |
-| `restore`         | Restore files from a snapshot to the owner's or another user's OneDrive                                                                  |
-| `save`            | Decrypt files from a snapshot into a local zip archive                                                                                   |
-| `list-snapshots`  | List snapshot IDs and timestamps for the owner                                                                                           |
-| `list-versions`   | List indexed versions of one file (`-f`, a file ID or path)                                                                              |
-| `list-permissions` | List who had access to which file or folder, and folder colours, at a snapshot                                                          |
-| `restore-version` | Push stored file versions back into the drive, one file or a whole rollback                                                              |
-| `verify`          | Decrypt manifests and files for a snapshot, and check SHA-256 and index rows                                                             |
-| `status`          | Report pending changes per drive, without backing up                                                                                     |
-| `delete`          | Delete the owner's OneDrive backups, or one snapshot                                                                                     |
-| `quarantine`      | Move an unreadable manifest or version index aside (see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes)) |
+| Subcommand         | Description                                                                                                                              |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `backup`           | Incremental backup. Use `--full` to ignore saved sync checkpoints.                                                                       |
+| `restore`          | Restore files from a snapshot to the owner's or another user's OneDrive                                                                  |
+| `save`             | Decrypt files from a snapshot into a local zip archive                                                                                   |
+| `list-snapshots`   | List snapshot IDs and timestamps for the owner                                                                                           |
+| `list-versions`    | List indexed versions of one file (`-f`, a file ID or path)                                                                              |
+| `list-permissions` | List who had access to which file or folder, and folder colours, at a snapshot                                                           |
+| `restore-version`  | Push stored file versions back into the drive, one file or a whole rollback                                                              |
+| `verify`           | Decrypt manifests and files for a snapshot, and check SHA-256 and index rows                                                             |
+| `status`           | Report pending changes per drive, without backing up                                                                                     |
+| `delete`           | Delete the owner's OneDrive backups, or one snapshot                                                                                     |
+| `quarantine`       | Move an unreadable manifest or version index aside (see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes)) |
 
 How drive snapshots work, for OneDrive and SharePoint alike:
 
@@ -874,6 +874,7 @@ atlas onedrive backup -o user@example.com --retention-days 30 --lock-mode govern
 - **Ctrl+C** stops the run at once, wherever it is, including a file transfer, a Graph call, and any retry or throttle wait. The run exits `2` without advancing the delta cursor. The interrupted file is not recorded as a failed item, so it keeps its retry budget. A second Ctrl+C exits at once with status `130`.
 
 ::: details Object Lock for OneDrive and SharePoint
+
 - Retention is stamped on each object the run writes: files, file versions, manifests, version indexes, and delta cursors. The retain-until date is computed once, when the run starts. The bucket's own Object Lock configuration is never changed, so two runs with different `--retention-days` each lock exactly what they wrote.
 - The staging multipart upload for a large file is written without a lock. Its bytes are copied to a locked object and the staging copy is deleted. A bucket default retention still locks it.
 - Versions before 6.1.0 set a bucket default retention instead. A default left by them stays in force until you remove it; see [Removing a bucket default retention](/self-hosting/storage#removing-a-bucket-default-retention). An explicit per-object date always takes precedence.
@@ -1111,20 +1112,20 @@ atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering
 atlas sharepoint quarantine --key sharepoint/manifests/<site-id>/sp-snap-1735689600000-a1b2c3.json
 ```
 
-| Subcommand        | Description                                                                                                                              |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `backup`          | Incremental backup. Use `--full` to ignore saved sync checkpoints.                                                                       |
-| `list-sites`      | List every site the tenant search returns, with its kind: `site`, or `container (not backed up)` for a SharePoint Embedded container     |
-| `list-snapshots`  | List all SharePoint snapshots for a site                                                                                                 |
-| `list-versions`   | List all backed-up versions of one file                                                                                                  |
-| `list-permissions` | List who had access to which file or folder, and folder colours, at a snapshot                                                          |
-| `restore-version` | Push stored file versions back into the library, one file or a whole rollback                                                            |
-| `restore`         | Restore files from a snapshot to the site's document libraries                                                                           |
-| `save`            | Decrypt files from a snapshot into a local zip archive                                                                                   |
-| `verify`          | Decrypt manifests and files for a snapshot, and check SHA-256 and index rows                                                             |
-| `status`          | Report pending changes per document library, without backing up                                                                         |
-| `delete`          | Delete the site's SharePoint backups, or one snapshot                                                                                    |
-| `quarantine`      | Move an unreadable manifest or version index aside (see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes)) |
+| Subcommand         | Description                                                                                                                              |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `backup`           | Incremental backup. Use `--full` to ignore saved sync checkpoints.                                                                       |
+| `list-sites`       | List every site the tenant search returns, with its kind: `site`, or `container (not backed up)` for a SharePoint Embedded container     |
+| `list-snapshots`   | List all SharePoint snapshots for a site                                                                                                 |
+| `list-versions`    | List all backed-up versions of one file                                                                                                  |
+| `list-permissions` | List who had access to which file or folder, and folder colours, at a snapshot                                                           |
+| `restore-version`  | Push stored file versions back into the library, one file or a whole rollback                                                            |
+| `restore`          | Restore files from a snapshot to the site's document libraries                                                                           |
+| `save`             | Decrypt files from a snapshot into a local zip archive                                                                                   |
+| `verify`           | Decrypt manifests and files for a snapshot, and check SHA-256 and index rows                                                             |
+| `status`           | Report pending changes per document library, without backing up                                                                          |
+| `delete`           | Delete the site's SharePoint backups, or one snapshot                                                                                    |
+| `quarantine`       | Move an unreadable manifest or version index aside (see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes)) |
 
 ::: tip Permissions
 Backup and verification need the application permissions `Sites.Read.All` and `Files.Read.All`. Restore also needs `Sites.ReadWrite.All`.
@@ -1317,10 +1318,10 @@ atlas sharepoint status --site https://contoso.sharepoint.com/sites/Engineering
 
 OneDrive and SharePoint status report the same columns:
 
-| Column    | Meaning                                                                                                                                       |
-| --------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Column    | Meaning                                                                                                                                      |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Pending` | Files the next backup would store or mark deleted. Folders and the drive root are not counted, because backup skips them. The count is exact |
-| `Failed`  | Files of this drive in the list of failed files, waiting for a retry or permanently skipped after 5 attempts                                  |
+| `Failed`  | Files of this drive in the list of failed files, waiting for a retry or permanently skipped after 5 attempts                                 |
 
 - A drive is up to date only when both columns are `0`. A file in the failed list is missing from the backup even when nothing new is pending, because Microsoft 365 never re-presents an unchanged item. A failed entry for a drive that no longer exists still counts toward the overall verdict.
 - When the delta cursor has outlived the snapshot it was saved with, the next backup reads in full instead of resuming it, so status does not replay it either. Every drive is then reported as not backed up and not up to date.
@@ -1335,12 +1336,12 @@ atlas sharepoint delete --site https://contoso.sharepoint.com/sites/Engineering 
 atlas sharepoint delete --site https://contoso.sharepoint.com/sites/Engineering -y
 ```
 
-| Option                | Description                                                     |
-| --------------------- | --------------------------------------------------------------- |
-| `--site <url-or-id>`  | SharePoint site URL or Graph site ID (required)                 |
-| `-s, --snapshot <id>` | Delete the site's newest snapshot instead of every backup       |
-| `-y, --yes`           | Skip the confirmation prompt                                    |
-| `-t, --tenant <id>`   | Override the tenant ID from config                              |
+| Option                | Description                                               |
+| --------------------- | --------------------------------------------------------- |
+| `--site <url-or-id>`  | SharePoint site URL or Graph site ID (required)           |
+| `-s, --snapshot <id>` | Delete the site's newest snapshot instead of every backup |
+| `-y, --yes`           | Skip the confirmation prompt                              |
+| `-t, --tenant <id>`   | Override the tenant ID from config                        |
 
 Without `-s`, the command removes the site's `manifests`, `data`, `index`, `_meta`, and `staging` prefixes. With `-s`, the site's newest snapshot manifest, the delta cursor, and the snapshot's row in the [summary index](/operations/storage-layout#snapshot-summary-index) are removed, and the shared files stay. Any other snapshot is refused with exit `11`, and the next backup reads every library in full. See [Deleting one drive snapshot](#drive-snapshot-delete).
 
@@ -1522,26 +1523,26 @@ atlas storage-check --apply-lifecycle
 
 The command reports versioning, Object Lock status, the bucket class, and conditional-write support. It checks the effective bucket, including a [bucket override](/configuration#bucket-override), and exits `1` when the bucket is not ready, so it can gate scheduled jobs.
 
-| Bucket class              | Meaning                                                |
-| ------------------------- | ------------------------------------------------------ |
-| `lock-capable`            | Can take retention policies                            |
-| `versioned-only (legacy)` | Predates v2.1.0 auto-provisioning                      |
-| `unversioned (legacy)`    | Predates v2.1.0 auto-provisioning                      |
+| Bucket class              | Meaning                           |
+| ------------------------- | --------------------------------- |
+| `lock-capable`            | Can take retention policies       |
+| `versioned-only (legacy)` | Predates v2.1.0 auto-provisioning |
+| `unversioned (legacy)`    | Predates v2.1.0 auto-provisioning |
 
 Legacy buckets need the [migration runbook](/self-hosting/storage#migrating-a-legacy-bucket) before immutability can be used.
 
 The `Conditional writes` row reports a probe of the two writes that keep concurrent runs apart: a create-only write (`If-None-Match: *`) onto an existing object, and a compare-and-swap (`If-Match`) with a stale ETag. Both must be refused with `412`. The owner lease, the data key bootstrap, and the identity registry depend on it.
 
-| Value        | Meaning                                                                                                                       | Exit code |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------- | --------- |
-| `supported`  | Both writes were refused                                                                                                      | Unchanged |
+| Value        | Meaning                                                                                                                                           | Exit code |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `supported`  | Both writes were refused                                                                                                                          | Unchanged |
 | `IGNORED`    | The backend accepted at least one of them, and the row names which. Two runs on one owner are then not kept apart. Upgrade or replace the backend | `1`       |
-| `not probed` | The probe object could not be written: the bucket does not exist yet, or the credentials are read-only. The row gives the reason | Unchanged |
+| `not probed` | The probe object could not be written: the bucket does not exist yet, or the credentials are read-only. The row gives the reason                  | Unchanged |
 
 - **The probe is the only write.** It puts one plaintext object of a few bytes under `_meta/storage-check/` and deletes it, with its versions, before the command returns. It needs `s3:PutObject` and `s3:DeleteObject` on that prefix. On a bucket with a default retention the probe's versions stay until that retention ends.
 - **Bucket default retention.** On a lock-capable bucket the command also reports the bucket's default retention. Atlas does not set one, because it would lock every object written without its own retention: backups without `--retention-days`, and the staging uploads Atlas deletes after copying them. A default found here was left by a version before 6.1.0 or set by hand. It is shown in yellow and does not change the exit code. See [Removing a bucket default retention](/self-hosting/storage#removing-a-bucket-default-retention).
-- **Lifecycle rules.** The command names each missing action in the enabled Atlas rules, including the one-day `atlas-state-versions-*` rules for leases, cursors, pointers, and summaries. `Prefix` means a state rule is stored with a filter other than its own prefix. The read requires `s3:GetLifecycleConfiguration`. If the configuration cannot be read, the row reports `not checked` with the reason. The row is advisory and does not affect the exit code.
-- **`--apply-lifecycle`** is the only option that changes the bucket configuration. It reads the lifecycle configuration, adds each Atlas rule whose ID is missing, writes the result back with every other rule unchanged, and reads it back. The `Lifecycle update` row lists the rules it added, or `nothing to add`. If the read, the write, or the read-back check fails, the row shows `FAILED` with the reason, the previous rules stay in place, and the command exits `1`. It requires `s3:PutLifecycleConfiguration` as well. See [Applying the rules to an existing bucket](/self-hosting/storage#applying-the-rules-to-an-existing-bucket).
+- **Lifecycle rules.** The command names each missing action in the enabled Atlas rules, including the one-day `atlas-state-versions-*` rules for leases, cursors, pointers, and summaries. `Prefix` means a state rule is stored with a filter other than its own prefix. Each group says whether `--apply-lifecycle` fixes it; a base rule that is present but disabled, edited, or trimmed by the backend is kept as it is. The read requires `s3:GetLifecycleConfiguration`. If the configuration cannot be read, the row reports `not checked` with the reason. The row is advisory and does not affect the exit code.
+- **`--apply-lifecycle`** is the only option that changes the bucket configuration. It reads the lifecycle configuration, adds each Atlas rule whose ID is missing, resets each `atlas-state-versions-*` rule that is disabled, has no expiry, or has another prefix, writes the result back with every other rule unchanged, and reads it back. A disabled or edited base rule is kept. The `Lifecycle update` row lists the rules it added and reset, or `nothing to change`. If the read, the write, or the read-back check fails, the row shows `FAILED` with the reason, the previous rules stay in place, and the command exits `1`. It requires `s3:PutLifecycleConfiguration` as well. See [Applying the rules to an existing bucket](/self-hosting/storage#applying-the-rules-to-an-existing-bucket).
 
 ## atlas stats
 
@@ -1697,12 +1698,12 @@ The run is complete when every tenant is `re-wrapped`, `already re-wrapped`, or 
 ::: details How a refused write is reported
 Atlas classifies a failed write by the response's HTTP status and S3 error code, never by its message text.
 
-| Response                                  | Reported as                                                                                         |
-| ----------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| HTTP `412` or `PreconditionFailed`        | Another run changed `_meta/dek.enc` during the re-wrap. The tenant fails without overwriting it      |
-| HTTP `403` or `AccessDenied`              | `_meta/dek.enc` is under Object Lock retention, so the write is refused until retention expires. The tenant is reported as `failed`, with a message that the stored key is unchanged, rather than a bare access denial that looks like a credentials fault |
-| Anything else, such as a `500`            | The storage error it is                                                                             |
-:::
+| Response                           | Reported as                                                                                                                                                                                                                                                |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| HTTP `412` or `PreconditionFailed` | Another run changed `_meta/dek.enc` during the re-wrap. The tenant fails without overwriting it                                                                                                                                                            |
+| HTTP `403` or `AccessDenied`       | `_meta/dek.enc` is under Object Lock retention, so the write is refused until retention expires. The tenant is reported as `failed`, with a message that the stored key is unchanged, rather than a bare access denial that looks like a credentials fault |
+| Anything else, such as a `500`     | The storage error it is                                                                                                                                                                                                                                    |
+| :::                                |
 
 ### keys purge-old-wrappers
 
@@ -1792,13 +1793,13 @@ atlas --profile fabrikam outlook backup -m john.doe@example.com
 atlas tenants remove fabrikam -y
 ```
 
-| Subcommand                | Description                                                                                                                                                       |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tenants add <name>`      | Save a profile, then check its Graph credentials. A failed check keeps the profile and exits `1`                                                                  |
-| `tenants list`            | List the stored profiles with masked secrets, and each profile's bucket when one is set. The selected profile is marked with `*`                                  |
-| `tenants use <name>`      | Set the active profile for later runs when neither `--profile` nor `ATLAS_PROFILE` is set                                                                         |
-| `tenants remove <name>`   | Delete a profile from the store. Removing the active profile needs `-y`, and no profile is active afterward                                                       |
-| `tenants validate [name]` | Check a profile's Graph credentials, then print its effective bucket and send it `HeadBucket`. Without a name, checks the selected profile                         |
+| Subcommand                | Description                                                                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tenants add <name>`      | Save a profile, then check its Graph credentials. A failed check keeps the profile and exits `1`                                           |
+| `tenants list`            | List the stored profiles with masked secrets, and each profile's bucket when one is set. The selected profile is marked with `*`           |
+| `tenants use <name>`      | Set the active profile for later runs when neither `--profile` nor `ATLAS_PROFILE` is set                                                  |
+| `tenants remove <name>`   | Delete a profile from the store. Removing the active profile needs `-y`, and no profile is active afterward                                |
+| `tenants validate [name]` | Check a profile's Graph credentials, then print its effective bucket and send it `HeadBucket`. Without a name, checks the selected profile |
 
 | Option                    | Command  | Description                                                                                                                                              |
 | ------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |

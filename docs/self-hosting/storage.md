@@ -19,26 +19,26 @@ Set up storage in this order:
 
 Any S3-compatible store works if it meets two requirements:
 
-| Requirement | Why it matters |
-| --- | --- |
-| Object Lock, enabled when the bucket is created | Needed for immutable backups with `--retention-days`. Most backends, MinIO included, cannot add it to an existing bucket. See [Immutability](/operations/immutability). |
-| Conditional writes (`If-None-Match`, `If-Match`) honoured | Keeps two runs from overwriting each other's state. See [Conditional writes](#conditional-writes). |
+| Requirement                                               | Why it matters                                                                                                                                                          |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Object Lock, enabled when the bucket is created           | Needed for immutable backups with `--retention-days`. Most backends, MinIO included, cannot add it to an existing bucket. See [Immutability](/operations/immutability). |
+| Conditional writes (`If-None-Match`, `If-Match`) honoured | Keeps two runs from overwriting each other's state. See [Conditional writes](#conditional-writes).                                                                      |
 
 `atlas storage-check` tests both. Run it against a new backend before you rely on it.
 
 Some providers bill each object at a minimum size even when it is smaller. Atlas keeps the object count low where it can: a OneDrive or SharePoint backup writes one version index object per owner or site per run, not one per file, and a run that stores nothing writes no index. Each backed-up file is still its own object, so many small files cost more on a provider with a high minimum.
 
-| Provider | Minimum billable object size | Note |
-| --- | --- | --- |
-| Hetzner Object Storage | 64 KB | API calls are free, so fewer larger objects cost nothing ([pricing](https://www.hetzner.com/storage/object-storage/)) |
-| Wasabi | 4 KB | Plus a 90-day minimum storage duration ([pricing FAQ](https://wasabi.com/pricing/faq)) |
-| AWS S3 Standard | None | |
-| AWS S3 Standard-IA / One Zone-IA / Glacier Instant Retrieval | 128 KB | Plus a 30 or 90-day minimum duration ([storage classes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html)) |
-| AWS S3 Glacier Flexible Retrieval / Deep Archive | No floor, about 40 KB metadata per object | Billed partly at the Standard rate ([S3 pricing](https://aws.amazon.com/s3/pricing/)) |
-| Cloudflare R2 | None documented | Billed per GB-month; Infrequent Access has a 30-day minimum ([pricing](https://developers.cloudflare.com/r2/pricing/)) |
-| Scaleway | None documented | Recommends objects above 1 MB for Glacier tiers ([FAQ](https://www.scaleway.com/en/docs/object-storage/faq/)) |
-| Backblaze B2 | None documented | Some services round up to 128 KB ([cost comparison](https://www.backblaze.com/cloud-storage/pricing)) |
-| MinIO self-hosted | None | The filesystem block size still applies |
+| Provider                                                     | Minimum billable object size              | Note                                                                                                                                     |
+| ------------------------------------------------------------ | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Hetzner Object Storage                                       | 64 KB                                     | API calls are free, so fewer larger objects cost nothing ([pricing](https://www.hetzner.com/storage/object-storage/))                    |
+| Wasabi                                                       | 4 KB                                      | Plus a 90-day minimum storage duration ([pricing FAQ](https://wasabi.com/pricing/faq))                                                   |
+| AWS S3 Standard                                              | None                                      |                                                                                                                                          |
+| AWS S3 Standard-IA / One Zone-IA / Glacier Instant Retrieval | 128 KB                                    | Plus a 30 or 90-day minimum duration ([storage classes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html)) |
+| AWS S3 Glacier Flexible Retrieval / Deep Archive             | No floor, about 40 KB metadata per object | Billed partly at the Standard rate ([S3 pricing](https://aws.amazon.com/s3/pricing/))                                                    |
+| Cloudflare R2                                                | None documented                           | Billed per GB-month; Infrequent Access has a 30-day minimum ([pricing](https://developers.cloudflare.com/r2/pricing/))                   |
+| Scaleway                                                     | None documented                           | Recommends objects above 1 MB for Glacier tiers ([FAQ](https://www.scaleway.com/en/docs/object-storage/faq/))                            |
+| Backblaze B2                                                 | None documented                           | Some services round up to 128 KB ([cost comparison](https://www.backblaze.com/cloud-storage/pricing))                                    |
+| MinIO self-hosted                                            | None                                      | The filesystem block size still applies                                                                                                  |
 
 ::: details Object layout and billable sizes
 A drive with 20,000 files carries roughly 8 MB of version index data. Stored as one object per file, a 64 KB minimum would bill those 8 MB as about 1.28 GB per month. Stored as one object per run, the minimum applies once.
@@ -55,11 +55,11 @@ Buckets written by earlier versions keep per-file index objects under `.../index
 
 A single drive is acceptable only for a home lab or personal testing. One drive failure loses every backup on it. Do not use a single drive in a professional or business environment.
 
-| RAID level | Minimum drives | Behaviour | Usable capacity | Suited to |
-| --- | --- | --- | --- | --- |
-| **RAID 1** (mirror) | 2 | Every write goes to both drives. Either drive can fail. | 50% of total | Small deployments (up to about 10 mailboxes) |
-| **RAID 5** (distributed parity) | 3 | Data and one parity block per stripe. One drive can fail. | (N-1)/N of total | Medium deployments |
-| **RAID 6** (double parity) | 4 | Two parity blocks per stripe. Any two drives can fail. | (N-2)/N of total | Large deployments with low downtime tolerance |
+| RAID level                      | Minimum drives | Behaviour                                                 | Usable capacity  | Suited to                                     |
+| ------------------------------- | -------------- | --------------------------------------------------------- | ---------------- | --------------------------------------------- |
+| **RAID 1** (mirror)             | 2              | Every write goes to both drives. Either drive can fail.   | 50% of total     | Small deployments (up to about 10 mailboxes)  |
+| **RAID 5** (distributed parity) | 3              | Data and one parity block per stripe. One drive can fail. | (N-1)/N of total | Medium deployments                            |
+| **RAID 6** (double parity)      | 4              | Two parity blocks per stripe. Any two drives can fail.    | (N-2)/N of total | Large deployments with low downtime tolerance |
 
 RAID 1 is the practical minimum for most deployments. Linux `mdadm` or a hardware controller can build it.
 
@@ -155,13 +155,13 @@ volumes:
   minio_data:
 ```
 
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `MINIO_ROOT_USER` | none | Required. Compose refuses to start without it |
-| `MINIO_ROOT_PASSWORD` | none | Required. Compose refuses to start while it is empty, which it is in `.env.example` |
-| `MINIO_BIND_ADDRESS` | `127.0.0.1` | Host address both ports are published on. See [Network exposure](#network-exposure) |
-| `MINIO_API_PORT` | `9000` | Host port for the S3 API. A port number only |
-| `MINIO_CONSOLE_PORT` | `9001` | Host port for the web console. A port number only |
+| Variable              | Default     | Notes                                                                               |
+| --------------------- | ----------- | ----------------------------------------------------------------------------------- |
+| `MINIO_ROOT_USER`     | none        | Required. Compose refuses to start without it                                       |
+| `MINIO_ROOT_PASSWORD` | none        | Required. Compose refuses to start while it is empty, which it is in `.env.example` |
+| `MINIO_BIND_ADDRESS`  | `127.0.0.1` | Host address both ports are published on. See [Network exposure](#network-exposure) |
+| `MINIO_API_PORT`      | `9000`      | Host port for the S3 API. A port number only                                        |
+| `MINIO_CONSOLE_PORT`  | `9001`      | Host port for the web console. A port number only                                   |
 
 Without a password, `docker compose up` stops before creating anything:
 
@@ -265,11 +265,11 @@ Atlas creates each tenant's bucket on the first backup, named `atlas-{tenant_id}
 
 `atlas storage-check` reports the bucket class:
 
-| Bucket class | Meaning | What to do |
-| --- | --- | --- |
-| `lock-capable` | Supports `--retention-days` immutability | Nothing |
-| `versioned-only (legacy)` | Created by Atlas before 2.1.0, with versioning but without Object Lock | [Migrate it](#migrating-a-legacy-bucket) if you need immutability |
-| `unversioned (legacy)` | Created before versioning was enabled, or on a backend without Object Lock | [Migrate it](#migrating-a-legacy-bucket) if you need immutability |
+| Bucket class              | Meaning                                                                    | What to do                                                        |
+| ------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `lock-capable`            | Supports `--retention-days` immutability                                   | Nothing                                                           |
+| `versioned-only (legacy)` | Created by Atlas before 2.1.0, with versioning but without Object Lock     | [Migrate it](#migrating-a-legacy-bucket) if you need immutability |
+| `unversioned (legacy)`    | Created before versioning was enabled, or on a backend without Object Lock | [Migrate it](#migrating-a-legacy-bucket) if you need immutability |
 
 It also probes conditional writes and reports any bucket default retention. It exits `1` and prints `not-ready` unless the bucket is reachable, versioned, lock-capable, supports the requested lock mode, and does not ignore conditional writes.
 
@@ -283,32 +283,32 @@ Backends that do not implement `ObjectLockEnabledForBucket` (`NotImplemented`), 
 
 Atlas requests these lifecycle rules when it creates a bucket:
 
-| Rule | Prefix | Action | Effect |
-| --- | --- | --- | --- |
-| `atlas-housekeeping` | whole bucket | `AbortIncompleteMultipartUpload` | AWS S3 aborts incomplete uploads after 7 days |
-| `atlas-housekeeping` | whole bucket | `ExpiredObjectDeleteMarker` | Removes orphaned delete markers |
-| `atlas-expire-noncurrent-versions` | whole bucket | `NoncurrentVersionExpiration` | Expires noncurrent versions after 30 days |
-| `atlas-state-versions-*` | one state-key prefix each, listed below | `NoncurrentVersionExpiration` | Expires noncurrent versions after 1 day |
+| Rule                               | Prefix                                  | Action                           | Effect                                        |
+| ---------------------------------- | --------------------------------------- | -------------------------------- | --------------------------------------------- |
+| `atlas-housekeeping`               | whole bucket                            | `AbortIncompleteMultipartUpload` | AWS S3 aborts incomplete uploads after 7 days |
+| `atlas-housekeeping`               | whole bucket                            | `ExpiredObjectDeleteMarker`      | Removes orphaned delete markers               |
+| `atlas-expire-noncurrent-versions` | whole bucket                            | `NoncurrentVersionExpiration`    | Expires noncurrent versions after 30 days     |
+| `atlas-state-versions-*`           | one state-key prefix each, listed below | `NoncurrentVersionExpiration`    | Expires noncurrent versions after 1 day       |
 
 The one-day rules cover the objects Atlas rewrites on every run or every few minutes: owner and tenant leases, delta cursors, Teams read checkpoints, Outlook latest pointers, and snapshot summaries.
 
-| Rule ID | Prefix |
-| --- | --- |
-| `atlas-state-versions-outlook-leases` | `_meta/outlook-leases/` |
-| `atlas-state-versions-outlook-cursors` | `_meta/outlook-cursors/` |
-| `atlas-state-versions-outlook-owners` | `_meta/outlook-manifests/owners/` |
-| `atlas-state-versions-tenant-lease` | `_meta/tenant-lease.json` |
-| `atlas-state-versions-onedrive` | `onedrive/_meta/` |
-| `atlas-state-versions-sharepoint` | `sharepoint/_meta/` |
-| `atlas-state-versions-contacts` | `contacts/_meta/` |
-| `atlas-state-versions-calendar` | `calendar/_meta/` |
-| `atlas-state-versions-teams` | `teams/_meta/` |
+| Rule ID                                | Prefix                            |
+| -------------------------------------- | --------------------------------- |
+| `atlas-state-versions-outlook-leases`  | `_meta/outlook-leases/`           |
+| `atlas-state-versions-outlook-cursors` | `_meta/outlook-cursors/`          |
+| `atlas-state-versions-outlook-owners`  | `_meta/outlook-manifests/owners/` |
+| `atlas-state-versions-tenant-lease`    | `_meta/tenant-lease.json`         |
+| `atlas-state-versions-onedrive`        | `onedrive/_meta/`                 |
+| `atlas-state-versions-sharepoint`      | `sharepoint/_meta/`               |
+| `atlas-state-versions-contacts`        | `contacts/_meta/`                 |
+| `atlas-state-versions-calendar`        | `calendar/_meta/`                 |
+| `atlas-state-versions-teams`           | `teams/_meta/`                    |
 
 The rules overlap on purpose. On AWS S3 and MinIO every enabled rule that matches a noncurrent version can expire it, so the shorter window wins: one day under these prefixes, 30 days everywhere else. No rule covers `_meta/` as a whole, so `_meta/dek.enc`, the [wrapped data key](#protecting-the-tenant-data-key), keeps its old versions for 30 days as a recovery path after a key re-wrap. Both providers round expiry up to the next midnight UTC and process it in the background, so a one-day noncurrent version typically lives one to two days.
 
 MinIO drops `AbortIncompleteMultipartUpload` from the lifecycle configuration. Its server-wide cleanup checks every 6 hours for incomplete multipart uploads older than 24 hours by default. Configure those intervals with `MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL` and `MINIO_API_STALE_UPLOADS_EXPIRY`. [MinIO server settings](https://github.com/minio/minio/blob/RELEASE.2025-06-13T11-33-47Z/docs/config/README.md#api)
 
-A backend that refuses the full set gets the two whole-bucket rules only, and Atlas logs a warning. A backend that stores a one-day rule without its prefix would expire every noncurrent version after one day, `_meta/dek.enc` included, so Atlas reads the rules back after writing them and falls back to the two whole-bucket rules when a prefix is missing.
+A backend that refuses the full set gets the two whole-bucket rules only, and Atlas logs a warning. A backend that stores a one-day rule without its prefix would expire every noncurrent version after one day, `_meta/dek.enc` included, so Atlas reads the rules back after writing them and falls back to the two whole-bucket rules when a prefix is missing or the read fails.
 
 Atlas never reads noncurrent versions. Its own version history is stored as separate objects, so the expiry removes only superseded sync checkpoints, indexes, [owner leases](#owner-leases-and-conditional-writes), and the [staging copies](/operations/storage-usage#what-the-staging-prefix-costs) that Atlas 7.0.1 and earlier left behind. A version under [Object Lock](/operations/immutability) stays until its lock expires, whatever the rule says.
 
@@ -316,12 +316,12 @@ Atlas never reads noncurrent versions. Its own version history is stored as sepa
 
 Some S3 providers limit how many versions one object key may hold. Without the one-day rules, an owner lease rewritten through a long or frequent backup reaches these caps within days, and every later backup of that owner fails to take its lease.
 
-| Provider | Limit per object key | What happens at the limit |
-| --- | --- | --- |
-| Scaleway, Exoscale | 1,000 versions | Writes to the key fail |
-| OVHcloud | 100,000 versions | `403 MaxVersionsReached` |
-| AWS S3 | No cap. AWS recommends fewer than 100,000 | Millions of versions cause `503` responses for the bucket |
-| MinIO | No cap | Writes to the key slow down: about 23 ms per `PUT` at 10,000 versions and 53 ms at 20,000 |
+| Provider           | Limit per object key                      | What happens at the limit                                                                 |
+| ------------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Scaleway, Exoscale | 1,000 versions                            | Writes to the key fail                                                                    |
+| OVHcloud           | 100,000 versions                          | `403 MaxVersionsReached`                                                                  |
+| AWS S3             | No cap. AWS recommends fewer than 100,000 | Millions of versions cause `503` responses for the bucket                                 |
+| MinIO              | No cap                                    | Writes to the key slow down: about 23 ms per `PUT` at 10,000 versions and 53 ms at 20,000 |
 
 A lease held for one hour leaves at most 14 versions: the acquire, 12 renewals, and the release. With the one-day rule, an owner whose operations run around the clock stays below about 1,000 versions per lease key even when expiry runs two days late.
 
@@ -333,29 +333,29 @@ atlas storage-check --apply-lifecycle
 
 Atlas changes the lifecycle configuration of a bucket only when it creates the bucket. A bucket created by an earlier release, or opened with a [bucket override](/configuration#bucket-override), keeps whatever it has until you run the command above. `atlas storage-check` lists each missing rule under `Lifecycle rules`.
 
-| Step | What Atlas does |
-| --- | --- |
-| Read | Reads the current configuration. If it cannot, it writes nothing and the command exits `1` |
-| Merge | Adds each Atlas rule whose ID the bucket does not have. Every other rule stays as it is, in its order, including an Atlas rule you edited or disabled |
-| Write | Writes the merged configuration in one `PutBucketLifecycleConfiguration`, which replaces the stored one, and keeps the bucket's `TransitionDefaultMinimumObjectSize` |
-| Verify | Reads the rules back. If the backend stored an added one-day rule without its prefix, it restores the previous configuration and the command exits `1` |
+| Step   | What Atlas does                                                                                                                                                                                                                                                                                                       |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Read   | Reads the current configuration. If it cannot, it writes nothing and the command exits `1`                                                                                                                                                                                                                            |
+| Merge  | Adds each Atlas rule whose ID the bucket does not have, and resets each `atlas-state-versions-*` rule that is disabled, has no expiry, or filters on another prefix. Every other rule stays as it is, in its order, including `atlas-housekeeping` or `atlas-expire-noncurrent-versions` if you edited or disabled it |
+| Write  | Writes the merged configuration in one `PutBucketLifecycleConfiguration`, which replaces the stored one, and keeps the bucket's `TransitionDefaultMinimumObjectSize`                                                                                                                                                  |
+| Verify | Reads the rules back. If the backend stored a one-day rule without its prefix, or the read fails, it restores the previous configuration and the command exits `1`                                                                                                                                                    |
 
-The command needs `s3:GetLifecycleConfiguration` and `s3:PutLifecycleConfiguration` on the bucket. Running it again adds nothing. The read and the write are not atomic, so do not edit the lifecycle configuration by other means while it runs.
+The command needs `s3:GetLifecycleConfiguration` and `s3:PutLifecycleConfiguration` on the bucket. Running it again changes nothing. The read and the write are not atomic, so do not edit the lifecycle configuration by other means while it runs.
 
-To keep a longer window for some state keys, change the matching `atlas-state-versions-*` rule rather than deleting it: a deleted rule is added again by the next `--apply-lifecycle`.
+The two base rules are never overwritten, because resetting a disabled 30-day rule could expire versions you chose to keep. The state rules are always reset: they cover only keys Atlas rewrites, never backup data, and a state rule without its prefix would put a one-day window over the whole bucket, `_meta/dek.enc` included. To keep a longer window for some state keys, raise `NoncurrentDays` on the matching `atlas-state-versions-*` rule. An enabled rule with its own prefix and any positive window is kept.
 
-Run `atlas storage-check` to see which actions are missing from the enabled Atlas rules on the bucket. A missing action is advisory and does not affect the readiness verdict.
+Run `atlas storage-check` to see which actions are missing from the enabled Atlas rules on the bucket. Each entry says whether `--apply-lifecycle` fixes it. A missing action is advisory and does not affect the readiness verdict.
 
 Only commands that write create a bucket. Read-only commands (`list`, `read`, `status`, `verify`, `stats`, `list-users`) never create a bucket or a data key. They fail with `No backups found for tenant <id>` when the tenant has no stored key, so a mistyped `-t` cannot create an empty, billable bucket.
 
 ::: details Two runs creating the same bucket
 When two runs start the first backup of a tenant at once, both see the bucket missing and both send `CreateBucket`.
 
-| Backend answer | What Atlas does |
-| --- | --- |
-| `BucketAlreadyOwnedByYou` (AWS outside us-east-1, MinIO) | The losing run uses the bucket the other created |
-| Success (AWS us-east-1, Ceph RGW) | Both runs proceed |
-| `BucketAlreadyExists` | Another account owns the name. The run fails rather than write tenant data next to it |
+| Backend answer                                           | What Atlas does                                                                       |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `BucketAlreadyOwnedByYou` (AWS outside us-east-1, MinIO) | The losing run uses the bucket the other created                                      |
+| Success (AWS us-east-1, Ceph RGW)                        | Both runs proceed                                                                     |
+| `BucketAlreadyExists`                                    | Another account owns the name. The run fails rather than write tenant data next to it |
 
 Ceph RGW with `rgw_bucket_eexist_override` enabled returns `BucketAlreadyExists` for your own bucket too, and the run fails there as well.
 :::
@@ -449,12 +449,12 @@ Snapshot manifests, OneDrive and SharePoint version indexes, and Teams snapshot 
 
 After the upload, Atlas reads each manifest, run index, Teams index, and sync checkpoint back and compares it with what it sent. That is one `GET` of the object's own size per object, a fixed number per run:
 
-| Workload | Extra `GET` requests per mailbox, owner, site, or team per run |
-| --- | --- |
-| Outlook | 2: manifest and cursor |
-| OneDrive, SharePoint | 3: manifest, version index, and cursor |
-| Contacts, Calendar | 2: manifest and cursor |
-| Teams | 1: snapshot index |
+| Workload             | Extra `GET` requests per mailbox, owner, site, or team per run |
+| -------------------- | -------------------------------------------------------------- |
+| Outlook              | 2: manifest and cursor                                         |
+| OneDrive, SharePoint | 3: manifest, version index, and cursor                         |
+| Contacts, Calendar   | 2: manifest and cursor                                         |
+| Teams                | 1: snapshot index                                              |
 
 A run that changed nothing writes no snapshot and reads back only its cursor. The read-back needs no new permission, because backups already read from the bucket. See [Metadata is checked before and after it is stored](/security#metadata-is-checked-before-and-after-it-is-stored) for what each step proves.
 
@@ -462,16 +462,16 @@ A run that changed nothing writes no snapshot and reads back only its cursor. Th
 
 Atlas runs one operation at a time per mailbox, drive owner, site, or team. A backup, restore, deletion, or quarantine holds a small unencrypted lease object for its owner, and a second operation on the same owner fails with `ATLAS_OWNER_BUSY` (exit `12`) instead of overwriting the first one's state. A purge or key re-wrap holds one tenant lease, `_meta/tenant-lease.json`, and every owner operation of the tenant checks it. See [Concurrent operations](/reference/sdk#concurrent-operations) and [Owner leases](/operations/storage-layout#owner-leases).
 
-| Consideration | Detail |
-| --- | --- |
-| Backend | Must refuse a create-only write onto an existing object and a compare-and-swap with a stale ETag, both with `412`. A backend that accepts them lets two runs hold one lease for up to 60 seconds |
-| Requests | Per operation: 2 to acquire and 2 to release, 3 when the delete is refused. While it runs: one `GET` per minute, and one `PUT` of about 200 bytes every 5 minutes. Nothing per object |
-| Permissions | `s3:PutObject` and `s3:GetObject` on the lease objects, and `s3:DeleteObject` to remove a lease when its run ends |
-| Delete denied | Under a policy that denies `DeleteObject`, such as on `_meta/*`, the run marks its lease released with a conditional `PUT`, and the object stays as a free lease |
-| Versioned bucket | Each renewal replaces the lease, leaving one noncurrent version per 5 minutes of the run, plus a delete marker: at most 14 versions per held hour. The [one-day state-key rules](#lifecycle-rules) remove them |
-| Other buckets | A bucket Atlas did not create, or created before the one-day rules existed, lacks them. Run `atlas storage-check --apply-lifecycle`, or the lease versions accumulate for 30 days or longer |
-| Default retention | A lease is never written with retention, but a bucket default retention locks every version of it. See [Removing a bucket default retention](#removing-a-bucket-default-retention) |
-| Clocks | Hosts that share a bucket must agree on the time to within a few minutes, because expiry compares one host's timestamp with another host's clock |
+| Consideration     | Detail                                                                                                                                                                                                         |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend           | Must refuse a create-only write onto an existing object and a compare-and-swap with a stale ETag, both with `412`. A backend that accepts them lets two runs hold one lease for up to 60 seconds               |
+| Requests          | Per operation: 2 to acquire and 2 to release, 3 when the delete is refused. While it runs: one `GET` per minute, and one `PUT` of about 200 bytes every 5 minutes. Nothing per object                          |
+| Permissions       | `s3:PutObject` and `s3:GetObject` on the lease objects, and `s3:DeleteObject` to remove a lease when its run ends                                                                                              |
+| Delete denied     | Under a policy that denies `DeleteObject`, such as on `_meta/*`, the run marks its lease released with a conditional `PUT`, and the object stays as a free lease                                               |
+| Versioned bucket  | Each renewal replaces the lease, leaving one noncurrent version per 5 minutes of the run, plus a delete marker: at most 14 versions per held hour. The [one-day state-key rules](#lifecycle-rules) remove them |
+| Other buckets     | A bucket Atlas did not create, or created before the one-day rules existed, lacks them. Run `atlas storage-check --apply-lifecycle`, or the lease versions accumulate for 30 days or longer                    |
+| Default retention | A lease is never written with retention, but a bucket default retention locks every version of it. See [Removing a bucket default retention](#removing-a-bucket-default-retention)                             |
+| Clocks            | Hosts that share a bucket must agree on the time to within a few minutes, because expiry compares one host's timestamp with another host's clock                                                               |
 
 A 6-hour backup renews its lease 72 times, which in a versioned bucket is about 15 KB of noncurrent versions until the lifecycle rule removes them.
 
@@ -497,10 +497,10 @@ On a backend that ignores `If-Match`, the last writer wins and concurrent runs c
 
 Large files upload as a multipart stream to a staging object, then move to their final path with a server-side copy. S3 limits bound this:
 
-| Limit | Value | How Atlas stays within it |
-| --- | --- | --- |
-| Single `CopyObject` source | 5 GB | Larger sources are promoted with ranged `UploadPartCopy` requests |
-| Object size | 5 TB | Not enforced by Atlas. Larger files cannot be stored in S3 |
+| Limit                      | Value  | How Atlas stays within it                                          |
+| -------------------------- | ------ | ------------------------------------------------------------------ |
+| Single `CopyObject` source | 5 GB   | Larger sources are promoted with ranged `UploadPartCopy` requests  |
+| Object size                | 5 TB   | Not enforced by Atlas. Larger files cannot be stored in S3         |
 | Parts per multipart upload | 10,000 | 1 GiB copy parts: 10,000 parts cover 9.8 TiB, above the 5 TB limit |
 
 The copy happens inside the backend, so no file data returns through Atlas. Ciphertext, checksum, metadata, and Object Lock retention are the same whichever request is used. Retention on a ranged copy is set when the multipart upload starts.
@@ -513,11 +513,11 @@ The practical ceiling is S3's 5 TB per object. Microsoft 365 caps a single OneDr
 
 When you run Atlas against a storage service you do not operate, provider metrics are often unavailable. An SDK host can measure the backend with [storage request events](/reference/storage-request-events): one event per S3 request with its latency, the time it waited for a connection, SDK retries and backoff after throttling, and the payload size. The CLI does not report these events.
 
-| Reading | Meaning |
-| --- | --- |
-| `networkMs` on small requests (`HeadObject`, manifest reads) | The backend's latency as Atlas sees it, including the network path |
-| `retryDelayMs` with `errorType: 'SlowDown'` | The backend is throttling Atlas. Lower the concurrency or add backend capacity |
-| High `socketWaitMs` with normal `networkMs` | The backend is healthy. Atlas is queueing requests behind its own 50-connection pool |
+| Reading                                                      | Meaning                                                                              |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `networkMs` on small requests (`HeadObject`, manifest reads) | The backend's latency as Atlas sees it, including the network path                   |
+| `retryDelayMs` with `errorType: 'SlowDown'`                  | The backend is throttling Atlas. Lower the concurrency or add backend capacity       |
+| High `socketWaitMs` with normal `networkMs`                  | The backend is healthy. Atlas is queueing requests behind its own 50-connection pool |
 
 ## See also
 

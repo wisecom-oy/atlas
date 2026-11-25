@@ -84,23 +84,53 @@ export const BASE_LIFECYCLE_RULES: readonly LifecycleRule[] = [
   NONCURRENT_VERSIONS_RULE,
 ];
 
-/** A lifecycle configuration with the Atlas rules it lacked added, and the IDs of those rules. */
+/** A lifecycle configuration after the Atlas rules were added or reset, and the rule IDs touched. */
 export interface MergedLifecycleRules {
   readonly rules: readonly LifecycleRule[];
   readonly added_rule_ids: readonly string[];
+  readonly replaced_rule_ids: readonly string[];
 }
 
 /**
- * Adds each Atlas rule whose ID the configuration does not have. Existing rules, including an
- * Atlas rule an operator disabled or edited, are kept exactly as they are and in their order.
+ * Adds each Atlas rule whose ID the configuration lacks, and resets each state-key rule that is
+ * disabled, lacks its expiry or filters on another prefix to its definition, in place. Every other
+ * rule is kept exactly as it is and in its order, including a base rule an operator disabled or
+ * edited: resetting that one could expire versions the operator chose to keep. State-key rules
+ * only ever expire old versions of keys Atlas rewrites, and a misscoped one can put a one-day
+ * window over `_meta/dek.enc`, so they are always reset.
  */
 export function merge_atlas_rules(existing: readonly LifecycleRule[]): MergedLifecycleRules {
+  const replaced_rule_ids: string[] = [];
+  const rules = existing.map((rule) => {
+    const state_key = STATE_KEY_PREFIXES.find(({ rule_id }) => rule_id === rule.ID);
+    if (state_key === undefined || find_broken_state_action(rule, state_key.prefix) === undefined) {
+      return rule;
+    }
+    replaced_rule_ids.push(state_key.rule_id);
+    return build_state_key_rule(state_key);
+  });
   const present_ids = new Set(existing.map((rule) => rule.ID));
   const missing = ATLAS_LIFECYCLE_RULES.filter((rule) => !present_ids.has(rule.ID));
   return {
-    rules: [...existing, ...missing],
+    rules: [...rules, ...missing],
     added_rule_ids: missing.map((rule) => rule.ID ?? ''),
+    replaced_rule_ids,
   };
+}
+
+/**
+ * What a stored state-key rule lacks: an enabled noncurrent expiry, or its own prefix. `Prefix` is
+ * reported when the rule filters on anything else, because a wider filter would shorten the window
+ * for the whole bucket. Undefined when the rule is intact, including an edited but working window.
+ */
+export function find_broken_state_action(
+  rule: LifecycleRule,
+  prefix: string,
+): 'NoncurrentVersionExpiration' | 'Prefix' | undefined {
+  const expires = (rule.NoncurrentVersionExpiration?.NoncurrentDays ?? 0) > 0;
+  if (rule.Status !== 'Enabled' || !expires) return 'NoncurrentVersionExpiration';
+  if (stored_rule_prefix(rule) !== prefix) return 'Prefix';
+  return undefined;
 }
 
 /** The key prefix a stored rule filters on, or `''` when it applies to the whole bucket. */
