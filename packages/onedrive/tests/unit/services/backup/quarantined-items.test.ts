@@ -64,7 +64,7 @@ function make_context(): TenantContext {
 
 async function run(item: OneDriveDeltaItem) {
   const { connector, download } = make_connector();
-  const versions: RunVersionCollector = { watermarks: {}, rows: new Map() };
+  const versions: RunVersionCollector = { watermarks: {}, pending: {}, rows: new Map() };
   const version_stats: VersionStats = {
     total_versions_stored: 0,
     total_versions_unavailable: 0,

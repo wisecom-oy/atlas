@@ -64,7 +64,7 @@ describe('OneDrive file that grows on its first download (issue #759)', () => {
       state,
       { total_versions_stored: 0, total_versions_unavailable: 0, total_versions_failed: 0 },
       () => {},
-      { watermarks: {}, rows: new Map() } as never,
+      { watermarks: {}, pending: {}, rows: new Map() } as never,
     );
 
     expect(connector.fetch_item_by_id).toHaveBeenCalledWith(

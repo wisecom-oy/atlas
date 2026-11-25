@@ -14,12 +14,12 @@ import type { DriveTrackingState } from '@/services/backup/delta-item-processor'
 
 vi.mock('@/services/backup/backup-file-processor', () => ({ process_backup_file: vi.fn() }));
 vi.mock('@/services/versioning/version-sync', () => ({
-  sync_file_versions: vi.fn(async () => ({
+  capture_owed_file_versions: vi.fn(async () => ({
     new_versions_stored: 0,
     versions_unavailable: 0,
     versions_failed: 0,
   })),
-  collect_run_versions: vi.fn(),
+  forget_pending_versions: vi.fn(),
 }));
 
 const BLUE: DriveFolderColor = { color_hex: '6' };
@@ -82,7 +82,7 @@ async function scan(tracking: DriveTrackingState, unreadable: string[] = []) {
     {},
     { delta_link_by_drive: { d1: 'saved-link' } },
     false,
-    { watermarks: {}, rows: new Map() },
+    { watermarks: {}, pending: {}, rows: new Map() },
     { total_versions_stored: 0, total_versions_unavailable: 0, total_versions_failed: 0 },
     () => {},
   );

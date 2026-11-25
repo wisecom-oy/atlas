@@ -96,7 +96,7 @@ describe('historical version content storage', () => {
     const version = make_version(LARGE_FILE_THRESHOLD - 1);
     const connector = make_connector(version);
 
-    const outcome = await sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, undefined);
+    const outcome = await sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, {});
 
     expect(connector.download_file_version).toHaveBeenCalledTimes(1);
     expect(connector.stream_file_version).not.toHaveBeenCalled();
@@ -108,7 +108,7 @@ describe('historical version content storage', () => {
     const version = make_version(LARGE_FILE_THRESHOLD);
     const connector = make_connector(version);
 
-    const outcome = await sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, undefined);
+    const outcome = await sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, {});
 
     expect(connector.stream_file_version).toHaveBeenCalledTimes(1);
     expect(connector.download_file_version).not.toHaveBeenCalled();
@@ -126,7 +126,7 @@ describe('historical version content storage', () => {
       download_file_version: vi.fn().mockResolvedValue(Buffer.alloc(1024, 7)),
     });
 
-    const outcome = await sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, undefined);
+    const outcome = await sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, {});
 
     // The listed size also reaches the connector, which scales its drain timeout with it.
     expect(connector.download_file_version).toHaveBeenCalledWith('drive-1', 'item-1', 'v1', 4096);
@@ -146,7 +146,7 @@ describe('historical version content storage', () => {
     const version = make_version(4096);
     const connector = make_connector(version, { download_file_version: download });
 
-    const outcome = await sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, undefined);
+    const outcome = await sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, {});
 
     expect(outcome.versions_failed).toBe(1);
     expect(outcome.versions_unavailable).toBe(0);
@@ -159,7 +159,7 @@ describe('historical version content storage', () => {
       stream_file_version: vi.fn().mockResolvedValue(Readable.from([Buffer.alloc(1024, 7)])),
     });
 
-    const outcome = await sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, undefined);
+    const outcome = await sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, {});
 
     expect(outcome.versions_failed).toBe(1);
     expect(outcome.records).toEqual([]);
@@ -170,10 +170,12 @@ describe('historical version content storage', () => {
   it('records an expired streamed version as unavailable, not failed', async () => {
     const version = make_version(LARGE_FILE_THRESHOLD);
     const connector = make_connector(version, {
+      // Expired: the re-read of the list no longer carries it (issue #855).
+      list_file_versions: vi.fn().mockResolvedValueOnce([version]).mockResolvedValue([]),
       stream_file_version: vi.fn().mockRejectedValue(graph_status_error(404)),
     });
 
-    const outcome = await sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, undefined);
+    const outcome = await sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, {});
 
     expect(outcome.versions_unavailable).toBe(1);
     expect(outcome.versions_failed).toBe(0);
@@ -189,7 +191,7 @@ describe('historical version content storage', () => {
       stream_file_version: vi.fn().mockResolvedValue(dies()),
     });
 
-    const outcome = await sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, undefined);
+    const outcome = await sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, {});
 
     expect(outcome.versions_failed).toBe(1);
     // A failed version must not advance the watermark, or the next run skips it.
@@ -203,9 +205,9 @@ describe('historical version content storage', () => {
       new Error('bucket refused the copy'),
     );
 
-    await expect(
-      sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, undefined),
-    ).rejects.toThrow('bucket refused the copy');
+    await expect(sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, {})).rejects.toThrow(
+      'bucket refused the copy',
+    );
   });
 
   it('deduplicates a streamed version already present, without completing the upload', async () => {
@@ -221,7 +223,7 @@ describe('historical version content storage', () => {
     );
     vi.mocked(ctx.storage.exists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
 
-    const outcome = await sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, undefined);
+    const outcome = await sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, {});
 
     expect(outcome.versions_deduplicated).toBe(1);
     expect(handle.abort).toHaveBeenCalledTimes(1);

@@ -453,13 +453,18 @@ For files of 64 MiB and larger, a run can refresh the link any number of times, 
 
 ### Version failures
 
-| Situation                                                        | Result                                                                    |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Unexpected failure: throttling, `403 accessDenied`, transient fault | Error. The run is UNHEALTHY.                                           |
-| Microsoft 365 reports the version gone (`404` or `410`, purged by retention policy) | Counted as `unavailable`. Health is unaffected.        |
-| Download delivers fewer or more bytes than listed                | Fails with `DownloadIntegrityError` before anything is stored. The run is UNHEALTHY. |
+| Situation | Result |
+| --- | --- |
+| Unexpected failure: throttling, `403 accessDenied`, transient fault | Error. The run is UNHEALTHY. |
+| `404` or `410`, and the version is no longer in the file's version list (purged by retention policy) | Counted as `unavailable`. Health is unaffected. |
+| `404` or `410`, and the version is still listed | Error. The run is UNHEALTHY. Counted as `unavailable` once the answer repeats on 3 runs in a row spanning at least 24 hours |
+| Download delivers fewer or more bytes than listed | Fails with `DownloadIntegrityError` before anything is stored. The run is UNHEALTHY. |
 
-Only the HTTP status of the response decides between error and `unavailable`. An error whose message text happens to contain "404" or "Not Found" is an ordinary failure. A failed version is downloaded again by the next backup that picks up a change to the file.
+Only the HTTP status of the response decides between error and `unavailable`. An error whose message text happens to contain "404" or "Not Found" is an ordinary failure. A `404` is not proof the version is gone: Microsoft Graph returns one during incidents, and the run listed the version moments earlier. Atlas therefore reads the version list once more for that file before counting a version as purged, which costs one extra request per file and only when a `404` or `410` occurs.
+
+A failed version stops the file's [watermark](/operations/delta-sync#file-version-capture-onedrive-and-sharepoint), so it is downloaded again, along with every newer version, by the next backup that picks up the file. Newer versions already stored deduplicate.
+
+The same holds when a run stores a file's content and then stops before capturing its versions: the drive fails, the version listing fails, or Ctrl+C ends the run. The cursor records the file as owing versions, and the next run that sees it captures them even though the content is already stored. A file whose versions were all captured costs no version request when its content deduplicates, for example on a `--full` run.
 
 ### Files that change size
 
