@@ -77,7 +77,8 @@ export interface OneDriveConnector extends DriveSharingConnector, DriveFolderCol
 
   /**
    * Fetches one item by id, for retrying a previously failed item that delta
-   * will not re-present. Resolves undefined when the item no longer exists.
+   * will not re-present. Resolves undefined when Graph answers "not found"; one
+   * such answer is not proof of deletion (issue #850).
    */
   fetch_item_by_id(
     tenant_id: string,

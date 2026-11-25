@@ -1,20 +1,19 @@
 import { is_graph_outage } from '@wisecom/atlas-core/services/shared/graph-outage-latch';
 import type { OneDriveConnector, OneDriveDeltaItem } from '@wisecom/atlas-types';
 import { AuthError } from '@wisecom/atlas-types';
-import { logger } from '@wisecom/atlas-core/utils/logger';
 import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import {
-  clear_item_failure,
   record_item_failure,
   retryable_items,
   type FailedItemLedger,
 } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { is_transient_drive_failure } from '@wisecom/atlas-drive/backup/transient-download-failure';
+import { resolve_retry_read_not_found } from '@wisecom/atlas-drive/backup/retry-read-not-found';
 
 export interface RetryResolution {
   /** Items to push through the normal per-item pipeline ahead of new delta changes. */
   items: OneDriveDeltaItem[];
-  /** Ledger with vanished items dropped and unreachable ones re-recorded. */
+  /** Ledger with confirmed deletions dropped and unreachable or unconfirmed ones re-recorded. */
   ledger: FailedItemLedger;
   interrupted: boolean;
 }
@@ -28,7 +27,8 @@ export interface RetryResolution {
  * reported. Items already present in the incoming delta batch are skipped too:
  * the delta copy is fresher and processing both would double the work. A read
  * that fails for a reason outside the file, such as an outage or throttling,
- * spends none of the item's attempts (issue #857).
+ * spends none of the item's attempts (issue #857). A "not found" answer keeps the item listed until
+ * the deletion is confirmed, because one `404` is not proof the file is gone (issue #850).
  */
 export async function resolve_retry_items(
   connector: OneDriveConnector,
@@ -52,8 +52,7 @@ export async function resolve_retry_items(
         items.push(item);
         continue;
       }
-      logger.info(`Previously failed item ${record.name} (${record.item_id}) no longer exists`);
-      next_ledger = clear_item_failure(next_ledger, record.item_id);
+      next_ledger = resolve_retry_read_not_found(next_ledger, record);
     } catch (err) {
       if (is_unrecordable_fetch_failure(err)) throw err;
       const reason = err instanceof Error ? err.message : String(err);

@@ -395,7 +395,7 @@ Microsoft does not document which code a download returns for an IRM or retentio
 Each failed file is retried at the start of the next run, before new changes:
 
 - If the file downloads, it is stored and the failure clears.
-- If the file no longer exists, the failure is dropped.
+- If the file was deleted, the failure is dropped. A `404` on the re-read is not enough on its own. See [A listed file that answers not found](#a-listed-file-that-answers-not-found).
 - If it fails again, its attempt count increases, unless the failure is outside the file.
 
 Only a failure that belongs to the file uses one of its 5 attempts. A scheduled backup can run five times inside one Microsoft 365 incident, so counting outage failures would skip every file the incident touched.
@@ -407,6 +407,7 @@ Only a failure that belongs to the file uses one of its 5 attempts. A scheduled 
 | Connection reset or refused, DNS failure, or a timed-out transfer, including a download host that is down | No |
 | Download link expired | No |
 | Run interrupted by Ctrl+C | No |
+| `404` or `itemNotFound` on the re-read of a listed file | No |
 | Downloaded body of the wrong length or range, or a file that keeps changing size | Yes |
 | Any other `4xx`, such as `400` or a `403` with an unrecognised code | Yes |
 | Malware quarantine, or a `403` with a protection code | Permanent at once, never retried |
@@ -420,6 +421,21 @@ atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering 
 ```
 
 A full backup ignores the saved sync checkpoint and its list of failed files, so every file is read again and a listed file starts with a fresh budget. It downloads all content again, but content already in storage is not uploaded twice. Editing the file in Microsoft 365 also gets it read once more, because the change listing presents changed files again.
+
+#### A listed file that answers not found
+
+A file on the failed list stays listed when Microsoft Graph answers its re-read with `404` or `itemNotFound`. It keeps its attempts, the run stays UNHEALTHY with exit code `2`, and it is reported with the reason `Graph answered "not found" when re-reading the file`. The next run reads it again, and once Graph answers normally it is stored.
+
+A single `404` is not proof of deletion. Graph returns it during service incidents and from replica lag, and Atlas does not retry a `404`. The library's sync checkpoint has already moved past the file, and the change listing (delta) never re-presents an unchanged file, so dropping it on one `404` would leave it out of every later snapshot while the run reported HEALTHY.
+
+The failure is dropped as a deletion in either of these cases:
+
+| Evidence | When the failure is dropped |
+| -------- | --------------------------- |
+| The change listing reports the file as deleted | In that run. This is how a real deletion normally clears. |
+| The re-read answers `404` on 3 runs in a row, spanning at least 24 hours | On the run that meets both conditions |
+
+Both conditions are needed for the second case. A run count alone would let a one-hour incident clear a file on a 15-minute schedule, and a time span alone would decide on two answers a day apart. Any other outcome for the file, such as a failed download, starts the count again. The second case covers a deletion that the change listing never reported, such as one hidden by a full re-read of the library after a delta reset, so a deleted file does not stay listed indefinitely.
 
 ### Expired download links
 

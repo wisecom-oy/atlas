@@ -264,7 +264,7 @@ describe('OneDrive persistent item failure (issue #34)', () => {
     });
   });
 
-  it('clears the record without an error when the item no longer exists', async () => {
+  it('keeps the record without spending an attempt when the re-read answers not found', async () => {
     const harness = make_harness({
       delta_items: [],
       delta_link: 'delta-3',
@@ -274,10 +274,11 @@ describe('OneDrive persistent item failure (issue #34)', () => {
     const result = await harness.service.backup_onedrive('t', OWNER_ID);
 
     expect(harness.fetch_item_by_id).toHaveBeenCalledTimes(1);
-    expect(drive_cursor(harness).failed_items).toEqual({});
-    expect(result.summary.errors).toEqual([]);
-    expect(result.summary.warnings).toEqual([]);
-    expect(result.summary.healthy).toBe(true);
+    expect(drive_cursor(harness).failed_items?.p1).toMatchObject({
+      attempts: 2,
+      not_found: { reads: 1 },
+    });
+    expect(result.summary.healthy).toBe(false);
   });
 
   it('stops re-fetching an item past its attempt budget but keeps reporting it', async () => {
