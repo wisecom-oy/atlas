@@ -25,7 +25,8 @@ export const MAX_FAILED_ITEM_ATTEMPTS = 5;
 
 /**
  * Returns the ledger with this failure recorded. The attempt count goes up by one unless the failure
- * is not the item's own fault, such as a download URL that expired before the file was read.
+ * is not the item's own fault, such as a download URL that expired before the file was read, or
+ * throttling, an outage, a reset or a timeout (issue #857).
  */
 export function record_item_failure(
   ledger: FailedItemLedger,

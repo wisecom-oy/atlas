@@ -1,5 +1,6 @@
 import { report_transfer_throttle, wait_for_transfer_slot } from '@wisecom/atlas-m365-graph';
 import { CdnHttpError } from '@/backup/cdn-chunk-errors';
+import { TransferTimeoutError } from '@/backup/transfer-timeout';
 
 /** Options for {@link stream_whole_file_in_chunks}. */
 export interface WholeFileStreamOptions {
@@ -96,6 +97,6 @@ function arm_stall_timer(
   item_id: string,
 ): NodeJS.Timeout {
   return setTimeout(() => {
-    controller.abort(new Error(`Streamed download of ${item_id} stalled`));
+    controller.abort(new TransferTimeoutError(`Streamed download of ${item_id} stalled`));
   }, stall_timeout_ms);
 }

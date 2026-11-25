@@ -11,6 +11,7 @@ import {
   record_item_failure,
   retryable_items,
 } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
+import { is_transient_drive_failure } from '@wisecom/atlas-drive/backup/transient-download-failure';
 import type { DriveItemMetadataCapture } from '@wisecom/atlas-drive/backup/item-metadata-capture';
 import {
   process_item_guarded,
@@ -88,7 +89,8 @@ export async function retry_failed_items(
 }
 
 /**
- * Re-reads one ledger item, turning a fetch failure into another ledger entry.
+ * Re-reads one ledger item, turning a fetch failure into another ledger entry. A failure outside
+ * the file, such as an outage or throttling, spends none of its attempts (issue #857).
  *
  * Unguarded, the throw travelled out of the library processor into the library scan, which
  * recorded a library-level error and dropped every entry the same run had already processed. One
@@ -122,6 +124,8 @@ async function refetch_or_record(
       drive_id,
       name: record.name,
       reason: `Retry fetch failed: ${reason}`,
+      // An outage or throttling says nothing about the file, so it keeps its attempts (#857).
+      consumes_attempt: !is_transient_drive_failure(err),
     });
     return undefined;
   }
