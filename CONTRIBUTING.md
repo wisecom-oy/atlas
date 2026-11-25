@@ -99,10 +99,7 @@ what you did not verify, and follow the same prose rules as the docs: no em
 dashes, no `--` inside a phrase, no padding. The `write-comment` skill in
 `.claude/skills/` covers the voice in detail and applies to PR bodies too.
 
-This section and the `write-comment` skill are the baseline. The
-`Changes explained` pre-merge check in `.coderabbit.yaml` restates it, so when
-the convention changes here, update the check to match rather than the other way
-around.
+This section and the `write-comment` skill are the baseline.
 
 ## Code conventions
 
