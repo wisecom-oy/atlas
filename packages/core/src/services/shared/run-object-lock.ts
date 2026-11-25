@@ -23,6 +23,18 @@ import { compute_retain_until_utc } from '@/services/shared/object-lock-policy';
 export const UNLOCKED_STAGING_UPLOAD: StorageObjectLockPolicy = Object.freeze({});
 
 /**
+ * Policy a put of run state passes to opt out of the run's lock, compared by identity.
+ *
+ * Cursors, checkpoints, snapshot summary indexes and latest pointers are replaced on every run.
+ * Object Lock never stops a new version from becoming current, so a lock on them protects nothing:
+ * it only keeps every superseded version until it expires, out of reach of the noncurrent-version
+ * lifecycle rule (#919). {@link ObjectLockingStorage} honours this value on `put` only; a copy or
+ * multipart upload that passes it still gets the run's policy. An undecorated storage reads it as
+ * a policy without `retain_until`, which writes no lock.
+ */
+export const UNLOCKED_STATE_WRITE: StorageObjectLockPolicy = Object.freeze({});
+
+/**
  * Returns a context whose writes all carry the run's Object Lock policy, or `ctx` unchanged when no
  * retention was requested. Rejects before anything is written when the bucket cannot lock.
  *
@@ -46,9 +58,9 @@ export async function attach_run_retention(
 
 /**
  * Storage decorator that applies one Object Lock policy to every object it creates: puts, copies
- * and multipart uploads. A caller that passes its own policy keeps it, except that
- * {@link UNLOCKED_STAGING_UPLOAD} only unlocks a multipart upload. Reads and deletes pass through
- * unchanged.
+ * and multipart uploads. A caller that passes its own policy keeps it, except the two opt-outs:
+ * {@link UNLOCKED_STAGING_UPLOAD} only unlocks a multipart upload and {@link UNLOCKED_STATE_WRITE}
+ * only unlocks a put. Reads and deletes pass through unchanged.
  */
 export class ObjectLockingStorage implements ObjectStorage {
   constructor(
@@ -56,7 +68,7 @@ export class ObjectLockingStorage implements ObjectStorage {
     private readonly _policy: StorageObjectLockPolicy,
   ) {}
 
-  /** Writes with the run's policy unless the caller supplied one. */
+  /** Writes with the run's policy unless the caller supplied one; the state opt-out locks nothing. */
   put(
     key: string,
     data: Buffer,
@@ -65,6 +77,9 @@ export class ObjectLockingStorage implements ObjectStorage {
     if_match?: string,
     if_none_match?: boolean,
   ): Promise<void> {
+    if (object_lock_policy === UNLOCKED_STATE_WRITE) {
+      return this._inner.put(key, data, metadata, undefined, if_match, if_none_match);
+    }
     const policy = this.resolvePolicy(object_lock_policy);
     return this._inner.put(key, data, metadata, policy, if_match, if_none_match);
   }
@@ -156,9 +171,12 @@ export class ObjectLockingStorage implements ObjectStorage {
     return this._inner.validate_object_lock_policy(policy);
   }
 
-  /** Picks the caller's policy, or the run's when none was given or the staging opt-out was. */
+  /**
+   * Picks the caller's policy, or the run's when none was given or an opt-out was. An opt-out the
+   * operation does not honour falls back to the lock, so a misplaced one never unlocks backup data.
+   */
   private resolvePolicy(object_lock_policy?: StorageObjectLockPolicy): StorageObjectLockPolicy {
-    if (!object_lock_policy || object_lock_policy === UNLOCKED_STAGING_UPLOAD) return this._policy;
+    if (!object_lock_policy || is_opt_out(object_lock_policy)) return this._policy;
     return object_lock_policy;
   }
 
@@ -171,4 +189,9 @@ export class ObjectLockingStorage implements ObjectStorage {
   abort_incomplete_uploads(prefix: string, older_than: Date): Promise<number> {
     return this._inner.abort_incomplete_uploads(prefix, older_than);
   }
+}
+
+/** Whether the policy is one of the identity-compared opt-outs rather than a real policy. */
+function is_opt_out(policy: StorageObjectLockPolicy): boolean {
+  return policy === UNLOCKED_STAGING_UPLOAD || policy === UNLOCKED_STATE_WRITE;
 }

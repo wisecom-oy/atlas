@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
 import type {
+  ObjectStorage,
   TeamsChannelCursor,
   TeamsChannelShard,
   TeamsConnector,
@@ -33,10 +34,18 @@ export interface Env {
   readonly cursors: S3TeamsChannelCursorRepository;
 }
 
-/** A service over real index, shard and cursor adapters and in-memory storage. */
-export function build_env(channel: TeamsGraphResource, overrides: Partial<TeamsConnector>): Env {
+/**
+ * A service over real index, shard and cursor adapters and in-memory storage. `wrap_storage`
+ * decorates the storage the service sees, for a test that records what reaches the bucket.
+ */
+export function build_env(
+  channel: TeamsGraphResource,
+  overrides: Partial<TeamsConnector>,
+  wrap_storage: (storage: ObjectStorage) => ObjectStorage = (storage) => storage,
+): Env {
   const harness = in_memory_tenant_context(TENANT);
-  const factory = { create: vi.fn(async () => harness.ctx) } as unknown as TenantContextFactory;
+  const service_ctx = { ...harness.ctx, storage: wrap_storage(harness.ctx.storage) };
+  const factory = { create: vi.fn(async () => service_ctx) } as unknown as TenantContextFactory;
   const connector = make_connector({
     get_team: vi.fn(async () => ({ id: TEAM, displayName: 'Team' })),
     list_team_members: vi.fn(async () => []),
