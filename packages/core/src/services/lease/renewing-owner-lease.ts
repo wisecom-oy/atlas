@@ -7,6 +7,7 @@ import {
   type OwnerLeaseRecord,
 } from '@/services/lease/owner-lease-record';
 import {
+  OWNER_LEASE_CHECK_INTERVAL_MS,
   OWNER_LEASE_COMMIT_MARGIN_MS,
   OWNER_LEASE_RENEW_INTERVAL_MS,
   OWNER_LEASE_TTL_MS,
@@ -15,7 +16,8 @@ import {
 import { logger } from '@/utils/logger';
 
 /**
- * A lease this run holds, renewed on a timer until it is released.
+ * A lease this run holds, read back on a timer and rewritten once a renewal is due, until it is
+ * released. Reads leave no version in a versioned bucket; only the rewrites do (issue #918).
  *
  * The lease is lost only on evidence: storage holds another holder's lease or none, a renewal's
  * compare-and-swap was refused, or the lease's own expiry passed without a successful renewal. A
@@ -41,7 +43,7 @@ export class RenewingOwnerLease implements HeldOwnerLease {
     this._expires_at_ms = Date.parse(acquired.record.expires_at);
     this._stop_renewing = _runtime.schedule(
       () => this.start_renewal(),
-      OWNER_LEASE_RENEW_INTERVAL_MS,
+      OWNER_LEASE_CHECK_INTERVAL_MS,
     );
   }
 
@@ -107,7 +109,7 @@ export class RenewingOwnerLease implements HeldOwnerLease {
     }
   }
 
-  /** Starts one renewal unless one is running or the lease is no longer held. */
+  /** Starts one check, and renewal when due, unless one is running or the lease is not held. */
   private start_renewal(): void {
     if (this._renewal !== undefined || this._released || this._lost_reason !== undefined) return;
     this._renewal = this.renew_once().finally(() => {
@@ -115,7 +117,10 @@ export class RenewingOwnerLease implements HeldOwnerLease {
     });
   }
 
-  /** Extends the lease by one TTL, or records why it can no longer be. Never rejects. */
+  /**
+   * Reads the lease back and extends it by one TTL once a renewal is due, or records why it can no
+   * longer be held. Never rejects.
+   */
   private async renew_once(): Promise<void> {
     try {
       if (this._runtime.now() >= this._expires_at_ms) {
@@ -129,6 +134,7 @@ export class RenewingOwnerLease implements HeldOwnerLease {
         );
         return;
       }
+      if (!this.is_renewal_due()) return;
       await this.extend_stored_lease(stored.etag);
     } catch (err) {
       if (err instanceof UnsupportedFormatVersionError) {
@@ -137,9 +143,15 @@ export class RenewingOwnerLease implements HeldOwnerLease {
       }
       logger.warn(
         `Could not renew the lease at ${this.storage_key}; retrying in ` +
-          `${OWNER_LEASE_RENEW_INTERVAL_MS / 1000} s: ${error_text(err)}`,
+          `${OWNER_LEASE_CHECK_INTERVAL_MS / 1000} s: ${error_text(err)}`,
       );
     }
+  }
+
+  /** True once the last write is a renewal interval old, judged by the expiry that write set. */
+  private is_renewal_due(): boolean {
+    const written_at_ms = this._expires_at_ms - OWNER_LEASE_TTL_MS;
+    return this._runtime.now() >= written_at_ms + OWNER_LEASE_RENEW_INTERVAL_MS;
   }
 
   /** Rewrites the lease with a new expiry, conditional on the ETag this run just read. */

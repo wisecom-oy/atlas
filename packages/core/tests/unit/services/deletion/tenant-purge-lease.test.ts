@@ -9,6 +9,7 @@ import {
   OUTLOOK_BACKUP,
   OUTLOOK_KEY,
   START_MS,
+  TTL_MS,
   type LeaseHarness,
 } from '../lease/owner-lease-harness';
 
@@ -120,7 +121,7 @@ describe('purge under the tenant lease', () => {
       operation: 'purge',
     });
 
-    h.advance(6 * MINUTE_MS);
+    h.advance(TTL_MS + MINUTE_MS);
     const backup = await h.leases.acquire(h.ctx, OUTLOOK_BACKUP);
 
     expect(h.stored(OUTLOOK_KEY)?.holder_id).toBe('holder-2');

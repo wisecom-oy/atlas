@@ -12,6 +12,7 @@ import {
   OUTLOOK_BACKUP,
   OUTLOOK_KEY,
   settle,
+  TTL_MS,
 } from './owner-lease-harness';
 
 afterEach(() => {
@@ -51,7 +52,7 @@ describe('releasing an owner lease (issue #623)', () => {
     }));
     const lease = await harness.leases.acquire(harness.ctx, OUTLOOK_BACKUP);
     reads.mockClear();
-    harness.advance(5 * MINUTE_MS);
+    harness.advance(TTL_MS);
 
     await lease.release();
 
@@ -128,7 +129,7 @@ describe('releasing an owner lease (issue #623)', () => {
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     const harness = lease_harness();
     harness.store({ holder_id: 'killed-run' });
-    harness.advance(5 * MINUTE_MS);
+    harness.advance(TTL_MS);
 
     await harness.leases.acquire(harness.ctx, OUTLOOK_BACKUP);
 
