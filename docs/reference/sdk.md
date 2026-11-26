@@ -79,7 +79,12 @@ Methods, configuration, options, and result fields are camelCase. Three exceptio
 `atlas.validate()` is optional. Call it after provisioning the tenant bucket to confirm the configuration works before the first run.
 
 ```ts
-import { AuthError, StorageError, WrongPassphraseError } from '@wisecom/atlas-sdk';
+import {
+  AuthError,
+  GraphUnavailableError,
+  StorageError,
+  WrongPassphraseError,
+} from '@wisecom/atlas-sdk';
 
 try {
   await atlas.validate();
@@ -88,8 +93,10 @@ try {
     console.error('Check the S3 endpoint, credentials, and tenant bucket access.');
   } else if (error instanceof WrongPassphraseError) {
     console.error("The passphrase does not open this tenant's existing data key.");
+  } else if (error instanceof GraphUnavailableError) {
+    console.error('Microsoft Entra ID is unavailable. Try again later.');
   } else if (error instanceof AuthError) {
-    console.error('Check the Microsoft Entra credentials and connectivity.');
+    console.error('Microsoft Entra ID refused the credentials.');
   }
   throw error;
 }
@@ -101,9 +108,11 @@ try {
 | ---------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
 | S3 `HeadBucket` on the tenant bucket     | `StorageError`, `ATLAS_STORAGE_FAILURE`          | Check the endpoint, region, credentials, and `s3:ListBucket` access. A missing bucket fails: provision it first               |
 | Unwrap `_meta/dek.enc`, if it exists     | `WrongPassphraseError`, `ATLAS_WRONG_PASSPHRASE` | Use the passphrase that created this tenant's backups. In a multi-tenant service, confirm each tenant has its own passphrase  |
-| Microsoft Graph token                    | `AuthError`, `ATLAS_AUTH_DENIED`                 | Check the tenant ID, client ID, client secret, and connectivity to Microsoft Entra ID                                         |
+| Microsoft Graph token                    | `AuthError`, `ATLAS_AUTH_DENIED`                 | Microsoft Entra ID refused the credentials. Check the tenant ID, client ID, and client secret, and that the secret has not expired |
+| Microsoft Graph token                    | `GraphUnavailableError`, `ATLAS_GRAPH_UNAVAILABLE` | Microsoft Entra ID did not answer, or answered `408`, `429`, a `5xx`, or `temporarily_unavailable`. The credentials were not judged. Try again later |
 
-- A code names the stage that failed, not necessarily bad credentials. DNS, TLS, and transport failures also fail a stage. The original failure is kept in `cause`. An S3 endpoint that never answers fails a storage check as `StorageError` with a `StorageUnavailableError` cause.
+- A code names the stage that failed. DNS, TLS, and transport failures also fail a stage. The original failure is kept in `cause`. An S3 endpoint that never answers fails a storage check as `StorageError` with a `StorageUnavailableError` cause.
+- The token check is one token request, with no Atlas retry beyond the attempts `@azure/identity` makes itself, so `retries` on a `GraphUnavailableError` from `validate()` is `0`. Only a refusal by Microsoft Entra ID is `AuthError`. A token request with no response, or one Entra answered `408`, `429`, a `5xx`, or `temporarily_unavailable`, is `GraphUnavailableError`, so a host that uses `validate()` as a reachability probe does not mark working credentials as broken during an Entra ID outage. A failure Atlas cannot classify stays `AuthError`.
 - When S3 refuses `atlas-{tenantId}` as an invalid bucket name, the first check throws `ConfigError` (`ATLAS_CONFIG_INVALID`) naming the rule. See [Bucket name is not valid](/troubleshooting#bucket-name-is-not-valid).
 - The key check makes at most one storage `GET` and opens the key locally with AES-256-GCM. It never creates a key, writes an object, or logs key material. A new tenant with no key passes, and the first backup creates the key.
 - `validate()` does not check write permission, Object Lock readiness, or workload-specific Microsoft Graph consent. Use [`checkStorage()`](#checkstorage) for Object Lock and conditional writes. See [Security](/security#kek-derivation-scrypt) for passphrase guidance.
@@ -1379,7 +1388,9 @@ const destination = createTenant({
   clientId: '<client-id>',
   clientSecret: '<client-secret>',
 });
-await destination.validate(); // AuthError when Microsoft Entra ID refuses the credentials
+// AuthError when Microsoft Entra ID refuses the credentials,
+// GraphUnavailableError when Entra ID is unavailable or unreachable.
+await destination.validate();
 
 await atlas.outlook.restore('snapshot-id', {
   targetMailbox: 'user@example.com',

@@ -78,7 +78,8 @@ Once the tenant bucket exists, `await atlas.validate()` is an optional read-only
 | ---------------------------------------- | ---------------------- |
 | Wrong passphrase for an existing backup  | `WrongPassphraseError` |
 | S3 failure                               | `StorageError`         |
-| Microsoft Graph token failure            | `AuthError`            |
+| Microsoft Entra ID refused the credentials | `AuthError`            |
+| Microsoft Entra ID unavailable or unreachable | `GraphUnavailableError` |
 
 A fresh tenant with no wrapped key still passes. The check never creates key material, writes objects, tests write permissions, or checks workload-specific Graph consent. See the [SDK reference](https://docs.atlas.wisecom.fi/reference/sdk#validation).
 
