@@ -4,6 +4,7 @@ import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   describe_graph_error,
   is_transient_error,
+  is_missing_grant_refusal,
   rethrow_if_access_denied,
   rethrow_if_mailbox_not_licensed,
   rethrow_if_retry_exhausted,
@@ -119,8 +120,8 @@ async function post_sequential_batch(
 /**
  * Records each read and returns the ids still to send: throttled, server-failed, or skipped (424)
  * behind a failure, plus the first transient error so the caller backs off before resending. A
- * message Graph refused for good (404 and the like) is logged and dropped. Throws on an access or
- * licensing failure, which no retry fixes.
+ * message Graph refused for good (404, a 403 whose code is not a missing grant, and the like) is
+ * logged and dropped. Throws on a missing grant or a licensing failure, which no retry fixes.
  */
 function settle_responses(
   pending: readonly string[],
@@ -149,7 +150,7 @@ function settle_responses(
       return;
     }
     rethrow_if_mailbox_not_licensed(err);
-    if (response.status === 403) throw err;
+    if (is_missing_grant_refusal(err)) throw err;
     logger.warn(
       `Reaction and pin capture failed for message ${message_id}: ${describe_graph_error(err)}`,
     );

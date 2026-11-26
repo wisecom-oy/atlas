@@ -75,6 +75,8 @@ Teams backup uses application permissions only. No user signs in, and Atlas neve
 
 Consent steps are in [Azure AD setup](/azure-ad-setup#teams-application-permissions). Without `Files.Read.All`, Microsoft Graph returns `403` for the files folder lookup. Atlas marks that channel's files folder unavailable and continues; see [Files folder](#files-folder) to fill it in later.
 
+A `403` on any other Teams call stops the run with exit `4` when its code names a missing permission: `accessDenied`, `ErrorAccessDenied`, `Authorization_RequestDenied`, or `Forbidden`, which Teams also returns while Microsoft has not approved `ChannelMessage.Read.All`. A `403` with another code fails only the channel or thread it answered, and the run exits `2`. See [Which `403` responses stop a run](/operations/reliability#forbidden-responses).
+
 ## Commands
 
 Every command accepts `-t, --tenant <id>` to override the tenant from config. The full option list is in the [CLI reference](/reference/cli#atlas-teams).

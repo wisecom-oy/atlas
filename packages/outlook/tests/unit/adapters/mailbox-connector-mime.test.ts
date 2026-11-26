@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { Container } from 'inversify';
 import { GRAPH_CLIENT_TOKEN } from '@wisecom/atlas-m365-graph';
-import { MimeUnavailableError } from '@wisecom/atlas-types';
+import { AuthError, MimeUnavailableError } from '@wisecom/atlas-types';
 import { GraphMailboxConnector } from '@/adapters/graph-mailbox-connector.adapter';
 
 interface GraphError {
@@ -118,7 +118,19 @@ describe('GraphMailboxConnector.fetch_mime', () => {
       Promise.reject(graph_error(403, 'ErrorAccessDenied') as unknown as Error),
     );
 
-    await expect(harness.connector.fetch_mime('t', 'owner-1', 'msg-1')).rejects.toThrow();
+    await expect(harness.connector.fetch_mime('t', 'owner-1', 'msg-1')).rejects.toThrow(AuthError);
+  });
+
+  // Issue #865: a 403 whose code is not a missing grant fails the one message, not the folder.
+  it('rejects a non-permission 403 as a failed request naming its code, not an AuthError', async () => {
+    const harness = create_harness(() =>
+      Promise.reject(graph_error(403, 'UnknownError') as unknown as Error),
+    );
+
+    const attempt = harness.connector.fetch_mime('t', 'owner-1', 'msg-1');
+
+    await expect(attempt).rejects.not.toBeInstanceOf(AuthError);
+    await expect(attempt).rejects.toThrow('403 UnknownError');
   });
 
   it('rejects with MimeUnavailableError after one request when Exchange cannot convert the item', async () => {

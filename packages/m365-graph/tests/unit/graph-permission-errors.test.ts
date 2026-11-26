@@ -55,7 +55,7 @@ describe('rethrow_if_access_denied', () => {
   it('throws an AuthError distinguishable from an unlicensed mailbox', () => {
     const failure = (() => {
       try {
-        rethrow_if_access_denied({ statusCode: 403 });
+        rethrow_if_access_denied({ statusCode: 403, code: 'ErrorAccessDenied' });
         return undefined;
       } catch (caught) {
         return caught as AuthError;
@@ -68,9 +68,9 @@ describe('rethrow_if_access_denied', () => {
   });
 
   it('throws with permission guidance on 403', () => {
-    const err = { statusCode: 403 };
+    const err = { statusCode: 403, code: 'ErrorAccessDenied' };
 
-    expect(() => rethrow_if_access_denied(err)).toThrow('403 Forbidden');
+    expect(() => rethrow_if_access_denied(err)).toThrow('403 Forbidden (ErrorAccessDenied)');
   });
 
   it('does not throw for non-403 errors', () => {
