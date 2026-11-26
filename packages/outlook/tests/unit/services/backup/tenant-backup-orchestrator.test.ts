@@ -38,6 +38,7 @@ function make_sync_result(mailbox_id: string): SyncResult {
     attachments_stored: 1,
     processed: 7,
     folder_errors: [],
+    folder_failures: [],
     warnings: [],
     excluded_folders: [],
     reactions_not_captured: 0,

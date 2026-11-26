@@ -141,11 +141,19 @@ When the directory record answers `404` too, the owner is gone and the run exits
 
 ### Restore writes are sent once
 
-A restore reports an item as failed after a `408`, `500`, `502`, `504`, `509`, a `503` without `Retry-After`, a dropped connection, or a timeout. The item may or may not exist in the target: Microsoft 365 can commit a create and still lose the response, so Atlas does not repeat it and risk two copies. The restore continues with the other items and exits `2`.
+```text
+  message error: <object-id>: outcome unknown, the item may exist: the create request ended with HTTP 504 -- GatewayTimeout after Microsoft 365 may have committed it. Check the target before restoring it again
+[!] Outcome unknown: 1 message(s) may exist in the target although the restore reported an error. Check the target before restoring them again: https://docs.atlas.wisecom.fi/troubleshooting#restore-writes-are-sent-once
+Run incomplete: 1 message error(s) -- exit 2
+```
 
-This covers messages, message and event attachments, events, contacts, mail, contact, and calendar folders, and OneDrive or SharePoint files restored with `--conflict rename` or `--conflict fail`.
+A restore create is sent once. When it ends with a `408`, `500`, `502`, `504`, `509`, a `503` without `Retry-After`, a dropped connection, or a timeout, the item may or may not exist in the target: Microsoft 365 can commit a create and still lose the response, so Atlas does not repeat it and risk two copies. A connection that was refused or never reached Microsoft 365, or a host name that did not resolve, sent nothing and is reported as a plain error. The error line reads `outcome unknown, the item may exist`, the run summary counts these items with a link to this section, and the restore continues with the other items and exits `2`.
 
-A file over 4 MiB, or an attachment of 3 MiB or more, is created by the final chunk of an upload session. When that chunk ends this way, the error says so:
+This covers messages, message and event attachments, events, contacts, mail, contact, and calendar folders, and OneDrive or SharePoint files restored with `--conflict rename` or `--conflict fail`. Outlook, OneDrive, and SharePoint restores count the messages, attachments, and files in the summary line and list them in the SDK result's `outcomeUnknown`, so a host can show exactly which items to check. A folder whose create ended this way is named in its error line; its messages were not sent and are reported as not restored.
+
+An item Graph refused, such as a `400`, `403`, `404`, `409`, or `413`, was not created. Its error line carries no `outcome unknown` marker and it is not counted.
+
+A file over 4 MiB, or an attachment of 3 MiB or more, is created by the final chunk of an upload session. When that chunk ends this way, the error names the chunk:
 
 ```
 Report.docx: outcome unknown, the file may exist: the final upload chunk (bytes 10485760-12582911/12582912) ended with HTTP 504 after Microsoft 365 may have committed it. Check the target before restoring it again

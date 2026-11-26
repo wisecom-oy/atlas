@@ -52,7 +52,10 @@ describe('graph_onedrive_upload_small_file after an ambiguous failure', () => {
       const outcome = upload(client, conflict);
       await vi.advanceTimersByTimeAsync(600_000);
 
-      expect(await outcome).toMatchObject({ statusCode: 503 });
+      expect(await outcome).toMatchObject({
+        name: 'CreateOutcomeUnknownError',
+        cause: { statusCode: 503 },
+      });
       expect(written).toHaveLength(1);
     },
   );
@@ -65,7 +68,10 @@ describe('graph_onedrive_upload_small_file after an ambiguous failure', () => {
     const outcome = upload(client, 'rename');
     await vi.advanceTimersByTimeAsync(600_000);
 
-    expect(await outcome).toMatchObject({ code: 'ETIMEDOUT' });
+    expect(await outcome).toMatchObject({
+      name: 'CreateOutcomeUnknownError',
+      cause: { code: 'ETIMEDOUT' },
+    });
     expect(written).toHaveLength(1);
   });
 

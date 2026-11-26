@@ -38,6 +38,7 @@ export function build_interrupted_result(
       attachments_stored: 0,
       processed: 0,
       folder_errors: [],
+      folder_failures: [],
       warnings: [],
       interrupted: true,
       completed_folder_count: 0,

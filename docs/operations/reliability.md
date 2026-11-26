@@ -179,7 +179,7 @@ A call that spends its whole budget has met an incident at Microsoft or on the n
 
 1. Writes the snapshot for every folder, drive, library, calendar, contact folder, or channel it finished before the outage.
 2. Leaves each unit it did not finish at its previous sync checkpoint, so the next run reads those changes again. A Graph call the outage stopped is not recorded as a failed file or thread, so it spends none of their retry attempts.
-3. Releases the owner lease and exits `3` with the error of the first exhausted call.
+3. Releases the owner lease and exits `3` with the error of the first exhausted call, printed with its `Atlas code` line. An SDK caller gets the result of the run up to the outage as the error's `partial_result`, see [Graph failures](/reference/sdk#graph-failures).
 
 One outage therefore holds a backup for about one budget: 1,411 s of backoff for a `503` without `Retry-After` (1 + 2 + 4 + ... + 256 s, then three waits of 300 s), plus the requests in flight.
 
@@ -208,7 +208,7 @@ Commands that work on live data wait for Graph so an address reassigned to a new
 
 A restore request that creates something (a message, attachment, event, contact, folder, or a drive file under `--conflict rename` or `--conflict fail`) is retried only on a `429`, a `503` carrying `Retry-After`, or a single `401` with the code `InvalidAuthenticationToken`. Microsoft Graph sends those instead of processing the request: it checks the token before the request reaches Exchange or SharePoint. A `401` with any other code is not repeated.
 
-A `408`, `500`, `502`, `504`, `509`, timeout, or dropped connection after a create may arrive after Microsoft 365 committed it, so repeating the request could leave a duplicate. So may a `2xx` whose body did not parse, which means the create succeeded. The item is reported as failed and the restore continues. See [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) for what to check before restoring it again.
+A `408`, `500`, `502`, `504`, `509`, timeout, or dropped connection after a create may arrive after Microsoft 365 committed it, so repeating the request could leave a duplicate. So may a `2xx` whose body did not parse, which means the create succeeded. The item is reported as `outcome unknown, the item may exist`, counted in the run summary, and listed in the SDK result's `outcomeUnknown` for Outlook, OneDrive, and SharePoint, and the restore continues. A refusal such as a `400` is reported as a plain error. See [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) for what to check before restoring it again.
 
 Once a restore write is on the wire, Ctrl+C lets it finish, up to its timeout, instead of aborting it, and an item it created is counted as restored. An aborted write might exist in the target while Atlas reports it as not written. A write still waiting for its access token when Ctrl+C arrives has not been sent, so it is dropped and reported as not written. A write attempt that times out is closed at its timeout and never sent later. This holds for every workload's restore, including Calendar event updates and deletes and contact photos. Only the waits before a send (backoff, `Retry-After`, cooldowns) end on the first Ctrl+C.
 
@@ -491,7 +491,7 @@ When a scheduled run did not exit `0`:
 1. Read the exit code against the [table below](#exit-codes-and-whether-to-retry). It tells you whether a rerun can fix it.
 2. Read stderr. A classified failure prints an `Atlas code` line, such as `ATLAS_OWNER_BUSY`, which [Troubleshooting](/troubleshooting) indexes.
 3. For exit `3`, check the [Microsoft 365 service health](https://admin.microsoft.com/#/servicehealth) page, and schedule the rerun for later rather than immediately.
-4. For exit `2` after a restore, check the target for the reported items before restoring them again, because their create may have committed.
+4. For exit `2` after a restore, check the target for the items marked `outcome unknown` before restoring them again, because their create may have committed. The `Outcome unknown:` summary line counts them, and the SDK result lists them in `outcomeUnknown`.
 5. For exit `12`, wait for the other operation, or for the lease to expire, before rerunning.
 
 ## Exit codes and whether to retry
@@ -501,7 +501,7 @@ When a scheduled run did not exit `0`:
 | `0` | Complete | |
 | `1` | Unclassified failure, storage failure, or `ATLAS_WRITE_REFUSED` | Once, after reading stderr. A persistent `1` needs a person |
 | `2` | Partial run, soft interrupt, or items skipped | Backup: yes, the next backup retries failed items. Items lost for good, such as a message Exchange cannot convert to MIME or a file permanently skipped after 5 attempts, are reported but not retried. Restore: first check the target for items whose create may have committed, see [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) |
-| `3` | Throttled, network failure, Microsoft Graph `5xx`, or an S3 endpoint that never answered, after retries. Also a run's first read that kept answering `4xx` for an owner that exists | Yes, later |
+| `3` | Throttled, network failure, Microsoft Graph `5xx`, or an S3 endpoint that never answered, after retries. Also a run's first read that kept answering `4xx` for an owner that exists. A backup in which every folder, drive, or channel failed because Microsoft Graph was unavailable exits `3`, because the first exhausted call stops the run | Yes, later |
 | `4` | Authentication, permission, or licence | No. Fix consent or licensing |
 | `5` | Wrong passphrase | No. Supply the original passphrase |
 | `6` | Invalid configuration | No |

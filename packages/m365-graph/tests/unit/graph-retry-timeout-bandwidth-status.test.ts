@@ -103,7 +103,10 @@ describe('with_graph_retry on a 408 or 509', () => {
     const err = graph_error(status);
     const { fn, calls } = failing_once(err);
 
-    expect(await settle(fn, CREATE_ONCE)).toBe(err);
+    expect(await settle(fn, CREATE_ONCE)).toMatchObject({
+      name: 'CreateOutcomeUnknownError',
+      cause: err,
+    });
     expect(calls()).toBe(1);
   });
 });

@@ -3,9 +3,11 @@ import { logger } from '@wisecom/atlas-core';
 import type {
   DriveFolderColorRestoreSummary,
   DriveSharingRestoreSummary,
+  OutcomeUnknownFile,
 } from '@wisecom/atlas-types';
 import {
   EXIT_PARTIAL,
+  report_outcome_unknown,
   report_skipped_items,
   report_unmatched_file_filters,
 } from '@/command-run-outcome';
@@ -31,6 +33,8 @@ export interface DriveRestoreSummary
   readonly folders_created: number;
   readonly files_skipped: number;
   readonly errors: string[];
+  /** The files among `errors` whose upload may have committed (issue #893). */
+  readonly outcome_unknown: readonly OutcomeUnknownFile[];
   readonly interrupted: boolean;
   /** Damaged manifests the restore skipped because they are newer than the snapshot (issue #631). */
   readonly unreadable_keys?: readonly string[] | undefined;
@@ -70,6 +74,7 @@ export async function report_drive_restore(
   report_unmatched_file_filters(result.unmatched_file_filters);
   if (result.errors.length > 0) {
     await render_static_view(<ErrorList errors={result.errors} max={result.errors.length} />);
+    report_outcome_unknown(result.outcome_unknown.length, 'file');
     process.exitCode = EXIT_PARTIAL;
   } else if (result.interrupted) {
     logger.warn(

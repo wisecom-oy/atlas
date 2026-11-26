@@ -1,7 +1,11 @@
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
-import type { RestoreResult, RestoredMessageReport } from '@wisecom/atlas-types';
+import type {
+  OutcomeUnknownMessage,
+  RestoreResult,
+  RestoredMessageReport,
+} from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
 import {
@@ -113,6 +117,7 @@ export async function execute_restore_loop(
   const all_errors: string[] = [];
   const messages: RestoredMessageReport[] = [];
   const warnings: string[] = [];
+  const outcome_unknown: OutcomeUnknownMessage[] = [];
   const start = Date.now();
   const global_total = [...groups.values()].reduce((s, g) => s + g.length, 0);
 
@@ -183,6 +188,7 @@ export async function execute_restore_loop(
     global_att_errors += result.attachment_errors.length;
     append_all(messages, result.messages);
     append_all(warnings, result.warnings);
+    append_all(outcome_unknown, result.outcome_unknown);
 
     const rate = calc_rate(global_restored, Date.now() - start);
     const eta = rate > 0 ? (global_total - global_restored) / rate : 0;
@@ -220,6 +226,7 @@ export async function execute_restore_loop(
     verification_warnings: warnings,
     messages,
     restore_folder_name: root.display_name,
+    outcome_unknown,
     interrupted: was_interrupted,
   };
 }

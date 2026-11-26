@@ -1,12 +1,18 @@
 import { HeadBucketCommand, type S3Client } from '@aws-sdk/client-s3';
 import type { AuthenticationProvider } from '@microsoft/microsoft-graph-client';
 import type { Container } from 'inversify';
-import { GRAPH_AUTH_PROVIDER_TOKEN } from '@wisecom/atlas-m365-graph';
+import {
+  GRAPH_AUTH_PROVIDER_TOKEN,
+  is_network_error,
+  is_transient_token_request_error,
+  token_request_refusal,
+} from '@wisecom/atlas-m365-graph';
 import { invalid_bucket_name_error, S3_CLIENT_TOKEN } from '@wisecom/atlas-s3';
 import {
   AtlasError,
   AuthError,
   BUCKET_NAME_RESOLVER_TOKEN,
+  GraphUnavailableError,
   NotFoundError,
   StorageError,
   StorageUnavailableError,
@@ -67,16 +73,42 @@ async function validate_existing_passphrase(
   }
 }
 
-/** Requests a Graph token through the container's auth provider; throws `AuthError` on refusal. */
+/**
+ * Requests a Graph token through the container's auth provider (issue #872).
+ *
+ * Throws `AuthError` when Microsoft Entra ID refused the credentials, and `GraphUnavailableError`
+ * when the token request got no response or Entra answered `408`, `429`, a `5xx` or
+ * `temporarily_unavailable`, so a host can tell wrong credentials from an outage. Any other failure
+ * stays `AuthError`, as before. `cause` keeps the original failure in every case.
+ */
 export async function validate_graph_token(container: Container): Promise<void> {
+  const started_at = Date.now();
   try {
     const auth_provider = container.get<AuthenticationProvider>(GRAPH_AUTH_PROVIDER_TOKEN);
     await auth_provider.getAccessToken();
   } catch (cause) {
-    throw new AuthError(
-      'Graph token validation failed. Check the tenant ID, client ID, client secret and ' +
-        'connectivity to Microsoft Entra ID.',
+    throw classify_token_failure(cause, Date.now() - started_at);
+  }
+}
+
+/** The error `validate()` rejects with for a failed token request. */
+function classify_token_failure(cause: unknown, elapsed_ms: number): AtlasError {
+  if (token_request_refusal(cause) === undefined && is_transient_token_failure(cause)) {
+    return new GraphUnavailableError(
+      'Microsoft Entra ID did not issue a Graph token: it was unavailable or unreachable, so ' +
+        'the credentials were neither accepted nor refused. Try again later.',
+      { retries: 0, elapsed_ms },
       { cause },
     );
   }
+  return new AuthError(
+    'Graph token validation failed. Check the tenant ID, client ID, client secret and ' +
+      'connectivity to Microsoft Entra ID.',
+    { cause },
+  );
+}
+
+/** A token request that may succeed if repeated: no response, a 408, a 429 or a 5xx. */
+function is_transient_token_failure(cause: unknown): boolean {
+  return is_transient_token_request_error(cause) || is_network_error(cause);
 }

@@ -41,6 +41,7 @@ function make_restore_result(overrides: Record<string, unknown> = {}): Record<st
     errors: [],
     verification_warnings: [],
     restore_folder_name: 'Restore-2026',
+    outcome_unknown: [],
     interrupted: false,
     ...overrides,
   };

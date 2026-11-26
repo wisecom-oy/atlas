@@ -9,6 +9,7 @@ import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manif
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  CreateOutcomeUnknownError,
   UploadCommitUnknownError,
   type OneDriveConnector,
   type OneDriveManifestEntry,
@@ -117,7 +118,47 @@ describe('OneDrive restore of a file whose final chunk ended ambiguously (issue 
         'ended with no answer within 60 s after Microsoft 365 may have committed it. ' +
         'Check the target before restoring it again',
     ]);
+    // Issue #893: the file is also listed, with where it was being written.
+    expect(result.outcome_unknown).toEqual([
+      { path: expect.stringMatching(/\/Docs\/file-1\.txt$/), error: result.errors[0] },
+    ]);
   });
+
+  it('lists a single-request upload whose create outcome is unknown (issue #893)', async () => {
+    const unknown = new CreateOutcomeUnknownError('HTTP 504');
+    const connector = make_connector({
+      upload_small_file: vi.fn().mockRejectedValueOnce(unknown).mockResolvedValue(undefined),
+    });
+    const service = make_service(
+      [make_entry('file-1', '/Docs'), make_entry('file-2', '/Docs')],
+      connector,
+    );
+
+    const result = await service.restore_onedrive('tenant-1', 'owner-1', { snapshot_id: 'snap-1' });
+
+    expect(result.errors).toEqual([`file-1.txt: ${unknown.message}`]);
+    expect(result.outcome_unknown).toEqual([
+      { path: expect.stringMatching(/\/Docs\/file-1\.txt$/), error: result.errors[0] },
+    ]);
+  });
+
+  it.each([400, 404, 409, 413])(
+    'does not list a file Graph refused with %i (issue #893)',
+    async (status) => {
+      const refused = Object.assign(new Error(`HTTP ${status}`), { statusCode: status });
+      const connector = make_connector({
+        upload_small_file: vi.fn().mockRejectedValueOnce(refused).mockResolvedValue(undefined),
+      });
+      const service = make_service([make_entry('file-1', '/Docs')], connector);
+
+      const result = await service.restore_onedrive('tenant-1', 'owner-1', {
+        snapshot_id: 'snap-1',
+      });
+
+      expect(result.errors).toEqual([`file-1.txt: HTTP ${status}`]);
+      expect(result.outcome_unknown).toEqual([]);
+    },
+  );
 
   it('names the file when Ctrl+C was pressed while its final chunk was in flight', async () => {
     const connector = make_connector({
@@ -142,6 +183,7 @@ describe('OneDrive restore of a file whose final chunk ended ambiguously (issue 
     expect(result.files_restored).toBe(0);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toMatch(/^file-1\.txt: outcome unknown, the file may exist/);
+    expect(result.outcome_unknown).toHaveLength(1);
     expect(connector.upload_small_file).toHaveBeenCalledTimes(1);
   });
 });

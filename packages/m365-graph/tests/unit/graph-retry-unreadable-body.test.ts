@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CreateOutcomeUnknownError } from '@wisecom/atlas-types';
 import { Client, HTTPMessageHandler } from '@microsoft/microsoft-graph-client';
 import { GraphUnavailableError } from '@wisecom/atlas-types';
 import { queued_graph_fetch } from '@wisecom/atlas-types/testing/queued-graph-fetch';
@@ -118,7 +119,8 @@ describe('with_graph_retry on a 200 with an unreadable JSON body', () => {
     const failure = await settle(list_folders({ idempotent: false }));
 
     expect(rig.urls).toHaveLength(1);
-    expect(failure).toMatchObject({ statusCode: 201, code: 'SyntaxError' });
+    expect(failure).toBeInstanceOf(CreateOutcomeUnknownError);
+    expect((failure as Error).cause).toMatchObject({ statusCode: 201, code: 'SyntaxError' });
   });
 
   it('still retries a body cut off mid-stream (terminated)', async () => {

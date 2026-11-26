@@ -81,7 +81,12 @@ Methods, configuration, options, and result fields are camelCase. Three exceptio
 `atlas.validate()` is optional. Call it after provisioning the tenant bucket to confirm the configuration works before the first run.
 
 ```ts
-import { AuthError, StorageError, WrongPassphraseError } from '@wisecom/atlas-sdk';
+import {
+  AuthError,
+  GraphUnavailableError,
+  StorageError,
+  WrongPassphraseError,
+} from '@wisecom/atlas-sdk';
 
 try {
   await atlas.validate();
@@ -90,8 +95,10 @@ try {
     console.error('Check the S3 endpoint, credentials, and tenant bucket access.');
   } else if (error instanceof WrongPassphraseError) {
     console.error("The passphrase does not open this tenant's existing data key.");
+  } else if (error instanceof GraphUnavailableError) {
+    console.error('Microsoft Entra ID is unavailable. Try again later.');
   } else if (error instanceof AuthError) {
-    console.error('Check the Microsoft Entra credentials and connectivity.');
+    console.error('Microsoft Entra ID refused the credentials.');
   }
   throw error;
 }
@@ -103,9 +110,11 @@ try {
 | ---------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
 | S3 `HeadBucket` on the tenant bucket     | `StorageError`, `ATLAS_STORAGE_FAILURE`          | Check the endpoint, region, credentials, and `s3:ListBucket` access. A missing bucket fails: provision it first               |
 | Unwrap `_meta/dek.enc`, if it exists     | `WrongPassphraseError`, `ATLAS_WRONG_PASSPHRASE` | Use the passphrase that created this tenant's backups. In a multi-tenant service, confirm each tenant has its own passphrase  |
-| Microsoft Graph token                    | `AuthError`, `ATLAS_AUTH_DENIED`                 | Check the tenant ID, client ID, client secret, and connectivity to Microsoft Entra ID                                         |
+| Microsoft Graph token                    | `AuthError`, `ATLAS_AUTH_DENIED`                 | Microsoft Entra ID refused the credentials. Check the tenant ID, client ID, and client secret, and that the secret has not expired |
+| Microsoft Graph token                    | `GraphUnavailableError`, `ATLAS_GRAPH_UNAVAILABLE` | Microsoft Entra ID did not answer, or answered `408`, `429`, a `5xx`, or `temporarily_unavailable`. The credentials were not judged. Try again later |
 
-- A code names the stage that failed, not necessarily bad credentials. DNS, TLS, and transport failures also fail a stage. The original failure is kept in `cause`. An S3 endpoint that never answers fails a storage check as `StorageError` with a `StorageUnavailableError` cause.
+- A code names the stage that failed. DNS, TLS, and transport failures also fail a stage. The original failure is kept in `cause`. An S3 endpoint that never answers fails a storage check as `StorageError` with a `StorageUnavailableError` cause.
+- The token check is one token request, with no Atlas retry beyond the attempts `@azure/identity` makes itself, so `retries` on a `GraphUnavailableError` from `validate()` is `0`. Only a refusal by Microsoft Entra ID is `AuthError`. A token request with no response, or one Entra answered `408`, `429`, a `5xx`, or `temporarily_unavailable`, is `GraphUnavailableError`, so a host that uses `validate()` as a reachability probe does not mark working credentials as broken during an Entra ID outage. A failure Atlas cannot classify stays `AuthError`.
 - When S3 refuses `atlas-{tenantId}` as an invalid bucket name, the first check throws `ConfigError` (`ATLAS_CONFIG_INVALID`) naming the rule. See [Bucket name is not valid](/troubleshooting#bucket-name-is-not-valid).
 - The key check makes at most one storage `GET` and opens the key locally with AES-256-GCM. It never creates a key, writes an object, or logs key material. A new tenant with no key passes, and the first backup creates the key.
 - `validate()` does not check write permission, Object Lock readiness, or workload-specific Microsoft Graph consent. Use [`checkStorage()`](#checkstorage) for Object Lock and conditional writes. See [Security](/security#kek-derivation-scrypt) for passphrase guidance.
@@ -366,7 +375,8 @@ for (const folder of result.summary.excludedFolders) {
 | `interrupted`, `snapshotStored`     | Whether the run was cancelled, and whether `snapshot` was actually stored                                           |
 | `summary.stored`, `deduplicated`, `attachmentsStored`, `processed` | Message counters                                                                     |
 | `summary.completedFolderCount`, `totalFolderCount`, `elapsedMs`   | Progress of the run                                                                   |
-| `summary.folderErrors`              | One line per failed folder or unmatched `folderFilter` selector                                                     |
+| `summary.folderErrors`              | One line per failed folder or unmatched `folderFilter` selector. A failed folder's line ends with `(Atlas code: <code>)` when the failure has one |
+| `summary.folderFailures`            | One entry per folder whose sync failed as a whole: `folderId`, `folderPath`, `message`, `code`, and `transient` |
 | `summary.warnings`                  | One line per notable event, such as a folder whose reactions could not be read                                      |
 | `summary.excludedFolders`           | Folders not captured, with `folderPath` and `reason`                                                                |
 | `summary.reactionsNotCaptured`      | Messages stored without their reactions and pin                                                                     |
@@ -380,6 +390,8 @@ for (const folder of result.summary.excludedFolders) {
 - **Reactions.** A message whose reactions and pin could not be read, because Microsoft Graph returned an error or the read ran out of retries, is still stored and counted in `summary.reactionsNotCaptured`, with one `summary.warnings` line per affected folder. The sync checkpoint still advances, so those properties are read again only when the message changes.
 - **Interrupted before any folder.** A run cancelled before it read any folder resolves with `interrupted: true` and `snapshotStored: false`. Its `snapshot` and `manifest` are placeholders that were never stored, `mode` means nothing, and no checkpoint moved. Do not record or look up that snapshot ID. Every other result has `snapshotStored: true`.
 - **A run that captured nothing** reports the existing newest snapshot and its count.
+- **Failed folders.** `transient` is `true` when the folder failed on a Microsoft Graph call that spent its retry budget (`ATLAS_GRAPH_UNAVAILABLE` or `ATLAS_THROTTLED`), and `false` for any other failure. `code` is `undefined` for an error Atlas did not classify. A failed folder keeps its previous sync checkpoint, so the next backup reads its changes again.
+- **Graph outage.** Once a call spends its retry budget, the backup rejects with that `GraphUnavailableError` or `ThrottledError` instead of resolving, so the CLI exits `3`. Its `partial_result` holds the result described above for the run up to the outage. When every folder failed, `partial_result.summary.folderFailures` lists each of them with `transient: true` and `completedFolderCount` is `0`. A first backup still stores a snapshot of 0 objects in that case, and `partial_result.snapshot` names it. See [Graph failures](#graph-failures).
 - **Counts.** `snapshot.objectCount` counts the messages in the snapshot's chain after recorded removals, the set `verify`, `restore`, and `save` read. `manifest.totalObjects` is a high-water mark: the largest message count any single run of the mailbox stored. It never decreases, and the stale-delta safeguard reads it to tell an unchanged mailbox from one never backed up.
 
 #### Recoverable Items
@@ -456,8 +468,16 @@ interface RestoreResult {
   verificationWarnings: string[];
   messages: RestoredMessageReport[];
   restoreFolderName: string;
+  outcomeUnknown: OutcomeUnknownMessage[];
   graphCost?: OperationCost; // SDK only
   interrupted: boolean;
+}
+
+interface OutcomeUnknownMessage {
+  objectId: string; // source message id from the snapshot
+  targetFolderId: string; // Graph id of the folder it was created in, or was being created in
+  attachmentName?: string; // set when the message was created and one of its attachments is unknown
+  error: string; // the same line as in `errors`
 }
 
 interface RestoredMessageReport {
@@ -477,9 +497,11 @@ interface RestoredMessageReport {
 | `verificationWarnings` | Per-folder warnings, including failures that prevented a count check, and one line per message that received fewer attachments than its snapshot holds |
 | `messages`             | One report per message created in the target mailbox, in restore order. IDs and counts only, never names or content                 |
 | `restoreFolderName`    | The destination path                                                                                                                |
+| `outcomeUnknown`       | Messages, and attachments of created messages, whose create may have committed although it failed. Each also has its line in `errors`. See the notes below |
 
 - **Destination.** `destination` is relative to the top of the target mailbox and uses `/` between levels, as the drive restores do. Each level, and each source folder beneath it, is reused when it exists, matched case-insensitively. The call rejects before writing any message when the path is empty, `/`, has an empty level, or lies inside a well-known folder such as Inbox. See [atlas outlook restore](/reference/cli#atlas-outlook-restore).
 - **No deduplication.** Restoring the same snapshot twice into one destination creates every message twice.
+- **Writes that may have committed.** A create is sent once. When it ends with a `500`, `502`, `504`, `408`, `509`, a `503` without `Retry-After`, a timeout, or a dropped connection, Microsoft 365 may have created the item anyway, so the item is listed in `outcomeUnknown` and its `errors` line reads `outcome unknown, the item may exist` (or `the attachment may exist`). Check those items in the target before restoring them again: rerunning the whole restore duplicates every message that landed. A message or attachment Graph refused (`400`, `403`, `404`, `409`, `413`) is never listed. A `429` or a `503` with `Retry-After` is retried and never listed. A single-message restore (`messageRef`) whose create ended this way resolves with the message in `outcomeUnknown` instead of rejecting. See [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once).
 - **The chain.** `restore`, `save`, and `verify` read a snapshot together with every older snapshot of the mailbox. `restoreMailbox` and `saveMailbox` read every snapshot in the date range. A message a backup recorded as deleted (in `removed_object_ids`) is left out of every older snapshot in that set. See [Delta sync](/operations/delta-sync#deleted-and-moved-messages-outlook) for which runs record removals.
 - **Attachments per message.** `attachmentsExpected` comes from the snapshot: the manifest's attachment list for a Graph JSON entry, or the parts of the stored MIME for a MIME entry. `inline` counts parts embedded in the body (`isInline: true`), `file` counts attachments Outlook lists. A gap between `attachmentsUploaded` and `attachmentsExpected` marks a message that lost attachments. `attachmentsFailed` counts upload errors, which also appear in `errors`. A legacy attachment whose content was never stored is skipped without an error and shows only as that gap.
 - **What the counts prove.** The split shows what Atlas restored, from the same MIME parse that drove the upload, not whether the parse classified every part correctly. `attachmentsUploaded` counts what Atlas sent, not what Microsoft Graph stored. To check what landed, read the created message back and compare:
@@ -715,8 +737,9 @@ await atlas.onedrive.restore('owner-id', { snapshotId, inPlace: true });
 | `targetTenant`                  | `AtlasTenant`                       | See [Cross-tenant restore](#cross-tenant-restore)                                                  |
 | `onProgress`, `signal`          |                                     | See [Progress and cancellation](#progress-and-cancellation)                                        |
 
-The result has `snapshotId`, `filesRestored`, `foldersCreated`, `filesSkipped`, `errors`, `interrupted`, `unreadableKeys`, and `unmatchedFileFilters`.
+The result has `snapshotId`, `filesRestored`, `foldersCreated`, `filesSkipped`, `errors`, `outcomeUnknown`, `interrupted`, `unreadableKeys`, and `unmatchedFileFilters`.
 
+- `outcomeUnknown` lists each file whose upload may have committed although it failed, as `{ path, error }`: `path` is where the file was being written, and `error` is its line in `errors`. That covers a single-request upload under `'rename'` or `'fail'` and the final chunk of an upload session, when either ended with a `5xx` other than a throttle, a timeout, or a dropped connection. Check those files in the target before restoring them again, because a rerun under `'rename'` next to a file that landed creates a second copy. A refusal such as `400`, `404`, `409`, or `413` is never listed. See [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once).
 - By default nothing existing is overwritten: files go under a new root with `'rename'` on conflict.
 - `restore` and `save` require an options object with `snapshotId`. TypeScript enforces it. A JavaScript caller that omits it gets a `TypeError` naming the method. `verify` takes its options optionally.
 - When some `fileFilter` values match, the run goes ahead and lists each unmatched value in `unmatchedFileFilters`. When none match, the call rejects with `NotFoundError`.
@@ -1252,7 +1275,7 @@ Cancellation does not throw. The call resolves normally with `interrupted: true`
 
 - **Waits end at once.** In every backup, every restore and version restore, and `outlook.save()`, the signal reaches every Microsoft Graph call of the run. It closes the read in flight, and a token request no other call waits for, and ends any retry backoff or throttle wait, including a `Retry-After` of up to an hour, so the call resolves within moments and leaves no socket holding the host process open. That covers an Outlook call still waiting for its mailbox's cooldown, request window, or concurrency slot, which is then never sent.
 - **Accepted requests still complete.** Microsoft Graph has no cancel, so a request it already accepted completes on its side and Atlas drops the answer.
-- **Restore writes already sent finish first,** because Microsoft 365 may have committed them: a message, event, contact, calendar, folder, or attachment create, a Calendar event update or delete, a contact photo upload, a OneDrive or SharePoint upload of up to 4 MiB, and the final chunk of a larger upload or of an attachment of 3 MiB or more, which runs to its per-attempt deadline. They are counted if accepted, and one that did not complete cleanly is listed in `errors` as `outcome unknown`. A Calendar or Contacts rerun recognises such an item by its source tag. A larger file stopped before its final chunk is not created, and its upload session is deleted. See [Upload sessions](/operations/reliability#upload-sessions) and [Writes that are sent once](/operations/reliability#writes-that-are-sent-once).
+- **Restore writes already sent finish first,** because Microsoft 365 may have committed them: a message, event, contact, calendar, folder, or attachment create, a Calendar event update or delete, a contact photo upload, a OneDrive or SharePoint upload of up to 4 MiB, and the final chunk of a larger upload or of an attachment of 3 MiB or more, which runs to its per-attempt deadline. They are counted if accepted, and one that did not complete cleanly is listed in `errors` as `outcome unknown`, and for Outlook, OneDrive, and SharePoint also in `outcomeUnknown`. A Calendar or Contacts rerun recognises such an item by its source tag. A larger file stopped before its final chunk is not created, and its upload session is deleted. See [Upload sessions](/operations/reliability#upload-sessions) and [Writes that are sent once](/operations/reliability#writes-that-are-sent-once).
 - **Outlook messages short of attachments.** A message created before the stop whose attachments were not all uploaded is listed in `errors` once, as `<message-id>: N attachment(s) not uploaded: the run was interrupted`.
 - **OneDrive and SharePoint downloads.** The signal aborts the download in flight, skips retry backoff and any `Retry-After` wait, and closes a historical version's stream, for files of every size. The interrupted file is not recorded as failed, so it keeps its retry budget. Listing, download URL lookups, the `/content` fallback, and version listing stop too. The CLI passes Ctrl+C to every backup as this signal.
 - **Teams.** `backup` closes the request in flight as soon as the signal fires and resolves with `interrupted: true`. The root that request belonged to is not recorded as a failed attempt. Only the channel loop checks the signal, so a signal fired during the team or channel lookups takes effect when the loop starts.
@@ -1383,7 +1406,9 @@ const destination = createTenant({
   clientId: '<client-id>',
   clientSecret: '<client-secret>',
 });
-await destination.validate(); // AuthError when Microsoft Entra ID refuses the credentials
+// AuthError when Microsoft Entra ID refuses the credentials,
+// GraphUnavailableError when Entra ID is unavailable or unreachable.
+await destination.validate();
 
 await atlas.outlook.restore('snapshot-id', {
   targetMailbox: 'user@example.com',
@@ -1868,8 +1893,8 @@ try {
 | Error                          | Properties                                                                                                     |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------- |
 | every `AtlasError`             | `code`, and `cause` with the underlying Graph or AWS SDK error, for logging. Branching never depends on it     |
-| `ThrottledError`               | `retry_after_ms`                                                                                               |
-| `GraphUnavailableError`        | `status_code`, `graph_code`, `retries`, `elapsed_ms`                                                           |
+| `ThrottledError`               | `retry_after_ms`, and `partial_result` when it stopped a backup                                                |
+| `GraphUnavailableError`        | `status_code`, `graph_code`, `retries`, `elapsed_ms`, and `partial_result` when it stopped a backup            |
 | `StorageUnavailableError`      | `attempts`                                                                                                     |
 | `ListingIncompleteError`       | `listing`, `listed_count`, `reported_count` (`undefined` when no page carried a count)                         |
 | `GraphAccessRefusedError`      | `site_id`, `drive_id`, `owner_id`, `reason`, `status_code`, `graph_code`                                       |
@@ -1920,6 +1945,20 @@ try {
 - A `200` whose JSON body did not parse ends as `GraphUnavailableError` with `status_code` `200` and `graph_code` `undefined`, since the parse error is not a Graph code.
 - The first read of a run is the exception: the Outlook mailbox existence check, the OneDrive drive listing, and the Calendar and Contacts listings. A `404`, `400`, or other unclassified `4xx` there is read again, 3 reads in about 6 s. One that persists for an owner who exists becomes `GraphUnavailableError` with `retries` set to `2` and the answer in `status_code` and `graph_code`. A `404` that persists for an owner whose directory record answers `404` too is `NotFoundError`. On OneDrive, `404 ResourceNotFound` ("User's mysite not found.") is `NotFoundError` on the first answer. See [The first read of a run](/operations/reliability#first-reads-of-a-run).
 - Every workload's `backup` rejects with the first `GraphUnavailableError` or `ThrottledError` of the run. After that call spent its budget, no other Graph call of the run was sent. The snapshot of what the run finished is still written and the owner lease is released, so the next attempt resumes from the units that did not finish. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
+- **`partial_result`** on that rejection is the result the backup would have resolved with, in the same camelCase shape, so a host still learns which snapshot was written and which units failed. For SharePoint it is the result of the site the outage stopped, one element of the array `backup()` resolves with. It is not enumerable, so logging the error does not print it, and it is `undefined` on a `GraphUnavailableError` or `ThrottledError` from any other call:
+
+  ```ts
+  try {
+    await atlas.outlook.backup('user@example.com');
+  } catch (error) {
+    if (error instanceof GraphUnavailableError || error instanceof ThrottledError) {
+      const partial = error.partial_result as OutlookBackupResult | undefined;
+      const failed = partial?.summary.folderFailures.filter((folder) => folder.transient) ?? [];
+      scheduleRetryLater(partial?.snapshot.id, failed.map((folder) => folder.folderPath));
+    }
+    throw error;
+  }
+  ```
 - A Graph token request that Microsoft Entra ID leaves unanswered, or answers with `408`, `429`, a `5xx`, or `temporarily_unavailable`, becomes `GraphUnavailableError` once retries run out, `429` included. Its `status_code` and `graph_code` are `undefined`, because the status is Entra's, not Graph's. The message starts `Microsoft Entra ID did not issue a Graph token`, and `cause` keeps Entra's answer.
 - **`GraphAccessRefusedError`** is raised for a OneDrive or SharePoint `403` whose code does not name a missing permission, or, for SharePoint, a refused site while the same app can read the tenant's root site. A SharePoint Embedded container is the known case.
 - **Outlook, Calendar, Contacts, and Teams** raise `MissingGraphPermissionsError` only for a `403` whose code is `accessDenied`, `ErrorAccessDenied`, or `Authorization_RequestDenied`, or `Forbidden` on a Teams call. Any other `403` is not an `AuthError`: it fails the item, channel, or folder it answered, and the message names the code Graph sent. See [Which `403` responses stop a run](/operations/reliability#forbidden-responses).

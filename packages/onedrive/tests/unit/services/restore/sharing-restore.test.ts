@@ -137,6 +137,7 @@ describe('OneDrive restore of permissions (#580)', () => {
       folders_created: 2,
       files_skipped: 0,
       errors: [],
+      outcome_unknown: [],
       interrupted: false,
     });
     expect(connector.grant_item_access).not.toHaveBeenCalled();

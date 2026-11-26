@@ -10,7 +10,11 @@
  * unknown outcome rather than as a refused upload, so the operator checks the target before a
  * rerun leaves a second copy beside the first.
  */
-import { ThrottledError, UploadCommitUnknownError } from '@wisecom/atlas-types';
+import {
+  CreateOutcomeUnknownError,
+  ThrottledError,
+  UploadCommitUnknownError,
+} from '@wisecom/atlas-types';
 import {
   describe_graph_error,
   is_retryable_error,
@@ -104,7 +108,9 @@ export async function send_upload_chunk<T>(
     return await run((signal) => attempts.track(send(signal)), upload_chunk_retry_options(chunk));
   } catch (err) {
     if (chunk.role !== 'commit' || attempts.sends === 0) throw err;
-    const failure = attempts.last_failure(err);
+    // The retry loop reports a create sent once as unknown in general; the chunk names its range.
+    const thrown = err instanceof CreateOutcomeUnknownError ? err.cause : err;
+    const failure = attempts.last_failure(thrown);
     if (leaves_commit_unknown(failure, attempts.sends)) {
       throw new UploadCommitUnknownError(chunk, describe_graph_error(failure), { cause: failure });
     }

@@ -1,3 +1,4 @@
+import type { OutcomeUnknownFile } from '@/ports/drive/outcome-unknown-file.port';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
 import type {
   DriveSharingRestoreOptions,
@@ -37,6 +38,12 @@ export interface SharePointRestoreResult
   readonly folders_created: number;
   readonly files_skipped: number;
   readonly errors: string[];
+  /**
+   * Files whose upload may have committed although it failed: a `5xx`, a timeout or a dropped
+   * connection after the request that creates the file was sent. Check the target before restoring
+   * them again. Graph's refusals (`400`, `403`, `404`, `409`, `413`) are never listed here.
+   */
+  readonly outcome_unknown: OutcomeUnknownFile[];
   readonly interrupted: boolean;
   /** Damaged manifests outside the snapshot's chain, by key: reported, not needed (issue #631). */
   readonly unreadable_keys?: string[] | undefined;

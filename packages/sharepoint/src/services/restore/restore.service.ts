@@ -17,6 +17,7 @@ import type {
   SharePointRestoreOptions,
   SharePointRestoreResult,
   SharePointRestoreUseCase,
+  OutcomeUnknownFile,
   TenantContext,
   OwnerLeasePort,
   TenantContextFactory,
@@ -132,6 +133,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     let files_restored = 0;
     let files_skipped = 0;
     const errors: string[] = [];
+    const outcome_unknown: OutcomeUnknownFile[] = [];
     const sharing: ItemSharingRestoreDeps = {
       connector: this._connector,
       restore_permissions: options.restore_permissions === true,
@@ -174,7 +176,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
               root: restore_root,
               file_name: options.rename_to ?? entry.file_name,
             },
-            errors,
+            { errors, outcome_unknown },
             sharing,
           ).catch((err: unknown) => stop_restore_on_refusal('sharepoint', files_restored, err))
         : 'skipped';
@@ -228,6 +230,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
           folders_created,
           files_skipped,
           errors,
+          outcome_unknown,
           interrupted,
           ...sharing.tally.summary(),
           ...folder_colors_not_restored(selection.item_metadata),

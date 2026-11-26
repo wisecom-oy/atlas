@@ -6,7 +6,7 @@ import type { TenantContextFactory } from '@wisecom/atlas-types';
 import type { HeldOwnerLease, OwnerLeasePort } from '@wisecom/atlas-types';
 import type { MailboxConnector, ManifestRepository } from '@wisecom/atlas-types';
 import type { MailboxDeltaCursorRepository } from '@wisecom/atlas-types';
-import type { ManifestEntry } from '@wisecom/atlas-types';
+import type { FolderFailure, ManifestEntry } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { assert_mailbox_exists } from '@wisecom/atlas-core/services/shared/mailbox-assertions';
 import {
@@ -15,6 +15,7 @@ import {
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { sync_single_folder_with_progress } from '@/services/backup/folder-sync-attempt';
+import { folder_error_line, to_folder_failure } from '@/services/backup/folder-failure-report';
 import { persist_mailbox_run, resolve_resume_state } from '@/services/backup/mailbox-run-persister';
 import { count_run_objects, distinct_unreadable_keys } from '@/services/backup/run-object-count';
 import { resolve_backup_folders } from '@/services/shared/folder-selector';
@@ -154,6 +155,7 @@ export class MailboxSyncService implements BackupUseCase {
       let reactions_not_captured = 0;
       // A selector that matched nothing leaves the run incomplete while others still matched.
       const folder_errors: string[] = [...folder_selection.selector_errors];
+      const folder_failures: FolderFailure[] = [];
 
       for (let i = 0; i < folders.length; i++) {
         if (should_interrupt()) break;
@@ -179,7 +181,8 @@ export class MailboxSyncService implements BackupUseCase {
         );
 
         if (outcome.error) {
-          folder_errors.push(`${folder.folder_path}: ${outcome.error}`);
+          folder_errors.push(folder_error_line(folder.folder_path, outcome));
+          folder_failures.push(to_folder_failure(folder, outcome));
           progress.mark_error(i, outcome.error);
           continue;
         }
@@ -289,6 +292,7 @@ export class MailboxSyncService implements BackupUseCase {
           attachments_stored,
           processed: global_processed,
           folder_errors,
+          folder_failures,
           warnings,
           interrupted,
           completed_folder_count: Object.keys(new_delta_links).length,

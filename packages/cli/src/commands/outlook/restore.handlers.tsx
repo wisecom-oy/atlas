@@ -224,6 +224,7 @@ async function report_restore_result(result: RestoreResult): Promise<void> {
       errors: result.errors,
       warnings: result.verification_warnings,
       interrupted: result.interrupted,
+      outcome_unknown: result.outcome_unknown.length,
     },
     'message',
   );

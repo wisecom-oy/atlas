@@ -1,25 +1,6 @@
-/**
- * Stable machine-readable codes. The string values are the contract: they are safe to switch on,
- * to log, and to compare across versions. Prose messages are not, and never were.
- */
-export type AtlasErrorCode =
-  | 'ATLAS_AUTH_DENIED'
-  | 'ATLAS_MAILBOX_NOT_LICENSED'
-  | 'ATLAS_NOT_FOUND'
-  | 'ATLAS_THROTTLED'
-  | 'ATLAS_WRONG_PASSPHRASE'
-  | 'ATLAS_OBJECT_LOCK_RETAINED'
-  | 'ATLAS_STORAGE_FAILURE'
-  | 'ATLAS_CONTENT_UNREADABLE'
-  | 'ATLAS_FORMAT_UNSUPPORTED'
-  | 'ATLAS_SNAPSHOT_NOT_NEWEST'
-  | 'ATLAS_WRITE_REFUSED'
-  | 'ATLAS_OWNER_BUSY'
-  | 'ATLAS_CONFIG_INVALID'
-  | 'ATLAS_ACCESS_REFUSED'
-  | 'ATLAS_GRAPH_UNAVAILABLE'
-  | 'ATLAS_STORAGE_UNAVAILABLE'
-  | 'ATLAS_LISTING_INCOMPLETE';
+import type { AtlasErrorCode } from '@/errors/atlas-error-code';
+
+export type { AtlasErrorCode } from '@/errors/atlas-error-code';
 
 /**
  * Base class for every failure Atlas raises on purpose.
@@ -60,14 +41,31 @@ export class NotFoundError extends AtlasError {
   }
 }
 
+/**
+ * Sets `partial_result`, the result of a backup an outage stopped (issue #869). Not enumerable, so
+ * logging the error does not print a whole backup result, manifest entries included.
+ */
+function define_partial_result(error: Error, partial_result: unknown): void {
+  if (partial_result === undefined) return;
+  Object.defineProperty(error, 'partial_result', { value: partial_result, configurable: true });
+}
+
 /** The service throttled the operation and the retry budget was exhausted. */
 export class ThrottledError extends AtlasError {
   /** Milliseconds the service asked the caller to wait, when it said. */
   readonly retry_after_ms: number | undefined;
+  /** For a backup this outage stopped: the run's result up to the outage. */
+  declare readonly partial_result?: unknown;
 
-  constructor(message: string, retry_after_ms?: number, options?: { cause?: unknown }) {
+  constructor(
+    message: string,
+    retry_after_ms?: number,
+    /** `partial_result`: for a backup this outage stopped, its result up to the outage. */
+    options?: { cause?: unknown; partial_result?: unknown },
+  ) {
     super('ATLAS_THROTTLED', message, options);
     this.retry_after_ms = retry_after_ms;
+    define_partial_result(this, options?.partial_result);
   }
 }
 
@@ -417,11 +415,13 @@ export class GraphUnavailableError extends AtlasError {
   readonly retries: number;
   /** Milliseconds from the first attempt until the call gave up, waits included. */
   readonly elapsed_ms: number;
+  /** For a backup this outage stopped: the run's result up to the outage. */
+  declare readonly partial_result?: unknown;
 
   constructor(
     message: string,
     attempts: { readonly retries: number; readonly elapsed_ms: number },
-    options: GraphErrorFacts = {},
+    options: GraphErrorFacts & { readonly partial_result?: unknown } = {},
   ) {
     super(
       'ATLAS_GRAPH_UNAVAILABLE',
@@ -432,6 +432,7 @@ export class GraphUnavailableError extends AtlasError {
     this.graph_code = options.graph_code;
     this.retries = attempts.retries;
     this.elapsed_ms = attempts.elapsed_ms;
+    define_partial_result(this, options.partial_result);
   }
 }
 

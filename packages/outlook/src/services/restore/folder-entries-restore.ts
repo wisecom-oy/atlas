@@ -1,6 +1,7 @@
 import type {
   ManifestEntry,
   OperationControlOptions,
+  OutcomeUnknownMessage,
   RestoreConnector,
   RestoredMessageReport,
   TenantContext,
@@ -19,6 +20,11 @@ import {
   restore_one_entry,
 } from '@/services/restore/restore-execution-orchestrator';
 import { attachment_shortfall_warning } from '@/services/restore/restored-message-report';
+import {
+  unknown_attachment_creates,
+  unknown_message_create,
+} from '@/services/restore/outcome-unknown-messages';
+import { WriteOutcomeUnknownError } from '@wisecom/atlas-types';
 
 /** What one folder's restore produced. */
 export interface FolderRestoreTally {
@@ -28,6 +34,8 @@ export interface FolderRestoreTally {
   readonly attachment_errors: string[];
   readonly messages: RestoredMessageReport[];
   readonly warnings: string[];
+  /** Messages and attachments among the errors whose create may have committed (issue #893). */
+  readonly outcome_unknown: OutcomeUnknownMessage[];
   /** A refusal for the whole mailbox that stopped the folder; it ends the restore (#871). */
   refusal?: RunFatalError;
 }
@@ -75,9 +83,9 @@ export async function restore_folder_entries(
         target_folder_id,
         entry,
       );
-      record_restored_message(tally, entry, outcome);
+      record_restored_message(tally, entry, target_folder_id, outcome);
     } catch (err) {
-      if (!record_failed_message(tally, entry, err)) break;
+      if (!record_failed_message(tally, entry, target_folder_id, err)) break;
     }
     report_message_progress(progress, tally, entry);
     if (tally.refusal !== undefined) break;
@@ -95,6 +103,7 @@ function empty_tally(): FolderRestoreTally {
     attachment_errors: [],
     messages: [],
     warnings: [],
+    outcome_unknown: [],
   };
 }
 
@@ -102,6 +111,7 @@ function empty_tally(): FolderRestoreTally {
 function record_restored_message(
   tally: FolderRestoreTally,
   entry: ManifestEntry,
+  target_folder_id: string,
   outcome: EntryRestoreOutcome,
 ): void {
   tally.restored++;
@@ -112,6 +122,15 @@ function record_restored_message(
     tally.attachment_errors,
     outcome.attachment_errors.map((e) => `${entry.object_id}: ${e}`),
   );
+  append_all(
+    tally.outcome_unknown,
+    unknown_attachment_creates(
+      entry.object_id,
+      target_folder_id,
+      outcome.attachment_outcome_unknown,
+      `${entry.object_id}: `,
+    ),
+  );
   tally.messages.push(outcome.report);
   const shortfall = attachment_shortfall_warning(outcome.report);
   if (shortfall) tally.warnings.push(shortfall);
@@ -120,23 +139,28 @@ function record_restored_message(
 
 /**
  * Records a message that was not created. Returns false when the folder stops without reporting
- * progress for it: a create cut short by Ctrl+C is the run stopping, not a failed message (#682).
+ * progress for it: a create cut short by Ctrl+C is the run stopping, not a failed message (#682),
+ * unless the create was sent and may have committed, which is named either way (issue #893).
  * A refusal for the whole mailbox would fail every later message the same way, so it is kept on
  * the tally to end the restore (issue #871).
  */
 function record_failed_message(
   tally: FolderRestoreTally,
   entry: ManifestEntry,
+  target_folder_id: string,
   err: unknown,
 ): boolean {
-  if (is_active_run_cancelled()) return false;
+  const may_exist = err instanceof WriteOutcomeUnknownError;
+  if (is_active_run_cancelled() && !may_exist) return false;
   if (is_run_fatal_error(err)) {
     tally.refusal = err;
     return false;
   }
-  const msg = err instanceof Error ? err.message : String(err);
-  tally.errors.push(`${entry.object_id}: ${msg}`);
-  return true;
+  const line = `${entry.object_id}: ${err instanceof Error ? err.message : String(err)}`;
+  tally.errors.push(line);
+  const unknown = unknown_message_create(entry.object_id, target_folder_id, line, err);
+  if (unknown !== undefined) tally.outcome_unknown.push(unknown);
+  return !is_active_run_cancelled();
 }
 
 /** Updates the dashboard and emits the progress event after one message. */

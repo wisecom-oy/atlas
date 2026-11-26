@@ -17,6 +17,11 @@ export {
 export { read_owner_listing, read_user_exists } from '@/graph-owner-listing';
 export type { OwnerListing } from '@/graph-owner-listing';
 export { is_network_error } from './graph-network-error';
+export {
+  GraphTokenRequestError,
+  is_transient_token_request_error,
+  token_request_refusal,
+} from '@/graph-token-failure';
 export { is_permanent_item_error } from '@/graph-permanent-item-errors';
 export { is_exhausted_retry, rethrow_if_retry_exhausted } from './graph-exhausted-retry';
 export {

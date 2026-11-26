@@ -26,6 +26,7 @@ const restore_partial = {
   verification_warnings: [],
   messages: [],
   restore_folder_name: 'Restore-2026',
+  outcome_unknown: [],
   interrupted: true,
 };
 

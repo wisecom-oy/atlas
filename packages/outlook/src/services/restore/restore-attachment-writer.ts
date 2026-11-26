@@ -2,7 +2,7 @@ import type { TenantContext } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { AttachmentEntry, AttachmentKindCounts } from '@wisecom/atlas-types';
 import type { MimeAttachment } from '@/services/shared/mime-message-parser';
-import { UploadCommitUnknownError } from '@wisecom/atlas-types';
+import { WriteOutcomeUnknownError } from '@wisecom/atlas-types';
 import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import {
   is_run_fatal_error,
@@ -17,8 +17,23 @@ export interface AttachmentRestoreResult {
   readonly uploaded: AttachmentKindCounts;
   readonly skipped: number;
   readonly errors: string[];
+  /** The attachments among `errors` whose create may have committed (issue #893). */
+  readonly outcome_unknown: AttachmentOutcomeUnknown[];
   /** A refusal for the whole mailbox that stopped the uploads; it ends the restore (#871). */
   readonly refusal?: RunFatalError;
+}
+
+/** An attachment whose create ended without a clear answer, so it may be on the message. */
+export interface AttachmentOutcomeUnknown {
+  readonly name: string;
+  /** The line recorded for it in `errors`. */
+  readonly error: string;
+}
+
+/** What failed among one message's attachment uploads. */
+interface UploadFailures {
+  readonly errors: string[];
+  readonly outcome_unknown: AttachmentOutcomeUnknown[];
 }
 
 /**
@@ -37,7 +52,7 @@ export async function restore_entry_attachments(
   let restored = 0;
   let inline = 0;
   let skipped = 0;
-  const errors: string[] = [];
+  const failures: UploadFailures = { errors: [], outcome_unknown: [] };
   let refusal: RunFatalError | undefined;
 
   for (const [index, att] of attachments.entries()) {
@@ -61,7 +76,7 @@ export async function restore_entry_attachments(
       restored++;
       if (att.is_inline) inline++;
     } catch (err) {
-      const stop = record_failed_upload(errors, att.name, attachments.length - index, err);
+      const stop = record_failed_upload(failures, att.name, attachments.length - index, err);
       if (stop === undefined) continue;
       refusal = stop.refusal;
       break;
@@ -69,7 +84,7 @@ export async function restore_entry_attachments(
   }
 
   return with_refusal(
-    { restored, uploaded: { file: restored - inline, inline }, skipped, errors },
+    { restored, uploaded: { file: restored - inline, inline }, skipped, ...failures },
     refusal,
   );
 }
@@ -88,7 +103,7 @@ export async function restore_parsed_attachments(
 ): Promise<AttachmentRestoreResult> {
   let restored = 0;
   let inline = 0;
-  const errors: string[] = [];
+  const failures: UploadFailures = { errors: [], outcome_unknown: [] };
   let refusal: RunFatalError | undefined;
 
   for (const [index, att] of attachments.entries()) {
@@ -103,7 +118,7 @@ export async function restore_parsed_attachments(
       restored++;
       if (att.is_inline) inline++;
     } catch (err) {
-      const stop = record_failed_upload(errors, att.name, attachments.length - index, err);
+      const stop = record_failed_upload(failures, att.name, attachments.length - index, err);
       if (stop === undefined) continue;
       refusal = stop.refusal;
       break;
@@ -111,7 +126,7 @@ export async function restore_parsed_attachments(
   }
 
   return with_refusal(
-    { restored, uploaded: { file: restored - inline, inline }, skipped: 0, errors },
+    { restored, uploaded: { file: restored - inline, inline }, skipped: 0, ...failures },
     refusal,
   );
 }
@@ -127,21 +142,31 @@ interface UploadStop {
  * other failure is the attachment's own, and the next one is still sent.
  */
 function record_failed_upload(
-  errors: string[],
+  failures: UploadFailures,
   name: string,
   remaining: number,
   err: unknown,
 ): UploadStop | undefined {
   if (is_active_run_cancelled()) {
-    record_interrupted_upload(errors, name, remaining, err);
+    record_interrupted_upload(failures, name, remaining, err);
     return {};
   }
   if (is_run_fatal_error(err)) {
-    errors.push(`${remaining} attachment(s) not uploaded: ${err.message}`);
+    failures.errors.push(`${remaining} attachment(s) not uploaded: ${err.message}`);
     return { refusal: err };
   }
-  errors.push(`${name}: ${err instanceof Error ? err.message : String(err)}`);
+  record_attachment_error(failures, name, err);
   return undefined;
+}
+
+/**
+ * Records one attachment's failure line, and names the attachment as possibly on the message when
+ * its create ended without a clear answer (issue #893).
+ */
+function record_attachment_error(failures: UploadFailures, name: string, err: unknown): void {
+  const line = `${name}: ${err instanceof Error ? err.message : String(err)}`;
+  failures.errors.push(line);
+  if (err instanceof WriteOutcomeUnknownError) failures.outcome_unknown.push({ name, error: line });
 }
 
 /** The result, carrying the refusal that stopped it when there was one. */
@@ -154,20 +179,20 @@ function with_refusal(
 
 /**
  * Records the attachments a cancelled run did not upload, in one line, after naming an attachment
- * whose final chunk was sent and may have landed (issue #891).
+ * whose create was sent and may have landed (issues #891, #893).
  */
 function record_interrupted_upload(
-  errors: string[],
+  failures: UploadFailures,
   name: string,
   remaining: number,
   err: unknown,
 ): void {
-  if (!(err instanceof UploadCommitUnknownError)) {
-    errors.push(interrupted_attachments(remaining));
+  if (!(err instanceof WriteOutcomeUnknownError)) {
+    failures.errors.push(interrupted_attachments(remaining));
     return;
   }
-  errors.push(`${name}: ${err.message}`);
-  if (remaining > 1) errors.push(interrupted_attachments(remaining - 1));
+  record_attachment_error(failures, name, err);
+  if (remaining > 1) failures.errors.push(interrupted_attachments(remaining - 1));
 }
 
 /**

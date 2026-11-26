@@ -40,6 +40,7 @@ export function empty_restore_result(snapshot_id: string, interrupted = false): 
     verification_warnings: [],
     messages: [],
     restore_folder_name: '',
+    outcome_unknown: [],
     interrupted,
   };
 }
