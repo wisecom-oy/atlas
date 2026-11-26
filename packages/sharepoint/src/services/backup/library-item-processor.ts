@@ -35,6 +35,10 @@ import {
 } from '@wisecom/atlas-drive/backup/sharing-capture';
 import { plan_sharing_only_change } from '@wisecom/atlas-drive/backup/sharing-only-change';
 import {
+  carry_forward_unread_permissions,
+  record_permission_read_failure,
+} from '@wisecom/atlas-drive/backup/unread-permissions';
+import {
   create_item_metadata_capture,
   type DriveItemMetadataCapture,
 } from '@wisecom/atlas-drive/backup/item-metadata-capture';
@@ -100,6 +104,9 @@ export async function process_delta_item(
     const entry = await process_folder_item(item, tracking, capture);
     if (entry)
       library_state.library_entries.push({ ...entry, library_name: library_state.library_name });
+    // A folder fails only by throwing, so one that got here is no longer a failure of its own.
+    library_state.failed_items = clear_item_failure(library_state.failed_items, item.item_id);
+    record_unread_permissions(library_state, item, capture);
     return;
   }
 
@@ -129,7 +136,10 @@ export async function process_delta_item(
   const change_type =
     classified ??
     (await sharing_only_change(item, observation, tracking, library_state, capture.sharing));
-  if (change_type === undefined) return;
+  if (change_type === undefined) {
+    record_unread_permissions(library_state, item, capture);
+    return;
+  }
 
   // Quarantined content is never served, so attempting the download only burns
   // the Graph retry budget: the refusal arrives as an aborted transfer, which
@@ -178,6 +188,12 @@ export async function process_delta_item(
       version_stats.total_versions_failed = f;
     });
   }
+  // A failed permission read keeps the newest earlier entry's grants; the guard records the failure.
+  const stored_permissions = await carry_forward_unread_permissions(
+    item.item_id,
+    observation,
+    capture.sharing,
+  );
   library_state.library_entries.push(
     with_captured_permissions(
       // The stored length, which is the refreshed size when the file grew on its first download (#759).
@@ -188,15 +204,34 @@ export async function process_delta_item(
         change_type,
         library_state.library_name,
       ),
-      observation,
+      stored_permissions,
     ),
   );
-  record_file_permission_digest(tracking, item.item_id, observation);
+  record_file_permission_digest(tracking, item.item_id, stored_permissions);
   library_state.failed_items = clear_item_failure(library_state.failed_items, item.item_id);
+  record_unread_permissions(library_state, item, capture);
   tracking.previous_path_by_file_id[item.item_id] = item.parent_path;
   tracking.previous_name_by_file_id[item.item_id] = item.file_name;
   tracking.previous_kind_by_file_id[item.item_id] = 'file';
   if (item.etag) tracking.previous_etag_by_file_id[item.item_id] = item.etag;
+}
+
+/**
+ * Records on the ledger an item whose permissions could not be read, once the rest of it was
+ * processed: content it stored is kept, and the next run re-reads the item and its permissions
+ * (issue #856). It is not a failed item for notebook completeness, since its content came through.
+ */
+function record_unread_permissions(
+  library_state: LibraryProcessingState,
+  item: SharePointDeltaItem,
+  capture: DriveItemMetadataCapture,
+): void {
+  if (!capture.sharing.has_failed_read(item.item_id)) return;
+  library_state.failed_items = record_permission_read_failure(
+    library_state.failed_items,
+    item.drive_id,
+    item,
+  );
 }
 
 /** Processes one item, recording a ledger failure instead of failing the library. */
@@ -263,8 +298,11 @@ async function sharing_only_change(
   if (plan.kind === 'download') return 'updated';
   if (plan.kind === 'entry') {
     library_state.library_entries.push({ ...plan.entry, library_name: library_state.library_name });
-    library_state.failed_items = clear_item_failure(library_state.failed_items, item.item_id);
     record_file_permission_digest(tracking, item.item_id, observation);
+  }
+  // Read permissions settle a file listed for a failed read, changed or not (issue #856).
+  if (observation.read) {
+    library_state.failed_items = clear_item_failure(library_state.failed_items, item.item_id);
   }
   return undefined;
 }

@@ -69,7 +69,8 @@ describe('DriveSharingCapture (#580)', () => {
     const seen = await capture.observe(item('a'), {});
 
     expect(graph.fetch_item_permissions).not.toHaveBeenCalled();
-    expect(seen).toEqual({ read: false });
+    expect(seen).toEqual({ read: false, failed: false });
+    expect(capture.has_failed_read('a')).toBe(false);
   });
 
   it('reports a change against the digest the cursor recorded', async () => {
@@ -91,14 +92,31 @@ describe('DriveSharingCapture (#580)', () => {
     const capture = new DriveSharingCapture(graph);
     const shared = item('gone', { sharing_facet: true });
 
-    expect(await capture.observe(shared, {})).toEqual({ read: false });
-    expect(await capture.observe(shared, {})).toEqual({ read: false });
+    expect(await capture.observe(shared, {})).toEqual({ read: false, failed: true });
+    expect(await capture.observe(shared, {})).toEqual({ read: false, failed: true });
     expect(graph.fetch_item_permissions).toHaveBeenCalledTimes(1);
+  });
+
+  it('remembers a candidate whose read failed, and only that one (#856)', async () => {
+    const graph = connector({ read: [GRANT] });
+    const capture = new DriveSharingCapture(graph);
+    const items = [
+      item('read', { sharing_facet: true }),
+      item('refused', { sharing_facet: true }),
+      item('plain'),
+    ];
+
+    await capture.prefetch('drive-1', items, {});
+    for (const each of items) await capture.observe(each, {});
+
+    expect(capture.has_failed_read('read')).toBe(false);
+    expect(capture.has_failed_read('refused')).toBe(true);
+    expect(capture.has_failed_read('plain')).toBe(false);
   });
 });
 
 describe('recording what a file entry holds', () => {
-  it('stores the digest when the read found permissions and clears it otherwise', () => {
+  it('stores the digest when the read found permissions and clears it when it found none', () => {
     const tracking = { permission_digest_by_item_id: { a: 'old', b: 'old' } };
     record_file_permission_digest(tracking, 'a', {
       read: true,
@@ -106,13 +124,24 @@ describe('recording what a file entry holds', () => {
       digest: 'new',
       changed: true,
     });
-    record_file_permission_digest(tracking, 'b', { read: false });
+    record_file_permission_digest(tracking, 'b', {
+      read: true,
+      permissions: [],
+      digest: 'empty',
+      changed: true,
+    });
     expect(tracking.permission_digest_by_item_id).toEqual({ a: 'new' });
+  });
+
+  it('keeps the digest when the read failed (#856)', () => {
+    const tracking = { permission_digest_by_item_id: { a: 'old' } };
+    record_file_permission_digest(tracking, 'a', { read: false, failed: true });
+    expect(tracking.permission_digest_by_item_id).toEqual({ a: 'old' });
   });
 
   it('attaches permissions only when some were read', () => {
     const base = { file_id: 'a' };
-    expect(with_captured_permissions(base, { read: false })).toBe(base);
+    expect(with_captured_permissions(base, { read: false, failed: true })).toBe(base);
     expect(
       with_captured_permissions(base, { read: true, permissions: [], digest: 'x', changed: true }),
     ).toBe(base);

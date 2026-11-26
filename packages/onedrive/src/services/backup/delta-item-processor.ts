@@ -30,6 +30,7 @@ import {
   type DriveItemMetadataCapture,
 } from '@wisecom/atlas-drive/backup/item-metadata-capture';
 import { plan_sharing_only_change } from '@wisecom/atlas-drive/backup/sharing-only-change';
+import { carry_forward_unread_permissions } from '@wisecom/atlas-drive/backup/unread-permissions';
 import {
   capture_owed_file_versions,
   forget_pending_versions,
@@ -193,7 +194,13 @@ export async function process_delta_item(
   state.previous_kind_by_file_id[item.item_id] = 'file';
   if (item.etag) state.previous_etag_by_file_id[item.item_id] = item.etag;
 
-  record_file_permission_digest(state, item.item_id, observation);
+  // A failed permission read keeps the newest earlier entry's grants; the caller records the failure.
+  const stored_permissions = await carry_forward_unread_permissions(
+    item.item_id,
+    observation,
+    capture.sharing,
+  );
+  record_file_permission_digest(state, item.item_id, stored_permissions);
 
   return {
     // The stored length, which is the refreshed size when the file grew on its first download (#759).
@@ -204,7 +211,7 @@ export async function process_delta_item(
         result.checksum,
         change_type,
       ),
-      observation,
+      stored_permissions,
     ),
     files_stored: result.stored ? 1 : 0,
     files_deduplicated: result.deduplicated ? 1 : 0,

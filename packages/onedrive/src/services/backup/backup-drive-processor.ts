@@ -23,6 +23,7 @@ import {
   apply_item_outcome,
   record_failed_or_cancelled_drive,
   record_item_outcome_failure,
+  record_unread_item_permissions,
 } from '@/services/backup/drive-item-outcome';
 import { resolve_retry_items } from '@/services/backup/failed-item-retry';
 import { scoped_delta } from '@/services/backup/folder-scope';
@@ -332,6 +333,7 @@ export async function process_single_drive(
     }
 
     apply_item_outcome(result, item, outcome);
+    record_unread_item_permissions(result, drive.drive_id, item, capture);
   }
 
   result.package_report = summarize_processed_package_items(
