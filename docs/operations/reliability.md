@@ -268,6 +268,8 @@ Every backup first lists the units it will read: calendars, contact folders, mai
 
 The count costs no extra request. The channel check costs one request for each channel that disappears, once: a channel already marked deleted is not read again. More items than counted is accepted, since a unit created while the listing paged is still a real unit. A unit deleted while the listing paged can leave one fewer than counted, which fails that run; the next run lists again.
 
+A mail folder listed more than once, on one page, across pages, or under two parents, is backed up once, at the place it was first listed, and its subfolders are listed once. Every copy still counts toward the `@odata.count` check, because Microsoft Graph counted it that way.
+
 ## Concurrency guards
 
 Atlas runs one operation at a time per mailbox, drive owner, site, or team. It enforces this with a lease object in storage.

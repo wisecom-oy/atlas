@@ -3,22 +3,13 @@ import { append_all } from '@wisecom/atlas-core/utils/append-all';
 import type { DeltaPageCallback, DeltaSyncResult, MailMessage } from '@wisecom/atlas-types';
 import { with_graph_retry } from '@wisecom/atlas-m365-graph';
 import type { GraphPageResponse, GraphDeltaMessage } from '@/adapters/graph-delta-message-mapper';
-import { DELTA_SELECT_FIELDS, extract_page_messages } from '@/adapters/graph-delta-message-mapper';
+import { DELTA_SELECT_FIELDS } from '@/adapters/graph-delta-message-mapper';
+import { apply_delta_page_events, type DeltaHandover } from '@/adapters/graph-delta-round-events';
 
 // Graph's default message/folder IDs change on every folder move; immutable
 // IDs do not. Must be sent on EVERY request that produces or consumes an ID —
 // mixing formats corrupts correlation (issue #48).
 export const IMMUTABLE_ID_PREFER = 'IdType="ImmutableId"';
-
-/**
- * What one `fetch_delta` call has already reported. An invalid delta link can be rejected after
- * earlier pages were handed to `on_page`, so the full re-enumeration that follows must neither hand
- * those messages over again nor drop the removals those pages carried (issue #642).
- */
-export interface DeltaHandover {
-  readonly removed_ids: string[];
-  readonly handed_over_ids: Set<string>;
-}
 
 /** One delta pass over a mail folder: from a saved link, or a full enumeration without one. */
 export interface MailDeltaPass {
@@ -28,11 +19,6 @@ export interface MailDeltaPass {
   readonly delta_reset: boolean;
   readonly page_size: number;
   readonly on_page?: DeltaPageCallback | undefined;
-}
-
-/** Returns an empty handover for a new `fetch_delta` call. */
-export function create_delta_handover(): DeltaHandover {
-  return { removed_ids: [], handed_over_ids: new Set() };
 }
 
 /**
@@ -80,6 +66,8 @@ async function fetch_initial_delta_page(
  * Runs one delta pass for a folder, paging through all results and converting each message
  * directly (the body is in the delta response, so no per-message fetches are needed). Removals
  * accumulate into the handover, and a message the handover already passed to on_page is skipped.
+ * Each message ID ends in the state of its last event, and a repeated one is handed over once
+ * (issue #894).
  * Throws when the round ends on a page without a delta link; a round on_page stops early returns
  * an empty `delta_link` instead.
  */
@@ -93,6 +81,9 @@ export async function run_mail_delta_pass(
   let delta_link = '';
   let page_count = 0;
   let total_streamed = 0;
+  // Without a callback nothing is handed over until the pass returns, so a pass that fails is
+  // replaced whole and the next one must not skip what this one collected.
+  const seen_ids = on_page ? handover.handed_over_ids : new Set<string>();
 
   let page: GraphPageResponse = prev_delta_link
     ? await fetch_mail_continuation_page(client, prev_delta_link, page_size)
@@ -101,9 +92,7 @@ export async function run_mail_delta_pass(
   while (true) {
     page_count++;
     const items = (page.value ?? []) as GraphDeltaMessage[];
-    const page_messages = extract_page_messages(items, handover.removed_ids).filter(
-      (message) => !handover.handed_over_ids.has(message.message_id),
-    );
+    const page_messages = apply_delta_page_events(items, handover.removed_ids, seen_ids);
 
     const callback_result = await hand_page_over(
       on_page,
@@ -111,7 +100,6 @@ export async function run_mail_delta_pass(
       total_streamed,
       page_messages,
       messages,
-      handover.handed_over_ids,
     );
     total_streamed = callback_result.new_total_streamed;
 
@@ -130,7 +118,12 @@ export async function run_mail_delta_pass(
     page = await fetch_mail_continuation_page(client, next_url, page_size);
   }
 
-  return { messages, removed_ids: handover.removed_ids, delta_link, delta_reset: pass.delta_reset };
+  return {
+    messages: messages.filter((message) => !handover.removed_ids.has(message.message_id)),
+    removed_ids: [...handover.removed_ids],
+    delta_link,
+    delta_reset: pass.delta_reset,
+  };
 }
 
 /**
@@ -149,8 +142,8 @@ function assert_final_page_has_delta_link(page: GraphPageResponse): void {
 }
 
 /**
- * Invokes the page callback, recording its messages as handed over, or accumulates them when
- * there is no callback; returns the continuation flag.
+ * Invokes the page callback, or accumulates the page's messages when there is no callback; returns
+ * the continuation flag.
  */
 async function hand_page_over(
   on_page: DeltaPageCallback | undefined,
@@ -158,14 +151,12 @@ async function hand_page_over(
   total_streamed: number,
   page_messages: MailMessage[],
   messages: MailMessage[],
-  handed_over_ids: Set<string>,
 ): Promise<{ should_continue: boolean | void; new_total_streamed: number }> {
   if (!on_page) {
     append_all(messages, page_messages);
     return { should_continue: true, new_total_streamed: total_streamed };
   }
 
-  for (const message of page_messages) handed_over_ids.add(message.message_id);
   const new_total_streamed = total_streamed + page_messages.length;
   const cb_result = on_page(page_count, new_total_streamed, page_messages);
   const should_continue = cb_result instanceof Promise ? await cb_result : cb_result;
