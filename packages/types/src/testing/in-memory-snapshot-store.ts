@@ -1,3 +1,4 @@
+import type { ManifestObjectLockEffectivePolicy } from '@/domain/outlook/manifest';
 import type { SnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type { ObjectStorage } from '@/ports/storage/object-storage.port';
 import type { ReadableSnapshotSummaries } from '@/ports/storage/readable-listing.port';
@@ -7,6 +8,12 @@ export interface StoredSnapshot {
   readonly snapshot_id: string;
   readonly created_at: Date;
   readonly entries: readonly unknown[];
+  readonly object_lock?: { readonly effective: ManifestObjectLockEffectivePolicy } | undefined;
+}
+
+/** A row as every Outlook, OneDrive and SharePoint summary records it, retention included. */
+export interface StoredSnapshotRow extends SnapshotSummary {
+  readonly object_lock?: ManifestObjectLockEffectivePolicy | undefined;
 }
 
 /**
@@ -19,7 +26,7 @@ export interface InMemorySnapshotStore<M extends StoredSnapshot> {
   /** Reads the manifest at `key`; undefined when absent, `unreadable(key)` when damaged. */
   read(key: string): Promise<M | undefined>;
   /** The rows of every manifest under `prefix`, with damaged ones named instead. */
-  list_summaries(prefix: string): Promise<ReadableSnapshotSummaries<SnapshotSummary>>;
+  list_summaries(prefix: string): Promise<ReadableSnapshotSummaries<StoredSnapshotRow>>;
   /** Overwrites the manifest at `key` with bytes no reader accepts. */
   damage(key: string): Promise<void>;
 }
@@ -52,8 +59,8 @@ export function in_memory_snapshot_store<M extends StoredSnapshot>(
       await storage.put(key_of(manifest), Buffer.from(JSON.stringify(manifest)));
     },
     read,
-    list_summaries: async (prefix): Promise<ReadableSnapshotSummaries<SnapshotSummary>> => {
-      const summaries: SnapshotSummary[] = [];
+    list_summaries: async (prefix): Promise<ReadableSnapshotSummaries<StoredSnapshotRow>> => {
+      const summaries: StoredSnapshotRow[] = [];
       const unreadable_keys: string[] = [];
       for (const key of await storage.list(prefix)) {
         if (key.slice(prefix.length).includes('/')) continue;
@@ -73,12 +80,13 @@ export function in_memory_snapshot_store<M extends StoredSnapshot>(
   };
 }
 
-function row_of(manifest: StoredSnapshot, key: string): SnapshotSummary {
+function row_of(manifest: StoredSnapshot, key: string): StoredSnapshotRow {
   return {
     snapshot_id: manifest.snapshot_id,
     created_at: manifest.created_at,
     manifest_key: key,
     entry_count: manifest.entries.length,
     total_size_bytes: 0,
+    ...(manifest.object_lock !== undefined && { object_lock: manifest.object_lock.effective }),
   };
 }

@@ -29,7 +29,9 @@ describe('settle_versions', () => {
     }
     const tally = new PruneTally();
 
-    await settle_versions(bucket.storage, unreferenced(bucket.storage, references), tally, false);
+    await settle_versions(bucket.storage, unreferenced(bucket.storage, references), tally, {
+      dry_run: false,
+    });
 
     expect(tally.counts.deleted_objects).toBe(1250);
     expect(tally.deleted_bytes).toBe(1250 * 5);
@@ -43,7 +45,9 @@ describe('settle_versions', () => {
     await bucket.storage.put('data/o/a', Buffer.from('abc'));
     const tally = new PruneTally();
 
-    await settle_versions(bucket.storage, versions_under(bucket.storage, 'data/'), tally, true);
+    await settle_versions(bucket.storage, versions_under(bucket.storage, 'data/'), tally, {
+      dry_run: true,
+    });
 
     expect(tally.counts.deleted_objects).toBe(1);
     expect(tally.deleted_bytes).toBe(3);
@@ -56,7 +60,9 @@ describe('settle_versions', () => {
     bucket.lock(bucket.versions('data/o/locked')[0]!.version_id, new ObjectLockRetainedError('k'));
     const tally = new PruneTally();
 
-    await settle_versions(bucket.storage, versions_under(bucket.storage, 'data/'), tally, false);
+    await settle_versions(bucket.storage, versions_under(bucket.storage, 'data/'), tally, {
+      dry_run: false,
+    });
 
     expect(tally.counts.retained_objects).toBe(1);
     expect(tally.counts.failed_objects).toBe(0);

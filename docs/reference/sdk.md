@@ -901,7 +901,7 @@ await atlas.sharepoint.pruneSnapshots(siteId, { before: cutoff, signal: controll
 | Option   | Type               | Description                                                                                                  |
 | -------- | ------------------ | ------------------------------------------------------------------------------------------------------------ |
 | `before` | `Date` or `string` | Cut-off, required. Snapshots created strictly before it are removed; one created at exactly it is kept        |
-| `dryRun` | `boolean`          | Report what a run would remove and change nothing                                                            |
+| `dryRun` | `boolean`          | Report what a run would remove and change nothing. Object Lock is predicted from each snapshot's recorded retention, see [How a dry run predicts Object Lock](/operations/retention#how-a-dry-run-predicts-object-lock) |
 | `signal` | `AbortSignal`      | Stops the run between steps and during the content sweep. A repeated call continues where it stopped         |
 
 | Result field                                                    | Description                                                                                       |

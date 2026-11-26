@@ -99,6 +99,18 @@ Memory holds the baseline being folded, about what a restore of that snapshot ho
 
 A dry run makes the same reads and listings, takes the owner lease, and writes nothing else. It reports the snapshots, object versions, and bytes the run would remove.
 
+### How a dry run predicts Object Lock
+
+A dry run cannot try a delete, so it predicts retention from what each snapshot recorded. Every Outlook, OneDrive, and SharePoint manifest and summary row records the retention its run applied (`object_lock.effective`, mode and retain-until). A pruned snapshot whose retain-until is still in the future is reported as retained, with its manifest key among the retained ones, and the dry run then treats it the way the run will: its manifest stays, and so do its version index, entry parts, and the content it references.
+
+| The dry run is exact for | It reports deletions the run will not make when |
+| --- | --- |
+| Snapshots written without retention, or under a retention that has ended | A legal hold protects an object |
+| Snapshots whose recorded retention still runs | The bucket has a default retention, which no snapshot records |
+| | A OneDrive or SharePoint snapshot written before 7.3.0 is still under retention, because those record none |
+
+In those cases the dry run is an upper bound, and the run reports what the backend actually retained. Telling them apart would need a per-object retention read, which the dry run does not make.
+
 ## Effects on other commands
 
 - **Restores and verify.** Every kept snapshot restores and verifies the same content as before. `verify` of a OneDrive or SharePoint baseline finds the version index rows the prune wrote for it.

@@ -51,7 +51,7 @@ export async function sweep_unreferenced_content<M extends PrunableManifest>(
     if (is_prune_interrupted(options)) return 'interrupted';
     assert_lease_held(writes);
     const versions = unreferenced(versions_under(storage, prefix), references, options);
-    await settle_versions(storage, versions, tally, writes.dry_run);
+    await settle_versions(storage, versions, tally, { dry_run: writes.dry_run });
   }
   return is_prune_interrupted(options) ? 'interrupted' : undefined;
 }

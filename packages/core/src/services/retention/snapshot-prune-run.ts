@@ -3,7 +3,6 @@ import type {
   HeldOwnerLease,
   SnapshotPruneOptions,
   SnapshotPruneResult,
-  SnapshotSummary,
 } from '@wisecom/atlas-types';
 import { UnreadableObjectsError } from '@wisecom/atlas-types';
 import { QUARANTINE_PREFIX } from '@/services/quarantine/stored-object-quarantine';
@@ -12,6 +11,7 @@ import {
   fold_baselines,
   type FoldedBaseline,
 } from '@/services/retention/baseline-commit';
+import { is_retention_in_force } from '@/services/retention/object-lock-retention';
 import { is_prune_interrupted } from '@/services/retention/prune-interruption';
 import { PruneTally } from '@/services/retention/prune-tally';
 import {
@@ -26,6 +26,7 @@ import {
 import type {
   PrunableManifest,
   PruneWrites,
+  RetainableSnapshotSummary,
   SnapshotPruneTarget,
 } from '@/services/retention/snapshot-prune-target';
 import { remove_stale_satellites } from '@/services/retention/stale-satellite-removal';
@@ -41,7 +42,7 @@ const NOTHING_REMOVED: ManifestRemoval = {
 interface PruneRun<M> {
   readonly target: SnapshotPruneTarget<M & PrunableManifest>;
   readonly options: SnapshotPruneOptions;
-  readonly plan: SnapshotPrunePlan<SnapshotSummary>;
+  readonly plan: SnapshotPrunePlan<RetainableSnapshotSummary>;
   readonly folded: readonly FoldedBaseline<M>[];
   readonly tally: PruneTally;
 }
@@ -119,10 +120,16 @@ async function report_dry_run<M extends PrunableManifest>(
   run: PruneRun<M>,
 ): Promise<SnapshotPruneResult> {
   const { target, options, plan, tally } = run;
-  const writes: PruneWrites = { dry_run: true };
+  // Leave in place what Object Lock keeps, as the run will find: the manifest stays listed, so its
+  // satellites and the content it references stay too (#975 records the retention on each row).
+  const now = new Date();
+  const retained = plan.pruned.filter((row) => is_retention_in_force(row.object_lock, now));
+  const retained_manifest_keys = new Set(retained.map((row) => row.manifest_key));
+  const writes: PruneWrites = { dry_run: true, retained_manifest_keys };
   const removal = await remove_pruned_manifests(target, plan.pruned, writes, tally);
+  const remaining_rows = [...plan.kept, ...retained];
   const kept_ids = await quarantined_snapshot_ids(target);
-  for (const row of plan.kept) kept_ids.add(row.snapshot_id);
+  for (const row of remaining_rows) kept_ids.add(row.snapshot_id);
   const excluded_keys = await remove_stale_satellites(
     target,
     kept_ids,
@@ -131,7 +138,10 @@ async function report_dry_run<M extends PrunableManifest>(
     tally,
   );
   const baselines = run.folded.map((folded) => folded.baseline);
-  const sources = { remaining: planned_manifests(target, plan.kept, baselines), excluded_keys };
+  const sources = {
+    remaining: planned_manifests(target, remaining_rows, baselines),
+    excluded_keys,
+  };
   const skipped = await sweep_unreferenced_content(target, sources, writes, tally, options);
   return build_result(run, removal, skipped);
 }

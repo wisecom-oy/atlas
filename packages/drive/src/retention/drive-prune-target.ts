@@ -2,11 +2,11 @@ import type {
   HeldOwnerLease,
   ReadableSnapshotSummaries,
   ReadableVersionIndexListing,
-  SnapshotSummary,
   TenantContext,
 } from '@wisecom/atlas-types';
 import { quarantined_copies_of } from '@wisecom/atlas-core/services/quarantine/stored-object-quarantine';
 import type {
+  RetainableSnapshotSummary,
   SnapshotPruneTarget,
   StaleSatellitePrefix,
 } from '@wisecom/atlas-core/services/retention/snapshot-prune-target';
@@ -31,7 +31,7 @@ export interface DrivePruneOwner<M extends FoldableDriveManifest<RowSourceEntry>
   readonly keys: DriveStorageKeys;
   /** The normalized owner or site id. */
   readonly owner_id: string;
-  readonly list_summaries: () => Promise<ReadableSnapshotSummaries<SnapshotSummary>>;
+  readonly list_summaries: () => Promise<ReadableSnapshotSummaries<RetainableSnapshotSummary>>;
   readonly read_manifest: (key: string) => Promise<M | undefined>;
   readonly replace_with_baseline: (manifest: M, lease: HeldOwnerLease) => Promise<void>;
   readonly forget_rows: (snapshot_ids: readonly string[], lease: HeldOwnerLease) => Promise<void>;

@@ -41,10 +41,12 @@ export async function remove_pruned_manifests<M extends PrunableManifest>(
   const storage = target.ctx.storage;
   assert_lease_held(writes);
   for (const scope of pruned.flatMap((s) => target.satellite_scopes(s.snapshot_id))) {
-    await settle_versions(storage, versions_under(storage, scope), tally, writes.dry_run);
+    await settle_versions(storage, versions_under(storage, scope), tally, {
+      dry_run: writes.dry_run,
+    });
   }
   assert_lease_held(writes);
-  const outcomes = await delete_manifest_versions(target, pruned, tally, writes.dry_run);
+  const outcomes = await delete_manifest_versions(target, pruned, tally, writes);
   const removal = classify_removal(pruned, outcomes);
   if (!writes.dry_run) await target.forget_rows(removal.removed_snapshot_ids, writes.lease);
   return removal;
@@ -55,23 +57,27 @@ export function assert_lease_held(writes: PruneWrites): void {
   if (!writes.dry_run) writes.lease.assert_held();
 }
 
-/** Deletes every version of the pruned manifests, from one listing of the owner's manifests. */
+/**
+ * Deletes every version of the pruned manifests, from one listing of the owner's manifests. A dry
+ * run predicts every version of a manifest under recorded retention as retained.
+ */
 async function delete_manifest_versions<M extends PrunableManifest>(
   target: SnapshotPruneTarget<M>,
   pruned: readonly SnapshotSummary[],
   tally: PruneTally,
-  dry_run: boolean,
+  writes: PruneWrites,
 ): Promise<Map<string, StorageDeleteOutcome>> {
   const pruned_keys = new Set(pruned.map((s) => s.manifest_key));
   const outcomes = new Map<string, StorageDeleteOutcome>();
   const listing = versions_under(target.ctx.storage, target.manifest_prefix);
-  await settle_versions(
-    target.ctx.storage,
-    only_keys(listing, pruned_keys),
-    tally,
-    dry_run,
-    (version, outcome) => outcomes.set(version.key, worse_of(outcomes.get(version.key), outcome)),
-  );
+  await settle_versions(target.ctx.storage, only_keys(listing, pruned_keys), tally, {
+    dry_run: writes.dry_run,
+    predict: writes.dry_run
+      ? (version) => (writes.retained_manifest_keys.has(version.key) ? 'retained' : 'deleted')
+      : undefined,
+    observe: (version, outcome) =>
+      outcomes.set(version.key, worse_of(outcomes.get(version.key), outcome)),
+  });
   return outcomes;
 }
 

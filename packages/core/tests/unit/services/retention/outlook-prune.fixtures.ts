@@ -8,7 +8,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { UnreadableObjectsError } from '@wisecom/atlas-types';
+import { ObjectLockRetainedError, UnreadableObjectsError } from '@wisecom/atlas-types';
 import {
   in_memory_versioned_storage,
   type InMemoryVersionedStorage,
@@ -108,12 +108,19 @@ export const HISTORY: readonly Manifest[] = [
 
 export const BLOBS = ['a', 'b', 'b2', 'c', 'e'] as const;
 
-/** A versioned bucket holding the history above, its blobs, pointers and delta cursor. */
-export async function seeded_bucket(): Promise<InMemoryVersionedStorage> {
+/**
+ * A versioned bucket holding the history above, its blobs, pointers and delta cursor. Snapshots
+ * named in `retention` record that Object Lock policy, and a running one locks their manifest and
+ * the blobs they first stored, as the backend would.
+ */
+export async function seeded_bucket(
+  retention: Readonly<Record<string, SeededRetention>> = {},
+): Promise<InMemoryVersionedStorage> {
   const bucket = in_memory_versioned_storage();
   const store = outlook_store(bucket.storage);
   for (const manifest of HISTORY) {
-    await store.save(manifest);
+    const recorded = retention[manifest.snapshot_id];
+    await store.save(recorded ? { ...manifest, object_lock: recorded_lock(recorded) } : manifest);
     await bucket.storage.put(
       pointer_key(manifest.snapshot_id),
       Buffer.from(manifest_key(manifest.snapshot_id)),
@@ -123,7 +130,37 @@ export async function seeded_bucket(): Promise<InMemoryVersionedStorage> {
     await bucket.storage.put(blob_key(name), Buffer.from(`content ${name}`));
   await bucket.storage.put(attachment_key('d'), Buffer.from('attachment d'));
   await bucket.storage.put(`_meta/outlook-cursors/${OWNER}.json`, Buffer.from('cursor of s4'));
+  for (const [snapshot_id, recorded] of Object.entries(retention)) {
+    if (recorded !== 'running') continue;
+    const manifest = HISTORY.find((m) => m.snapshot_id === snapshot_id)!;
+    const blobs = manifest.entries.flatMap((e) => [
+      e.storage_key,
+      ...(e.attachments ?? []).map((a) => a.storage_key),
+    ]);
+    lock_versions(bucket, [manifest_key(snapshot_id), ...blobs]);
+  }
   return bucket;
+}
+
+/** How a seeded snapshot was written: without retention, under one still running, or one ended. */
+export type SeededRetention = 'running' | 'ended';
+
+/** The Object Lock policy a run records on its manifest, ending a day after or before `now`. */
+export function recorded_lock(retention: SeededRetention, now = Date.now()) {
+  const retain_until = new Date(now + (retention === 'running' ? 1 : -1) * 86_400_000);
+  return {
+    requested: { mode: 'GOVERNANCE' as const, retention_days: 30 },
+    effective: { mode: 'GOVERNANCE' as const, retain_until: retain_until.toISOString() },
+  };
+}
+
+/** Makes the backend refuse to delete every current version of `keys`, as a running lock does. */
+export function lock_versions(bucket: InMemoryVersionedStorage, keys: readonly string[]): void {
+  for (const key of keys) {
+    for (const version of bucket.versions(key)) {
+      bucket.lock(version.version_id, new ObjectLockRetainedError(key));
+    }
+  }
 }
 
 export function outlook_store(storage: ObjectStorage): InMemorySnapshotStore<Manifest> {

@@ -1,4 +1,5 @@
 import type { ManifestObjectLockPolicy, StorageObjectLockPolicy } from '@wisecom/atlas-types';
+import { is_retention_in_force } from '@/services/retention/object-lock-retention';
 
 /**
  * The Object Lock retention a baseline written over a kept snapshot's manifest carries: the
@@ -11,8 +12,8 @@ export function baseline_lock_policy(
   now: Date = new Date(),
 ): StorageObjectLockPolicy | undefined {
   const effective = object_lock?.effective;
-  if (effective?.retain_until === undefined) return undefined;
-  const retain_until = new Date(effective.retain_until);
-  if (Number.isNaN(retain_until.getTime()) || retain_until <= now) return undefined;
+  if (effective?.retain_until === undefined || !is_retention_in_force(effective, now)) {
+    return undefined;
+  }
   return { mode: effective.mode, retain_until: effective.retain_until };
 }

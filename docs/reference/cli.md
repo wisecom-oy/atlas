@@ -1402,7 +1402,7 @@ atlas sharepoint prune --site https://contoso.sharepoint.com/sites/Engineering -
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
 | `-m, --mailbox`, `-o, --owner`, or `--site`      | The mailbox, drive owner, or site, as for the workload's other commands (required)              |
 | `--before <date-or-age>`                          | Cut-off: an ISO 8601 date or date-time, or an age such as `90d`, `12w`, or `36h` (required)    |
-| `--dry-run`                                      | Report the snapshots, object versions, and bytes a run would remove, and change nothing         |
+| `--dry-run`                                      | Report the snapshots, object versions, and bytes a run would remove, and change nothing. Object Lock is predicted from each snapshot's recorded retention, see [Snapshot retention](/operations/retention#how-a-dry-run-predicts-object-lock) |
 | `-y, --yes`                                      | Skip the confirmation prompt                                                                   |
 | `-t, --tenant <id>`                              | Override the tenant ID from config                                                             |
 

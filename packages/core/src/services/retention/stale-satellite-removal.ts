@@ -38,9 +38,12 @@ export async function remove_stale_satellites<M extends PrunableManifest>(
       remaining_snapshot_ids,
       before.getTime(),
     );
-    await settle_versions(storage, stale, tally, writes.dry_run, (version, outcome) => {
-      if (outcome === 'deleted') removed.add(version.key);
-      else retained_or_failed.add(version.key);
+    await settle_versions(storage, stale, tally, {
+      dry_run: writes.dry_run,
+      observe: (version, outcome) => {
+        if (outcome === 'deleted') removed.add(version.key);
+        else retained_or_failed.add(version.key);
+      },
     });
   }
   for (const key of retained_or_failed) removed.delete(key);

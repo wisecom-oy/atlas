@@ -1,5 +1,6 @@
 import type {
   HeldOwnerLease,
+  ManifestObjectLockEffectivePolicy,
   ReadableSnapshotSummaries,
   SnapshotSummary,
   TenantContext,
@@ -11,7 +12,23 @@ import type { ReferencedKeySet } from '@/services/retention/referenced-key-set';
  * under the owner's lease, which every step checks before it writes.
  */
 export type PruneWrites =
-  { readonly dry_run: true } | { readonly dry_run: false; readonly lease: HeldOwnerLease };
+  | {
+      readonly dry_run: true;
+      /**
+       * Manifests whose recorded Object Lock retention still runs, which the dry run predicts
+       * the backend will refuse to delete, as the run itself would find.
+       */
+      readonly retained_manifest_keys: ReadonlySet<string>;
+    }
+  | { readonly dry_run: false; readonly lease: HeldOwnerLease };
+
+/**
+ * A summary row with the Object Lock retention its manifest was written with, which every
+ * Outlook, OneDrive and SharePoint row carries when the run requested retention (#975, #976).
+ */
+export interface RetainableSnapshotSummary extends SnapshotSummary {
+  readonly object_lock?: ManifestObjectLockEffectivePolicy | undefined;
+}
 
 /** What the prune needs from a manifest of any workload whose snapshots form a chain. */
 export interface PrunableManifest {
@@ -61,7 +78,7 @@ export interface SnapshotPruneTarget<M extends PrunableManifest> {
   readonly stale_satellites: readonly StaleSatellitePrefix[];
 
   /** The owner's snapshots from its summary index, naming the damaged manifests. */
-  list_summaries(): Promise<ReadableSnapshotSummaries<SnapshotSummary>>;
+  list_summaries(): Promise<ReadableSnapshotSummaries<RetainableSnapshotSummary>>;
   /** Reads one manifest; undefined when absent, `UnreadableContentError` when damaged. */
   read_manifest(key: string): Promise<M | undefined>;
   /** A fresh fold for one baseline. */

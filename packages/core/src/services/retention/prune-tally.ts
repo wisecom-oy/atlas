@@ -29,9 +29,9 @@ export class PruneTally {
     }
   }
 
-  /** Counts a version a dry run would delete. */
-  record_planned(version: PrunableVersion): void {
-    this.record(version, 'deleted');
+  /** Counts how a dry run expects deleting this version to end. */
+  record_planned(version: PrunableVersion, outcome: StorageDeleteOutcome): void {
+    this.record(version, outcome);
   }
 }
 
@@ -66,21 +66,33 @@ export async function* versions_under(
   for (const key of await storage.list(prefix)) yield { key };
 }
 
+/** How a dry run expects deleting one version to end. */
+export type OutcomePrediction = (version: PrunableVersion) => StorageDeleteOutcome;
+
+/** What `settle_versions` does with each version, and who hears of the outcome. */
+export interface Settlement {
+  readonly dry_run: boolean;
+  /** A dry run's expected outcome per version; deleted when not given. */
+  readonly predict?: OutcomePrediction | undefined;
+  readonly observe?: DeletionOutcomeObserver<PrunableVersion> | undefined;
+}
+
 /**
  * Deletes every version the stream yields and counts each outcome, or in a dry run only counts
- * them as deleted. `observe` sees each version's outcome either way.
+ * the outcome it predicts. `observe` sees each version's outcome either way.
  */
 export async function settle_versions(
   storage: BatchDeletionStorage,
   versions: AsyncIterable<PrunableVersion>,
   tally: PruneTally,
-  dry_run: boolean,
-  observe?: DeletionOutcomeObserver<PrunableVersion>,
+  settlement: Settlement,
 ): Promise<void> {
-  if (dry_run) {
+  const { observe } = settlement;
+  if (settlement.dry_run) {
     for await (const version of versions) {
-      tally.record_planned(version);
-      observe?.(version, 'deleted');
+      const outcome = settlement.predict?.(version) ?? 'deleted';
+      tally.record_planned(version, outcome);
+      observe?.(version, outcome);
     }
     return;
   }

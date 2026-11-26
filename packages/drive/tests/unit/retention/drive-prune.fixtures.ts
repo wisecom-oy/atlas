@@ -7,7 +7,7 @@ import type {
   SnapshotPruneOptions,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { UnreadableObjectsError } from '@wisecom/atlas-types';
+import { ObjectLockRetainedError, UnreadableObjectsError } from '@wisecom/atlas-types';
 import {
   in_memory_versioned_storage,
   type InMemoryVersionedStorage,
@@ -127,13 +127,21 @@ function row(
   };
 }
 
-/** A bucket holding the history, its run indexes, entry parts, blobs and a cursor bound to run 4. */
-export async function seeded_bucket(workload: Workload): Promise<InMemoryVersionedStorage> {
+/**
+ * A bucket holding the history, its run indexes, entry parts, blobs and a cursor bound to run 4.
+ * Runs named in `retention`, by day, record that Object Lock policy, and a running one locks what
+ * the run wrote, as the backend would.
+ */
+export async function seeded_bucket(
+  workload: Workload,
+  retention: Readonly<Record<number, SeededRetention>> = {},
+): Promise<InMemoryVersionedStorage> {
   const keys = keys_of(workload);
   const bucket = in_memory_versioned_storage();
   const store = manifest_store(bucket.storage, keys);
   for (const manifest of history(keys)) {
-    await store.save(manifest);
+    const recorded = retention[manifest.created_at.getUTCDate()];
+    await store.save(recorded ? { ...manifest, object_lock: recorded_lock(recorded) } : manifest);
     await put_json(bucket.storage, keys.run_index_key(OWNER, manifest.snapshot_id), {
       indexes: rows_of(manifest, keys),
     });
@@ -142,7 +150,40 @@ export async function seeded_bucket(workload: Workload): Promise<InMemoryVersion
   for (const name of BLOBS)
     await bucket.storage.put(keys.data_key(OWNER, name), Buffer.from(`content ${name}`));
   await put_json(bucket.storage, keys.delta_cursor_key(OWNER), { snapshot_id: snapshot_id(4) });
+  for (const [day_number, recorded] of Object.entries(retention)) {
+    if (recorded !== 'running') continue;
+    const id = snapshot_id(Number(day_number));
+    const manifest = history(keys).find((m) => m.snapshot_id === id)!;
+    const written = [
+      keys.manifest_key(OWNER, id),
+      keys.run_index_key(OWNER, id),
+      ...(await bucket.storage.list(keys.manifest_snapshot_parts_prefix(OWNER, id))),
+      ...manifest.entries.flatMap((e) => (e.storage_key === undefined ? [] : [e.storage_key])),
+    ];
+    lock_versions(bucket, written);
+  }
   return bucket;
+}
+
+/** How a seeded snapshot was written: without retention, under one still running, or one ended. */
+export type SeededRetention = 'running' | 'ended';
+
+/** The Object Lock policy a run records on its manifest, ending a day after or before `now`. */
+export function recorded_lock(retention: SeededRetention, now = Date.now()) {
+  const retain_until = new Date(now + (retention === 'running' ? 1 : -1) * 86_400_000);
+  return {
+    requested: { mode: 'GOVERNANCE' as const, retention_days: 30 },
+    effective: { mode: 'GOVERNANCE' as const, retain_until: retain_until.toISOString() },
+  };
+}
+
+/** Makes the backend refuse to delete every current version of `keys`, as a running lock does. */
+export function lock_versions(bucket: InMemoryVersionedStorage, keys: readonly string[]): void {
+  for (const key of keys) {
+    for (const version of bucket.versions(key)) {
+      bucket.lock(version.version_id, new ObjectLockRetainedError(key));
+    }
+  }
 }
 
 async function put_json(storage: ObjectStorage, key: string, value: unknown): Promise<void> {
