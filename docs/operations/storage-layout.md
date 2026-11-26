@@ -70,19 +70,23 @@ atlas-{tenant_id}/
 ├── onedrive/
 │   ├── data/{owner_id}/{content_name}           # file blobs
 │   ├── manifests/{owner_id}/{snapshot_id}.json
+│   ├── manifest-parts/{owner_id}/{snapshot_id}/ # entries of a large manifest
 │   ├── index/{owner_id}/runs/{snapshot_id}.json # version index per backup run
 │   ├── index/{owner_id}/files/{file_id}.json    # legacy per-file index
 │   ├── staging/{owner_id}/                      # temporary multipart uploads
 │   ├── _meta/{owner_id}/delta.json              # delta cursors
+│   ├── _meta/{owner_id}/delta/                  # large delta cursor: head and parts
 │   ├── _meta/{owner_id}/snapshots.json          # snapshot summary index
 │   └── _meta/{owner_id}/lease.json              # owner lease
 ├── sharepoint/
 │   ├── data/{site_id}/{content_name}
 │   ├── manifests/{site_id}/{snapshot_id}.json
+│   ├── manifest-parts/{site_id}/{snapshot_id}/
 │   ├── index/{site_id}/runs/{snapshot_id}.json
 │   ├── index/{site_id}/files/{file_id}.json
 │   ├── staging/{site_id}/
 │   ├── _meta/{site_id}/delta.json
+│   ├── _meta/{site_id}/delta/
 │   ├── _meta/{site_id}/snapshots.json
 │   └── _meta/{site_id}/lease.json
 └── teams/
@@ -154,10 +158,12 @@ Each Outlook manifest records `mailbox_purpose` (Graph's `mailboxSettings.userPu
 | --- | --- | --- |
 | `onedrive/data/{owner_id}/` | File blobs, named by keyed hash | Owner is the Entra object ID |
 | `onedrive/manifests/{owner_id}/` | Snapshot manifests | Include file paths, checksums, and change types |
+| `onedrive/manifest-parts/{owner_id}/{snapshot_id}/` | Entry parts of a large manifest | See [Large manifests and cursors](#large-manifests-and-cursors) |
 | `onedrive/index/{owner_id}/runs/` | One version index per backup run | Maps file IDs to the versions that run captured |
 | `onedrive/index/{owner_id}/files/` | Legacy per-file version indexes | Still readable. Removed only by purging the owner |
 | `onedrive/staging/{owner_id}/` | Temporary multipart uploads of large files | Moved to `data/` when the upload completes |
 | `onedrive/_meta/{owner_id}/delta.json` | Delta cursors | Include delta links, file paths and names, ETags, and version watermarks |
+| `onedrive/_meta/{owner_id}/delta/` | A large delta cursor: `head.json` and `parts/` | See [Large manifests and cursors](#large-manifests-and-cursors) |
 | `onedrive/_meta/{owner_id}/snapshots.json` | Snapshot summary index | See [Snapshot summary index](#snapshot-summary-index) |
 | `onedrive/_meta/{owner_id}/lease.json` | Owner lease | See [Owner leases](#owner-leases) |
 | `sharepoint/...` | The same layout, keyed by Graph site ID | Site ID replaces owner ID |
@@ -171,6 +177,52 @@ Only `atlas onedrive versions`, `atlas sharepoint versions`, and snapshot verifi
 ::: details First backup of a drive with legacy indexes
 A cursor written before watermarks existed has none, so the first backup that finds such a cursor scans the legacy `files/` objects once to seed it. Each legacy file is one object, so a drive with 20,000 files means 20,000 objects in that scan. Later backups skip it.
 :::
+
+### Large manifests and cursors {#large-manifests-and-cursors}
+
+```text
+onedrive/manifests/{owner_id}/{snapshot_id}.json             # head: every field except the entries
+onedrive/manifest-parts/{owner_id}/{snapshot_id}/00000.json  # entries, in order
+onedrive/manifest-parts/{owner_id}/{snapshot_id}/00001.json
+onedrive/_meta/{owner_id}/delta/head.json                    # head: delta links and the part list
+onedrive/_meta/{owner_id}/delta/parts/{content_name}.json    # per-file state of one bucket of items
+```
+
+A snapshot manifest or delta cursor is one encrypted JSON document while it is small, the form every Atlas release reads. A larger one is stored as a head plus parts. One JSON document cannot pass the JavaScript string limit of about 512 MiB, which a single document reached at about 490,000 files, and every later run then failed at the same point.
+
+| Document | One document up to | Above that |
+| --- | --- | --- |
+| Snapshot manifest | 32 MiB of entries, about 25,000 files | Numbered parts of up to 8 MiB each |
+| Delta cursor | 10,000 tracked items | One part per bucket of about 2,048 items |
+
+A manifest records only the changes of its run, so incremental manifests stay one document. A first or `--full` backup of a large drive or library writes parts.
+
+**The head is written last.** Parts go first, then the head, which is the commit point: until it exists no reader sees the new snapshot or cursor, so an interrupted write never leaves half a manifest. Every part is encrypted with AES-256-GCM and bound to its own key, checked the way a reader checks it, and read back after upload, like the head.
+
+**A changed or missing part fails the read.** The head records a keyed HMAC-SHA256 of each part's plaintext, and each part names its owner and position. A part that is missing, replaced, or copied from another snapshot makes the whole manifest or cursor unreadable rather than silently short. Listings report the manifest head as damaged.
+
+**Unchanged cursor state is not rewritten.** Items are spread over buckets by a fixed hash of their ID, and each cursor part is named by the keyed hash of its content. A bucket whose items did not change keeps its name and is not uploaded again. A run with no changes writes only the head, about 66 bytes per part, and a run that changes N items rewrites at most N parts.
+
+**Leftover parts are removed a day later.** An interrupted run leaves parts that no head lists. No reader opens them. A later backup of the same owner or site removes them once they are a day old, the same window staging cleanup uses, because a younger part can belong to a run that took over the [owner lease](#owner-leases).
+
+**Retention and deletion follow the head.** Manifest parts carry the run's Object Lock retention, like the manifest. A cursor's head and parts are run state, written without a lock, and replaced versions expire after one day. `delete -s` removes the manifest head, then its parts, then the cursor in either form. Deleting an owner or site removes `manifest-parts/{owner}/` too. `quarantine` moves only the head, and its parts stay in place until the owner is deleted.
+
+#### Memory
+
+Measured with synthetic drives of 2 million files, about 1.2 KB of manifest entry and 470 bytes of cursor state per file, on Node.js 26:
+
+| Document | Stored | Heap held by the objects | Heap peak while reading |
+| --- | --- | --- | --- |
+| Manifest of a first backup | 306 parts, 2.4 GiB | 2.9 GiB | 4.4 GiB |
+| Delta cursor | 1,025 objects, 939 MiB | 1.6 GiB | 1.6 GiB above the objects |
+
+Writing holds at most four parts in flight, a few copies of 8 MiB each, on top of the objects. The objects themselves stay in memory because a backup builds the whole manifest and cursor before saving them. Node.js caps the heap at about 4 GiB by default, so back up a drive or library of more than about 1 million files with a larger limit:
+
+```bash
+NODE_OPTIONS=--max-old-space-size=8192 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
+```
+
+Atlas 7.2 and earlier cannot read the multi-part form. See [Rolling back to 7.2 or earlier](/migration/v7#rolling-back-large-drive-manifests) for what they do when they meet it.
 
 ### Subsites
 

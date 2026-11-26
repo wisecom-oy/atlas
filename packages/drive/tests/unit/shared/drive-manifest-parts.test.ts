@@ -134,7 +134,9 @@ describe('save_drive_manifest above the single-document threshold (#920)', () =>
 
     expect(harness.keys()).toEqual([HEAD_KEY]);
     const body = decrypted(harness, HEAD_KEY);
-    expect(require_drive_manifest(LAYOUT, body, HEAD_KEY).entries).toHaveLength(10);
+    expect(
+      require_drive_manifest<OneDriveSnapshotManifest>(LAYOUT, body, HEAD_KEY).entries,
+    ).toHaveLength(10);
   });
 
   it('gives an entry larger than a part a part of its own', async () => {

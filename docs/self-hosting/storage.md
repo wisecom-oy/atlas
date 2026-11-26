@@ -494,7 +494,7 @@ After the upload, Atlas reads each manifest, run index, Teams index, and sync ch
 | Contacts, Calendar | 2: manifest and cursor |
 | Teams | 1: snapshot index |
 
-A run that changed nothing writes no snapshot and reads back only its cursor. The read-back needs no new permission, because backups already read from the bucket. See [Metadata is checked before and after it is stored](/security#metadata-is-checked-before-and-after-it-is-stored) for what each step proves.
+A run that changed nothing writes no snapshot and reads back only its cursor. A large drive's manifest or cursor stored as [a head plus parts](/operations/storage-layout#large-manifests-and-cursors) adds one `PUT` and one `GET` per part written: every manifest part, create-only, and only the cursor parts whose items changed. The read-back needs no new permission, because backups already read from the bucket. See [Metadata is checked before and after it is stored](/security#metadata-is-checked-before-and-after-it-is-stored) for what each step proves.
 
 ### Owner leases and conditional writes
 
