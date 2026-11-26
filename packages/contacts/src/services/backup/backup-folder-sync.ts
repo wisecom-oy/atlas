@@ -9,6 +9,7 @@ import type {
 import { is_run_fatal } from '@/services/shared/run-fatal-error';
 import { is_graph_outage } from '@wisecom/atlas-core/services/shared/graph-outage-latch';
 import { store_contact_entry } from '@/services/backup/backup-contact-store';
+import { capture_contact_photo, is_photo_pending } from '@/services/backup/contact-photo-capture';
 import { error_message } from '@/services/shared/error-message';
 
 /** Exchange allows four concurrent requests per mailbox; more only queue in the limiter. */
@@ -62,15 +63,14 @@ async function apply_contact(
   ids_with_attachments: ReadonlySet<string>,
   merge: FolderMerge,
 ): Promise<void> {
+  const previous = merge.previous_by_id.get(contact.id);
   try {
     const stored = await store_contact_entry(
-      deps.ctx,
-      deps.connector,
-      deps.tenant_id,
-      deps.mailbox_id,
+      deps,
       folder.id,
       contact,
       ids_with_attachments,
+      previous,
     );
     merge.objects_stored += stored.objects_stored;
     merge.by_id.set(contact.id, stored.entry);
@@ -79,10 +79,76 @@ async function apply_contact(
     merge.errors.push(
       `Contact ${describe_contact(contact)} in ${folder.display_name} failed: ${error_message(err)}`,
     );
-    const prior = merge.previous_by_id.get(contact.id);
-    if (prior === undefined) merge.by_id.delete(contact.id);
-    else merge.by_id.set(contact.id, prior);
+    if (previous === undefined) merge.by_id.delete(contact.id);
+    else merge.by_id.set(contact.id, previous);
   }
+}
+
+/**
+ * Requests again the photo of a contact delta did not list this run, whose last photo request
+ * answered "not found" without confirming it absent (issue #854). The entry keeps its state when
+ * the request fails, and the failure is recorded like a contact's own.
+ */
+async function recheck_pending_photo(
+  deps: FolderSyncDeps,
+  folder: GraphContactFolder,
+  entry: ContactManifestEntry,
+  merge: FolderMerge,
+): Promise<void> {
+  try {
+    const captured = await capture_contact_photo(deps, entry, entry);
+    merge.objects_stored += captured.objects_stored;
+    merge.by_id.set(entry.contact_id, captured.entry);
+  } catch (err) {
+    if (is_run_fatal(err) || is_graph_outage(err)) throw err;
+    merge.errors.push(
+      `Photo of contact ${entry.contact_id} in ${folder.display_name} failed: ${error_message(err)}`,
+    );
+  }
+}
+
+/** Entries the delta left untouched whose photo is still owed a request. */
+function entries_owing_photo(
+  merge: FolderMerge,
+  delta: ContactFolderDelta,
+  now: Date,
+): ContactManifestEntry[] {
+  const listed = new Set(delta.upserted.map((contact) => contact.id));
+  return [...merge.by_id.values()].filter(
+    (entry) => !listed.has(entry.contact_id) && is_photo_pending(entry, now),
+  );
+}
+
+/**
+ * Runs the folder's contact work at most `CONTACT_CONCURRENCY` at a time. Returns `true` when the
+ * run was interrupted before every task started. A task's throw stops the rest and is rethrown.
+ */
+async function run_contact_tasks(
+  deps: FolderSyncDeps,
+  tasks: readonly (() => Promise<void>)[],
+): Promise<boolean> {
+  let interrupted = false;
+  let fatal: Error | undefined;
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < tasks.length && fatal === undefined && !interrupted) {
+      if (deps.should_interrupt()) {
+        interrupted = true;
+        return;
+      }
+      const task = tasks[next++];
+      if (task === undefined) return;
+      try {
+        await task();
+      } catch (err) {
+        fatal = err instanceof Error ? err : new Error(String(err));
+      }
+    }
+  };
+  const workers = Math.min(CONTACT_CONCURRENCY, tasks.length);
+  await Promise.all(Array.from({ length: workers }, worker));
+  if (fatal !== undefined) throw fatal;
+  return interrupted;
 }
 
 /**
@@ -108,7 +174,9 @@ async function read_ids_with_attachments(
  *
  * A contact that fails to store keeps its previous entry and is reported; the rest of the folder
  * still lands. The folder then keeps its old delta link so the next run delivers the failed
- * contact again, and a reset folder keeps no link because its old one was rejected.
+ * contact again, and a reset folder keeps no link because its old one was rejected. A contact
+ * whose photo is still owed a request after a "not found" answer is asked again even when delta
+ * does not list it, so that answer never holds the link back.
  */
 export async function sync_folder(
   deps: FolderSyncDeps,
@@ -133,28 +201,17 @@ export async function sync_folder(
   };
   for (const removed_id of delta.removed_ids) merge.by_id.delete(removed_id);
 
-  let interrupted = false;
-  let fatal: Error | undefined;
-  let next = 0;
-  const worker = async (): Promise<void> => {
-    while (next < delta.upserted.length && fatal === undefined && !interrupted) {
-      if (deps.should_interrupt()) {
-        interrupted = true;
-        return;
-      }
-      const contact = delta.upserted[next++];
-      if (contact === undefined) return;
-      try {
-        await apply_contact(deps, folder, contact, ids_with_attachments, merge);
-      } catch (err) {
-        fatal = err instanceof Error ? err : new Error(String(err));
-      }
-    }
-  };
-  const workers = Math.min(CONTACT_CONCURRENCY, delta.upserted.length);
-  await Promise.all(Array.from({ length: workers }, worker));
-  if (fatal !== undefined) throw fatal;
-  if (interrupted) return { complete: false, objects_stored: merge.objects_stored };
+  const tasks = [
+    ...delta.upserted.map(
+      (contact) => () => apply_contact(deps, folder, contact, ids_with_attachments, merge),
+    ),
+    ...entries_owing_photo(merge, delta, new Date()).map(
+      (entry) => () => recheck_pending_photo(deps, folder, entry, merge),
+    ),
+  ];
+  if (await run_contact_tasks(deps, tasks)) {
+    return { complete: false, objects_stored: merge.objects_stored };
+  }
 
   const retry_link = delta.reset ? undefined : delta_link;
   return {

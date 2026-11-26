@@ -16,11 +16,10 @@ import type { NotFoundStreak } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { describe_graph_error } from '@wisecom/atlas-m365-graph';
 import {
-  NOT_FOUND_CONFIRMATION_READS,
-  NOT_FOUND_CONFIRMATION_WINDOW_MS,
+  describe_not_found_streak,
   extend_not_found_streak,
-  is_deletion_confirmed,
-} from '@/backup/retry-read-not-found';
+  is_not_found_confirmed,
+} from '@wisecom/atlas-core/services/shared/not-found-streak';
 import type { DriveContentConnector, DriveDeltaItem, DriveFileVersion } from '@/drive-ports';
 
 /** How a "not found" answer on a listed version's content was judged. */
@@ -85,7 +84,7 @@ export async function judge_version_not_found(
   }
 
   const streak = extend_not_found_streak(previous, now);
-  if (is_deletion_confirmed(streak, now)) {
+  if (is_not_found_confirmed(streak, now)) {
     logger.info(
       `Version ${version.version_id} of ${item.file_name} answered "not found" on ` +
         `${streak.reads} runs since ${streak.since}; treating it as expired`,
@@ -94,16 +93,7 @@ export async function judge_version_not_found(
   }
   logger.warn(
     `Version ${version.version_id} of ${item.file_name} answered "not found" but is still listed ` +
-      `(${describe_streak(streak)})`,
+      `(${describe_not_found_streak(streak, 'expired')})`,
   );
   return { kind: 'unconfirmed', streak };
-}
-
-/** How far the streak is from confirming the version expired, in the operator's terms. */
-function describe_streak(streak: NotFoundStreak): string {
-  const window_hours = NOT_FOUND_CONFIRMATION_WINDOW_MS / (60 * 60 * 1000);
-  return (
-    `${streak.reads} run(s) in a row since ${streak.since}; treated as expired after ` +
-    `${NOT_FOUND_CONFIRMATION_READS} runs spanning ${window_hours} hours`
-  );
 }
