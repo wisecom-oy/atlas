@@ -20,6 +20,8 @@ export interface DriveStorageKeys {
   readonly index_prefix: string;
   /** Prefix for sync metadata, such as delta cursors. */
   readonly meta_prefix: string;
+  /** Prefix for the entry parts of a manifest too large for one document (#920). */
+  readonly manifest_parts_prefix: string;
   /** Ensures a single path segment is safe for S3-style keys (no traversal or extra slashes). */
   validate_key_segment(value: string): void;
   /** Builds the storage key for a stored file blob from its keyed content name (issue #446). */
@@ -32,6 +34,12 @@ export interface DriveStorageKeys {
   manifest_prefix_for(owner_id: string): string;
   /** Returns the root prefix for all manifests of the workload. */
   manifest_root_prefix(): string;
+  /** Builds the key of one entry part of a multi-part manifest, numbered from 0. */
+  manifest_part_key(owner_id: string, snapshot_id: string, part_index: number): string;
+  /** Builds the prefix holding every entry part of one multi-part manifest. */
+  manifest_snapshot_parts_prefix(owner_id: string, snapshot_id: string): string;
+  /** Builds the prefix holding the entry parts of every multi-part manifest of one owning segment. */
+  manifest_parts_prefix_for(owner_id: string): string;
   /** Builds the key for one backup run's version index object (issue #161). */
   run_index_key(owner_id: string, snapshot_id: string): string;
   /**
@@ -46,8 +54,14 @@ export interface DriveStorageKeys {
   staging_key(owner_id: string, item_id: string): string;
   /** Builds the prefix for listing staging objects. */
   staging_prefix_for(owner_id: string): string;
-  /** Builds the key for the delta cursor state. */
+  /** Builds the key for the delta cursor state when it is stored as one document. */
   delta_cursor_key(owner_id: string): string;
+  /** Builds the key of the head document of a multi-part delta cursor (#920). */
+  delta_cursor_head_key(owner_id: string): string;
+  /** Builds the key of one content-named part of a multi-part delta cursor. */
+  delta_cursor_part_key(owner_id: string, part_name: string): string;
+  /** Builds the prefix holding the head and parts of a multi-part delta cursor. */
+  delta_cursor_parts_prefix(owner_id: string): string;
   /** Builds the key for the owning segment's snapshot summary index (#625). */
   snapshot_summary_key(owner_id: string): string;
 }
@@ -67,6 +81,7 @@ export function build_drive_storage_keys(
   const manifest_prefix = `${workload}/manifests`;
   const index_prefix = `${workload}/index`;
   const meta_prefix = `${workload}/_meta`;
+  const manifest_parts_prefix = `${workload}/manifest-parts`;
 
   function validate_key_segment(value: string): void {
     if (value === '' || value === '.' || value === '..') {
@@ -91,12 +106,23 @@ export function build_drive_storage_keys(
     return normalize_owner_id(owner_id);
   }
 
+  function snapshot_parts_prefix(owner_id: string, snapshot_id: string): string {
+    const owner = owning_segment(owner_id);
+    validate_key_segment(snapshot_id);
+    return `${manifest_parts_prefix}/${owner}/${snapshot_id}/`;
+  }
+
+  function cursor_parts_prefix(owner_id: string): string {
+    return `${meta_prefix}/${owning_segment(owner_id)}/delta/`;
+  }
+
   return {
     data_prefix,
     staging_prefix,
     manifest_prefix,
     index_prefix,
     meta_prefix,
+    manifest_parts_prefix,
     validate_key_segment,
     data_key(owner_id, content_name) {
       const owner = owning_segment(owner_id);
@@ -116,6 +142,17 @@ export function build_drive_storage_keys(
     },
     manifest_root_prefix() {
       return `${manifest_prefix}/`;
+    },
+    manifest_part_key(owner_id, snapshot_id, part_index) {
+      const prefix = snapshot_parts_prefix(owner_id, snapshot_id);
+      if (!Number.isSafeInteger(part_index) || part_index < 0) {
+        throw new Error(`Invalid manifest part index: ${String(part_index)}`);
+      }
+      return `${prefix}${String(part_index).padStart(5, '0')}.json`;
+    },
+    manifest_snapshot_parts_prefix: snapshot_parts_prefix,
+    manifest_parts_prefix_for(owner_id) {
+      return `${manifest_parts_prefix}/${owning_segment(owner_id)}/`;
     },
     run_index_key(owner_id, snapshot_id) {
       const owner = owning_segment(owner_id);
@@ -140,6 +177,14 @@ export function build_drive_storage_keys(
     delta_cursor_key(owner_id) {
       return `${meta_prefix}/${owning_segment(owner_id)}/delta.json`;
     },
+    delta_cursor_head_key(owner_id) {
+      return `${cursor_parts_prefix(owner_id)}head.json`;
+    },
+    delta_cursor_part_key(owner_id, part_name) {
+      validate_key_segment(part_name);
+      return `${cursor_parts_prefix(owner_id)}parts/${part_name}.json`;
+    },
+    delta_cursor_parts_prefix: cursor_parts_prefix,
     snapshot_summary_key(owner_id) {
       return `${meta_prefix}/${owning_segment(owner_id)}/snapshots.json`;
     },
