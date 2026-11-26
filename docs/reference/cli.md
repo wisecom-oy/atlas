@@ -619,6 +619,7 @@ Archive     never backed up        -
 - The command replays the saved delta links from the latest manifest against Graph to count pending changes.
 - The pending count is exact up to 5 delta pages of 50 messages per folder. Delta pages carry message bodies, so counting further would download what the next backup downloads anyway. A folder with more changes shows the count it reached followed by `+`, and the SDK sets `pendingCapped`.
 - A Graph permission or authentication failure (`401`, `403`, or an unlicensed mailbox) stops the command with exit `4` and `ATLAS_AUTH_DENIED` or `ATLAS_MAILBOX_NOT_LICENSED`, as for `backup`. Any other failure, such as a throttle that outlasted the retries, marks that folder `peek failed` with the error class and message, and the mailbox is reported as not up to date.
+- A folder marked `peek failed` makes the command exit non-zero, so a monitoring job that runs `status` does not read an unchecked mailbox as healthy. The exit is `3` when every failed folder ended in `ThrottledError` or `GraphUnavailableError` after the retry budget, which means Microsoft Graph was throttling or unavailable and a later run can succeed. Any other failure exits `2`. A damaged snapshot manifest keeps its exit `9`. When every folder was checked, the exit is `0` whether or not changes are pending.
 
 ### atlas outlook mailboxes
 
@@ -1327,6 +1328,7 @@ OneDrive and SharePoint status report the same columns:
 - A drive is up to date only when both columns are `0`. A file in the failed list is missing from the backup even when nothing new is pending, because Microsoft 365 never re-presents an unchanged item. A failed entry for a drive that no longer exists still counts toward the overall verdict.
 - When the delta cursor has outlived the snapshot it was saved with, the next backup reads in full instead of resuming it, so status does not replay it either. Every drive is then reported as not backed up and not up to date.
 - A Graph `401` or a missing-grant `403` stops the command with exit `4` (`ATLAS_AUTH_DENIED`). A SharePoint site Graph refuses while the root site is readable stops it with exit `4` and `ATLAS_ACCESS_REFUSED`. Any other failure, including a drive refused that way, marks the drive `peek failed` with the error class and message, and the owner or site is reported as not up to date.
+- A drive or library marked `peek failed` makes the command exit non-zero. The exit is `3` when every failure was `ThrottledError` or `GraphUnavailableError` after the retry budget, so a scheduler can retry later. Any other failure, such as `GraphAccessRefusedError` on one drive, exits `2`. A damaged snapshot manifest keeps its exit `9`. When every drive was checked, the exit is `0`, even with pending changes or failed files.
 
 ### atlas sharepoint delete
 
