@@ -131,6 +131,22 @@ describe('a cancelled run closes its reads and lets its writes finish (issues #8
     await expect(outcome).resolves.toEqual({ id: 'folder' });
   });
 
+  it('does not send a write its attempt had not sent yet when the run was cancelled', async () => {
+    const outcome = cancelled_one_second_in(() =>
+      with_graph_retry(
+        async () => {
+          await new Promise((resolve) => setTimeout(resolve, 2_000));
+          return client.api('/users/u/mailFolders').post({});
+        },
+        { idempotent: false, complete_in_flight: true },
+      ),
+    );
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(rig.requests).toHaveLength(0);
+    expect(await outcome).toBe(CANCEL);
+  });
+
   it('tears down a write the caller stopped waiting for at its timeout, not later', async () => {
     const outcome = await cancelled_one_second_in(() =>
       with_graph_retry(() => client.api('/drives/d/items/i').patch({})),

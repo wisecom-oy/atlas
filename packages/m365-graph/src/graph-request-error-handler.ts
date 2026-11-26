@@ -39,8 +39,7 @@ import {
   token_request_retry_after_ms,
 } from '@/graph-token-failure';
 import { NewTokenRepeat, is_graph_unauthorized } from '@/graph-unauthorized-retry';
-import { get_active_graph_attempt } from '@/graph-attempt';
-import { rethrow_if_stopped_before_send } from '@/graph-token-wait';
+import { get_active_graph_attempt, rethrow_if_stopped_before_send } from '@/graph-attempt';
 import { GraphUnavailableError, ThrottledError } from '@wisecom/atlas-types';
 
 const MAX_RETRIES = 12;

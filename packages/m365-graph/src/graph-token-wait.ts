@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { GraphClientError } from '@microsoft/microsoft-graph-client';
 import { race_abort } from '@/graph-attempt-cancellation';
-import type { GraphAttempt } from '@/graph-attempt';
+import { RequestNotSentError, type GraphAttempt } from '@/graph-attempt';
 import { to_token_wait_timeout_error, type EntraAnswer } from '@/graph-token-failure';
 
 /**
@@ -48,7 +47,7 @@ export class SharedTokenRequest {
   }
 
   /**
-   * Waits for the token on behalf of `attempt`. Rejects with `AbandonedTokenWaitError` as soon as
+   * Waits for the token on behalf of `attempt`. Rejects with `RequestNotSentError` as soon as
    * the attempt may send nothing more, and marks the attempt as waiting for its token so its
    * timeout names the token request rather than `ETIMEDOUT`.
    */
@@ -60,7 +59,7 @@ export class SharedTokenRequest {
     try {
       return await race_abort(this.token, attempt?.send_signal);
     } catch (err) {
-      if (attempt?.send_signal.aborted === true) throw new AbandonedTokenWaitError(err);
+      if (attempt?.send_signal.aborted === true) throw new RequestNotSentError(err);
       throw err;
     } finally {
       end_token_wait?.();
@@ -79,29 +78,4 @@ export class SharedTokenRequest {
 /** The shared token request the current async context runs inside, if any. */
 export function get_active_token_request(): SharedTokenRequest | undefined {
   return _token_request.getStore();
-}
-
-/**
- * A Graph request that stopped waiting for its token because its attempt may send nothing more:
- * it timed out, the run was cancelled, or the run met an outage. `cause` is why. Nothing was sent.
- *
- * A `GraphClientError`, so the Graph SDK hands it on unchanged rather than as a `statusCode: -1`
- * `GraphError`.
- */
-export class AbandonedTokenWaitError extends GraphClientError {
-  constructor(cause: unknown) {
-    super('The Graph request stopped waiting for its token and was not sent');
-    // GraphClientError resets the prototype to its own, which would break `instanceof` here.
-    Object.setPrototypeOf(this, new.target.prototype);
-    this.name = 'AbandonedTokenWaitError';
-    this.cause = cause;
-  }
-}
-
-/**
- * Rethrows why an attempt stopped before its request was sent, when `err` says it did: a run
- * outage, for instance, ends the call with the outage rather than with a failed request.
- */
-export function rethrow_if_stopped_before_send(err: unknown): void {
-  if (err instanceof AbandonedTokenWaitError) throw err.cause;
 }

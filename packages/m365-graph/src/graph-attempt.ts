@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { GraphClientError } from '@microsoft/microsoft-graph-client';
 
 /**
  * One attempt of a `with_graph_retry` call, as the requests it sends see it.
@@ -172,4 +173,29 @@ export function get_active_graph_attempt(): GraphAttempt | undefined {
  */
 export function get_active_attempt_signal(method = 'GET'): AbortSignal | undefined {
   return _attempt.getStore()?.request_signal(method);
+}
+
+/**
+ * A Graph request that was not sent because its attempt had ended first: it timed out, the run was
+ * cancelled, or the run met an outage while the request waited for its token. `cause` is why.
+ *
+ * A `GraphClientError`, so the Graph SDK hands it on unchanged rather than as a `statusCode: -1`
+ * `GraphError`.
+ */
+export class RequestNotSentError extends GraphClientError {
+  constructor(cause: unknown) {
+    super('The Graph request was not sent: its attempt had ended');
+    // GraphClientError resets the prototype to its own, which would break `instanceof` here.
+    Object.setPrototypeOf(this, new.target.prototype);
+    this.name = 'RequestNotSentError';
+    this.cause = cause;
+  }
+}
+
+/**
+ * Rethrows why an attempt ended before its request was sent, when `err` says it did: a run outage,
+ * for instance, ends the call with the outage rather than with a failed request.
+ */
+export function rethrow_if_stopped_before_send(err: unknown): void {
+  if (err instanceof RequestNotSentError) throw err.cause;
 }

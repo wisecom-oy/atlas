@@ -1,5 +1,5 @@
 import type { Context, Middleware } from '@microsoft/microsoft-graph-client';
-import { get_active_graph_attempt } from '@/graph-attempt';
+import { RequestNotSentError, get_active_graph_attempt } from '@/graph-attempt';
 
 /**
  * Hands each request sent inside a `with_graph_retry` attempt the attempt's abort signal, so the
@@ -15,9 +15,15 @@ import { get_active_graph_attempt } from '@/graph-attempt';
 export class GraphAttemptSignalMiddleware implements Middleware {
   private _next?: Middleware;
 
-  /** Sets the attempt's signal on the request when it has none, then sends it. */
+  /**
+   * Sets the attempt's signal on the request when it has none, then sends it. A request whose
+   * attempt has already ended is not sent at all.
+   */
   async execute(context: Context): Promise<void> {
     const attempt = get_active_graph_attempt();
+    if (attempt?.send_signal.aborted === true) {
+      throw new RequestNotSentError(attempt.send_signal.reason);
+    }
     if (attempt !== undefined && context.options?.signal == null) {
       context.options = {
         ...context.options,
