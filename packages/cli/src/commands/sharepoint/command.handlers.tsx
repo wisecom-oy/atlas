@@ -27,6 +27,7 @@ import { render_static_view } from '@/ui/render';
 import { build_object_lock_request } from '@/command-object-lock';
 import { report_backup_verdict, report_run_outcome } from '@/command-run-outcome';
 import { run_interruptible } from '@/adapters/interruptible-run';
+import { resolve_under_gate } from '@/adapters/gated-resolution';
 import {
   DRIVE_RESTORE_INTERRUPT_MESSAGE,
   report_drive_restore,
@@ -136,14 +137,15 @@ export async function execute_sharepoint_backup(
   // Built before the Graph lookup: invalid Object Lock flags must fail without a network call.
   const object_lock_request = build_object_lock_request(options);
   const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
-  const site = await connector.resolve_site(tenant_id, options.site);
-  logger.info(`Resolved site: ${site.display_name} (${site.site_id})`);
-
   const backup = container.get<SharePointSiteTreeBackupUseCase>(
     SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
   );
-  const results = await run_interruptible(container, BACKUP_INTERRUPT_MESSAGE, (gate) =>
-    backup.backup_site_tree(tenant_id, site.site_id, {
+  const results = await run_interruptible(container, BACKUP_INTERRUPT_MESSAGE, async (gate) => {
+    const site = await resolve_under_gate(gate, () =>
+      connector.resolve_site(tenant_id, options.site),
+    );
+    logger.info(`Resolved site: ${site.display_name} (${site.site_id})`);
+    return backup.backup_site_tree(tenant_id, site.site_id, {
       force_full: options.full ?? false,
       include_subsites: options.includeSubsites ?? false,
       site_url: site.site_url,
@@ -151,8 +153,8 @@ export async function execute_sharepoint_backup(
       object_lock_request,
       should_interrupt: gate.should_interrupt,
       abort_signal: gate.abort_signal,
-    }),
-  );
+    });
+  });
   if (results === undefined) return;
 
   await render_static_view(<Banner title={banner_title('sharepoint', 'Backup')} />);

@@ -18,10 +18,10 @@ import {
 } from '@/commands/shared/deletion-presenter';
 import { print_drive_status } from '@/commands/drive/status-presenter';
 import {
-  resolve_owner,
   resolve_tenant_id,
   type OneDriveTenantOptions,
 } from '@/commands/onedrive/command.handlers';
+import { resolve_owner } from '@/commands/shared/owner-resolution';
 
 export interface OneDriveDeleteOptions extends OneDriveTenantOptions {
   owner: string;

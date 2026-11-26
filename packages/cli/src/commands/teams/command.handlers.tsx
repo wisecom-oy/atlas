@@ -20,6 +20,10 @@ import { build_object_lock_request } from '@/command-object-lock';
 import { EXIT_PARTIAL, report_run_outcome } from '@/command-run-outcome';
 import { report_unreadable_keys, report_unsupported_keys } from '@/command-unreadable-objects';
 import { install_interrupt_gate } from '@/adapters/interrupt-gate';
+import {
+  assert_channel_scope,
+  resolve_team_ids_under_gate,
+} from '@/commands/teams/backup-team-selection';
 import { release_throttle_cooldowns_if_cancelled } from '@/adapters/throttle-cooldown-release';
 import { resolve_tenant_id } from '@/commands/sharepoint/command.handlers';
 import { banner_title } from '@/ui/banner-title';
@@ -139,38 +143,44 @@ export async function execute_teams_backup(
   );
   // Before `--all` lists the tenant's teams, so a domain fails without a Graph call (#723).
   assert_tenant_guid(tenant_id);
-  const team_ids = await resolve_backup_team_ids(container, tenant_id, options);
 
   const backup = container.get<TeamsBackupUseCase>(TEAMS_BACKUP_USE_CASE_TOKEN);
+  // Installed before `--all` lists the teams, so a first Ctrl+C there is a soft stop too (#876).
   const gate = install_interrupt_gate(
     "Stopping after the current thread; threads already stored are kept and the interrupted channel's delta link is not advanced",
   );
-  await render_static_view(<Banner title={banner_title('teams', 'Backup')} />);
-  if (team_ids.length > 1) {
-    logger.info(`Backing up ${team_ids.length} team(s)`);
-  }
-
-  let run: TeamsBackupRun;
+  let run: TeamsBackupRun | undefined;
   try {
-    run = await run_team_backups(
-      backup,
-      tenant_id,
-      team_ids,
-      {
-        force_full: options.full ?? false,
-        channel_id: options.channel,
-        concurrency,
-        object_lock_request,
-        should_interrupt: gate.should_interrupt,
-        abort_signal: gate.abort_signal,
-      },
-      report_team_backup,
-    );
+    const team_ids = await resolve_team_ids_under_gate(container, tenant_id, options, gate);
+    if (team_ids !== undefined) {
+      await render_static_view(<Banner title={banner_title('teams', 'Backup')} />);
+      if (team_ids.length > 1) {
+        logger.info(`Backing up ${team_ids.length} team(s)`);
+      }
+      run = await run_team_backups(
+        backup,
+        tenant_id,
+        team_ids,
+        {
+          force_full: options.full ?? false,
+          channel_id: options.channel,
+          concurrency,
+          object_lock_request,
+          should_interrupt: gate.should_interrupt,
+          abort_signal: gate.abort_signal,
+        },
+        report_team_backup,
+      );
+    }
   } finally {
     gate.dispose();
   }
 
   await release_throttle_cooldowns_if_cancelled(container, gate.abort_signal);
+  if (run === undefined) {
+    report_run_outcome({ errors: [], warnings: [], interrupted: true }, 'team');
+    return;
+  }
 
   report_run_outcome(
     { errors: run.failed_teams, warnings: [], interrupted: run.interrupted },
@@ -249,32 +259,6 @@ async function run_team_backups(
     }
   }
   return run;
-}
-
-/** Resolves the `--team` ids, or every team in the tenant with `--all`. */
-async function resolve_backup_team_ids(
-  container: Container,
-  tenant_id: string,
-  options: TeamsBackupCommandOptions,
-): Promise<string[]> {
-  if (options.all && options.team?.length) {
-    throw new Error('Use either --team or --all, not both');
-  }
-  if (options.all) {
-    const catalog = container.get<TeamsCatalogUseCase>(TEAMS_CATALOG_USE_CASE_TOKEN);
-    const teams = await catalog.list_teams(tenant_id);
-    return teams.map((team) => team.id);
-  }
-  if (options.team?.length) return options.team;
-  throw new Error('Pass --team <id> (repeatable) or --all');
-}
-
-/** `--channel` names one channel inside one team, so it is rejected for `--all` or several `--team` values. */
-function assert_channel_scope(options: TeamsBackupCommandOptions): void {
-  if (options.channel === undefined) return;
-  if (options.all || options.team?.length !== 1) {
-    throw new Error('--channel requires exactly one --team');
-  }
 }
 
 /** Renders the per-team section of a backup run. */

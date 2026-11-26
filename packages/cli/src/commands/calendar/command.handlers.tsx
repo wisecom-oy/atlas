@@ -22,12 +22,14 @@ import { create_backup_progress } from '@/ui/dashboards/backup-progress-factory'
 import { build_object_lock_request } from '@/command-object-lock';
 import { EXIT_PARTIAL, report_backup_verdict, report_run_outcome } from '@/command-run-outcome';
 import { run_interruptible } from '@/adapters/interruptible-run';
+import { resolve_under_gate } from '@/adapters/gated-resolution';
+import { resolve_tenant_id } from '@/commands/onedrive/command.handlers';
 import {
   resolve_owner,
   resolve_restore_target,
-  resolve_tenant_id,
   type ResolvedOwner,
-} from '@/commands/onedrive/command.handlers';
+  resolve_stored_owner,
+} from '@/commands/shared/owner-resolution';
 import {
   require_target_for_profile,
   resolve_restore_container,
@@ -76,18 +78,19 @@ export async function execute_calendar_backup(
   const tenant_id = resolve_tenant_id(container, options);
   // Built before the Graph lookup: invalid Object Lock flags must fail without a network call.
   const object_lock_request = build_object_lock_request(options);
-  const mailbox = await resolve_owner(container, tenant_id, options.mailbox);
   const backup = container.get<CalendarBackupUseCase>(CALENDAR_BACKUP_USE_CASE_TOKEN);
 
-  await render_static_view(
-    <Box flexDirection="column">
-      <Banner title={banner_title('calendar', 'Backup')} />
-      <KeyValueList items={[{ label: 'Mailbox', value: mailbox_label(mailbox) }]} />
-    </Box>,
-  );
-
-  const result = await run_interruptible(container, BACKUP_INTERRUPT_MESSAGE, (gate) =>
-    backup.backup_calendar(tenant_id, mailbox.object_id, {
+  const result = await run_interruptible(container, BACKUP_INTERRUPT_MESSAGE, async (gate) => {
+    const mailbox = await resolve_under_gate(gate, () =>
+      resolve_owner(container, tenant_id, options.mailbox),
+    );
+    await render_static_view(
+      <Box flexDirection="column">
+        <Banner title={banner_title('calendar', 'Backup')} />
+        <KeyValueList items={[{ label: 'Mailbox', value: mailbox_label(mailbox) }]} />
+      </Box>,
+    );
+    return backup.backup_calendar(tenant_id, mailbox.object_id, {
       force_full: options.full ?? false,
       object_lock_request,
       create_progress: create_backup_progress({
@@ -97,8 +100,8 @@ export async function execute_calendar_backup(
       }),
       should_interrupt: gate.should_interrupt,
       abort_signal: gate.abort_signal,
-    }),
-  );
+    });
+  });
   if (result === undefined) return;
 
   const { summary } = result;
@@ -189,7 +192,7 @@ export async function execute_calendar_verify(
   options: CalendarVerifyCommandOptions,
 ): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
-  const mailbox = await resolve_owner(container, tenant_id, options.mailbox);
+  const mailbox = await resolve_stored_owner(container, tenant_id, options.mailbox);
   const verifier = container.get<CalendarVerificationUseCase>(CALENDAR_VERIFICATION_USE_CASE_TOKEN);
   const result = await verifier.verify_calendar_snapshot(
     tenant_id,

@@ -23,7 +23,7 @@ import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list'
 import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary';
 import { render_static_view } from '@/ui/render';
 import { create_transfer_progress } from '@/ui/dashboards/transfer-progress-factory';
-import { resolve_owner } from '@/commands/onedrive/command.handlers';
+import { resolve_owner, resolve_stored_owner } from '@/commands/shared/owner-resolution';
 
 export interface OutlookSaveOptions {
   snapshot?: string;
@@ -168,7 +168,7 @@ async function execute_mailbox_save(
   cli_options: OutlookSaveOptions,
   save_options: SaveOptions,
 ): Promise<void> {
-  const owner = await resolve_owner(container, tenant_id, cli_options.mailbox!);
+  const owner = await resolve_stored_owner(container, tenant_id, cli_options.mailbox!);
   const items: KeyValueItem[] = [{ label: 'Mailbox', value: cli_options.mailbox! }];
   if (cli_options.startDate) items.push({ label: 'Start date', value: cli_options.startDate });
   if (cli_options.endDate) items.push({ label: 'End date', value: cli_options.endDate });
