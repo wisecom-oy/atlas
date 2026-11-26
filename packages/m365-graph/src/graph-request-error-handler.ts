@@ -34,14 +34,17 @@ import {
   is_transient_token_request_error,
   to_token_unavailable_error,
   token_request_refusal,
+  token_request_retry_after_ms,
 } from '@/graph-token-failure';
+import { NewTokenRepeat, is_graph_unauthorized } from '@/graph-unauthorized-retry';
 import { GraphUnavailableError, ThrottledError } from '@wisecom/atlas-types';
 
 /**
  * Statuses Graph recovers from on its own, per Microsoft's throttling and
  * resilience guidance: the request never reached a working backend, or the
  * gateway gave up on one. 501 and every 4xx stay out -- repeating those
- * returns the same answer.
+ * returns the same answer. A 401 is the exception: it is repeated once with a
+ * new token (`may_repeat_with_new_token`, issue #861).
  *
  * These apply to idempotent calls only. A 5xx or a timeout after a create POST
  * can arrive after the backend committed it, so a call marked `idempotent: false`
@@ -117,6 +120,14 @@ function is_retry_safe(err: unknown, idempotent: boolean): boolean {
   return idempotent ? is_retryable_error(err) : is_throttle_response(err);
 }
 
+/**
+ * Claims a retry for a failed attempt: true when it is safe to send again, or when it is a `401`
+ * that takes the call's one repeat with a newly issued token (issue #861).
+ */
+function claim_retry(err: unknown, idempotent: boolean, new_token_repeat: NewTokenRepeat): boolean {
+  return is_retry_safe(err, idempotent) || new_token_repeat.claim(err, idempotent);
+}
+
 const INVALID_DELTA_CODES = ['syncstatenotfound', 'resyncrequired', 'syncstateinvalid'];
 
 /**
@@ -167,7 +178,8 @@ export function is_retryable_error(err: unknown): boolean {
  * `fn` receives a signal that fires when its attempt times out or the run is cancelled. A request
  * that passes it to fetch (`.option('signal', signal)` on a Graph request) is torn down rather than
  * left running beside the next attempt. A call marked `idempotent: false` is retried only on a
- * throttle response.
+ * throttle response. A 401 is repeated once, with a newly issued token. A failed token request waits
+ * at least MSAL's throttle window before its repeat, since MSAL replays the failure until then.
  *
  * Inside a backup run (`run_stopping_on_graph_outage`), a call that spends its budget records the
  * outage for the whole run, and every call of the run then throws that outage instead of sending a
@@ -208,6 +220,7 @@ async function retry_until_settled<T>(
   // What may cut off a request already sent; waits before a send honour `stop_signal`.
   const in_flight_signal = options.complete_in_flight === true ? undefined : abort_signal;
   let waited_ms = 0;
+  const new_token_repeat = new NewTokenRepeat();
   const started_at = Date.now();
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     throw_if_cancelled(stop_signal);
@@ -225,9 +238,9 @@ async function retry_until_settled<T>(
       return await run_attempt(fn, timeout_ms, in_flight_signal);
     } catch (err) {
       throw_if_cancelled(abort_signal);
-      if (!is_retry_safe(err, idempotent)) throw as_final_failure(err);
+      if (!claim_retry(err, idempotent, new_token_repeat)) throw as_final_failure(err);
 
-      const retry_after = floor_retry_after_ms(extract_retry_after_ms(err));
+      const retry_after = requested_wait_ms(err);
       // Raise on the response that carried the 429, not after the budget is
       // spent, so every other owner backs off during this cooldown too.
       raise_throttle_on_429(err, retry_after);
@@ -265,6 +278,8 @@ function as_final_failure(err: unknown): unknown {
 function as_exhausted_failure(err: unknown, retries: number, elapsed_ms: number): unknown {
   // An inner call already typed its exhausted failure; wrapping it again would hide a throttle.
   if (err instanceof ThrottledError || err instanceof GraphUnavailableError) return err;
+  // A 401 on the last attempt is a refused token, not an outage.
+  if (is_graph_unauthorized(err)) return err;
   if (err instanceof GraphTokenRequestError) {
     return to_token_unavailable_error(err, { retries, elapsed_ms });
   }
@@ -345,6 +360,14 @@ async function wait_before_retry(
   const covered_ms = await wait_out_throttle(MAX_COOLDOWN_WAIT_MS, abort_signal);
   if (covered_ms < min_wait_ms) await sleep(delay_ms - covered_ms, abort_signal);
   return Date.now() - started;
+}
+
+/**
+ * The wait a failure asks for before its repeat: Graph's Retry-After, or for a failed token request
+ * the window in which MSAL would replay the failure instead of asking Entra ID again.
+ */
+function requested_wait_ms(err: unknown): number | undefined {
+  return floor_retry_after_ms(extract_retry_after_ms(err) ?? token_request_retry_after_ms(err));
 }
 
 /**
