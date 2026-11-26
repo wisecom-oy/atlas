@@ -67,9 +67,12 @@ export async function capture_contact_photo(
   return store_contact_photo(scope, entry, photo);
 }
 
-/** True while a contact's photo answered "not found" but the streak has not confirmed it absent. */
-export function is_photo_pending(entry: ContactManifestEntry, now: Date): boolean {
-  return entry.photo_not_found !== undefined && !is_not_found_confirmed(entry.photo_not_found, now);
+/**
+ * True while a contact's photo answered "not found" without confirming it absent. The verdict is
+ * the one recorded with the latest answer: time passing without a new answer confirms nothing.
+ */
+export function is_photo_pending(entry: ContactManifestEntry): boolean {
+  return entry.photo_not_found !== undefined && entry.photo_not_found.confirmed !== true;
 }
 
 async function store_contact_photo(
@@ -102,16 +105,15 @@ function settle_photo_not_found(
   now: Date,
 ): ContactManifestEntry {
   const streak = extend_not_found_streak(carried_streak(entry, previous), now);
-  const settled = { ...without_photo(entry), photo_not_found: streak };
   if (is_not_found_confirmed(streak, now)) {
     logger.debug(`${describe_entry(entry)} has no photo (${streak.reads} "not found" answers)`);
-    return settled;
+    return { ...without_photo(entry), photo_not_found: { ...streak, confirmed: true } };
   }
   logger.warn(
     `Photo of ${describe_entry(entry)} answered "not found"; requesting it again next run ` +
       `(${describe_not_found_streak(streak, 'absent')})`,
   );
-  return { ...settled, ...photo_fields(previous) };
+  return { ...without_photo(entry), ...photo_fields(previous), photo_not_found: streak };
 }
 
 /**

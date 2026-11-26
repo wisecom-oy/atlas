@@ -25,7 +25,16 @@ export interface ContactManifestEntry {
    * so can a contact with a photo during an incident, so the photo is requested again on later runs
    * until the streak confirms there is none (issue #854). Absent on entries written before 7.2.1.
    */
-  readonly photo_not_found?: NotFoundStreak | undefined;
+  readonly photo_not_found?: ContactPhotoNotFound | undefined;
+}
+
+/** The "not found" answers to a contact's photo request, and whether they confirmed it has none. */
+export interface ContactPhotoNotFound extends NotFoundStreak {
+  /**
+   * Set when the answer that extended the streak confirmed the absence. The photo is then not
+   * requested again until delta lists the contact.
+   */
+  readonly confirmed?: boolean | undefined;
 }
 
 /**

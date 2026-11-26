@@ -111,13 +111,15 @@ async function recheck_pending_photo(
 function entries_owing_photo(
   merge: FolderMerge,
   delta: ContactFolderDelta,
-  now: Date,
 ): ContactManifestEntry[] {
   const listed = new Set(delta.upserted.map((contact) => contact.id));
   return [...merge.by_id.values()].filter(
-    (entry) => !listed.has(entry.contact_id) && is_photo_pending(entry, now),
+    (entry) => !listed.has(entry.contact_id) && is_photo_pending(entry),
   );
 }
+
+/** One unit of a folder's contact work: storing a listed contact or re-requesting a photo. */
+type ContactTask = () => Promise<void>;
 
 /**
  * Runs the folder's contact work at most `CONTACT_CONCURRENCY` at a time. Returns `true` when the
@@ -125,7 +127,7 @@ function entries_owing_photo(
  */
 async function run_contact_tasks(
   deps: FolderSyncDeps,
-  tasks: readonly (() => Promise<void>)[],
+  tasks: readonly ContactTask[],
 ): Promise<boolean> {
   let interrupted = false;
   let fatal: Error | undefined;
@@ -201,12 +203,13 @@ export async function sync_folder(
   };
   for (const removed_id of delta.removed_ids) merge.by_id.delete(removed_id);
 
-  const tasks = [
+  const tasks: ContactTask[] = [
     ...delta.upserted.map(
-      (contact) => () => apply_contact(deps, folder, contact, ids_with_attachments, merge),
+      (contact) => (): Promise<void> =>
+        apply_contact(deps, folder, contact, ids_with_attachments, merge),
     ),
-    ...entries_owing_photo(merge, delta, new Date()).map(
-      (entry) => () => recheck_pending_photo(deps, folder, entry, merge),
+    ...entries_owing_photo(merge, delta).map(
+      (entry) => (): Promise<void> => recheck_pending_photo(deps, folder, entry, merge),
     ),
   ];
   if (await run_contact_tasks(deps, tasks)) {
