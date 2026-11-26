@@ -138,9 +138,10 @@ profile that exercises it, or raise `--intensity`, rather than reporting success
 After the verdicts, use the report sections: "How the client responded" (retry
 chains per fault, Retry-After gaps, inferred timeouts, duplicate write risk),
 "Outage windows" (recovery time), "What was injected" (including skipped mutations
-and why). Atlas races a 60 s per-attempt timeout instead of aborting, so a client
-timeout shows as a new attempt while the old one is still open, listed under
-"Inferred timeouts", not as `client_closed`.
+and why). Atlas closes a request when its 60 s per-attempt timeout fires, so a
+client timeout shows as `client_closed` under "Client timeouts". An entry under
+"Inferred timeouts", a new attempt while the old one is still open, points at a
+request that bypassed its attempt's abort signal.
 
 ## When to reach for which option
 

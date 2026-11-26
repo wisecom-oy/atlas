@@ -57,7 +57,7 @@ Every Microsoft Graph call goes through one retry loop. The Graph SDK's own retr
 | `Retry-After` above 1 hour | The call fails at once with `ThrottledError` naming the value. The pool or mailbox still cools down for the hour, for the rest of the run |
 | `429` or `509` without `Retry-After` | 30 s cooldown for the pool |
 | Waiting budget per call | 24 minutes of backoff, `Retry-After`, and cooldown waits. A wait already started runs in full |
-| Per-attempt timeout | 60 s by default. A timed-out request is aborted before the next attempt is sent |
+| Per-attempt timeout | 60 s by default. A timed-out request is closed before the next attempt is sent, and a request still waiting for its access token is never sent |
 
 `500` and `502` are retried because Microsoft Graph returns them for load and gateway faults that clear on their own. `408 Request Timeout` is retried like a `504`, as it already is for a token request. `509 Bandwidth Limit Exceeded` is SharePoint's throttle for a tenant or app over its bandwidth limit, so it is retried and pauses the pool like a `429`.
 
@@ -70,6 +70,19 @@ A JSON read that answers `2xx` with a body that does not parse, empty or cut sho
 A token request that Microsoft Entra ID answers with a `429` or `5xx` is held back for at least 60 s by MSAL, the Microsoft library that requests the token, or for as long as Entra's `Retry-After` asks. A repeat inside that window never reaches Entra ID, so Atlas waits at least 60 s between token attempts. An Entra ID outage is retried through the whole budget and ends in `ATLAS_GRAPH_UNAVAILABLE`, exit `3`. A refusal of the credentials (`invalid_client`, an unknown client ID or tenant, an expired secret) is never retried and exits `4`.
 
 The 24-minute budget sits just above the full exponential schedule (1 + 2 + 4 + ... capped at 5 minutes comes to about 23.5 minutes), so backoff alone always gets all 12 retries. Time spent inside a request does not count, so a slow download keeps its retries. One call therefore waits at most about 24 minutes plus one cooldown, and so does a whole backup run: see [When retries run out](#when-retries-run-out-on-a-throttle).
+
+### Timed-out and abandoned attempts
+
+```text
+$ DEBUG=1 atlas outlook backup -m user@example.com
+[.] Retry 1/12 in 62.5s -- Microsoft Entra ID did not issue a Graph token before the attempt timed out: last answer HTTP 429
+```
+
+Every request an attempt sends carries that attempt's abort signal, whichever workload sends it. When the attempt times out, the request is closed before the retry goes out, so a slow backend never holds a request and its retry open side by side. A read is also closed at once on Ctrl+C. A write is closed only by its timeout, so a write already on the wire finishes on Ctrl+C (see [Writes that are sent once](#writes-that-are-sent-once)). A `$batch` read sends no further POST once its attempt has ended.
+
+Requests that need an access token at the same time share one token request, so a slow or throttling Entra ID sees one token request per credential, not one per waiting call. An attempt that times out or is cancelled while it waits stops waiting, and its Graph request is never sent, even when the token arrives later. Its timeout is reported as a failed token request naming Entra's last answer, as above, rather than as `ETIMEDOUT`, and is retried like one: after a `429` or `5xx` the next attempt waits at least 60 s, and a write that timed out there is repeated, because it was never sent. Once no request waits for the token request, Atlas aborts it, including any `Retry-After` wait that `@azure/identity`, the library that sends it, was sitting out between its own retries.
+
+An abandoned attempt leaves no open socket, token request, or timer behind, so a command exits as soon as it has printed its result, after a soft stop too. An endpoint that accepts a connection and never answers cannot hold the process open.
 
 ### The first read of a run {#first-reads-of-a-run}
 
@@ -142,7 +155,7 @@ A restore request that creates something (a message, attachment, event, contact,
 
 A `408`, `500`, `502`, `504`, `509`, timeout, or dropped connection after a create may arrive after Microsoft 365 committed it, so repeating the request could leave a duplicate. So may a `2xx` whose body did not parse, which means the create succeeded. The item is reported as failed and the restore continues. See [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) for what to check before restoring it again.
 
-Once a restore write is on the wire, Ctrl+C lets it finish, up to its timeout, instead of aborting it. An aborted write might exist in the target while Atlas reports it as not written.
+Once a restore write is on the wire, Ctrl+C lets it finish, up to its timeout, instead of aborting it. An aborted write might exist in the target while Atlas reports it as not written. A write still waiting for its access token when Ctrl+C arrives has not been sent, so it is dropped and reported as not written. A write attempt that times out is closed at its timeout and never sent later.
 
 ### File transfers (OneDrive and SharePoint)
 
@@ -205,7 +218,7 @@ Object Lock retention is set per object at write time, and a delete it refuses e
 
 | Signal | Result |
 | --- | --- |
-| First Ctrl+C (`SIGINT`) | Soft stop. Microsoft Graph requests, retries, and cooldown waits end at once; restore writes already sent finish. Completed work is committed, the lease is released, and the command exits `2` |
+| First Ctrl+C (`SIGINT`) | Soft stop. Microsoft Graph reads, token requests, retries, and cooldown waits end at once, and their connections are closed; restore writes already sent finish. Completed work is committed, the lease is released, and the command exits `2` within moments of printing its result |
 | Second Ctrl+C | Exits at once with `130`. Nothing more is committed and the lease is left to expire, so a run on the same owner within 10 minutes exits `12` |
 | `SIGTERM` | Atlas installs no handler, so Node ends the process at once, as with a second Ctrl+C. The shell reports `143` |
 

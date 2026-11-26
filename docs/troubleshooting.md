@@ -73,7 +73,7 @@ Microsoft Graph returns `429` when it throttles a request, and occasionally `500
 - `Retry-After` is honoured up to one hour, followed by a random delay of up to a tenth of the wait, kept between 1 and 5 seconds, so no request goes out before Microsoft Graph asked. A value under one second is raised to one second. Without the header, a `429` applies a 30-second cooldown.
 - A `Retry-After` longer than one hour fails the call at once with a `ThrottledError` naming the value.
 - Backoff is exponential with jitter, capped at 5 minutes per wait. Once a call has spent 24 minutes waiting, counting backoff, `Retry-After` waits, and cooldowns, it starts no new wait. A wait already started runs in full, so one call waits at most about 24 minutes plus one cooldown. Time spent inside each request does not count.
-- Each attempt times out after 60 seconds and is aborted before the next one is sent.
+- Each attempt times out after 60 seconds, and its request is closed before the next one is sent.
 - Atlas decides whether to retry from the HTTP status and from Node and undici error codes such as `ECONNRESET` or `UND_ERR_SOCKET`, never from the error message.
 - When a call spends its retry budget, a backup stops, commits what it finished, and exits `3`, whichever folder, drive, or channel it was reading. A restore or save fails only that item, continues, and exits `2`. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
 :::

@@ -15,7 +15,7 @@ const RETRY_CAVEAT_URL_ONLY =
   'A re-request of the same URL (same method and full URL, compared by url_key) is inferred to be a retry. This journal records no request body digest for some non-GET requests, so two different POSTs to one URL, such as two $batch calls, look like a retry of each other.';
 
 const CAVEATS = [
-  'Atlas times out by racing a promise rather than aborting the request, so a client timeout usually shows as a new attempt arriving while the previous one is still open, not as `client_closed`.',
+  'Atlas closes a timed-out request before it sends the next attempt, so a client timeout shows as `client_closed`. A new attempt arriving while the previous one is still open means a request that did not carry its attempt\'s abort signal.',
   'Gaps are measured from the end of the faulted exchange as the relay saw it to the arrival of the next attempt. Retry-After counts as honoured when the gap is at least the advised wait minus the stated tolerance.',
   'Latency percentiles come from a histogram that is exact below one second and within 1 % above it.',
   'Fault categories come from the journal. Older journals without them fall back to a table in the report code, marked `*`; ids it does not know are reported as `unknown`.',
