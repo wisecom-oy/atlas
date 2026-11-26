@@ -177,6 +177,16 @@ export class ObjectLockingStorage implements ObjectStorage {
     return this._inner.delete_version(key, version_id);
   }
 
+  /** Pages through object versions, when the wrapped storage can. */
+  get list_version_pages(): ObjectStorage['list_version_pages'] {
+    return this._inner.list_version_pages?.bind(this._inner);
+  }
+
+  /** Deletes a batch of objects or versions, when the wrapped storage can. */
+  get delete_batch(): ObjectStorage['delete_batch'] {
+    return this._inner.delete_batch?.bind(this._inner);
+  }
+
   /** Reads one object version, when the wrapped storage can. */
   get get_version(): ObjectStorage['get_version'] {
     return this._inner.get_version?.bind(this._inner);

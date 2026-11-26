@@ -583,7 +583,7 @@ atlas outlook delete -m user@example.com -y     # skip the confirmation prompt
 
 This covers mail only. For a tenant-wide purge, use [`atlas delete`](#atlas-delete). `atlas outlook delete --purge` no longer exists.
 
-- **Order.** Atlas deletes manifests first, then data objects. An interrupted delete leaves orphan objects, which are harmless, rather than manifests that point at missing data. `--snapshot` removes only the manifest, because other snapshots may reference the same objects.
+- **Order.** Atlas deletes manifests first, then data objects. An interrupted delete leaves orphan objects, which are harmless, rather than manifests that point at missing data. `--snapshot` removes only the manifest, because other snapshots may reference the same objects. Deletes run in batches, see [Bulk deletes](/self-hosting/storage#bulk-deletes).
 - **Lease.** Every workload's `delete` and `quarantine` takes the [owner lease](#run-leases), so it exits `12` while a backup of the same owner runs, and a backup exits `12` while the deletion runs.
 - **`--mailbox`** also removes the mailbox's delta cursor (`_meta/outlook-cursors/`) and the Atlas 6 replication status records of the deleted snapshots. Records under `_meta/replication/` that belong to a OneDrive snapshot of the same user stay; [Legacy Atlas 6 objects](/operations/replication#legacy-atlas-6-objects) shows how to remove them. The next backup is a full backup.
 - **`--snapshot` accepts only the newest snapshot.** Each snapshot stores only its own run's changes and every newer one is built on the chain before it, so deleting an older one would drop the messages it recorded from every later snapshot and bring back the ones it recorded as deleted. Atlas refuses that with `SnapshotNotNewestError` (`ATLAS_SNAPSHOT_NOT_NEWEST`, exit `11`) and deletes nothing. Delete the newer snapshots first, newest first, or the whole mailbox with `--mailbox`.
@@ -697,6 +697,7 @@ The purge sweeps the whole bucket rather than a fixed list of prefixes: Outlook,
 - The purge is refused under `ATLAS_S3_BUCKET` set for another tenant.
 - The purge takes the [tenant lease](#run-leases) after the confirmation and before its first write. It exits `12` when any owner of the tenant has a live lease, or when a backup, restore, deletion, or quarantine starts while it runs. A refusal writes nothing and removes its own lease. The confirmation comes first, so a purge that is going to be refused still asks for the tenant ID.
 - Objects under Object Lock retention stay until retention ends and are reported as retained. See [Erasure](/security#erasure).
+- The purge streams the version listing and deletes up to 1,000 versions per `DeleteObjects` request, 4 requests at a time, so it holds about 6,000 version entries whatever the bucket size. Owner deletes work the same way. A backend without `DeleteObjects` falls back to one delete per version. See [Bulk deletes](/self-hosting/storage#bulk-deletes).
 
 ## Damaged manifests and version indexes
 

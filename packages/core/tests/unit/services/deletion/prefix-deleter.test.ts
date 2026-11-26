@@ -12,12 +12,17 @@ interface StubOptions {
   keys?: string[];
 }
 
+/** Storage whose listings answer by prefix and whose deletes resolve without removing anything. */
 function make_storage({ versions = [], keys = [] }: StubOptions = {}): DeletionStorage {
   return {
     delete: vi.fn().mockResolvedValue(undefined),
     delete_version: vi.fn().mockResolvedValue(undefined),
-    list: vi.fn().mockResolvedValue(keys),
-    list_versions: vi.fn().mockResolvedValue(versions),
+    list: vi.fn(async (prefix: string) => keys.filter((key) => key.startsWith(prefix))),
+    list_versions: vi.fn(async (prefix: string) =>
+      versions
+        .filter((version) => version.key.startsWith(prefix))
+        .map((version) => ({ is_delete_marker: false, ...version })),
+    ),
   };
 }
 

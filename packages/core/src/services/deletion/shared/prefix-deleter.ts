@@ -8,34 +8,30 @@
  * back to plain keys only for backends that do not enumerate versions.
  */
 
-import { NotFoundError, ObjectLockRetainedError } from '@wisecom/atlas-types';
-import type { DeletionResult, StorageObjectVersion } from '@wisecom/atlas-types';
+import { NotFoundError } from '@wisecom/atlas-types';
+import type { DeletionResult, ObjectStorage, StorageObjectVersion } from '@wisecom/atlas-types';
+import { empty_tally } from '@/services/deletion/shared/deletion-tally';
+import { manifest_roots_within } from '@/services/deletion/shared/manifest-roots';
+import {
+  delete_entries_in_batches,
+  type BatchDeletionStorage,
+  type DeletableEntry,
+} from '@/services/deletion/shared/version-batch-deleter';
 
 /** The slice of ObjectStorage that erasure needs. */
-export interface DeletionStorage {
-  delete(key: string): Promise<void>;
+export interface DeletionStorage extends BatchDeletionStorage {
   list(prefix: string): Promise<string[]>;
   list_versions(prefix: string): Promise<readonly StorageObjectVersion[]>;
-  delete_version(key: string, version_id: string): Promise<void>;
+  readonly list_version_pages?: ObjectStorage['list_version_pages'];
 }
 
-type MutableResult = {
-  deleted_objects: number;
-  deleted_manifests: number;
-  retained_objects: number;
-  retained_manifests: number;
-  failed_objects: number;
-  failed_manifests: number;
-};
-
 /**
- * Deletes every version under each scope, where a scope is a key prefix or one
- * exact key.
+ * Deletes every version under each scope, where a scope is a key prefix or one exact key.
  *
- * ponytail: one listing buffered per scope, one DELETE per version, measured at
- * ~1500 versions in 2.6s. Fine for a tenant; if million-object buckets show up,
- * switch to the DeleteObjects batch API (1000 per call) and map its per-key
- * error entries onto the same retained/failed split.
+ * Scopes run in the order given. Inside a scope, the manifest roots it contains are swept first
+ * and the rest of the scope after, so an interrupted deletion leaves orphan blobs, which are
+ * harmless and cleanable, rather than manifests pointing at data that is already gone. Each sweep
+ * streams the listing a page at a time and deletes in batches (see `delete_entries_in_batches`).
  *
  * @param skip_prefixes - Scopes left untouched. A tenant purge uses this to hold
  *   the encrypted DEK back until the data it protects is confirmed gone.
@@ -45,27 +41,74 @@ export async function delete_scopes(
   scopes: readonly string[],
   skip_prefixes: readonly string[] = [],
 ): Promise<DeletionResult> {
-  const summary = empty_summary();
-
+  let summary: DeletionResult = empty_tally();
   for (const scope of scopes) {
-    const versions = await storage.list_versions(scope);
-
-    if (versions.length > 0) {
-      for (const version of manifests_first(versions, (v) => v.key)) {
-        if (is_skipped(version.key, skip_prefixes)) continue;
-        await delete_one(storage, version, summary);
-      }
-      continue;
-    }
-
-    // No version listing: the visible key is all this backend can offer.
-    for (const key of manifests_first(await storage.list(scope), (k) => k)) {
-      if (is_skipped(key, skip_prefixes)) continue;
-      await delete_one(storage, { key }, summary);
-    }
+    summary = merge_deletion_results(summary, await delete_scope(storage, scope, skip_prefixes));
   }
+  return summary;
+}
 
-  return { ...summary };
+/** Sweeps the manifest roots inside one scope, then the rest of the scope without them. */
+async function delete_scope(
+  storage: DeletionStorage,
+  scope: string,
+  skip_prefixes: readonly string[],
+): Promise<DeletionResult> {
+  const manifest_roots = manifest_roots_within(scope);
+  let summary: DeletionResult = empty_tally();
+  for (const root of manifest_roots) {
+    summary = merge_deletion_results(summary, await delete_prefix(storage, root, skip_prefixes));
+  }
+  const rest = await delete_prefix(storage, scope, [...skip_prefixes, ...manifest_roots]);
+  return merge_deletion_results(summary, rest);
+}
+
+/** Deletes every version under one prefix, or every visible key when no version is listed. */
+async function delete_prefix(
+  storage: DeletionStorage,
+  prefix: string,
+  skip_prefixes: readonly string[],
+): Promise<DeletionResult> {
+  const listing = { entries: 0 };
+  const versions = counted(versions_under(storage, prefix), listing);
+  const summary = await delete_entries_in_batches(storage, unskipped(versions, skip_prefixes));
+  if (listing.entries > 0) return summary;
+
+  // No version listing: the visible key is all this backend can offer. A backend without versions
+  // has no streaming listing either, so this one is held in full.
+  const keys = (await storage.list(prefix)).map((key) => ({ key }));
+  return delete_entries_in_batches(storage, unskipped(keys, skip_prefixes));
+}
+
+/** The versions under a prefix, a listing page at a time where the storage can page. */
+async function* versions_under(
+  storage: DeletionStorage,
+  prefix: string,
+): AsyncGenerator<StorageObjectVersion> {
+  if (!storage.list_version_pages) {
+    yield* await storage.list_versions(prefix);
+    return;
+  }
+  for await (const page of storage.list_version_pages(prefix)) yield* page;
+}
+
+async function* counted<T>(
+  entries: AsyncIterable<T>,
+  listing: { entries: number },
+): AsyncGenerator<T> {
+  for await (const entry of entries) {
+    listing.entries++;
+    yield entry;
+  }
+}
+
+async function* unskipped(
+  entries: AsyncIterable<DeletableEntry> | Iterable<DeletableEntry>,
+  skip_prefixes: readonly string[],
+): AsyncGenerator<DeletableEntry> {
+  for await (const entry of entries) {
+    if (!is_skipped(entry.key, skip_prefixes)) yield entry;
+  }
 }
 
 /** Adds two deletion summaries, for callers that erase in more than one pass. */
@@ -111,68 +154,4 @@ export async function delete_snapshot_manifest(
 
 function is_skipped(key: string, skip_prefixes: readonly string[]): boolean {
   return skip_prefixes.some((prefix) => key.startsWith(prefix));
-}
-
-/**
- * Orders manifests ahead of the objects they reference.
- *
- * An interrupted deletion then leaves orphan blobs, which are harmless and
- * cleanable, rather than manifests pointing at data that is already gone.
- * Sweeping a whole bucket would otherwise hit `data/` long before `manifests/`.
- */
-function manifests_first<T>(entries: readonly T[], key_of: (entry: T) => string): T[] {
-  return [...entries].sort(
-    (a, b) => Number(is_manifest_key(key_of(b))) - Number(is_manifest_key(key_of(a))),
-  );
-}
-
-/** True for manifest keys at any depth: `manifests/…` and `onedrive/manifests/…`. */
-function is_manifest_key(key: string): boolean {
-  return key.split('/').includes('manifests');
-}
-
-async function delete_one(
-  storage: DeletionStorage,
-  entry: StorageObjectVersion | { key: string },
-  summary: MutableResult,
-): Promise<void> {
-  const version_id = 'version_id' in entry ? entry.version_id : undefined;
-  try {
-    if (version_id === undefined) await storage.delete(entry.key);
-    else await storage.delete_version(entry.key, version_id);
-    count(summary, entry, 'deleted');
-  } catch (err) {
-    // The storage adapter names a retention refusal for us: a bare `AccessDenied` from a missing
-    // IAM permission must not be filed as "retained, deletable once retention expires", because
-    // on an erasure report a false all-clear costs the erasure (issue #40).
-    count(summary, entry, err instanceof ObjectLockRetainedError ? 'retained' : 'failed');
-  }
-}
-
-function count(
-  summary: MutableResult,
-  entry: StorageObjectVersion | { key: string },
-  outcome: 'deleted' | 'retained' | 'failed',
-): void {
-  // Removing a delete marker uncovers the versions beneath it rather than
-  // erasing anything, so a successful sweep of one is not counted as data. A
-  // marker we could not remove still counts: it is an entry that outlived the
-  // sweep, and a purge must not read the summary as clean and drop the DEK.
-  if (outcome === 'deleted' && 'is_delete_marker' in entry && entry.is_delete_marker === true) {
-    return;
-  }
-
-  const kind = is_manifest_key(entry.key) ? 'manifests' : 'objects';
-  summary[`${outcome}_${kind}` as keyof MutableResult]++;
-}
-
-function empty_summary(): MutableResult {
-  return {
-    deleted_objects: 0,
-    deleted_manifests: 0,
-    retained_objects: 0,
-    retained_manifests: 0,
-    failed_objects: 0,
-    failed_manifests: 0,
-  };
 }

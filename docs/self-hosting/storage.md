@@ -531,6 +531,47 @@ Backups record every user they look up by email in one tenant-wide object, `iden
 
 On a backend that ignores `If-Match`, the last writer would win and concurrent runs would drop each other's new entries. On one that refuses the current ETag, every update would fail. Atlas refuses both before the first registry write. See [Atlas refuses a backend that does not enforce them](#atlas-refuses-a-backend-that-does-not-enforce-them).
 
+## Bulk deletes
+
+`atlas delete --purge` and every workload's owner delete (`atlas outlook delete -m`, `atlas onedrive delete`, and the rest) stream the version listing and delete in batches:
+
+| Setting | Value |
+| --- | --- |
+| Listing | One `ListObjectVersions` page at a time, up to 1,000 versions per page. The next page is requested only when a delete slot is free |
+| Delete request | `DeleteObjects` with up to 1,000 keys, each addressed by version ID |
+| Requests in flight | 4 |
+| Version entries held | About 6,000 at most: the 4 batches in flight, the batch being filled, and one listing page |
+
+Memory therefore depends on the batch size, not on the bucket. A purge of a 300 million version bucket holds no more than a purge of 10,000 versions, a few megabytes for typical keys. Size a container for the rest of the process, not for the bucket. The run takes about one request per 1,000 versions to list and one to delete, instead of one request per version.
+
+Order is kept without sorting the listing in memory. Inside each scope, every manifest prefix the scope contains (`manifests/`, `<workload>/manifests/`, and their `_quarantine/` copies) is deleted to completion before the rest of the scope is listed. A purge then deletes the data key last, and the tenant lease after it. See [Erasure](/security#erasure).
+
+### What a `DeleteObjects` response is counted as
+
+Each key in the response is counted on its own, with the same rules as a single delete:
+
+| Response entry | Counted as |
+| --- | --- |
+| Under `Deleted`, with the requested key and version ID | Deleted |
+| Under `Errors`, with a message naming Object Lock retention or a legal hold | Retained |
+| Under `Errors`, for any other reason, such as `AccessDenied` from a missing `s3:DeleteObjectVersion` | Failed |
+| Not mentioned in the response | Failed |
+
+Atlas sends the request with `Quiet` off, so every deletion is confirmed by name. It never sets `BypassGovernanceRetention`, so `GOVERNANCE` retention holds exactly as it does for a single delete. A request that fails as a whole after the client's retries, such as a connection reset, counts its keys as failed and the run continues with the next batch.
+
+### Backends without `DeleteObjects`
+
+The request carries a `Content-MD5` header next to the CRC32 checksum the AWS SDK adds, because some S3-compatible backends require `Content-MD5` on this call. A backend that still refuses the request as a whole gets one `DeleteObject` per version, 4 at a time, for the rest of the run. These responses trigger the fallback:
+
+| Response | Typical cause |
+| --- | --- |
+| HTTP `501`, or `NotImplemented` | The backend does not implement `DeleteObjects`, or rejects the checksum header |
+| HTTP `405`, or `MethodNotAllowed` | A gateway that does not pass the request through |
+| `MissingContentMD5`, `InvalidDigest`, or `BadDigest` | The backend's integrity check on the request body |
+| HTTP `400` whose message names `Content-MD5` or a checksum | The same, worded differently |
+
+A refused request deleted nothing, so retrying its keys one at a time is safe. The fallback logs one warning per run that names the response. Any other refusal, a `403` included, is not read as missing support: the batch is counted as failed and reported. Tested against MinIO, including versions under `GOVERNANCE` and `COMPLIANCE` retention and a legal hold, which are reported as retained on both paths.
+
 ## Object size limits
 
 Large files upload as an encrypted multipart stream to a staging object, then move to their final path with a server-side copy. S3 limits bound this:

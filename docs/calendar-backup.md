@@ -210,7 +210,7 @@ atlas calendar delete -m user@example.com
 atlas calendar delete -m user@example.com -s cal-snap-123
 ```
 
-Without `-s`, every calendar backup for the mailbox is removed. With `-s`, Atlas removes that snapshot's manifest and the mailbox's sync checkpoints, and keeps the event and attachment objects other snapshots share. Each snapshot is complete, so deleting any one leaves the others whole. The next backup reads every calendar in full and captures again what the deleted snapshot held. `atlas delete --purge` removes calendar data together with the rest of the tenant bucket.
+Without `-s`, every calendar backup for the mailbox is removed, manifests before the event and attachment objects they list. With `-s`, Atlas removes that snapshot's manifest and the mailbox's sync checkpoints, and keeps the event and attachment objects other snapshots share. Each snapshot is complete, so deleting any one leaves the others whole. The next backup reads every calendar in full and captures again what the deleted snapshot held. `atlas delete --purge` removes calendar data together with the rest of the tenant bucket.
 
 ::: danger Irreversible
 Deletion cannot be undone. Objects written under an Object Lock retention request (`--retention-days`, `--lock-mode`) stay until the retention period ends. See [Erasure](/security#erasure).
