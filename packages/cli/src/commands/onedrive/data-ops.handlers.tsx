@@ -1,6 +1,7 @@
 import { Box } from 'ink';
 import type { Container } from 'inversify';
 import { report_unreadable_keys } from '@/command-unreadable-objects';
+import { report_failed_peeks } from '@/commands/shared/status-peek-outcome';
 import type { OneDriveDeletionUseCase, OneDriveStatusUseCase } from '@wisecom/atlas-types';
 import {
   ONEDRIVE_DELETION_USE_CASE_TOKEN,
@@ -88,4 +89,5 @@ export async function execute_onedrive_status(
     items: result.drives,
   });
   report_unreadable_keys(result.unreadable_keys);
+  report_failed_peeks(result.drives, 'Drive');
 }

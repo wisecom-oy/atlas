@@ -1,6 +1,7 @@
 import { Box } from 'ink';
 import type { Container } from 'inversify';
 import { report_unreadable_keys } from '@/command-unreadable-objects';
+import { report_failed_peeks } from '@/commands/shared/status-peek-outcome';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import type {
@@ -124,6 +125,7 @@ export async function execute_outlook_status(
   const result = await status_use_case.check_mailbox_status(tenant_id, owner.object_id);
   await print_mailbox_status(result);
   report_unreadable_keys(result.unreadable_keys);
+  report_failed_peeks(result.folders, 'Folder');
 }
 
 /** Lists tenant mailboxes from Microsoft Graph. */

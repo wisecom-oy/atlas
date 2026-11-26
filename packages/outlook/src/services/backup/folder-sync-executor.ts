@@ -14,7 +14,10 @@ import type {
   OperationControlOptions,
 } from '@wisecom/atlas-types';
 import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
-import { assert_delta_round_finished } from '@/services/backup/delta-round-end';
+import {
+  assert_delta_round_finished,
+  drop_entries_removed_later,
+} from '@/services/backup/delta-round-end';
 
 export interface FolderSyncResult {
   entries: ManifestEntry[];
@@ -305,7 +308,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
   }
 
   return {
-    entries,
+    entries: drop_entries_removed_later(entries, delta.removed_ids),
     delta_link: delta.delta_link,
     removed_ids: delta.removed_ids,
     // A message stored without its MIME or attachments is not presented again by a delta link

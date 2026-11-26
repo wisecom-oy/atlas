@@ -115,19 +115,3 @@ function parse_zoned_date_time(
   if (typeof date_time !== 'string' || typeof time_zone !== 'string') return undefined;
   return { date_time, time_zone };
 }
-
-/** Separates delta page items into live messages and removed message IDs. */
-export function extract_page_messages(
-  items: GraphDeltaMessage[],
-  removed_ids: string[],
-): MailMessage[] {
-  const page_messages: MailMessage[] = [];
-  for (const item of items) {
-    if (item['@removed'] && item.id) {
-      removed_ids.push(item.id);
-    } else if (item.id) {
-      page_messages.push(graph_message_to_mail_message(item));
-    }
-  }
-  return page_messages;
-}

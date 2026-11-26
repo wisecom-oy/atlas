@@ -24,7 +24,7 @@ The [exit code table](#exit-codes-and-whether-to-retry) says which codes a rerun
 
 | Failure | What Atlas does | Section |
 | --- | --- | --- |
-| Microsoft Graph `429`, `500`, `502`, `503`, `504`, network error | Retries up to 12 times with backoff, honouring `Retry-After` | [Microsoft Graph requests](#microsoft-graph-requests) |
+| Microsoft Graph `408`, `429`, `500`, `502`, `503`, `504`, `509`, network error, or a `200` whose JSON body is empty or cut short | Retries up to 12 times with backoff, honouring `Retry-After` | [Microsoft Graph requests](#microsoft-graph-requests) |
 | Microsoft Graph `401` on an issued token | Requests a new token and repeats the call once. A second `401` exits `4` | [Microsoft Graph requests](#microsoft-graph-requests) |
 | Microsoft Graph outage outlasts the retry budget during a backup | Stops the run after one budget, commits what finished, exits `3` | [When retries run out](#when-retries-run-out-on-a-throttle) |
 | A large file transfer stalls or its URL expires | Retries the range, refreshes the URL, resumes at the failed range | [File transfers](#file-transfers-onedrive-and-sharepoint) |
@@ -43,7 +43,8 @@ Every Microsoft Graph call goes through one retry loop. The Graph SDK's own retr
 
 | Parameter | Value |
 | --- | --- |
-| Retried HTTP statuses | `429`, `500`, `502`, `503`, `504` |
+| Retried HTTP statuses | `408`, `429`, `500`, `502`, `503`, `504`, `509` |
+| Retried unreadable answers | A `2xx` whose JSON body is empty, or ends early on a clean close, so it does not parse |
 | `401` | Repeated once per call, with a newly issued access token. A second `401` in the same call ends it |
 | Failed Graph token request | Retried like a `5xx` when Microsoft Entra ID did not answer, or answered `408`, `429`, a `5xx`, or `temporarily_unavailable`. After a `429` or `5xx`, the next attempt waits at least 60 s |
 | Retried transport errors | Node and undici codes such as `ECONNRESET`, `ETIMEDOUT`, `ENOTFOUND`, `EAI_AGAIN`, `UND_ERR_SOCKET`, and aborted or timed-out transfers |
@@ -53,13 +54,17 @@ Every Microsoft Graph call goes through one retry loop. The Graph SDK's own retr
 | `Retry-After` missing, unreadable, or in the past | Exponential backoff as above |
 | `Retry-After` below 1 s | Raised to 1 s |
 | `Retry-After` above 1 hour | The call fails at once with `ThrottledError` naming the value. The pool or mailbox still cools down for the hour, for the rest of the run |
-| `429` without `Retry-After` | 30 s cooldown for the pool |
+| `429` or `509` without `Retry-After` | 30 s cooldown for the pool |
 | Waiting budget per call | 24 minutes of backoff, `Retry-After`, and cooldown waits. A wait already started runs in full |
 | Per-attempt timeout | 60 s by default. A timed-out request is aborted before the next attempt is sent |
 
-`500` and `502` are retried because Microsoft Graph returns them for load and gateway faults that clear on their own. `501` and every other `4xx` are not retried: the same request returns the same answer. A `401` is the exception. Graph can reject a token Microsoft Entra ID has only just issued, so Atlas discards the token Graph rejected and repeats the request once with a new one. A `401` that a new token does not clear means the credentials or the tenant are at fault, and it ends the call at once with exit `4` rather than after the 24-minute budget. A `500` carrying `ErrorMimeContentConversionFailed` is not retried either, because Exchange returns it for an item it can never convert (see [When a message cannot be stored as MIME](/operations/delta-sync#when-a-message-cannot-be-stored-as-mime)). Atlas decides from the HTTP status and structured error codes only, never from message text, which carries request IDs and item IDs whose digits could pass for a status.
+`500` and `502` are retried because Microsoft Graph returns them for load and gateway faults that clear on their own. `408 Request Timeout` is retried like a `504`, as it already is for a token request. `509 Bandwidth Limit Exceeded` is SharePoint's throttle for a tenant or app over its bandwidth limit, so it is retried and pauses the pool like a `429`.
+
+`501` and every other `4xx` are not retried: the same request returns the same answer. That includes `423 Locked`, which Microsoft 365 returns for a checked-out or exclusively opened file, and `507 Insufficient Storage`, a target out of quota. A lock is held by a person or an app, and quota is not freed by waiting, so either one fails its item or unit at once rather than spending a 24-minute budget. Before any item, the command exits `1`, because someone has to release the lock or free the space. A `401` is the exception. Graph can reject a token Microsoft Entra ID has only just issued, so Atlas discards the token Graph rejected and repeats the request once with a new one. A `401` that a new token does not clear means the credentials or the tenant are at fault, and it ends the call at once with exit `4` rather than after the 24-minute budget. A `500` carrying `ErrorMimeContentConversionFailed` is not retried either, because Exchange returns it for an item it can never convert (see [When a message cannot be stored as MIME](/operations/delta-sync#when-a-message-cannot-be-stored-as-mime)). Atlas decides from the HTTP status and structured error codes only, never from message text, which carries request IDs and item IDs whose digits could pass for a status.
 
 An Outlook MIME download (`GET /messages/{id}/$value`) that answers `200` with an empty body is requested again, up to 3 requests in all, 2 s and then 4 s apart. Zero bytes are never an RFC 5322 message, and storing them would pass every later check, since `verify` compares a checksum of zero bytes with zero bytes. If the body stays empty, the message is handled as a failed MIME capture (see [Partial runs](#partial-runs)). Attachments and files can be empty legitimately, so the check covers MIME only. A body shorter than its `Content-Length` fails in transport as `UND_ERR_SOCKET` and is retried as above.
+
+A JSON read that answers `2xx` with a body that does not parse, empty or cut short on a clean close, is retried the same way. Microsoft Graph answered, but the answer is unusable and a repeated read normally gets it whole. A `4xx` with an unparseable body is judged by its status only, so a `404` with an empty body is still not retried.
 
 A token request that Microsoft Entra ID answers with a `429` or `5xx` is held back for at least 60 s by MSAL, the Microsoft library that requests the token, or for as long as Entra's `Retry-After` asks. A repeat inside that window never reaches Entra ID, so Atlas waits at least 60 s between token attempts. An Entra ID outage is retried through the whole budget and ends in `ATLAS_GRAPH_UNAVAILABLE`, exit `3`. A refusal of the credentials (`invalid_client`, an unknown client ID or tenant, an expired secret) is never retried and exits `4`.
 
@@ -67,7 +72,7 @@ The 24-minute budget sits just above the full exponential schedule (1 + 2 + 4 + 
 
 ### Cooldowns shared across requests
 
-A `429` starts a cooldown for every request to the same budget, not only a wait for the one call. Outlook and Teams cooldowns cover one mailbox or team, because Microsoft Graph meters them that way. SharePoint and OneDrive share one tenant-wide cooldown. Overlapping cooldowns do not add up: the longest one wins. When a cooldown ends, waiting requests resume one by one over the release delay instead of in a single burst.
+A `429` or a `509` starts a cooldown for every request to the same budget, not only a wait for the one call. Outlook and Teams cooldowns cover one mailbox or team, because Microsoft Graph meters them that way. SharePoint and OneDrive share one tenant-wide cooldown. Overlapping cooldowns do not add up: the longest one wins. When a cooldown ends, waiting requests resume one by one over the release delay instead of in a single burst.
 
 A cooldown keeps the CLI process running only while the command is still working. Once the command has finished or failed, it exits with its code straight away, even when a cooldown of up to an hour is still in force. Requests still waiting on that cooldown are dropped with the process, not sent early.
 
@@ -90,8 +95,8 @@ Concurrency is fixed, not adaptive. A `429` does not lower it; the shared cooldo
 
 | What ran out | Error | Backup | Restore and save |
 | --- | --- | --- | --- |
-| A `429` (12 retries or the 24-minute budget), or a `Retry-After` above 1 hour | `ThrottledError` (`ATLAS_THROTTLED`) with the last `Retry-After` attached | The run stops, exit `3` | That item fails and the command continues, exit `2` |
-| A `500`, `502`, `503`, `504`, or network error | `GraphUnavailableError` (`ATLAS_GRAPH_UNAVAILABLE`) | The run stops, exit `3` | That item fails and the command continues, exit `2` |
+| A `429` or `509` (12 retries or the 24-minute budget), or a `Retry-After` above 1 hour | `ThrottledError` (`ATLAS_THROTTLED`) with the last `Retry-After` attached | The run stops, exit `3` | That item fails and the command continues, exit `2` |
+| A `408`, `500`, `502`, `503`, `504`, a `200` whose JSON body did not parse, or a network error | `GraphUnavailableError` (`ATLAS_GRAPH_UNAVAILABLE`) | The run stops, exit `3` | That item fails and the command continues, exit `2` |
 
 A call that spends its whole budget has met an incident at Microsoft or on the network, not a fault of one item, so a backup treats it as an outage of the whole run. From that moment no Graph call of the run sends a request or starts a wait. Each fails at once with the same error, and requests already sent finish. The run then:
 
@@ -109,7 +114,7 @@ A call that is not retried to exhaustion stays the item's own failure and the ru
 
 A restore request that creates something (a message, attachment, event, contact, folder, or a drive file under `--conflict rename` or `--conflict fail`) is retried only on a `429`, a `503` carrying `Retry-After`, or a single `401` with the code `InvalidAuthenticationToken`. Microsoft Graph sends those instead of processing the request: it checks the token before the request reaches Exchange or SharePoint. A `401` with any other code is not repeated.
 
-A `500`, `502`, `504`, timeout, or dropped connection after a create may arrive after Microsoft 365 committed it, so repeating the request could leave a duplicate. The item is reported as failed and the restore continues. See [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) for what to check before restoring it again.
+A `408`, `500`, `502`, `504`, `509`, timeout, or dropped connection after a create may arrive after Microsoft 365 committed it, so repeating the request could leave a duplicate. So may a `2xx` whose body did not parse, which means the create succeeded. The item is reported as failed and the restore continues. See [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) for what to check before restoring it again.
 
 Once a restore write is on the wire, Ctrl+C lets it finish, up to its timeout, instead of aborting it. An aborted write might exist in the target while Atlas reports it as not written.
 
@@ -272,6 +277,8 @@ Every backup first lists the units it will read: calendars, contact folders, mai
 | Channels of a team | Microsoft Graph refuses `$count` on this listing with `400`. A channel the previous snapshot holds as live that the listing omits is read by ID instead | Only a `404` marks the channel deleted. A channel Graph still returns keeps its previous entry, checkpoint, and threads unchanged, and is reported as a channel error, exit `2`. Any other error fails the team |
 
 The count costs no extra request. The channel check costs one request for each channel that disappears, once: a channel already marked deleted is not read again. More items than counted is accepted, since a unit created while the listing paged is still a real unit. A unit deleted while the listing paged can leave one fewer than counted, which fails that run; the next run lists again.
+
+A mail folder listed more than once, on one page, across pages, or under two parents, is backed up once, at the place it was first listed, and its subfolders are listed once. Every copy still counts toward the `@odata.count` check, because Microsoft Graph counted it that way.
 
 ## Concurrency guards
 

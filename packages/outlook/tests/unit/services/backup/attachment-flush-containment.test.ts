@@ -61,7 +61,9 @@ function make_connector(
   return {
     fetch_delta: vi.fn().mockResolvedValue({
       messages: [make_message('msg-1'), make_message('msg-2'), make_message('msg-3')],
+      removed_ids: [],
       delta_link: 'delta-2',
+      delta_reset: false,
     }),
     fetch_mime: vi.fn(async (_t: string, _o: string, message_id: string) => {
       on_mime(message_id);

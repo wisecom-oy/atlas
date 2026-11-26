@@ -35,11 +35,8 @@ import {
 import { create_folder_reader, list_mail_folder_tree } from '@/adapters/graph-mail-folder-listing';
 import type { GraphDeltaMessage } from '@/adapters/graph-delta-message-mapper';
 import { graph_message_to_mail_message } from '@/adapters/graph-delta-message-mapper';
-import {
-  IMMUTABLE_ID_PREFER,
-  create_delta_handover,
-  run_mail_delta_pass,
-} from '@/adapters/graph-mail-delta-sync';
+import { IMMUTABLE_ID_PREFER, run_mail_delta_pass } from '@/adapters/graph-mail-delta-sync';
+import { create_delta_handover } from '@/adapters/graph-delta-round-events';
 import { collect_all_pages, collect_counted_listing } from '@/adapters/graph-collection-paging';
 
 @injectable()
