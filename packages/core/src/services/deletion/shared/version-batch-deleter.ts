@@ -42,21 +42,28 @@ export interface DeletableEntry extends StorageDeleteTarget {
   readonly is_delete_marker?: boolean | undefined;
 }
 
+/** Called once per entry with what became of it, for a caller that needs more than the counts. */
+export type DeletionOutcomeObserver<E extends DeletableEntry = DeletableEntry> = (
+  entry: E,
+  outcome: StorageDeleteOutcome,
+) => void;
+
 /**
  * Deletes every entry the stream yields and counts each outcome as deleted, retained or failed.
  * A refused or failed delete is counted, never thrown; an error from the stream itself propagates
- * once the batches already sent have settled.
+ * once the batches already sent have settled. `observe`, when given, sees every entry's outcome.
  */
-export async function delete_entries_in_batches(
+export async function delete_entries_in_batches<E extends DeletableEntry>(
   storage: BatchDeletionStorage,
-  entries: AsyncIterable<DeletableEntry> | Iterable<DeletableEntry>,
+  entries: AsyncIterable<E> | Iterable<E>,
+  observe?: DeletionOutcomeObserver<E>,
 ): Promise<DeletionResult> {
   const tally = empty_tally();
   const in_flight = new Set<Promise<void>>();
   try {
     for await (const batch of batches_of(entries, DELETE_BATCH_SIZE)) {
-      const task: Promise<void> = delete_and_tally_batch(storage, batch, tally).finally(() =>
-        in_flight.delete(task),
+      const task: Promise<void> = delete_and_tally_batch(storage, batch, tally, observe).finally(
+        () => in_flight.delete(task),
       );
       in_flight.add(task);
       if (in_flight.size >= CONCURRENT_DELETE_BATCHES) await Promise.race(in_flight);
@@ -82,13 +89,18 @@ export async function* batches_of<T>(
   if (batch.length > 0) yield batch;
 }
 
-async function delete_and_tally_batch(
+async function delete_and_tally_batch<E extends DeletableEntry>(
   storage: BatchDeletionStorage,
-  batch: readonly DeletableEntry[],
+  batch: readonly E[],
   tally: DeletionTally,
+  observe: DeletionOutcomeObserver<E> | undefined,
 ): Promise<void> {
   const outcomes = await delete_batch_outcomes(storage, batch);
-  batch.forEach((entry, index) => tally_outcome(tally, entry, outcomes[index] ?? 'failed'));
+  batch.forEach((entry, index) => {
+    const outcome = outcomes[index] ?? 'failed';
+    tally_outcome(tally, entry, outcome);
+    observe?.(entry, outcome);
+  });
 }
 
 /** Sends one batch as a single request where the storage can, otherwise one delete per entry. */

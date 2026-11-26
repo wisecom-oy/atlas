@@ -41,7 +41,12 @@ import {
   with_tenant,
   with_yes,
 } from '@/commands/shared/shared-options';
-import { OUTLOOK_QUARANTINE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import {
+  OUTLOOK_QUARANTINE_USE_CASE_TOKEN,
+  OUTLOOK_SNAPSHOT_PRUNE_USE_CASE_TOKEN,
+} from '@wisecom/atlas-types';
+import { register_prune_command } from '@/commands/shared/prune.command';
+import { resolve_owner } from '@/commands/shared/owner-resolution';
 import { register_quarantine_command } from '@/commands/shared/quarantine.command';
 
 type ContainerFactory = () => Container;
@@ -60,6 +65,15 @@ export function register_outlook_command(program: Command, get_container: Contai
   register_outlook_read(group, get_container);
   register_outlook_save(group, get_container);
   register_outlook_delete(group, get_container);
+  register_prune_command(group, get_container, {
+    workload: 'outlook',
+    owner_flag: '-m, --mailbox <email|id>',
+    owner_option: 'mailbox',
+    owner_noun: 'mailbox',
+    token: OUTLOOK_SNAPSHOT_PRUNE_USE_CASE_TOKEN,
+    resolve_owner: async (container, tenant_id, input) =>
+      (await resolve_owner(container, tenant_id, input)).object_id,
+  });
   register_outlook_status(group, get_container);
   register_outlook_mailboxes(group, get_container);
   register_quarantine_command(group, get_container, {

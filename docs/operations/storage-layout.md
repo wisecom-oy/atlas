@@ -264,6 +264,15 @@ Teams data sits under `teams/`, keyed by Graph team ID. Teams writes no version 
 | `calendar/_meta/{owner_id}/snapshots.json` | Snapshot summary index | See [Snapshot summary index](#snapshot-summary-index) |
 | `calendar/_meta/{owner_id}/lease.json` | Owner lease | See [Owner leases](#owner-leases) |
 
+## Baseline manifests
+
+A manifest normally holds one run's changes. After a [prune](/operations/retention), the oldest kept snapshot's manifest is rewritten in place as a baseline: the same key, snapshot ID, `created_at`, and `object_lock`, with the entries of every removed snapshot its restore showed. Its totals (`total_size_bytes`, and `total_files` for OneDrive and SharePoint) and its summary row describe those entries. The format adds no field, so any reader of a manifest reads a baseline.
+
+| Workload | Also rewritten | Removed for each pruned snapshot |
+| --- | --- | --- |
+| Outlook | `removed_object_ids` gains the IDs of older messages the baseline hides, and `folders` the older folders | Manifest, `_meta/outlook-manifests/snapshots/{snapshot}.json`, Atlas 6 replication records, summary row |
+| OneDrive, SharePoint | The baseline's run version index gains a row for each file it carries | Manifest, `manifest-parts/{owner}/{snapshot}/`, `index/{owner}/runs/{snapshot}.json`, summary row |
+
 ## Snapshot summary index
 
 ```bash

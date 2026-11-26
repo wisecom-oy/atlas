@@ -12,6 +12,7 @@ import type {
   OneDriveVersionRestoreUseCase,
   OneDriveSaveUseCase,
   OneDriveDeletionUseCase,
+  SnapshotPruneUseCase,
   OneDriveStatusUseCase,
   UserIdentityResolver,
   StatsUseCase,
@@ -24,6 +25,7 @@ import {
   ONEDRIVE_VERSION_RESTORE_USE_CASE_TOKEN,
   ONEDRIVE_SAVE_USE_CASE_TOKEN,
   ONEDRIVE_DELETION_USE_CASE_TOKEN,
+  ONEDRIVE_SNAPSHOT_PRUNE_USE_CASE_TOKEN,
   ONEDRIVE_STATUS_USE_CASE_TOKEN,
   USER_IDENTITY_RESOLVER_TOKEN,
   STATS_USE_CASE_TOKEN,
@@ -32,6 +34,7 @@ import { camelize } from '@wisecom/atlas-types/public/case-convert';
 import { adapt_operation_options, adapt_required_operation_options } from '@/operation-options';
 import { resolve_owner_identity, resolve_owner_object_id } from '@/owner-resolution';
 import { split_target_tenant, with_restore_side } from '@/target-tenant';
+import { adapt_prune_options } from '@/snapshot-prune-options';
 
 /** Builds the OneDriveApi sub-namespace from the DI container. */
 export function create_onedrive_api(tenant_id: string, container: Container): OneDriveApi {
@@ -46,6 +49,7 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
   );
   const save = container.get<OneDriveSaveUseCase>(ONEDRIVE_SAVE_USE_CASE_TOKEN);
   const deletion = container.get<OneDriveDeletionUseCase>(ONEDRIVE_DELETION_USE_CASE_TOKEN);
+  const prune = container.get<SnapshotPruneUseCase>(ONEDRIVE_SNAPSHOT_PRUNE_USE_CASE_TOKEN);
   const status = container.get<OneDriveStatusUseCase>(ONEDRIVE_STATUS_USE_CASE_TOKEN);
   const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
 
@@ -155,6 +159,11 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
     async deleteSnapshot(owner_input, snapshot_id) {
       const owner_id = await resolve_owner_id(owner_input);
       return camelize(await deletion.delete_snapshot(tenant_id, owner_id, snapshot_id));
+    },
+    async pruneSnapshots(owner_input, options) {
+      const adapted = adapt_prune_options(options, 'onedrive.pruneSnapshots');
+      const owner_id = await resolve_owner_id(owner_input);
+      return camelize(await prune.prune_snapshots(tenant_id, owner_id, adapted));
     },
     async checkStatus(owner_input) {
       return camelize(

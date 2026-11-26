@@ -21,6 +21,30 @@ export interface ManifestRepository {
   save(ctx: TenantContext, manifest: Manifest, lease?: HeldOwnerLease): Promise<void>;
 
   /**
+   * Replaces a snapshot's stored manifest with its folded baseline under the same snapshot id, then
+   * rewrites its summary row. Only snapshot pruning calls this, under the owner's lease, which is
+   * checked right before the manifest write. The write replaces the object rather than creating
+   * it, unlike `save`. While the snapshot's recorded Object Lock retention lasts, the new version
+   * is locked until the same instant.
+   */
+  replace_with_baseline(
+    ctx: TenantContext,
+    manifest: Manifest,
+    lease: HeldOwnerLease,
+  ): Promise<void>;
+
+  /**
+   * Drops the rows of several removed snapshots in one summary rewrite; logs instead of failing.
+   * `lease` is checked right before the write, and a lost one is raised.
+   */
+  forget_snapshot_summaries(
+    ctx: TenantContext,
+    owner_id: string,
+    snapshot_ids: readonly string[],
+    lease?: HeldOwnerLease,
+  ): Promise<void>;
+
+  /**
    * Drops a removed snapshot's row from the summary index; logs instead of failing. `lease` is
    * checked right before the write, and a lost one is raised.
    */

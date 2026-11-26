@@ -99,6 +99,8 @@ describe('MailboxStatusService', () => {
     };
 
     mock_manifests = {
+      replace_with_baseline: vi.fn(),
+      forget_snapshot_summaries: vi.fn(),
       save: vi.fn(),
       forget_snapshot_summary: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),

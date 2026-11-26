@@ -22,5 +22,6 @@ export type * from './teams';
 export type * from './identity';
 export type * from './drive';
 export type * from './storage-usage';
+export type * from './retention';
 export type * from '@/ports/lease';
 export * from './tokens';

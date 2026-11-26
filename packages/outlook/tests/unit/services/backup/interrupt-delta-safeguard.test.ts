@@ -149,6 +149,8 @@ describe('interrupt delta-link safeguard (issue #23)', () => {
       create_storage_only: vi.fn(),
     };
     manifests = {
+      replace_with_baseline: vi.fn(),
+      forget_snapshot_summaries: vi.fn(),
       save: vi.fn(),
       forget_snapshot_summary: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),

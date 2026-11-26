@@ -75,6 +75,7 @@ atlas teams backup --team <team-id>
 | `atlas calendar backup`   | Back up a mailbox's Outlook calendars                               |
 | `atlas sharepoint backup` | Back up a SharePoint site                                           |
 | `atlas teams backup`      | Back up Teams channel messages to object storage                    |
+| `atlas outlook prune`     | Remove snapshots older than a cut-off, e.g. `--before 90d`; also `onedrive` and `sharepoint` |
 | `atlas stats`             | Storage statistics                                                  |
 | `atlas stats storage`     | Physical bytes in the bucket: versions, staging, incomplete uploads |
 | `atlas storage-check`     | Check Object Lock, conditional writes, the writer-exclusion mode, and lifecycle rules; `--apply-lifecycle` adds or repairs them |

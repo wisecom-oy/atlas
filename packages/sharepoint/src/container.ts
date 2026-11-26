@@ -1,6 +1,7 @@
 import { type Container } from 'inversify';
 import {
   SHAREPOINT_QUARANTINE_USE_CASE_TOKEN,
+  SHAREPOINT_SNAPSHOT_PRUNE_USE_CASE_TOKEN,
   SHAREPOINT_CONNECTOR_TOKEN,
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
   SHAREPOINT_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
@@ -31,6 +32,7 @@ import { SharePointVersionRestoreService } from '@/services/restore/version-rest
 import { SharePointCatalogService } from '@/services/catalog/catalog.service';
 import { SharePointStatusService } from '@/services/status/status.service';
 import { SharePointQuarantineService } from '@/services/quarantine/quarantine.service';
+import { SharePointSnapshotPruneService } from '@/services/retention/prune.service';
 
 /** Registers SharePoint-specific DI bindings. Requires TENANT_CONTEXT_FACTORY_TOKEN to be bound first. */
 export function bind_sharepoint(container: Container): void {
@@ -93,5 +95,9 @@ export function bind_sharepoint(container: Container): void {
   container
     .bind(SHAREPOINT_QUARANTINE_USE_CASE_TOKEN)
     .to(SharePointQuarantineService)
+    .inSingletonScope();
+  container
+    .bind(SHAREPOINT_SNAPSHOT_PRUNE_USE_CASE_TOKEN)
+    .to(SharePointSnapshotPruneService)
     .inSingletonScope();
 }

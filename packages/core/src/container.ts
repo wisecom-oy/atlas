@@ -11,7 +11,9 @@ import {
   ONEDRIVE_DELETION_USE_CASE_TOKEN,
   SHAREPOINT_DELETION_USE_CASE_TOKEN,
   OWNER_LEASE_TOKEN,
+  OUTLOOK_SNAPSHOT_PRUNE_USE_CASE_TOKEN,
   type OwnerExclusion,
+  type SnapshotPruneUseCase,
   type OwnerLeasePort,
   type OneDriveDeletionUseCase,
   type SharePointDeletionUseCase,
@@ -28,6 +30,7 @@ import { StatsService } from '@/services/stats/stats.service';
 import { StorageUsageService } from '@/services/stats/storage-usage.service';
 import { TenantSetRewrapService } from '@/services/keys/tenant-set-rewrap.service';
 import { OldWrapperPurgeService } from '@/services/keys/old-wrapper-purge.service';
+import { OutlookSnapshotPruneService } from '@/services/retention/outlook-snapshot-prune.service';
 
 /**
  * Binds the core services. `owner_exclusion`, when given, replaces the storage owner lease: the
@@ -57,6 +60,10 @@ export function bind_core_services(container: Container, owner_exclusion?: Owner
   container
     .bind<SharePointDeletionUseCase>(SHAREPOINT_DELETION_USE_CASE_TOKEN)
     .toService(SharePointDeletionService);
+  container.bind(OutlookSnapshotPruneService).toSelf();
+  container
+    .bind<SnapshotPruneUseCase>(OUTLOOK_SNAPSHOT_PRUNE_USE_CASE_TOKEN)
+    .toService(OutlookSnapshotPruneService);
   container.bind(VerificationService).toSelf();
   container.bind(VERIFICATION_USE_CASE_TOKEN).toService(VerificationService);
   container.bind(StatsService).toSelf();

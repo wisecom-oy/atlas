@@ -16,6 +16,7 @@ import type {
 import type { OneDriveSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type { FileSaveOptions, FileSaveResult } from '@/ports/save/file-save.port';
 import type { DeletionResult } from '@/ports/deletion/use-case.port';
+import type { SnapshotPruneSdkOptions, SnapshotPruneSdkResult } from '@/ports/retention/api.port';
 import type { OneDriveStatusResult } from '@/ports/onedrive/status.port';
 import type { DriveStats } from '@/domain/stats/stats';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';
@@ -81,6 +82,11 @@ export interface OneDriveApi {
   listPermissions(ownerId: string, snapshotId?: string): Promise<OneDriveSdkPermissionListing>;
   deleteOwnerData(ownerId: string): Promise<OneDriveSdkDeletionResult>;
   deleteSnapshot(ownerId: string, snapshotId: string): Promise<OneDriveSdkDeletionResult>;
+  /** Removes the owner's snapshots older than `options.before`; see `OutlookApi.pruneSnapshots`. */
+  pruneSnapshots(
+    ownerId: string,
+    options: SnapshotPruneSdkOptions,
+  ): Promise<SnapshotPruneSdkResult>;
   checkStatus(ownerId: string): Promise<OneDriveSdkStatusResult>;
   /** Aggregates OneDrive backup statistics; without ownerId, tenant-wide across drives. */
   getStats(ownerId?: string): Promise<OneDriveSdkStats>;

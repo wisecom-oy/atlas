@@ -557,6 +557,20 @@ The purge and the key re-wrap take a tenant lease first, so a backup, restore, d
 
 Atlas cannot erase one person's Teams messages. Each message version is its own blob, but Atlas has no operation that removes a single blob: every snapshot that lists a message references its blob, and a deleted message stays in older snapshots through its `kept` version. `atlas teams delete -s` removes a manifest and leaves its blobs in place, because later snapshots can reference them. `atlas teams delete -y` removes the team's blobs, unless Object Lock retains them. An erasure request for one person therefore needs the whole team removed, or the data handled outside Atlas.
 
+### Pruning old snapshots
+
+`prune` lets an operator honour a stated retention period, as data minimisation under GDPR Art. 5(1)(e) asks, without deleting the whole owner. It removes the snapshots older than a cut-off, the content only they referenced, and the file versions only their runs captured. Every newer snapshot keeps restoring. See [Snapshot retention](/operations/retention).
+
+What a prune does not erase:
+
+- **What a kept snapshot still shows.** The oldest kept snapshot becomes a baseline that holds every message or file its restore showed, however old. A file unchanged for years stays as long as a kept snapshot contains it.
+- **Removal records.** The baseline records the message IDs (Outlook), or the names and paths (OneDrive, SharePoint), of items the removed snapshots listed and its own restore did not show, so that an older manifest Object Lock keeps cannot bring them back. They stay until a later prune moves the baseline past them, and only those a retained manifest still lists are carried further.
+- **Anything under retention.** A retained manifest or object stays readable with the tenant key until its retain-until date, and stays listed in the result. Atlas never sends `BypassGovernanceRetention`. The baseline's previous manifest version stays as a noncurrent version until that snapshot is itself pruned.
+- **Content while references are unknown.** While the owner has a damaged or quarantined manifest or version index, the prune removes old snapshots but deletes no content, and says so.
+- **Legacy per-file version indexes** (`index/{owner}/files/`) and the versions they list.
+
+Content keys are per owner and each ciphertext is bound to its key, so a prune never deletes another owner's data and never needs to read another owner's manifests. A bucket lifecycle rule that expires objects by age is not a substitute: it deletes content that newer snapshots still reference through the chain and through deduplication.
+
 ### Retained or failed
 
 | Outcome | When | What it means |

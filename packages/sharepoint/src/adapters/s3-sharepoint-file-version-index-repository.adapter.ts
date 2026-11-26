@@ -87,6 +87,19 @@ export class S3SharePointFileVersionIndexRepository implements SharePointFileVer
     await write_run_version_index(ctx, { key, provider: 'SharePoint', payload });
   }
 
+  /** Replaces one run's index object with these rows, creating it when absent. */
+  async replace_run_index(
+    ctx: TenantContext,
+    site_id: string,
+    snapshot_id: string,
+    indexes: SharePointFileVersionIndex[],
+  ): Promise<void> {
+    validate_key_segment(snapshot_id);
+    const payload: RunIndexPayload = { site_id, snapshot_id, indexes };
+    const key = sharepoint_run_index_key(site_id, snapshot_id);
+    await write_run_version_index(ctx, { key, provider: 'SharePoint', payload }, 'overwrite');
+  }
+
   /** Lists per-file version histories for a site, naming the index objects it could not read. */
   async list_readable_by_site(
     ctx: TenantContext,
