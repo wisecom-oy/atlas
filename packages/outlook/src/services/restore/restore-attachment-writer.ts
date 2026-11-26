@@ -2,6 +2,7 @@ import type { TenantContext } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { AttachmentEntry, AttachmentKindCounts } from '@wisecom/atlas-types';
 import type { MimeAttachment } from '@/services/shared/mime-message-parser';
+import { UploadCommitUnknownError } from '@wisecom/atlas-types';
 import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { assert_restored_content_matches } from '@wisecom/atlas-core/services/shared/restored-content-verifier';
@@ -53,12 +54,13 @@ export async function restore_entry_attachments(
       restored++;
       if (att.is_inline) inline++;
     } catch (err) {
-      if (is_active_run_cancelled()) {
-        errors.push(interrupted_attachments(attachments.length - index));
-        break;
-      }
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`${att.name}: ${msg}`);
+      const interrupted = record_attachment_failure(
+        errors,
+        att.name,
+        err,
+        attachments.length - index,
+      );
+      if (interrupted) break;
     }
   }
 
@@ -93,15 +95,42 @@ export async function restore_parsed_attachments(
       restored++;
       if (att.is_inline) inline++;
     } catch (err) {
-      if (is_active_run_cancelled()) {
-        errors.push(interrupted_attachments(attachments.length - index));
-        break;
-      }
-      errors.push(`${att.name}: ${err instanceof Error ? err.message : String(err)}`);
+      const interrupted = record_attachment_failure(
+        errors,
+        att.name,
+        err,
+        attachments.length - index,
+      );
+      if (interrupted) break;
     }
   }
 
   return { restored, uploaded: { file: restored - inline, inline }, skipped: 0, errors };
+}
+
+/**
+ * Records why an attachment was not uploaded and returns whether the run was cancelled, which ends
+ * the message's uploads. A cancelled run reports the attachments it did not upload in one line,
+ * after naming an attachment whose final chunk may have landed (issue #891).
+ */
+function record_attachment_failure(
+  errors: string[],
+  name: string,
+  err: unknown,
+  remaining: number,
+): boolean {
+  const failure = `${name}: ${err instanceof Error ? err.message : String(err)}`;
+  if (!is_active_run_cancelled()) {
+    errors.push(failure);
+    return false;
+  }
+  if (err instanceof UploadCommitUnknownError) {
+    errors.push(failure);
+    if (remaining > 1) errors.push(interrupted_attachments(remaining - 1));
+    return true;
+  }
+  errors.push(interrupted_attachments(remaining));
+  return true;
 }
 
 /**

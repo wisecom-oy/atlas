@@ -6,6 +6,7 @@ import type { MailFolder, WellKnownMailFolder } from '@wisecom/atlas-types';
 import {
   rethrow_if_access_denied,
   rethrow_if_mailbox_not_licensed,
+  send_upload_chunk,
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -21,7 +22,8 @@ const UPLOAD_CHUNK_SIZE = 13 * 320 * 1024; // ~4 MiB; Graph API requires multipl
 /**
  * Retry policy for a POST that creates a folder, message or attachment. Sending one again after a
  * 5xx or a timeout can create a second copy, so only a throttle response is retried (issue #624).
- * An upload session is not covered: a spare session creates nothing and expires on its own.
+ * Opening an upload session is not covered: a spare session creates nothing and expires on its
+ * own. The session's final chunk creates the attachment and follows `send_upload_chunk` instead.
  */
 // Sent once, and once sent finished: a create cut off mid-flight may still have landed (#682).
 const CREATE_ONCE = { idempotent: false, complete_in_flight: true } as const;
@@ -191,8 +193,8 @@ export class GraphRestoreConnector implements RestoreConnector {
     };
 
     try {
-      const response = (await with_graph_retry(() =>
-        this._client.api(url).post(payload),
+      const response = (await with_graph_retry((signal) =>
+        this._client.api(url).option('signal', signal).post(payload),
       )) as GraphUploadSessionResponse;
 
       if (!response.uploadUrl) throw new Error('Graph returned no uploadUrl for session');
@@ -204,7 +206,11 @@ export class GraphRestoreConnector implements RestoreConnector {
     }
   }
 
-  /** Uploads a single chunk to an active upload session via PUT. */
+  /**
+   * Uploads a single chunk to an active upload session via PUT. The chunk that reaches the end of
+   * the attachment creates it, so it is sent once except after a throttle response, and one that
+   * ended ambiguously throws `UploadCommitUnknownError` (issue #891).
+   */
   async upload_attachment_chunk(
     upload_url: string,
     chunk: Buffer,
@@ -213,15 +219,17 @@ export class GraphRestoreConnector implements RestoreConnector {
   ): Promise<void> {
     const range_end = range_start + chunk.length - 1;
     const content_range = `bytes ${range_start}-${range_end}/${total_size}`;
+    const role = range_end === total_size - 1 ? 'commit' : 'intermediate';
 
-    await with_graph_retry(
-      () =>
+    await send_upload_chunk(
+      { role, range: content_range, bytes: chunk.length, item: 'attachment' },
+      (signal) =>
         this._client
           .api(upload_url)
+          .option('signal', signal)
           .header('Content-Range', content_range)
           .header('Content-Length', String(chunk.length))
           .put(chunk),
-      { complete_in_flight: true },
     );
   }
 
