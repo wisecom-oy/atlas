@@ -52,8 +52,9 @@ interface BatchResponse {
  * A request missing from the result could not be read: Graph refused it for good (a 404 for an
  * item deleted since the delta page, a 403 and the like), or its chunk kept failing after the
  * retry budget. Both are logged, never thrown, so a metadata read never fails the content backup it
- * rides along with; a caller that must not lose the read records the missing keys (issue #856). Refusals are summed into one line per call, so a drive that refuses every read
- * logs once rather than once per item. Cancellation still propagates, and so does an exhausted
+ * rides along with; a caller that must not lose the read records the missing keys (issue #856).
+ * Refusals are summed into one line per call, so a drive that refuses every read logs once rather
+ * than once per item. Cancellation still propagates, and so does an exhausted
  * retry budget: it is a Graph outage, and swallowing it would store the drive's items without their
  * metadata while the remaining chunks met the same outage (issue #881).
  */
