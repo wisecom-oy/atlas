@@ -12,6 +12,8 @@ describe('classify_storage_key', () => {
     ['manifests/m/s.json', 'outlook', 'manifests'],
     ['onedrive/data/o/0123abcd', 'onedrive', 'data'],
     ['onedrive/manifests/o/s.json', 'onedrive', 'manifests'],
+    ['onedrive/manifest-parts/o/s/00000.json', 'onedrive', 'manifests'],
+    ['onedrive/_meta/o/delta/parts/ab12.json', 'onedrive', '_meta'],
     ['onedrive/index/o/runs/s.json', 'onedrive', 'index'],
     ['onedrive/staging/o/item-rand', 'onedrive', 'staging'],
     ['onedrive/_meta/o/delta.json', 'onedrive', '_meta'],

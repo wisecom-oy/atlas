@@ -13,10 +13,10 @@ import {
 import { owner_named_by, type DriveCursorLayout } from '@/shared/cursor-part-document';
 import { assemble_cursor_from_parts, CursorPartMissingError } from '@/shared/cursor-part-reader';
 import { write_cursor_head, write_cursor_parts } from '@/shared/cursor-part-writer';
+import { remove_replaced_cursor_objects } from '@/shared/replaced-cursor-objects';
 import {
   list_stored_cursor_objects,
   read_reusable_cursor_parts,
-  remove_cursor_objects,
 } from '@/shared/stored-cursor-objects';
 
 export type { DriveCursorLayout };
@@ -85,8 +85,8 @@ async function load_newest_cursor_form<C extends { readonly updated_at: string }
  *
  * A cursor tracking up to `single_document_items` items is one document at `delta.json`, as every
  * earlier Atlas writes it. A larger one is a head plus one part per bucket of item ids; only the
- * parts whose content changed are written, the head goes last, and the objects the head no longer
- * lists are removed afterwards (#920). All of it is run state, written without Object Lock (#919).
+ * parts whose content changed are written, the head goes last, and what it replaced is removed
+ * afterwards (#920). All of it is run state, written without Object Lock (#919).
  */
 export async function save_drive_cursor(
   ctx: TenantContext,
@@ -96,14 +96,19 @@ export async function save_drive_cursor(
 ): Promise<void> {
   const owner_id = owner_named_by(cursor, layout.owner_field) ?? '';
   const stored = await list_stored_cursor_objects(ctx, layout, owner_id);
+  const previous = await read_reusable_cursor_parts(ctx, layout, owner_id, stored);
+  const replaced = { owner_id, stored, previous };
   const { head_fields, item_maps } = split_cursor_fields(cursor);
   const items = count_tracked_items(item_maps);
   if (items <= sizing.single_document_items) {
     await write_single_document_cursor(ctx, layout, owner_id, cursor);
-    await remove_cursor_objects(ctx, layout, [...stored.head_keys, ...stored.part_keys]);
+    await remove_replaced_cursor_objects(ctx, layout, {
+      ...replaced,
+      written_form: 'single',
+      kept_names: [],
+    });
     return;
   }
-  const previous = await read_reusable_cursor_parts(ctx, layout, owner_id, stored);
   const bucket_count = choose_bucket_count(items, sizing.items_per_part, previous.bucket_count);
   const parts = await write_cursor_parts(ctx, layout, item_maps, {
     owner_id,
@@ -113,11 +118,11 @@ export async function save_drive_cursor(
   });
   const fields = Object.keys(item_maps);
   await write_cursor_head(ctx, layout, owner_id, head_fields, { fields, bucket_count, parts });
-  const kept = new Set(parts.map((name) => layout.keys.delta_cursor_part_key(owner_id, name)));
-  await remove_cursor_objects(ctx, layout, [
-    ...stored.single_keys,
-    ...stored.part_keys.filter((key) => !kept.has(key)),
-  ]);
+  await remove_replaced_cursor_objects(ctx, layout, {
+    ...replaced,
+    written_form: 'parts',
+    kept_names: parts,
+  });
 }
 
 /** Writes the cursor as one document at `delta.json`, unlocked, and reads it back. */

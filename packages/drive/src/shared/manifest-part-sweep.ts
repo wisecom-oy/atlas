@@ -4,13 +4,20 @@ import { logger } from '@wisecom/atlas-core/utils/logger';
 import type { DriveManifestLayout } from '@/shared/drive-manifest-document';
 
 /**
+ * How long a part with no head is left alone. A save writes its head within minutes of its last
+ * part, so only a part this old is demonstrably left by an interrupted save.
+ */
+const ABANDONED_PART_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/**
  * Removes the entry parts of multi-part manifests whose head was never written, which is what an
  * interrupted save leaves behind (#920). Logs instead of failing: an orphan costs storage only,
  * because no reader looks at a part that no head lists.
  *
  * A part set is kept while its head exists, in place or moved aside by `quarantine`, so a
- * quarantined manifest stays readable. The caller holds the owner's lease, so no other save of
- * this owner can be between writing its parts and its head.
+ * quarantined manifest stays readable. A part younger than a day is kept too: the owner's lease
+ * keeps two saves apart, but a run whose lease lapsed must not delete the parts of the run that
+ * took it over before that run writes its head.
  *
  * Under Object Lock the delete only adds a delete marker; the locked bytes stay until their
  * retention ends and the noncurrent-version rule removes them.
@@ -34,20 +41,21 @@ export async function sweep_orphan_manifest_parts(
   }
 }
 
-/** The part keys whose snapshot has no head, in place or quarantined. */
+/** The part keys older than a day whose snapshot has no head, in place or quarantined. */
 async function find_orphan_part_keys(
   ctx: TenantContext,
   layout: DriveManifestLayout,
   owner_id: string,
 ): Promise<string[]> {
-  const part_keys = await ctx.storage.list(layout.keys.manifest_parts_prefix_for(owner_id));
+  const parts_prefix = layout.keys.manifest_parts_prefix_for(owner_id);
+  const abandoned_before = new Date(Date.now() - ABANDONED_PART_AFTER_MS);
+  const part_keys = await ctx.storage.list_stale(parts_prefix, abandoned_before);
   if (part_keys.length === 0) return [];
   const manifest_prefix = layout.keys.manifest_prefix_for(owner_id);
   const heads = new Set([
     ...(await ctx.storage.list(manifest_prefix)),
     ...(await ctx.storage.list(`${QUARANTINE_PREFIX}${manifest_prefix}`)).map(original_key_of),
   ]);
-  const parts_prefix = layout.keys.manifest_parts_prefix_for(owner_id);
   return part_keys.filter((key) => {
     const snapshot_id = key.slice(parts_prefix.length).split('/')[0] ?? '';
     return !heads.has(head_key_or_undefined(layout, owner_id, snapshot_id) ?? '');

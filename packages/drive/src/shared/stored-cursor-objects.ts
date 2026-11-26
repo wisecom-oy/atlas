@@ -71,28 +71,7 @@ export async function read_reusable_cursor_parts(
     return { names: new Set(names), bucket_count: item_parts.bucket_count };
   } catch (err) {
     if (!(err instanceof UnreadableContentError)) throw err;
-    logger.warn(`Rewriting every ${layout.label} part: ${err.message}`);
+    logger.warn(`Not reusing the parts the ${layout.label} head lists: ${err.message}`);
     return NOTHING_REUSABLE;
-  }
-}
-
-/**
- * Deletes cursor objects in the order given, logging instead of failing: the cursor itself is
- * already stored, and the next save lists and removes whatever is left. The caller passes a head
- * before its parts, so a failure part way leaves parts nothing references rather than a head
- * missing its parts.
- */
-export async function remove_cursor_objects(
-  ctx: TenantContext,
-  layout: DriveCursorLayout,
-  keys: readonly string[],
-): Promise<void> {
-  try {
-    for (const key of keys) await ctx.storage.delete(key);
-  } catch (err) {
-    logger.warn(
-      `Could not remove a replaced ${layout.label} object; the next backup retries: ` +
-        `${err instanceof Error ? err.message : String(err)}`,
-    );
   }
 }

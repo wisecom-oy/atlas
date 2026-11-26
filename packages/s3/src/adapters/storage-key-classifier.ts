@@ -16,6 +16,7 @@ const OUTLOOK_CLASSES: Record<string, StorageKeyClass> = {
 const DRIVE_CLASSES: Record<string, StorageKeyClass> = {
   data: 'data',
   manifests: 'manifests',
+  'manifest-parts': 'manifests',
   index: 'index',
   staging: 'staging',
   _meta: '_meta',
