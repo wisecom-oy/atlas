@@ -109,7 +109,8 @@ describe('with_graph_retry on a 408 or 509', () => {
 });
 
 describe('with_graph_retry on statuses it does not retry', () => {
-  it.each([400, 401, 403, 404, 423, 507])(
+  // A 401 is repeated once with a new token (issue #861); graph-unauthorized-retry tests cover it.
+  it.each([400, 403, 404, 423, 507])(
     'rethrows a %i unchanged after one attempt',
     async (status) => {
       const err = graph_error(status);

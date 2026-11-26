@@ -19,7 +19,9 @@ Before you open an issue, run `./tools/diagnostics.sh` from the repository root 
 
 These occur before any backup work starts. Atlas signs in to Microsoft Graph with the OAuth 2.0 client credentials flow, so a failure here is a credential or tenant configuration problem, not a network or storage problem.
 
-When Microsoft Entra ID refuses the token request, the command exits `4` with `Atlas code: ATLAS_AUTH_DENIED` and prints Entra's answer as the cause, for example `Cause: invalid_client: Error(s): 7000215`. Atlas does not retry a refusal, because Entra gives the same answer until the credentials change. A token request that gets no answer, or a `5xx` from Entra, is retried and ends in exit `3`.
+When Microsoft Entra ID refuses the token request, the command exits `4` with `Atlas code: ATLAS_AUTH_DENIED` and prints Entra's answer as the cause, for example `Cause: invalid_client: Error(s): 7000215`. Atlas does not retry a refusal, because Entra gives the same answer until the credentials change. A token request that gets no answer, or a `429` or `5xx` from Entra (for example `AADSTS90033`, a transient error), is retried through the [retry budget](/operations/reliability#microsoft-graph-requests), at least 60 s apart, and ends in exit `3` with `ATLAS_GRAPH_UNAVAILABLE` if Entra does not recover. Check Microsoft 365 service health and run the command again later.
+
+When Microsoft Graph answers `401 InvalidAuthenticationToken` to an issued token, Atlas requests a new token and repeats the call once. A `401` that persists after that exits `4` with `ATLAS_AUTH_DENIED`. Check **Microsoft Entra ID → Sign-in logs → Service principal sign-ins** for the application, and Microsoft 365 service health for an incident affecting Graph sign-in.
 
 `atlas tenants validate` and `atlas tenants add` are the exception. They request one token, print Entra's answer, and exit `1` for any failure, refused or unanswered, without retrying.
 

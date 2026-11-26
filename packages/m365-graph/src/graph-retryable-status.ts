@@ -16,6 +16,7 @@
  *   lock is held by a person or an app and outlives a retry budget, so the item fails on its own.
  * - `507 Insufficient Storage`: the target is out of quota. Waiting does not free space.
  * - `501` and every other `4xx`: repeating the request returns the same answer.
+ *   A `401` is the exception: it is repeated once with a new token (`NewTokenRepeat`, issue #861).
  *
  * These apply to idempotent calls only. A 5xx or a timeout after a create POST can arrive after
  * the backend committed it, so a call marked `idempotent: false` retries only on a throttle
