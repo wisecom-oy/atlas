@@ -81,10 +81,10 @@ Microsoft Graph returns `429` when it throttles a request, and occasionally `500
 | What you see | What it means | What to do |
 | --- | --- | --- |
 | Occasional `429`s during a large first backup | Normal. Microsoft Graph throttles per application and per mailbox, and Atlas waits it out | Nothing |
-| Repeated `429`s that cause folder failures | Several backups run at the same time and exceed the tenant's Microsoft Graph capacity | Run one `atlas outlook backup -m` per mailbox and stagger the schedules |
+| Repeated `429`s that stop backups with `ATLAS_THROTTLED`, exit `3` | Several backups run at the same time and exceed the tenant's Microsoft Graph capacity | Run one `atlas outlook backup -m` per mailbox and stagger the schedules |
 | `429`s on every request from the start | Another application in the tenant may be using most of the quota | Review tenant-wide Microsoft Graph usage. Contact Microsoft support if the limits look lower than expected |
 | Occasional `500` or `502` responses | Normal under load. Retried automatically | Nothing, if the run completes |
-| Persistent `500` or `502` on the same item | Retries ran out against a server-side fault, not throttling | Rerun the backup later. If it repeats, open a Microsoft support case with the time of the failure and the affected item |
+| Persistent `500` or `502` that stops a backup with `ATLAS_GRAPH_UNAVAILABLE`, exit `3`, at the same folder, drive, or item | Retries ran out against a server-side fault, not throttling | Rerun the backup later. If it repeats, open a Microsoft support case with the time of the failure and the affected item |
 | `ATLAS_GRAPH_UNAVAILABLE`, exit `3` | Microsoft Graph kept failing a call through its retry budget, and the backup stopped. A restore or save fails only that item, with this message on its error line, and exits `2` | See [Microsoft Graph unavailable after retries](#microsoft-graph-unavailable-after-retries) |
 | `ATLAS_THROTTLED`, exit `3` | A `429` outlasted the retry budget, or `Retry-After` exceeded 1 hour, and the backup stopped. A restore or save fails only that item and exits `2` | Schedule the run again later, or run fewer jobs at once for that mailbox or tenant |
 | `ATLAS_LISTING_INCOMPLETE`, exit `2` | A listing of calendars, contact folders, mail folders, or teams ended with fewer items than Microsoft Graph counted. Nothing was written | Rerun. If it repeats for the same mailbox or tenant, open an issue with the message, which names both counts. See [Unit listings that end early](/operations/reliability#unit-listings) |
