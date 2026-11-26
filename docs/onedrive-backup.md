@@ -247,6 +247,16 @@ Atlas records who each file and folder is shared with: direct grants to users an
 Atlas reads permissions only for items Microsoft Graph reports as shared, 20 items per `$batch` request. A file whose sharing changed and whose content did not is recorded as change type `permissions_changed` and reuses the stored content of its previous entry. See [the cost of capturing sharing](/security#the-cost-of-capturing-sharing).
 :::
 
+### When permissions cannot be read
+
+If Microsoft Graph refuses the permission read of a shared item, for example with `404` or `423`, the item is added to the drive's [list of failed files](#failed-files) with the reason `Permission read failed: Microsoft Graph did not return the sharing permissions`. The run is UNHEALTHY and exits `2`.
+
+- A file whose content changed is still stored. Its entry keeps the permissions of its previous entry, so the snapshot does not show the file as unshared.
+- A change to sharing alone writes no entry in that run.
+- The next run reads the item again by its ID and reads its permissions, without the item having to change. Once the read succeeds, a changed sharing is recorded as `permissions_changed` and the failure clears.
+
+The change listing does not present an unchanged item again, so without the list a sharing change whose read failed would never be recorded. A failed read uses one of the item's 5 attempts. An item deleted after the change listing was read answers `404` on its re-read and is dropped by the rule in [A listed file that answers not found](#a-listed-file-that-answers-not-found). When the whole read fails because Microsoft Graph is down, the run stops with exit `3` instead, see [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
+
 ### Restoring sharing
 
 ```bash
@@ -391,6 +401,7 @@ Microsoft does not document which code a download returns for an IRM or retentio
 Each failed file is retried at the start of the next run, before new changes:
 
 - If the file downloads, it is stored and the failure clears.
+- If it was listed because its permissions could not be read, they are read again, and the failure clears once they are. See [When permissions cannot be read](#when-permissions-cannot-be-read).
 - If the file was deleted, the failure is dropped. A `404` on the re-read is not enough on its own. See [A listed file that answers not found](#a-listed-file-that-answers-not-found).
 - If it fails again, its attempt count increases, unless the failure is outside the file.
 

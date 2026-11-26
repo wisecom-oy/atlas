@@ -225,6 +225,7 @@ A failure that belongs to one item is recorded against that item and the run con
 | One Outlook message (MIME or attachments) | A message error. The folder keeps its entries but not its new checkpoint, unless Exchange refused the MIME for good, which keeps the checkpoint |
 | One Outlook folder | A folder error. The other folders run |
 | One OneDrive or SharePoint file | A failed file, retried by the next run up to 5 times |
+| The sharing permissions of one OneDrive or SharePoint file or folder | A failed item. Content that changed is still stored, and the next run reads the permissions again |
 | One drive or library (for example its delta query) | That drive's error. Other drives run |
 | One Teams channel | A channel error. Other channels run. With `--all`, one team's failure does not stop the others |
 | One calendar or contact folder | That folder's error |

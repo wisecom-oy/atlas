@@ -8,9 +8,13 @@ export interface PermissionDigestTracking {
   permission_digest_by_item_id?: Record<string, string>;
 }
 
-/** What a run learned about one item's permissions. */
+/**
+ * What a run learned about one item's permissions. `read: false` with `failed: false` is an item
+ * whose permissions were not worth reading; with `failed: true`, Graph was asked and did not answer
+ * with them (issue #856).
+ */
 export type PermissionObservation =
-  | { readonly read: false }
+  | { readonly read: false; readonly failed: boolean }
   | {
       readonly read: true;
       readonly permissions: readonly DrivePermission[];
@@ -19,7 +23,10 @@ export type PermissionObservation =
       readonly changed: boolean;
     };
 
-const NOT_READ: PermissionObservation = { read: false };
+const NOT_READ: PermissionObservation = { read: false, failed: false };
+
+/** The read of a candidate's permissions failed: Graph refused it, or its chunk kept failing. */
+const READ_FAILED: PermissionObservation = { read: false, failed: true };
 
 /** The digest of "no permissions", which is what an item with no recorded digest had. */
 const EMPTY_DIGEST = digest_permissions([]);
@@ -54,6 +61,8 @@ export class DriveSharingCapture {
   private readonly _fetched = new Map<string, readonly DrivePermission[]>();
   /** Items already asked for, read or not, so a failed read is not repeated within the run. */
   private readonly _attempted = new Set<string>();
+  /** Candidates whose permissions the run asked for and did not get. */
+  private readonly _failed = new Set<string>();
 
   constructor(
     private readonly _connector: Pick<DriveSharingConnector, 'fetch_item_permissions'>,
@@ -85,10 +94,21 @@ export class DriveSharingCapture {
     if (!is_permission_candidate(item, tracking)) return NOT_READ;
     if (!this._attempted.has(item.item_id)) await this.prefetch(item.drive_id, [item], tracking);
     const permissions = this._fetched.get(item.item_id);
-    if (permissions === undefined) return NOT_READ;
+    if (permissions === undefined) {
+      this._failed.add(item.item_id);
+      return READ_FAILED;
+    }
     const digest = digest_permissions(permissions);
     const previous = tracking.permission_digest_by_item_id?.[item.item_id] ?? EMPTY_DIGEST;
     return { read: true, permissions, digest, changed: digest !== previous };
+  }
+
+  /**
+   * Whether the run observed the item as a candidate and could not read its permissions. The caller
+   * records that against the item, so the next run reads them again (issue #856).
+   */
+  has_failed_read(item_id: string): boolean {
+    return this._failed.has(item_id);
   }
 
   /** The newest entry an earlier snapshot holds for the file. */
@@ -99,16 +119,18 @@ export class DriveSharingCapture {
 
 /**
  * Records in the cursor what a file entry written this run holds. A read with permissions stores
- * the digest; a read with none clears it. A candidate whose read failed also clears it, so the next
- * time Graph re-presents the item its permissions are read again rather than assumed unchanged.
+ * the digest; a read with none clears it. An observation that was not read leaves the digest alone:
+ * a failed read is recorded against the item and read again next run, and that read is compared
+ * with the digest the newest entry's permissions match (issue #856).
  */
 export function record_file_permission_digest(
   tracking: PermissionDigestTracking,
   item_id: string,
   observation: PermissionObservation,
 ): void {
+  if (!observation.read) return;
   const digests = permission_digests(tracking);
-  if (observation.read && observation.permissions.length > 0) digests[item_id] = observation.digest;
+  if (observation.permissions.length > 0) digests[item_id] = observation.digest;
   else delete digests[item_id];
 }
 

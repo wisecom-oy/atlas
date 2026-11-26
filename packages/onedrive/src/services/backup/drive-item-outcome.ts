@@ -3,6 +3,11 @@ import {
   record_item_failure,
 } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import type { DriveItemMetadataCapture } from '@wisecom/atlas-drive/backup/item-metadata-capture';
+import {
+  PERMISSION_READ_FAILURE_REASON,
+  record_permission_read_failure,
+} from '@wisecom/atlas-drive/backup/unread-permissions';
 import type {
   BackupProgressReporter,
   OneDriveDeltaItem,
@@ -48,6 +53,24 @@ export function apply_item_outcome(
   result.files_deduplicated += outcome.files_deduplicated;
   result.deleted_items += outcome.deleted_items;
   if (outcome.entry) result.entries.push(outcome.entry);
+}
+
+/**
+ * Records against the run an item whose permissions could not be read, after its outcome was
+ * applied: any content it stored is kept, and the failed-items list brings it back next run so its
+ * permissions are read again (issue #856). An item whose permissions were read, or that needed no
+ * read, is left as its outcome recorded it. It is not counted as a failed item for notebook
+ * completeness, since its content came through.
+ */
+export function record_unread_item_permissions(
+  result: SingleDriveResult,
+  drive_id: string,
+  item: OneDriveDeltaItem,
+  capture: DriveItemMetadataCapture,
+): void {
+  if (!capture.sharing.has_failed_read(item.item_id)) return;
+  result.errors.push(`${PERMISSION_READ_FAILURE_REASON}: ${item.file_name} (${item.item_id})`);
+  result.failed_items = record_permission_read_failure(result.failed_items, drive_id, item);
 }
 
 /**
