@@ -29,6 +29,7 @@ import {
 import { is_network_error } from '@/graph-network-error';
 import { is_permanent_item_error } from '@/graph-permanent-item-errors';
 import { is_retryable_graph_status, is_throttle_status } from '@/graph-retryable-status';
+import { is_unreadable_success_body } from '@/graph-unreadable-body';
 import { to_graph_unavailable_error } from '@/graph-unavailable-failure';
 import {
   GraphTokenRequestError,
@@ -140,15 +141,23 @@ export function is_transient_error(err: unknown): boolean {
   return is_retryable_graph_status((err as Record<string, unknown>).statusCode);
 }
 
-/** Returns true when an error is retryable (transient HTTP, network error, or failed token request). */
+/**
+ * Returns true when an error is retryable: a transient HTTP status, a network error, a 2xx whose
+ * JSON body did not parse (issue #868), or a failed token request.
+ */
 export function is_retryable_error(err: unknown): boolean {
-  return is_transient_error(err) || is_network_error(err) || is_transient_token_request_error(err);
+  return (
+    is_transient_error(err) ||
+    is_network_error(err) ||
+    is_unreadable_success_body(err) ||
+    is_transient_token_request_error(err)
+  );
 }
 
 /**
  * Wraps any async network call with exponential backoff + jitter for both
  * transient HTTP errors (408, 429, 500, 502, 503, 504, 509), network-level errors (ETIMEDOUT,
- * ECONNRESET, socket hang up, etc.).
+ * ECONNRESET, socket hang up, etc.) and a 2xx whose JSON body did not parse.
  *
  * Retries up to 12 times with backoff delays capped at 5 minutes. A call starts no new wait once it
  * has waited 24 minutes, counting waits and cooldowns. Honours Retry-After up to the 1-hour cap,
@@ -249,10 +258,10 @@ function as_final_failure(err: unknown): unknown {
 
 /**
  * Types a retryable failure that outlasted the retry budget, keeping the Graph error as `cause`:
- * a 429 or 509 becomes `ThrottledError` (issues #440, #867), and a 408, 5xx, network error or
- * timeout becomes `GraphUnavailableError` (issues #773, #867). A Graph SDK error for a 5xx with an
- * empty or non-JSON body has an empty `message`, so the message is built from
- * `describe_graph_error`, never copied.
+ * a 429 or 509 becomes `ThrottledError` (issues #440, #867), and a 408, 5xx, network error,
+ * timeout or 2xx whose JSON body did not parse becomes `GraphUnavailableError` (issues #773, #867,
+ * #868). A Graph SDK error for a 5xx with an empty or non-JSON body has an empty `message`, so the
+ * message is built from `describe_graph_error`, never copied.
  */
 function as_exhausted_failure(err: unknown, retries: number, elapsed_ms: number): unknown {
   // An inner call already typed its exhausted failure; wrapping it again would hide a throttle.
