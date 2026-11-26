@@ -304,7 +304,16 @@ Every backup first lists the units it will read: calendars, contact folders, mai
 
 The count costs no extra request. The channel check costs one request for each channel that disappears, once: a channel already marked deleted is not read again. More items than counted is accepted, since a unit created while the listing paged is still a real unit. A unit deleted while the listing paged can leave one fewer than counted, which fails that run; the next run lists again.
 
-A mail folder listed more than once, on one page, across pages, or under two parents, is backed up once, at the place it was first listed, and its subfolders are listed once. Every copy still counts toward the `@odata.count` check, because Microsoft Graph counted it that way.
+A unit listed more than once, on one page or across pages, is backed up once per run, from the first copy listed:
+
+| Unit listed twice | Result |
+| --- | --- |
+| Mail folder or contact folder, including under two parents | Backed up once, at the place it was first listed. Its subfolders are listed once |
+| Calendar | Read once. Each of its events has one manifest entry |
+| Team, with `atlas teams backup --all` | Backed up once |
+| Teams channel | Read by one worker, with one index entry. Its errors are reported once |
+
+In the listings checked with `$count=true`, every copy still counts toward the `@odata.count` check, because Microsoft Graph counted it that way.
 
 ## Concurrency guards
 

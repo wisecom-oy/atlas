@@ -18,6 +18,7 @@ import type {
 import type { GraphFolderRecord } from '@/adapters/graph-mailbox-response-mappers';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
+import { create_repeated_listing_filter } from '@wisecom/atlas-m365-graph';
 
 /**
  * Hidden folders that hold client state rather than mail.
@@ -62,19 +63,10 @@ export type FolderChildrenFetcher = (parent_folder_id?: string) => Promise<Graph
 export function skip_repeated_folders(
   fetch_children: FolderChildrenFetcher,
 ): FolderChildrenFetcher {
-  const listed_ids = new Set<string>();
-  return async (parent_folder_id) => {
-    const records = await fetch_children(parent_folder_id);
-    return records.filter((record) => is_first_listing(record, listed_ids));
-  };
-}
-
-/** Records a folder as listed; false when an earlier listing already returned it. */
-function is_first_listing(record: GraphFolderRecord, listed_ids: Set<string>): boolean {
-  if (!record.id) return true;
-  if (listed_ids.has(record.id)) return false;
-  listed_ids.add(record.id);
-  return true;
+  const keep_first_listing = create_repeated_listing_filter<GraphFolderRecord>(
+    (record) => record.id,
+  );
+  return async (parent_folder_id) => keep_first_listing(await fetch_children(parent_folder_id));
 }
 
 /**

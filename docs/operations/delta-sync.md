@@ -113,6 +113,8 @@ Microsoft 365 can report the same message more than once while Atlas reads a fol
 
 When Microsoft Graph rejects an expired checkpoint partway through, the same rules span both reads: a message stored before the rejection is not downloaded again by the full read.
 
+Calendar and Contacts keep the last report for each event or contact ID in the same way. A mail folder, calendar, contact folder, or Teams channel that Microsoft Graph lists twice is read once per run, so its items are not stored twice either. See [Unit listings that end early](/operations/reliability#unit-listings).
+
 ### When removals are recorded
 
 Removals are only safe when the run saw both ends of a move. Atlas records them only when every selected folder finished:
