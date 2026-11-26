@@ -27,15 +27,37 @@ export class FailOpenThrottleCoordinator implements ThrottleCoordinator {
 
   /** Reports a 429 to the host coordinator, logging rather than throwing if it fails. */
   raise(pool: GraphServicePool, retry_after_ms: number, ...scope: [ThrottleScope?]): void {
+    this.raise_then(() => undefined, pool, retry_after_ms, ...scope);
+  }
+
+  /**
+   * Like `raise`, then calls `on_recorded` once the host coordinator has accepted the cooldown: at
+   * once for a host that returns normally, on fulfilment for one that returns a promise. Never
+   * called when the raise throws or rejects, so a caller can announce only a cooldown in force.
+   */
+  raise_then(
+    on_recorded: () => void,
+    pool: GraphServicePool,
+    retry_after_ms: number,
+    ...scope: [ThrottleScope?]
+  ): void {
+    if (this._inner instanceof FailOpenThrottleCoordinator) {
+      this._inner.raise_then(on_recorded, pool, retry_after_ms, ...scope);
+      return;
+    }
+    let result: unknown;
     try {
-      const result: unknown = this._inner.raise(pool, retry_after_ms, ...scope);
-      // `raise` is typed void, but a host backed by a network store may still return a promise.
-      if (is_thenable(result)) {
-        result.then(undefined, (err: unknown) => log_raise_failure(pool, err));
-      }
+      result = this._inner.raise(pool, retry_after_ms, ...scope);
     } catch (err) {
       log_raise_failure(pool, err);
+      return;
     }
+    // `raise` is typed void, but a host backed by a network store may still return a promise.
+    if (is_thenable(result)) {
+      result.then(on_recorded, (err: unknown) => log_raise_failure(pool, err));
+      return;
+    }
+    on_recorded();
   }
 }
 

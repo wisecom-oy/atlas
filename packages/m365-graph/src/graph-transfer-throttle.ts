@@ -36,7 +36,8 @@ export async function wait_for_transfer_slot(abort_signal?: AbortSignal): Promis
  *
  * Only a 429 or 503 carrying a usable Retry-After raises a cooldown. Other responses, and throttles without the header, stay with the caller's own backoff.
  * Fails open: a coordinator whose `raise` throws or rejects is logged, and the caller's retry loop carries on.
- * A cooldown longer than a minute is announced when it is raised, once for every transfer it holds (issue #880).
+ * A cooldown longer than a minute is announced once the coordinator has recorded it, once for every transfer it holds
+ * (issue #880). A raise that fails is logged and not announced, since no cooldown is in force.
  */
 export function report_transfer_throttle(response: Pick<Response, 'status' | 'headers'>): void {
   if (response.status !== 429 && response.status !== 503) return;
@@ -44,10 +45,15 @@ export function report_transfer_throttle(response: Pick<Response, 'status' | 'he
   if (retry_after_ms === undefined || retry_after_ms <= 0) return;
   const active = get_active_throttle();
   if (!active) return;
-  new FailOpenThrottleCoordinator(active.coordinator).raise(TRANSFER_POOL, retry_after_ms);
-  announce_cooldown(
-    { coordinator: active.coordinator, pool: TRANSFER_POOL, scope: undefined },
+  const announce = (): void =>
+    announce_cooldown(
+      { coordinator: active.coordinator, pool: TRANSFER_POOL, scope: undefined },
+      retry_after_ms,
+      `HTTP ${response.status} with Retry-After ${Math.round(retry_after_ms / 1000)} s`,
+    );
+  new FailOpenThrottleCoordinator(active.coordinator).raise_then(
+    announce,
+    TRANSFER_POOL,
     retry_after_ms,
-    `HTTP ${response.status} with Retry-After ${Math.round(retry_after_ms / 1000)} s`,
   );
 }

@@ -40,10 +40,18 @@ export class DefaultMailboxRateLimiter implements MailboxRateLimiter {
     this._semaphore = new ConcurrencySemaphore(concurrency ?? EXCHANGE_CONCURRENCY);
   }
 
-  /** Acquires window tokens, then a concurrency slot; either wait ends when `signal` fires. */
+  /**
+   * Acquires window tokens, then a concurrency slot; either wait ends when `signal` fires. Tokens
+   * taken before a cancelled slot wait are returned, since that request is never sent.
+   */
   async acquire(cost = 1, signal?: AbortSignal): Promise<void> {
-    await this._window.acquire(cost, signal);
-    await this._semaphore.acquire(signal);
+    const grant = await this._window.acquire(cost, signal);
+    try {
+      await this._semaphore.acquire(signal);
+    } catch (err) {
+      this._window.refund(grant);
+      throw err;
+    }
   }
 
   /** Releases one concurrency slot. Must be called after the Graph request completes. */
