@@ -2,7 +2,12 @@ import type { TenantContext } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { AttachmentEntry, AttachmentKindCounts } from '@wisecom/atlas-types';
 import type { MimeAttachment } from '@/services/shared/mime-message-parser';
+import { UploadCommitUnknownError } from '@wisecom/atlas-types';
 import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
+import {
+  is_run_fatal_error,
+  type RunFatalError,
+} from '@wisecom/atlas-core/services/shared/run-fatal-error';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { assert_restored_content_matches } from '@wisecom/atlas-core/services/shared/restored-content-verifier';
 
@@ -12,6 +17,8 @@ export interface AttachmentRestoreResult {
   readonly uploaded: AttachmentKindCounts;
   readonly skipped: number;
   readonly errors: string[];
+  /** A refusal for the whole mailbox that stopped the uploads; it ends the restore (#871). */
+  readonly refusal?: RunFatalError;
 }
 
 /**
@@ -31,6 +38,7 @@ export async function restore_entry_attachments(
   let inline = 0;
   let skipped = 0;
   const errors: string[] = [];
+  let refusal: RunFatalError | undefined;
 
   for (const [index, att] of attachments.entries()) {
     if (!att.storage_key) {
@@ -53,16 +61,17 @@ export async function restore_entry_attachments(
       restored++;
       if (att.is_inline) inline++;
     } catch (err) {
-      if (is_active_run_cancelled()) {
-        errors.push(interrupted_attachments(attachments.length - index));
-        break;
-      }
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`${att.name}: ${msg}`);
+      const stop = record_failed_upload(errors, att.name, attachments.length - index, err);
+      if (stop === undefined) continue;
+      refusal = stop.refusal;
+      break;
     }
   }
 
-  return { restored, uploaded: { file: restored - inline, inline }, skipped, errors };
+  return with_refusal(
+    { restored, uploaded: { file: restored - inline, inline }, skipped, errors },
+    refusal,
+  );
 }
 
 /**
@@ -80,6 +89,7 @@ export async function restore_parsed_attachments(
   let restored = 0;
   let inline = 0;
   const errors: string[] = [];
+  let refusal: RunFatalError | undefined;
 
   for (const [index, att] of attachments.entries()) {
     try {
@@ -93,15 +103,71 @@ export async function restore_parsed_attachments(
       restored++;
       if (att.is_inline) inline++;
     } catch (err) {
-      if (is_active_run_cancelled()) {
-        errors.push(interrupted_attachments(attachments.length - index));
-        break;
-      }
-      errors.push(`${att.name}: ${err instanceof Error ? err.message : String(err)}`);
+      const stop = record_failed_upload(errors, att.name, attachments.length - index, err);
+      if (stop === undefined) continue;
+      refusal = stop.refusal;
+      break;
     }
   }
 
-  return { restored, uploaded: { file: restored - inline, inline }, skipped: 0, errors };
+  return with_refusal(
+    { restored, uploaded: { file: restored - inline, inline }, skipped: 0, errors },
+    refusal,
+  );
+}
+
+/** Why the remaining uploads of a message stop: Ctrl+C, or a refusal for the whole mailbox. */
+interface UploadStop {
+  readonly refusal?: RunFatalError;
+}
+
+/**
+ * Records one failed attachment upload and says whether the remaining uploads stop. Ctrl+C and a
+ * refusal for the whole mailbox stop them with one line for all that are left (#682, #871); any
+ * other failure is the attachment's own, and the next one is still sent.
+ */
+function record_failed_upload(
+  errors: string[],
+  name: string,
+  remaining: number,
+  err: unknown,
+): UploadStop | undefined {
+  if (is_active_run_cancelled()) {
+    record_interrupted_upload(errors, name, remaining, err);
+    return {};
+  }
+  if (is_run_fatal_error(err)) {
+    errors.push(`${remaining} attachment(s) not uploaded: ${err.message}`);
+    return { refusal: err };
+  }
+  errors.push(`${name}: ${err instanceof Error ? err.message : String(err)}`);
+  return undefined;
+}
+
+/** The result, carrying the refusal that stopped it when there was one. */
+function with_refusal(
+  result: AttachmentRestoreResult,
+  refusal: RunFatalError | undefined,
+): AttachmentRestoreResult {
+  return refusal === undefined ? result : { ...result, refusal };
+}
+
+/**
+ * Records the attachments a cancelled run did not upload, in one line, after naming an attachment
+ * whose final chunk was sent and may have landed (issue #891).
+ */
+function record_interrupted_upload(
+  errors: string[],
+  name: string,
+  remaining: number,
+  err: unknown,
+): void {
+  if (!(err instanceof UploadCommitUnknownError)) {
+    errors.push(interrupted_attachments(remaining));
+    return;
+  }
+  errors.push(`${name}: ${err.message}`);
+  if (remaining > 1) errors.push(interrupted_attachments(remaining - 1));
 }
 
 /**

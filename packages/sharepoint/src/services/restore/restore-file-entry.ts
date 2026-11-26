@@ -1,3 +1,4 @@
+import { UploadCommitUnknownError } from '@wisecom/atlas-types';
 import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { restore_parent_path } from '@wisecom/atlas-core/services/shared/restore-destination';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -12,6 +13,7 @@ import {
   apply_restored_file_permissions,
   type ItemSharingRestoreDeps,
 } from '@wisecom/atlas-drive/restore/item-sharing-restore';
+import { rethrow_if_restore_run_refusal } from '@wisecom/atlas-drive/restore/restore-run-refusal';
 import { ensure_sharepoint_folder_path } from '@/services/restore/restore-folder-path';
 
 /** Where one file is restored. */
@@ -28,7 +30,8 @@ export interface FileRestoreTarget {
 /**
  * Restores one file entry, reporting whether it landed or was skipped, then reapplies its
  * permissions when the operator asked for them. A permission that cannot be reapplied is reported
- * on the run's sharing summary and never fails the file.
+ * on the run's sharing summary and never fails the file. Throws a refusal of every restore write,
+ * such as a missing grant.
  */
 export async function restore_sharepoint_file_entry(
   connector: SharePointSiteConnector,
@@ -66,12 +69,16 @@ export async function restore_sharepoint_file_entry(
     await apply_restored_file_permissions(sharing, target.drive_id, item_id, entry);
     return 'restored';
   } catch (err) {
-    // An upload cut short by Ctrl+C is the run stopping, not a failed file (issue #682).
-    if (is_active_run_cancelled()) return 'cancelled';
+    // An upload cut short by Ctrl+C is the run stopping, not a failed file (issue #682), unless its
+    // final chunk was sent and may have created the file, which is named either way (issue #892).
+    const may_exist = err instanceof UploadCommitUnknownError;
+    if (is_active_run_cancelled() && !may_exist) return 'cancelled';
+    // A refusal of every write would fail each remaining file the same way (issue #871).
+    rethrow_if_restore_run_refusal('sharepoint', err);
     const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
     errors.push(msg);
     logger.warn(`Skipped ${entry.file_name}: ${msg}`);
-    return 'skipped';
+    return is_active_run_cancelled() ? 'cancelled' : 'skipped';
   }
 }
 

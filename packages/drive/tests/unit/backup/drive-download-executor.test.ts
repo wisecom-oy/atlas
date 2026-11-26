@@ -71,6 +71,10 @@ function make_client(
     select: () => ({ get }),
     get,
     responseType: () => ({ get: get_stream }),
+    // The /content request is handed its abort signal before it is sent (issue #890).
+    option() {
+      return this;
+    },
   }));
   return { client: { api } as unknown as DriveGraphClient, get_stream };
 }
@@ -148,7 +152,8 @@ describe.each(BINDINGS)('shared download executor bound to %s', (label, binding)
   // Issue #676: an errored /content drain must not leave its drain timer behind.
   it('leaves no timer behind when the /content stream errors', async () => {
     vi.useFakeTimers();
-    fetch_mock.mockResolvedValue(respond(500));
+    // A 404 from the URL falls back to /content; a 5xx would not (issue #885).
+    fetch_mock.mockResolvedValue(respond(404));
     // Errors on the first read, so the failure lands inside the drain.
     const content = (): Response =>
       new Response(

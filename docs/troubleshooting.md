@@ -72,8 +72,8 @@ Microsoft Graph returns `429` when it throttles a request, and occasionally `500
 ::: details Retry behaviour in brief
 - `Retry-After` is honoured up to one hour, followed by a random delay of up to a tenth of the wait, kept between 1 and 5 seconds, so no request goes out before Microsoft Graph asked. A value under one second is raised to one second. Without the header, a `429` applies a 30-second cooldown.
 - A `Retry-After` longer than one hour fails the call at once with a `ThrottledError` naming the value.
-- Backoff is exponential with jitter, capped at 5 minutes per wait. Once a call has spent 24 minutes waiting, counting backoff, `Retry-After` waits, and cooldowns, it starts no new wait. A wait already started runs in full, so one call waits at most about 24 minutes plus one cooldown. Time spent inside each request does not count.
-- Each attempt times out after 60 seconds, and its request is closed before the next one is sent.
+- Backoff is exponential with jitter, capped at 5 minutes per wait. Once a call has spent 24 minutes waiting, counting backoff, `Retry-After` waits, and cooldowns, including the cooldown an Outlook call waits out before it is sent, it starts no new wait. A wait already started runs in full, so one call waits at most about 24 minutes plus one cooldown. Time spent inside each request comes on top of that, so this is not a limit on how long a call takes. [Retries and fail-safes](/operations/reliability#microsoft-graph-requests) gives the wall-clock worst case.
+- Each attempt times out after 60 seconds, or 30 minutes for an Outlook MIME or attachment download, and its request is closed before the next one is sent. A download that receives nothing for 60 seconds is closed and retried without waiting for its attempt timeout.
 - Atlas decides whether to retry from the HTTP status and from Node and undici error codes such as `ECONNRESET` or `UND_ERR_SOCKET`, never from the error message.
 - When a call spends its retry budget, a backup stops, commits what it finished, and exits `3`, whichever folder, drive, or channel it was reading. A restore or save fails only that item, continues, and exits `2`. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
 :::
@@ -85,6 +85,7 @@ Microsoft Graph returns `429` when it throttles a request, and occasionally `500
 | Occasional `429`s during a large first backup | Normal. Microsoft Graph throttles per application and per mailbox, and Atlas waits it out | Nothing |
 | Repeated `429`s that stop backups with `ATLAS_THROTTLED`, exit `3` | Several backups run at the same time and exceed the tenant's Microsoft Graph capacity | Run one `atlas outlook backup -m` per mailbox and stagger the schedules |
 | `429`s on every request from the start | Another application in the tenant may be using most of the quota | Review tenant-wide Microsoft Graph usage. Contact Microsoft support if the limits look lower than expected |
+| `Waiting 60 min, until <time>, for the cooldown on ...` and then no output | Microsoft Graph throttled the mailbox, team, or pool, and every request to it waits until the time shown. The run is waiting, not hung | Let it run, or press Ctrl+C once to commit what finished and stop. See [Long waits](/operations/reliability#long-waits) |
 | Occasional `500` or `502` responses | Normal under load. Retried automatically | Nothing, if the run completes |
 | Persistent `500` or `502` that stops a backup with `ATLAS_GRAPH_UNAVAILABLE`, exit `3`, at the same folder, drive, or item | Retries ran out against a server-side fault, not throttling | Rerun the backup later. If it repeats, open a Microsoft support case with the time of the failure and the affected item |
 | `ATLAS_GRAPH_UNAVAILABLE`, exit `3` | Microsoft Graph kept failing a call through its retry budget, and the backup stopped. A restore or save fails only that item, with this message on its error line, and exits `2` | See [Microsoft Graph unavailable after retries](#microsoft-graph-unavailable-after-retries) |
@@ -104,11 +105,13 @@ Throttling caps throughput even with unlimited bandwidth. For a first full tenan
 Microsoft Graph answered `408`, `500`, `502`, `503`, or `504`, answered `200` with a JSON body that was empty or cut short, or the connection failed or timed out, on every attempt until the retry budget ran out. This is a service incident at Microsoft or a network problem between the host and Microsoft 365, not a fault in the backup. A backup exits `3`. A restore or save reports the same message on the error line of each item it hit and exits `2`, so a `2` from a restore or save can also be a Microsoft 365 incident. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
 
 1. Check the [Microsoft 365 service health](https://admin.microsoft.com/#/servicehealth) page.
-2. Schedule the run again once the incident clears. Back off at the run level rather than retrying immediately: each attempt spends up to one retry budget, about 24 minutes, before it gives up.
+2. Schedule the run again once the incident clears. Back off at the run level rather than retrying immediately: each run spends one retry budget before it gives up. That is about 24 minutes of waiting, plus at most one more cooldown, plus the time spent inside its 13 attempts.
 
 The message always names the HTTP status and the Microsoft Graph error code when the last attempt got a response, even one with an empty body. When no response arrived, it names the transport error instead, for example `no HTTP response (TypeError: fetch failed)` for a reset connection.
 
 One outage costs a backup one retry budget. The first call that spends its budget stops every other Graph call of the run, whether it was reading a message, a folder, an event, a channel, or a lookup that may otherwise fail without failing the backup. The run still writes the snapshot of the folders, drives, calendars, and channels it finished, keeps the previous checkpoint of the rest, and releases the owner lease, so the next scheduled run does not meet `ATLAS_OWNER_BUSY`. `atlas teams backup --all` and `atlas sharepoint backup --include-subsites` do not start the next team or subsite. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
+
+The lookup of an email address before the run counts too. When it spends its budget, the backup exits `3` before it takes the owner lease, instead of continuing on the identity registry entry and spending a second budget. Commands that only read backups, such as `verify` and `list -m`, use the registry entry after 15 s instead. See [Owner lookup](/operations/reliability#owner-lookup).
 
 In the SDK the error is `GraphUnavailableError`:
 
@@ -138,15 +141,23 @@ When the directory record answers `404` too, the owner is gone and the run exits
 
 ### Restore writes are sent once
 
-A restore reports an item as failed after a `408`, `500`, `502`, `504`, `509`, a `503` without `Retry-After`, a dropped connection, or a timeout. The item may or may not exist in the target: Microsoft 365 can commit a create and still lose the response, so Atlas does not repeat it and risk two copies. The restore continues with the other items.
+A restore reports an item as failed after a `408`, `500`, `502`, `504`, `509`, a `503` without `Retry-After`, a dropped connection, or a timeout. The item may or may not exist in the target: Microsoft 365 can commit a create and still lose the response, so Atlas does not repeat it and risk two copies. The restore continues with the other items and exits `2`.
 
 This covers messages, message and event attachments, events, contacts, mail, contact, and calendar folders, and OneDrive or SharePoint files restored with `--conflict rename` or `--conflict fail`.
 
-1. **Calendar or Contacts:** rerun the restore. A Calendar restore skips events already in the target calendar, and a Contacts restore skips contacts it restored earlier, so the rerun fills the gap without duplicates.
-2. **Outlook:** check the reported message in the restore folder before restoring it again.
-3. **OneDrive or SharePoint with `--conflict rename` or `--conflict fail`:** check the target for the reported file before restoring it again.
+A file over 4 MiB, or an attachment of 3 MiB or more, is created by the final chunk of an upload session. When that chunk ends this way, the error says so:
 
-A `429`, or a `503` with `Retry-After`, is still retried, because Microsoft Graph sends these instead of processing the request. Files restored with `--conflict replace`, folder creation on OneDrive and SharePoint, and upload sessions are safe to repeat and keep the full retry policy. Upload chunks are safe to repeat too and have their own retry, up to 3 attempts on a `408`, `429`, `500`, `502`, `503`, `504`, or `509`. See [File transfers](/operations/reliability#file-transfers-onedrive-and-sharepoint).
+```
+Report.docx: outcome unknown, the file may exist: the final upload chunk (bytes 10485760-12582911/12582912) ended with HTTP 504 after Microsoft 365 may have committed it. Check the target before restoring it again
+```
+
+An attachment reads `the attachment may exist`. An error that starts `Resumable upload failed at range` instead means Microsoft 365 refused a chunk, and nothing was created. Ctrl+C does not hide an unknown outcome: the item is still named.
+
+1. **Calendar or Contacts:** rerun the restore. A Calendar restore skips events already in the target calendar and recreates an event whose attachment failed, and a Contacts restore skips contacts it restored earlier, so the rerun fills the gap without duplicates.
+2. **Outlook:** check the reported message, and its attachments, in the restore folder before restoring it again.
+3. **OneDrive or SharePoint with `--conflict rename` or `--conflict fail`:** check the target for the reported file before restoring it again. Under `rename`, a rerun into the same folder next to a file that did land creates a renamed second copy.
+
+A `429`, or a `503` with `Retry-After`, is still retried, because Microsoft Graph sends these instead of processing the request. Files restored with `--conflict replace`, folder creation on OneDrive and SharePoint, and opening an upload session are safe to repeat and keep the full retry policy. Intermediate upload chunks are safe to repeat too: a OneDrive or SharePoint chunk gets up to 3 attempts, and an attachment chunk the Graph retry policy. Every chunk has a per-attempt deadline. See [Upload sessions](/operations/reliability#upload-sessions).
 
 ## OneDrive and SharePoint permission errors
 

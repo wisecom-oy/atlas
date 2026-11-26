@@ -6,6 +6,7 @@ import {
   CONTACTS_READ,
   CONTACTS_READ_WRITE,
   CREATE_ONCE,
+  WRITE_FINISHES_ONCE_SENT,
   IMMUTABLE_ID_PREFER,
   collect_pages,
   graph_call,
@@ -127,7 +128,9 @@ export async function upload_contact_photo(
   photo: Uint8Array,
 ): Promise<void> {
   const url = `${contact_url(mailbox_id, folder_id, contact_id)}/photo/$value`;
-  await graph_call(CONTACTS_READ_WRITE, () =>
-    client.api(url).header('Content-Type', 'image/jpeg').put(Buffer.from(photo)),
+  await graph_call(
+    CONTACTS_READ_WRITE,
+    () => client.api(url).header('Content-Type', 'image/jpeg').put(Buffer.from(photo)),
+    WRITE_FINISHES_ONCE_SENT,
   );
 }

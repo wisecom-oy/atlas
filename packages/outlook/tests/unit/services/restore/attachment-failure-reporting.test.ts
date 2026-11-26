@@ -8,10 +8,8 @@ import type {
   TenantContext,
   TransferProgressReporter,
 } from '@wisecom/atlas-types';
-import {
-  restore_folder_entries,
-  restore_single_message,
-} from '@/services/restore/restore-execution-orchestrator';
+import { restore_single_message } from '@/services/restore/restore-execution-orchestrator';
+import { restore_folder_entries } from '@/services/restore/folder-entries-restore';
 
 /**
  * Issue #341: the caller of the attachment writer read only its success count, so an attachment

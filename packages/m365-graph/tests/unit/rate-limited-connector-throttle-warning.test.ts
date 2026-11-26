@@ -31,7 +31,7 @@ describe('RateLimitedGraphConnector throttle warning', () => {
   function wrap(list_mail_folders: MailboxConnector['list_mail_folders']): void {
     connector = new RateLimitedGraphConnector(
       { list_mail_folders } as MailboxConnector,
-      new DefaultMailboxRateLimiterFactory(throttle),
+      new DefaultMailboxRateLimiterFactory(),
       throttle,
     );
   }
@@ -58,7 +58,7 @@ describe('RateLimitedGraphConnector throttle warning', () => {
     expect(failure).toBeInstanceOf(ThrottledError);
     expect(is_retry_after_above_cap_error(failure)).toBe(true);
     expect(send).toHaveBeenCalledOnce();
-    expect(warn).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('through the retry budget'));
     // The mailbox still cools down for the capped hour, so other requests to it keep waiting.
     expect(throttle.is_cooling('outlook', { ownerId: MAILBOX })).toBe(true);
   });

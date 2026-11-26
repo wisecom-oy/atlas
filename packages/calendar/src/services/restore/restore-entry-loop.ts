@@ -1,7 +1,15 @@
 import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
+import {
+  list_target_once,
+  type TargetListings,
+} from '@wisecom/atlas-core/services/shared/target-listing-once';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
-import type { CalendarEventEntry, OperationControlOptions } from '@wisecom/atlas-types';
+import type {
+  CalendarEventEntry,
+  GraphEventPayload,
+  OperationControlOptions,
+} from '@wisecom/atlas-types';
 
 import {
   type EntryOutcome,
@@ -25,19 +33,8 @@ export interface RestoreLoopOutcome {
   readonly interrupted: boolean;
 }
 
-/** Loads what a target calendar already holds once, reused for every entry that targets it. */
-async function existing_events_for(
-  deps: RestoreWriteDeps,
-  calendar_id: string,
-  cache: Map<string, ExistingEvents>,
-): Promise<ExistingEvents> {
-  const cached = cache.get(calendar_id);
-  if (cached !== undefined) return cached;
-  const events = await deps.connector.list_calendar_events(
-    deps.tenant_id,
-    deps.target_mailbox_id,
-    calendar_id,
-  );
+/** Indexes the events a target calendar already holds, in the terms restore uses to skip one. */
+function index_existing_events(events: readonly GraphEventPayload[]): ExistingEvents {
   const existing: ExistingEvents = {
     ical_uids: new Set(),
     source_ids: new Set(),
@@ -52,8 +49,27 @@ async function existing_events_for(
     const pending = pending_tag_of(event);
     if (pending !== undefined) existing.incomplete.set(pending, event.id);
   }
-  cache.set(calendar_id, existing);
   return existing;
+}
+
+/**
+ * Loads what a target calendar already holds once, reused for every entry that targets it. A
+ * listing that failed is not repeated: every entry of that calendar fails with it (issue #886).
+ */
+async function existing_events_for(
+  deps: RestoreWriteDeps,
+  calendar_id: string,
+  listings: TargetListings<ExistingEvents>,
+): Promise<ExistingEvents> {
+  return list_target_once(listings, calendar_id, 'the events in the target calendar', async () =>
+    index_existing_events(
+      await deps.connector.list_calendar_events(
+        deps.tenant_id,
+        deps.target_mailbox_id,
+        calendar_id,
+      ),
+    ),
+  );
 }
 
 /** Restores one entry into the target calendar its source calendar was mapped to. */
@@ -61,12 +77,12 @@ async function restore_mapped_entry(
   deps: RestoreWriteDeps,
   entry: CalendarEventEntry,
   target_by_source: ReadonlyMap<string, string>,
-  cache: Map<string, ExistingEvents>,
+  listings: TargetListings<ExistingEvents>,
 ): Promise<EntryOutcome> {
   const calendar_id = target_by_source.get(entry.calendar_id);
   if (calendar_id === undefined)
     throw new Error('source calendar was not mapped to a target calendar');
-  const existing = await existing_events_for(deps, calendar_id, cache);
+  const existing = await existing_events_for(deps, calendar_id, listings);
   return restore_entry(deps, entry, calendar_id, existing);
 }
 
@@ -88,7 +104,7 @@ export async function restore_all_entries(
   target_by_source: ReadonlyMap<string, string>,
   control: OperationControlOptions,
 ): Promise<RestoreLoopOutcome> {
-  const cache = new Map<string, ExistingEvents>();
+  const listings: TargetListings<ExistingEvents> = new Map();
   const errors: string[] = [];
   let processed = 0;
   let restored = 0;
@@ -102,7 +118,7 @@ export async function restore_all_entries(
     }
     processed += 1;
     try {
-      const outcome = await restore_mapped_entry(deps, entry, target_by_source, cache);
+      const outcome = await restore_mapped_entry(deps, entry, target_by_source, listings);
       if (outcome.status === 'skipped') skipped += 1;
       else restored += 1;
       append_all(errors, partial_error_lines(entry, outcome));

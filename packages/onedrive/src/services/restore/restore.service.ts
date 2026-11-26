@@ -37,6 +37,7 @@ import { select_restore_entries } from '@wisecom/atlas-drive/restore/restore-sel
 import type { ItemSharingRestoreDeps } from '@wisecom/atlas-drive/restore/item-sharing-restore';
 import { SharingRestoreTally } from '@wisecom/atlas-drive/restore/sharing-restore-tally';
 import { folder_colors_not_restored } from '@wisecom/atlas-drive/restore/folder-color-restore';
+import { stop_restore_on_refusal } from '@wisecom/atlas-drive/restore/restore-run-refusal';
 import { restore_onedrive_file_entry } from '@/services/restore/restore-file-entry';
 import { restore_onedrive_item_metadata } from '@/services/restore/restore-item-metadata';
 import { empty_restore_result } from '@/services/restore/restore-result';
@@ -173,15 +174,14 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
           file_name: options.rename_to ?? entry.file_name,
         },
         sharing,
-      );
+      ).catch((err: unknown) => stop_restore_on_refusal('onedrive', files_restored, err));
+      // Recorded before a cancellation too: a file whose final chunk may have landed is still named
+      // when Ctrl+C cut its restore short (issue #892).
+      if (result.error !== undefined) errors.push(result.error);
       // Cut short by Ctrl+C: neither restored nor skipped, so the count reads as interrupted.
       if (result.cancelled === true) break;
-      if (result.restored) {
-        files_restored++;
-      } else {
-        files_skipped++;
-        if (result.error) errors.push(result.error);
-      }
+      if (result.restored) files_restored++;
+      else files_skipped++;
       emit_operation_progress(options, {
         operation: 'restore',
         workload: 'onedrive',

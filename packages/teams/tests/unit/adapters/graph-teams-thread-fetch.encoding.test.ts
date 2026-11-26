@@ -62,13 +62,11 @@ describe('download_hosted_content path encoding', () => {
     const client = {
       api: (url: string) => {
         urls.push(url);
-        const response = {
-          ok: true,
-          status: 200,
-          headers: { get: () => null },
-          arrayBuffer: async () => new ArrayBuffer(0),
+        const request = {
+          option: () => request,
+          responseType: () => ({ get: async () => new Response(new Uint8Array(0)) }),
         };
-        return { responseType: () => ({ get: async () => response }) };
+        return request;
       },
     } as unknown as Client;
 

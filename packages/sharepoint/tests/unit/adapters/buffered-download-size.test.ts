@@ -36,7 +36,15 @@ function make_client(): Client {
   const get_stream = vi.fn(() => Promise.resolve(binary_graph_response(WRONG_BODY)));
   const select = vi.fn(() => ({ get }));
   return {
-    api: vi.fn(() => ({ select, get, responseType: () => ({ get: get_stream }) })),
+    api: vi.fn(() => ({
+      select,
+      get,
+      responseType: () => ({ get: get_stream }),
+      // The /content request is handed its abort signal before it is sent (issue #890).
+      option() {
+        return this;
+      },
+    })),
   } as unknown as Client;
 }
 

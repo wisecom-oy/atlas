@@ -97,7 +97,8 @@ describe('download_hosted_content', () => {
         : JSON.stringify({ error: { code: 'NotFound', message: 'not found' } });
     const get = vi.fn(async () => new Response(body, { status, headers }));
     const response_type = vi.fn(() => ({ get }));
-    const api = vi.fn((_url: string) => ({ responseType: response_type }));
+    const request = { option: vi.fn(() => request), responseType: response_type };
+    const api = vi.fn((_url: string) => request);
     return { client: { api } as unknown as Client, api, response_type };
   }
 

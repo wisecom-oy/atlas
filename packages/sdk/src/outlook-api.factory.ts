@@ -59,6 +59,8 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
   const identity = container.get<UserIdentityResolver>(USER_IDENTITY_RESOLVER_TOKEN);
   const resolve_object_id = (mailbox: string) =>
     resolve_owner_object_id(identity, tenant_id, mailbox);
+  const resolve_stored_object_id = (mailbox: string) =>
+    resolve_owner_object_id(identity, tenant_id, mailbox, 'stored_backups');
   // An email target is resolved to its object id, so the restore is throttled under the same
   // owner id as that mailbox's backups. A cross-tenant target resolves in its own tenant.
   const adapt_restore_options = async (
@@ -140,7 +142,7 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
       const [result, cost_result] = await run_with_cost_tracking(async () =>
         save.save_mailbox(
           tenant_id,
-          await resolve_object_id(mailbox),
+          await resolve_stored_object_id(mailbox),
           adapt_operation_options(options),
         ),
       );
@@ -150,13 +152,13 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
       return camelize(await with_camelized_partial_result(() => catalog.list_mailboxes(tenant_id)));
     },
     async listSnapshots(mailbox) {
-      const mailbox_id = await resolve_object_id(mailbox);
+      const mailbox_id = await resolve_stored_object_id(mailbox);
       return camelize(
         await with_camelized_partial_result(() => catalog.list_snapshots(tenant_id, mailbox_id)),
       );
     },
     async listSnapshotSummaries(mailbox) {
-      const mailbox_id = await resolve_object_id(mailbox);
+      const mailbox_id = await resolve_stored_object_id(mailbox);
       return camelize(
         await with_camelized_partial_result(() =>
           catalog.list_snapshot_summaries(tenant_id, mailbox_id),
@@ -180,7 +182,7 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
       return camelize(await deletion.purge_tenant(tenant_id));
     },
     async getMailboxStats(mailbox) {
-      const mailbox_id = await resolve_object_id(mailbox);
+      const mailbox_id = await resolve_stored_object_id(mailbox);
       return camelize(await stats.get_mailbox_stats(tenant_id, mailbox_id));
     },
     async checkMailboxStatus(mailbox) {

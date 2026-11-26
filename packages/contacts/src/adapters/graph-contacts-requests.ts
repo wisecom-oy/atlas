@@ -25,8 +25,15 @@ export function mailbox_url(mailbox_id: string): string {
 /**
  * Retry policy for a POST that creates an item, folder or attachment. Sending one again after a
  * 5xx or a timeout can create a second copy, so only a throttle response is retried (issue #624).
+ * Once sent it finishes on Ctrl+C, since Graph may already have committed it (issue #879).
  */
-export const CREATE_ONCE: GraphRetryOptions = { idempotent: false };
+export const CREATE_ONCE: GraphRetryOptions = { idempotent: false, complete_in_flight: true };
+
+/**
+ * Retry policy for a restore write that is safe to repeat, such as an update, a delete or a photo
+ * PUT. Once sent it finishes on Ctrl+C instead of being cut off part-way (issue #879).
+ */
+export const WRITE_FINISHES_ONCE_SENT: GraphRetryOptions = { complete_in_flight: true };
 
 /** Runs one Graph call with throttling retries, mapping permission and licence faults to their errors. */
 export async function graph_call<T>(

@@ -5,6 +5,7 @@ import {
   CALENDARS_READ,
   CALENDARS_READ_WRITE,
   CREATE_ONCE,
+  WRITE_FINISHES_ONCE_SENT,
   collect_pages,
   get_json,
   graph_call,
@@ -97,8 +98,10 @@ export async function update_event(
   event_id: string,
   patch: Readonly<Record<string, unknown>>,
 ): Promise<void> {
-  await graph_call(CALENDARS_READ_WRITE, () =>
-    client.api(event_url(mailbox_id, event_id)).patch(patch),
+  await graph_call(
+    CALENDARS_READ_WRITE,
+    () => client.api(event_url(mailbox_id, event_id)).patch(patch),
+    WRITE_FINISHES_ONCE_SENT,
   );
 }
 
@@ -108,7 +111,9 @@ export async function delete_event(
   mailbox_id: string,
   event_id: string,
 ): Promise<void> {
-  await graph_call(CALENDARS_READ_WRITE, () =>
-    client.api(event_url(mailbox_id, event_id)).delete(),
+  await graph_call(
+    CALENDARS_READ_WRITE,
+    () => client.api(event_url(mailbox_id, event_id)).delete(),
+    WRITE_FINISHES_ONCE_SENT,
   );
 }

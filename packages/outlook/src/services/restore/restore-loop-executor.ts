@@ -9,10 +9,13 @@ import {
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { ensure_subfolder } from '@/services/restore/folder-restore-planner';
+import { log_restore_summary } from '@/services/restore/restore-execution-orchestrator';
+import { restore_folder_entries } from '@/services/restore/folder-entries-restore';
+import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import {
-  log_restore_summary,
-  restore_folder_entries,
-} from '@/services/restore/restore-execution-orchestrator';
+  is_run_fatal_error,
+  type RunFatalError,
+} from '@wisecom/atlas-core/services/shared/run-fatal-error';
 import type { OperationControlOptions, TransferProgressReporter } from '@wisecom/atlas-types';
 
 /** True once the caller asked the run to stop, by flag or by abort signal. */
@@ -20,7 +23,10 @@ function is_run_interrupted(control: OperationControlOptions): boolean {
   return control.should_interrupt?.() === true || control.abort_signal?.aborted === true;
 }
 
-/** Creates the restore-side folder for one source folder, or says why it could not be created. */
+/**
+ * Creates the restore-side folder for one source folder, or says why it could not be created. A
+ * refusal for the whole mailbox is returned apart, since it ends the restore.
+ */
 async function open_target_folder(
   restore_connector: RestoreConnector,
   tenant_id: string,
@@ -29,7 +35,9 @@ async function open_target_folder(
   fid: string,
   folder_map: Map<string, string>,
   created_folders: Map<string, string>,
-): Promise<{ readonly folder_id: string } | { readonly error: string }> {
+): Promise<
+  { readonly folder_id: string } | { readonly error: string } | { readonly refusal: RunFatalError }
+> {
   try {
     const folder_id = await ensure_subfolder(
       restore_connector,
@@ -42,9 +50,37 @@ async function open_target_folder(
     );
     return { folder_id };
   } catch (err) {
+    // A refusal for the whole mailbox would refuse every later folder too (issue #871).
+    if (is_run_fatal_error(err) && !is_active_run_cancelled()) return { refusal: err };
     const reason = err instanceof Error ? err.message : String(err);
     return { error: `folder ${folder_map.get(fid) ?? fid}: could not be created (${reason})` };
   }
+}
+
+/** What the run restored, for its summary line. */
+interface RestoreRunSummary {
+  readonly restored: number;
+  readonly attachments: number;
+  readonly errors: number;
+  readonly start: number;
+}
+
+/**
+ * Closes the dashboard and logs the summary of what was restored, then throws the refusal that
+ * stopped the run, if one did. The messages restored before it are in the summary, and the
+ * refusal ends the command with its own code instead of a result that lists one failure per
+ * remaining message (issue #871).
+ */
+function close_restore_run(
+  dashboard: TransferProgressReporter,
+  interrupted: boolean,
+  refusal: RunFatalError | undefined,
+  summary: RestoreRunSummary,
+): void {
+  if (interrupted || refusal !== undefined) dashboard.mark_all_pending_interrupted();
+  dashboard.finish(summary.restored);
+  log_restore_summary(summary.restored, summary.attachments, summary.errors, summary.start);
+  if (refusal !== undefined) throw refusal;
 }
 
 /**
@@ -53,6 +89,9 @@ async function open_target_folder(
  * Interruption reaches it only through `should_interrupt` and `abort_signal`. Its own SIGINT
  * listener used to suppress Node's default exit, so no number of Ctrl+C presses ended a run
  * parked in a Graph wait (issue #682).
+ *
+ * An `AuthError` or `MailboxNotLicensedError` stops the loop: no further message or folder is
+ * sent, the summary of what was restored is logged, and the error is thrown (issue #871).
  */
 export async function execute_restore_loop(
   ctx: TenantContext,
@@ -87,6 +126,7 @@ export async function execute_restore_loop(
     total: global_total,
   });
   let folder_index = 0;
+  let refusal: RunFatalError | undefined;
   for (const [fid, folder_items] of groups) {
     if (is_interrupted()) break;
     dashboard.mark_active(folder_index);
@@ -106,6 +146,10 @@ export async function execute_restore_loop(
     );
     // A create cut short by Ctrl+C is the run stopping, not a folder that cannot exist (#682).
     if (is_interrupted()) break;
+    if ('refusal' in target) {
+      refusal = target.refusal;
+      break;
+    }
     if ('error' in target) {
       all_errors.push(`${target.error}; ${folder_items.length} message(s) not restored`);
       global_errors++;
@@ -144,15 +188,19 @@ export async function execute_restore_loop(
     const eta = rate > 0 ? (global_total - global_restored) / rate : 0;
     dashboard.update_total(global_restored, global_total, rate, eta);
 
-    if (is_interrupted()) break;
+    refusal = result.refusal;
+    if (refusal !== undefined || is_interrupted()) break;
     dashboard.mark_done(folder_index, result.restored, result.attachments);
     folder_index++;
   }
 
   const interrupted_before_finalization = is_interrupted();
-  if (interrupted_before_finalization) dashboard.mark_all_pending_interrupted();
-  dashboard.finish(global_restored);
-  log_restore_summary(global_restored, global_att, global_errors, start);
+  close_restore_run(dashboard, interrupted_before_finalization, refusal, {
+    restored: global_restored,
+    attachments: global_att,
+    errors: global_errors,
+    start,
+  });
   const was_interrupted = finish_operation_progress(
     control,
     'restore',

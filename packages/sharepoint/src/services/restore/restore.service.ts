@@ -28,6 +28,7 @@ import {
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { resolve_entry_destination, type EntryRouting } from '@/services/restore/entry-routing';
+import { stop_restore_on_refusal } from '@wisecom/atlas-drive/restore/restore-run-refusal';
 import { restore_sharepoint_file_entry } from '@/services/restore/restore-file-entry';
 import { restore_sharepoint_item_metadata } from '@/services/restore/restore-item-metadata';
 import { with_unmatched_file_filters } from '@wisecom/atlas-drive/shared/entry-filter';
@@ -175,7 +176,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
             },
             errors,
             sharing,
-          )
+          ).catch((err: unknown) => stop_restore_on_refusal('sharepoint', files_restored, err))
         : 'skipped';
       // Cut short by Ctrl+C: neither restored nor skipped, so the count reads as interrupted.
       if (outcome === 'cancelled') break;
