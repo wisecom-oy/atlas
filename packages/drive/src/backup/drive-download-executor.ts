@@ -8,6 +8,7 @@ import {
 import { CHUNK_DOWNLOAD_THRESHOLD, type CdnChunkDownloader } from '@/backup/cdn-chunk-download';
 import { download_from_url } from '@/backup/cdn-url-download';
 import { DRIVE_WORKLOAD_LABEL } from '@/backup/drive-workload-label';
+import { as_expired_url_failure } from '@/backup/expired-url-failure';
 import {
   missing_permissions_error,
   rethrow_enumeration_denial,
@@ -20,6 +21,7 @@ import {
   type DriveDownloadItem,
   type DriveGraphClient,
 } from '@/backup/graph-item-content';
+import { is_transient_drive_failure } from '@/backup/transient-download-failure';
 
 /** The values one provider supplies to the shared download executor. */
 export interface DriveDownloadBinding extends DenialBinding {
@@ -31,7 +33,8 @@ export interface DriveDownloadBinding extends DenialBinding {
 export interface DriveDownloadExecutor {
   /**
    * Downloads file content from the pre-authenticated URL, refreshing an expired one, and falls
-   * back to Graph `/content`. `abort_signal` ends a transfer from the URL and any backoff it is in.
+   * back to Graph `/content` unless the download host itself failed. `abort_signal` ends a transfer
+   * and any backoff it is in.
    */
   download_with_fallback(
     client: DriveGraphClient,
@@ -116,7 +119,7 @@ export function is_expired_url_error(err: unknown): boolean {
 async function download_with_fallback(context: DownloadAttemptContext): Promise<Buffer> {
   const { binding, client, item, abort_signal } = context;
   const download_url = item.download_url ?? (await resolve_fresh_url(binding, client, item));
-  if (!download_url) return await download_via_graph_content(client, item);
+  if (!download_url) return await download_via_graph_content(client, item, abort_signal);
 
   const label = DRIVE_WORKLOAD_LABEL[binding.workload];
   if (item.size_bytes > CHUNK_DOWNLOAD_THRESHOLD) {
@@ -141,8 +144,9 @@ async function download_with_fallback(context: DownloadAttemptContext): Promise<
 
 /**
  * Runs a download attempt, acting on the cause of a failure rather than assuming every 403 is a
- * stale URL (issue #246): a stale URL is re-resolved once, a Graph 403 or a missing grant stops,
- * and anything else falls back to `/content`.
+ * stale URL (issue #246): a stale URL is re-resolved once, a Graph 403 or a missing grant stops, a
+ * download host that failed is left to the file-level retry, and anything else falls back to
+ * `/content`.
  */
 async function attempt_download_with_refresh(
   context: DownloadAttemptContext,
@@ -150,46 +154,63 @@ async function attempt_download_with_refresh(
   download_fn: (url: string) => Promise<Buffer>,
   strategy_label: string,
 ): Promise<Buffer> {
-  const { client, item, abort_signal } = context;
   try {
     return await download_fn(download_url);
   } catch (err) {
     // A cancelled run neither refreshes the URL nor falls back to /content: it stops (issue #632).
-    abort_signal?.throwIfAborted();
+    context.abort_signal?.throwIfAborted();
     const kind = classify_download_failure(err);
     rethrow_if_unrecoverable(context, kind, err);
 
     if (kind === 'expired_url') {
-      const body = await retry_with_refreshed_url(context, download_fn, strategy_label);
-      if (body !== undefined) return body;
-    } else {
-      logger.warn(`${strategy_label} failed for ${item.item_id}, falling back: ${err}`);
+      return await recover_expired_url(context, download_fn, strategy_label);
     }
-    // Checked again here: the refresh above can be where the run was cancelled.
-    abort_signal?.throwIfAborted();
-    return await download_via_graph_content(client, item);
+    rethrow_if_download_host_failed(err);
+    logger.warn(`${strategy_label} failed for ${context.item.item_id}, falling back: ${err}`);
+    return await download_via_graph_content(context.client, context.item, context.abort_signal);
   }
 }
 
 /**
- * Re-resolves the download URL once and retries on it. Undefined when no fresh URL resolves or
- * the retry fails, so the caller falls back; a cancellation during the retry or its 429 wait is
- * rethrown, so a cancelled run never starts the `/content` transfer.
+ * Rethrows a failure of the download host itself: a transient status, throttling, a reset or a
+ * timeout. `/content` answers with a redirect to the same host, so falling back sent the file into
+ * the same outage under Graph's 12-retry budget, three times over (issue #885). The file-level
+ * retry repeats the download instead, and records the file without spending an attempt once its
+ * attempts are spent.
  */
-async function retry_with_refreshed_url(
+function rethrow_if_download_host_failed(err: unknown): void {
+  if (is_transient_drive_failure(err)) throw err;
+}
+
+/**
+ * Re-resolves an expired URL once and retries on it, then falls back to `/content`. A cancellation
+ * during the retry or its 429 wait is rethrown, so a cancelled run never starts the `/content`
+ * transfer. A fallback that fails too is charged by `as_expired_url_failure`, so a file whose only
+ * problem was its link spends no attempt (issue #895).
+ */
+async function recover_expired_url(
   context: DownloadAttemptContext,
   download_fn: (url: string) => Promise<Buffer>,
   strategy_label: string,
-): Promise<Buffer | undefined> {
+): Promise<Buffer> {
   const { binding, client, item, abort_signal } = context;
   const refreshed_url = await resolve_fresh_url(binding, client, item);
-  if (!refreshed_url) return undefined;
+  if (refreshed_url) {
+    try {
+      return await download_fn(refreshed_url);
+    } catch (retry_err) {
+      abort_signal?.throwIfAborted();
+      logger.warn(`${strategy_label} retry failed for ${item.item_id}: ${retry_err}`);
+      rethrow_if_download_host_failed(retry_err);
+    }
+  }
+  // Checked again here: the refresh above can be where the run was cancelled.
+  abort_signal?.throwIfAborted();
   try {
-    return await download_fn(refreshed_url);
-  } catch (retry_err) {
+    return await download_via_graph_content(client, item, abort_signal);
+  } catch (fallback_err) {
     abort_signal?.throwIfAborted();
-    logger.warn(`${strategy_label} retry failed for ${item.item_id}: ${retry_err}`);
-    return undefined;
+    throw as_expired_url_failure(item, fallback_err);
   }
 }
 

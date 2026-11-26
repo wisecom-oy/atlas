@@ -84,13 +84,18 @@ describe('download_with_retry on a failure outside the file (issue #857)', () =>
     expect((thrown as Error).cause).toBe(err);
   });
 
-  it('throws TransientDownloadError for a timeout without retrying it', async () => {
+  // Issue #890: a timed-out /content request or body gets the file's 3 attempts, like a reset.
+  it('throws TransientDownloadError for a timeout once its 3 attempts are spent', async () => {
+    vi.useFakeTimers();
     const connector = connector_failing_with(new TransferTimeoutError('timed out'));
 
-    await expect(download_with_retry(connector as never, SMALL_ITEM)).rejects.toBeInstanceOf(
-      TransientDownloadError,
+    const outcome = download_with_retry(connector as never, SMALL_ITEM).catch(
+      (err: unknown) => err,
     );
-    expect(connector.download_file_content).toHaveBeenCalledOnce();
+    await vi.runAllTimersAsync();
+
+    expect(await outcome).toBeInstanceOf(TransientDownloadError);
+    expect(connector.download_file_content).toHaveBeenCalledTimes(3);
   });
 });
 
