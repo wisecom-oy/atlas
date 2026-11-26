@@ -12,9 +12,9 @@ import {
  * - `ErrorAccessDenied`: the Exchange-backed mail, calendar and contacts APIs.
  * - `Authorization_RequestDenied`: the directory, such as listing users.
  *
- * A 403 with any other code, or with none, is a refusal of the one request it answered. Graph's
- * authorisation check answers a missing grant with one of these codes in a JSON error body, so a 403
- * without a code did not come from that check. Keep this list in step with "Partial runs" in
+ * A 403 with any other code, or with none, is a refusal of the one request it answered. A missing
+ * grant is answered with one of these codes in a JSON error body; a 403 without a body, such as
+ * one from a proxy, names no cause and is not reported as one. Keep this list in step with "Partial runs" in
  * `docs/operations/reliability.md`.
  */
 const MISSING_GRANT_CODES: ReadonlySet<string> = new Set([

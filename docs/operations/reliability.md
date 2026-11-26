@@ -247,10 +247,10 @@ Microsoft Graph answers `403 Forbidden` for a missing permission and for other r
 | Graph error code on the `403` | Reported as | Effect |
 | --- | --- | --- |
 | `accessDenied`, `ErrorAccessDenied`, `Authorization_RequestDenied` | `MissingGraphPermissionsError` (`ATLAS_AUTH_DENIED`), naming the code and the permissions to grant | Stops as an `AuthError` in the table above, exit `4` |
-| `Forbidden` on a Teams call | The same | Teams uses this code for a missing role permission and for a protected API Microsoft has not approved |
+| `Forbidden` on a Teams call | The same | The same. Teams uses this code for a missing role permission and for a protected API Microsoft has not approved |
 | Any other code, or no code | A failure of that request, naming the code Graph sent | Fails the item, channel, folder, or team that request belonged to. The rest of the run continues and the command exits `2` |
 
-The codes are compared without regard to case. A `403` with no code did not come from Graph's permission check, which always sends one. A `403` that reaches the command before any item is read still exits `4`, whatever its code, since an unwrapped `403` maps to `ATLAS_AUTH_DENIED`; the message then names the code. OneDrive and SharePoint classify their own `403` responses, described in [Failed files](/onedrive-backup#failed-files).
+The codes are compared without regard to case. A `403` with no code, such as one from a proxy with no JSON body, does not name a missing permission and is treated as a failure of the request. A `403` that reaches the command before any item is read still exits `4`, whatever its code, since an unwrapped `403` maps to `ATLAS_AUTH_DENIED`; the message then names the code. OneDrive and SharePoint classify their own `403` responses, described in [Failed files](/onedrive-backup#failed-files).
 
 ### Unit listings that end early {#unit-listings}
 
