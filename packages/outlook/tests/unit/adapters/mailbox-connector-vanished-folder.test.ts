@@ -38,6 +38,7 @@ describe('GraphMailboxConnector - folder deleted while folders are listed (issue
             { id: 'f-inbox', displayName: 'Inbox' },
             { id: 'f-gone', displayName: 'Example Folder', childFolderCount: 1 },
           ],
+          '@odata.count': 2,
         };
       }
       throw NOT_FOUND; // well-known folder reads: not this mailbox's concern here

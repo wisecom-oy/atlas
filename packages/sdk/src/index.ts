@@ -190,6 +190,7 @@ export {
   MissingGraphPermissionsError,
   GraphAccessRefusedError,
   GraphUnavailableError,
+  ListingIncompleteError,
   StorageUnavailableError,
 } from '@wisecom/atlas-types';
 export type {

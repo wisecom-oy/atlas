@@ -8,13 +8,16 @@ export interface ChannelMergeInput {
   /** Entries this run produced for processed channels, keyed by channel id. */
   readonly processed: ReadonlyMap<string, TeamsChannelIndexEntry>;
   readonly previous: TeamsChannelIndexEntry[] | undefined;
+  /** Previous channels the listing left out although Graph still has them. */
+  readonly unlisted_present_ids: ReadonlySet<string>;
   readonly backup_at: string;
 }
 
 /**
  * Builds the channel list for a snapshot index. A listed channel the run did not process keeps its
  * previous entry, and any listed channel is live again, so its `deleted_at` is cleared. A previous
- * channel Graph no longer lists is kept with `deleted_at` set.
+ * channel Graph no longer lists is kept with `deleted_at` set, unless Graph still has it: a listing
+ * that ended early is no evidence of deletion, so that entry is kept unchanged (issue #853).
  */
 export function merge_channel_entries(input: ChannelMergeInput): TeamsChannelIndexEntry[] {
   const current = input.channels.flatMap((channel) => {
@@ -25,7 +28,11 @@ export function merge_channel_entries(input: ChannelMergeInput): TeamsChannelInd
   const listed_ids = new Set(input.channels.map((channel) => channel.id));
   const removed = (input.previous ?? [])
     .filter((entry) => !listed_ids.has(entry.channel_id))
-    .map((entry) => ({ ...entry, deleted_at: entry.deleted_at ?? input.backup_at }));
+    .map((entry) =>
+      input.unlisted_present_ids.has(entry.channel_id)
+        ? entry
+        : { ...entry, deleted_at: entry.deleted_at ?? input.backup_at },
+    );
   return [...current, ...removed];
 }
 

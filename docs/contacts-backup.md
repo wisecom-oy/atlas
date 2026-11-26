@@ -32,7 +32,7 @@ atlas contacts restore -m user@example.com -s ct-snap-1735689600000-a1b2c3 -T ot
 
 Exchange stores a contact photo as an attachment, so a backup downloads photos only for contacts that carry one. A single listing per changed folder, filtered on the server by the store-computed `PidTagHasAttachments` property, finds those contacts. A folder whose contacts have no photos costs one request rather than one per contact.
 
-Each snapshot is complete on its own: it lists every folder and contact that existed at that run, so a restore or verify reads one snapshot and never needs an older one. A contact, or a photo, is stored once however many snapshots include it.
+Each snapshot is complete on its own: it lists every folder and contact that existed at that run, so a restore or verify reads one snapshot and never needs an older one. A contact, or a photo, is stored once however many snapshots include it. Each level of the folder listing is checked against the count Microsoft Graph reports for it, so a listing that ends early stops the run with exit `2` before anything is written, rather than dropping the unlisted folders from the snapshot. See [Unit listings that end early](/operations/reliability#unit-listings).
 
 Every contact and photo is encrypted under the tenant data key before upload and named by a keyed HMAC-SHA256, the same naming mail and drive objects use, so object names reveal nothing about the content. See [What object names reveal](/security#what-object-names-reveal).
 

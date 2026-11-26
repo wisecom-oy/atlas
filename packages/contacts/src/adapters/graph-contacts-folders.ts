@@ -4,7 +4,7 @@ import {
   CONTACTS_READ,
   CONTACTS_READ_WRITE,
   CREATE_ONCE,
-  collect_pages,
+  collect_listing,
   get_json,
   graph_call,
   mailbox_url,
@@ -16,7 +16,11 @@ interface FolderPayload {
   readonly displayName: string;
 }
 
-/** Lists the default Contacts folder first, then every descendant folder with its display-name path. */
+/**
+ * Lists the default Contacts folder first, then every descendant folder with its display-name path.
+ *
+ * @throws ListingIncompleteError when one folder's child listing holds fewer folders than Graph counted.
+ */
 export async function list_contact_folders(
   client: Client,
   mailbox_id: string,
@@ -40,10 +44,11 @@ async function walk_children(
   parent_path: readonly string[],
   out: GraphContactFolder[],
 ): Promise<void> {
-  const children = await collect_pages<FolderPayload>(
+  const children = await collect_listing<FolderPayload>(
     client,
     `${base}/contactFolders/${encodeURIComponent(parent_id)}/childFolders`,
     CONTACTS_READ,
+    'contact folders',
   );
   for (const child of children) {
     // Exchange rejects a sibling whose name differs only in case, so a path names one folder.

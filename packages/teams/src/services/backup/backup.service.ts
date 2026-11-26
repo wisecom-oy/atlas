@@ -47,6 +47,7 @@ import {
   split_owned_channels,
 } from '@/services/backup/channel-entry-merger';
 import { process_channels, select_channels } from '@/services/backup/channel-run-loop';
+import { probe_unlisted_channels } from '@/services/backup/unlisted-channel-probe';
 import { load_team_baseline } from '@/services/backup/team-baseline-loader';
 import {
   persist_team_snapshot,
@@ -165,6 +166,11 @@ export class TeamsBackupService implements TeamsBackupUseCase {
       owned.map((channel) => channel.id),
     );
     append_all(settings.unreadable_keys, baseline.unreadable_keys);
+    const unlisted = await probe_unlisted_channels(
+      { connector: this._connector, tenant_id, team_id },
+      baseline.previous?.channels,
+      all_channels,
+    );
     emit_backup_progress(options, 'processing', 0);
     const roots_applied = new Map<string, number>();
     const scope: BackupRunScope = {
@@ -196,6 +202,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     append_all(state.warnings, baseline.warnings);
     append_all(state.errors, missing_channel_errors(options.channel_id, all_channels, team_id));
     append_all(state.errors, all_channels_foreign_errors(all_channels, owned, team_id));
+    append_all(state.errors, unlisted.errors);
     // A channel that lost the lease mid-read was recorded as a failed channel; this stops the run.
     lease.assert_held();
     const saves = await save_channel_shards(ctx, this._shards, state.results);
@@ -203,6 +210,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
       channels: all_channels,
       processed: new Map(saves.map((save) => [save.channel_id, save.entry])),
       previous: baseline.previous?.channels,
+      unlisted_present_ids: unlisted.present_ids,
       backup_at: backup_at.toISOString(),
     });
     emit_backup_progress(options, 'finalizing', state.attempted);

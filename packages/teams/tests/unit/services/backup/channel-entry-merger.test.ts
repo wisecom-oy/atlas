@@ -34,6 +34,7 @@ describe('merge_channel_entries', () => {
       channels: [{ id: 'channel-1' }],
       processed,
       previous: [index_entry('channel-1')],
+      unlisted_present_ids: new Set(),
       backup_at: BACKUP_AT,
     });
 
@@ -45,6 +46,7 @@ describe('merge_channel_entries', () => {
       channels: [{ id: 'channel-1' }],
       processed: new Map(),
       previous: [index_entry('channel-1', { deleted_at: EARLIER })],
+      unlisted_present_ids: new Set(),
       backup_at: BACKUP_AT,
     });
 
@@ -58,6 +60,7 @@ describe('merge_channel_entries', () => {
       channels: [{ id: 'channel-new' }],
       processed: new Map(),
       previous: undefined,
+      unlisted_present_ids: new Set(),
       backup_at: BACKUP_AT,
     });
 
@@ -69,6 +72,7 @@ describe('merge_channel_entries', () => {
       channels: [],
       processed: new Map(),
       previous: [index_entry('channel-gone')],
+      unlisted_present_ids: new Set(),
       backup_at: BACKUP_AT,
     });
 
@@ -80,10 +84,23 @@ describe('merge_channel_entries', () => {
       channels: [],
       processed: new Map(),
       previous: [index_entry('channel-gone', { deleted_at: EARLIER })],
+      unlisted_present_ids: new Set(),
       backup_at: BACKUP_AT,
     });
 
     expect(merged[0]?.deleted_at).toBe(EARLIER);
+  });
+
+  it('keeps an unlisted channel Graph still has unchanged instead of marking it deleted', () => {
+    const merged = merge_channel_entries({
+      channels: [{ id: 'channel-1' }],
+      processed: new Map(),
+      previous: [index_entry('channel-1'), index_entry('channel-2')],
+      unlisted_present_ids: new Set(['channel-2']),
+      backup_at: BACKUP_AT,
+    });
+
+    expect(merged).toEqual([index_entry('channel-1'), index_entry('channel-2')]);
   });
 });
 

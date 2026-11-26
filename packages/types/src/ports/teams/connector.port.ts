@@ -65,6 +65,9 @@ export interface TeamsConnector {
   /** Lists the team's channels (`/teams/{id}/channels`). */
   list_channels(tenant_id: string, team_id: string): Promise<TeamsGraphResource[]>;
 
+  /** Whether Graph still has the channel: false only when it answers 404. */
+  channel_exists(tenant_id: string, team_id: string, channel_id: string): Promise<boolean>;
+
   /** Lists a channel's members. */
   list_channel_members(
     tenant_id: string,

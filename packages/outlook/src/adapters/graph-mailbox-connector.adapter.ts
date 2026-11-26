@@ -38,10 +38,9 @@ import { graph_message_to_mail_message } from '@/adapters/graph-delta-message-ma
 import {
   IMMUTABLE_ID_PREFER,
   create_delta_handover,
-  fetch_mail_continuation_page,
   run_mail_delta_pass,
 } from '@/adapters/graph-mail-delta-sync';
-import { append_all } from '@wisecom/atlas-core/utils/append-all';
+import { collect_all_pages, collect_counted_listing } from '@/adapters/graph-collection-paging';
 
 @injectable()
 export class GraphMailboxConnector implements MailboxConnector {
@@ -54,7 +53,7 @@ export class GraphMailboxConnector implements MailboxConnector {
   async list_mailboxes(_tenant_id: string): Promise<string[]> {
     try {
       const url = '/users?$select=id,mail,displayName&$filter=mail ne null&$top=999';
-      const user_records = await this.collect_all_pages<GraphUserRecord>(url);
+      const user_records = await collect_all_pages<GraphUserRecord>(this._client, url);
       return extract_user_ids(user_records);
     } catch (err) {
       rethrow_if_access_denied(err);
@@ -97,7 +96,11 @@ export class GraphMailboxConnector implements MailboxConnector {
     }
   }
 
-  /** Lists every mail folder in the mailbox, at any nesting depth. */
+  /**
+   * Lists every mail folder in the mailbox, at any nesting depth.
+   *
+   * @throws ListingIncompleteError when one folder level holds fewer folders than Graph counted.
+   */
   async list_mail_folders(
     _tenant_id: string,
     owner_id: string,
@@ -105,7 +108,7 @@ export class GraphMailboxConnector implements MailboxConnector {
   ): Promise<MailFolder[]> {
     try {
       return await list_mail_folder_tree(
-        (url) => this.collect_all_pages<GraphFolderRecord>(url),
+        (url) => collect_counted_listing<GraphFolderRecord>(this._client, url, 'mail folders'),
         owner_id,
         options,
         create_folder_reader(
@@ -230,7 +233,7 @@ export class GraphMailboxConnector implements MailboxConnector {
   ): Promise<MessageAttachment[]> {
     try {
       const url = `/users/${owner_id}/messages/${message_id}/attachments`;
-      const records = await this.collect_all_pages<GraphAttachmentRecord>(url);
+      const records = await collect_all_pages<GraphAttachmentRecord>(this._client, url);
       const attachments = map_attachments(records);
 
       for (let i = 0; i < attachments.length; i++) {
@@ -251,32 +254,5 @@ export class GraphMailboxConnector implements MailboxConnector {
       rethrow_if_access_denied(err);
       throw err;
     }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Pagination helpers
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Generic paginator that follows @odata.nextLink and collects all items.
-   * Retry/timeout lives INSIDE the loop (fetch_mail_continuation_page wraps each
-   * page in with_graph_retry), so a failed page resumes from the current
-   * nextLink. NEVER wrap calls to this in with_graph_retry: the outer 60s
-   * timeout races the whole enumeration and restarts it from page 1 --
-   * large tenants can never finish (issue #33).
-   */
-  private async collect_all_pages<T>(start_url: string): Promise<T[]> {
-    const all_items: T[] = [];
-    let current_url: string | undefined = start_url;
-
-    while (current_url) {
-      const page = await fetch_mail_continuation_page(this._client, current_url, 100);
-      if (page.value) {
-        append_all(all_items, page.value as T[]);
-      }
-      current_url = page['@odata.nextLink'];
-    }
-
-    return all_items;
   }
 }

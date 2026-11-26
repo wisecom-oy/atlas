@@ -109,6 +109,7 @@ Removals are only safe when the run saw both ends of a move. Atlas records them 
 | --- | --- | --- |
 | Every selected folder finished, no `--folder`, no folder that can receive mail excluded | Recorded | Advance |
 | Interrupted, or a folder failed | None | Every folder that reported a removal keeps its previous checkpoint, so the next complete run fetches and records the removals |
+| The folder listing holds fewer folders than Microsoft Graph counted | None. The run stops before reading any folder and exits `2`, see [Unit listings that end early](/operations/reliability#unit-listings) | None move |
 | A folder was deleted while the run listed folders | None. The folder is skipped with a warning and recorded as `deleted-during-listing`, including Recoverable Items subfolders, because mail may have moved into it | The vanished folder keeps its previous checkpoint and stored messages. The next run no longer lists it and records removals as usual |
 | `--folder` or `--exclude-junk` | None, and the removals it saw are dropped | Advance anyway, because a mailbox always backed up this way would otherwise never move forward |
 
@@ -275,6 +276,7 @@ Atlas retries `429 Too Many Requests` (honouring `Retry-After`) and `500`, `502`
 | Retries exhausted on a folder | Atlas marks the folder as failed and continues with the remaining folders. The failed folder keeps its previous checkpoint |
 | A drive or library's last delta page carries neither `@odata.nextLink` nor `@odata.deltaLink` | The listing stopped early. Atlas fails that drive or library, which keeps its previous checkpoint and records no deletions. See [Deletions found by a full read](#drive-full-read-deletions) |
 | An Outlook folder's last delta page carries neither `@odata.nextLink` nor `@odata.deltaLink` | The read stopped early, so messages on the pages never requested are missing. Atlas fails that folder, which keeps its previous checkpoint, and the run records no removals and exits `2`. The next run reads the folder again |
+| A listing of calendars, contact folders, or mail folders holds fewer items than its `@odata.count` | The listing stopped early. The run stops before reading any unit and exits `2`, so every checkpoint stays where it was. See [Unit listings that end early](/operations/reliability#unit-listings) |
 
 ## Stopping a run {#interruption}
 
