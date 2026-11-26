@@ -52,4 +52,34 @@ describe('S3ObjectStorage version access', () => {
     const command = send.mock.calls[0]![0] as { input: Record<string, unknown> };
     expect(command.input).not.toHaveProperty('BypassGovernanceRetention');
   });
+
+  it('requests the next version page only when the caller asks for it (issue #922)', async () => {
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({
+        Versions: [{ Key: 'data/a', VersionId: 'v1', IsLatest: true }],
+        IsTruncated: true,
+        NextKeyMarker: 'data/a',
+        NextVersionIdMarker: 'v1',
+      })
+      .mockResolvedValueOnce({
+        DeleteMarkers: [{ Key: 'data/b', VersionId: 'm1', IsLatest: true }],
+        IsTruncated: false,
+      });
+
+    const pages = storage_over(send).list_version_pages('data/')[Symbol.asyncIterator]();
+    const first = await pages.next();
+
+    expect(first.value).toEqual([
+      { key: 'data/a', version_id: 'v1', is_delete_marker: false, is_latest: true },
+    ]);
+    expect(send).toHaveBeenCalledTimes(1);
+    const second = await pages.next();
+    expect(second.value).toEqual([
+      { key: 'data/b', version_id: 'm1', is_delete_marker: true, is_latest: true },
+    ]);
+    const command = send.mock.calls[1]![0] as { input: Record<string, unknown> };
+    expect(command.input).toMatchObject({ KeyMarker: 'data/a', VersionIdMarker: 'v1' });
+    expect((await pages.next()).done).toBe(true);
+  });
 });

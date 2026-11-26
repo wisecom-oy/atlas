@@ -64,3 +64,29 @@ export function is_backend_mode_rejection(err: unknown, mode?: string): boolean 
   if (!(err instanceof S3ServiceException)) return false;
   return names_object_lock(err);
 }
+
+/** Error codes a backend answers `DeleteObjects` with when it does not take the bulk request. */
+const BULK_DELETE_UNSUPPORTED_CODES = new Set([
+  'NotImplemented',
+  'MethodNotAllowed',
+  'MissingContentMD5',
+  'InvalidDigest',
+  'BadDigest',
+]);
+
+/**
+ * True when a whole `DeleteObjects` request was refused because the backend does not support it
+ * or does not accept its integrity headers, so the same targets can be deleted one at a time.
+ *
+ * Matches HTTP 501 and 405, the codes above, and a 400 whose message names Content-MD5 or a
+ * checksum header. Nothing was deleted by a refused request, so retrying singly is safe. Anything
+ * else, a 403 included, is a real failure and propagates.
+ */
+export function is_bulk_delete_unsupported(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (BULK_DELETE_UNSUPPORTED_CODES.has(err.name)) return true;
+  const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+  if (status === 501 || status === 405) return true;
+  const text = err.message.toLowerCase();
+  return status === 400 && (text.includes('content-md5') || text.includes('checksum'));
+}
