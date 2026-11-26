@@ -2,7 +2,6 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
-  ListObjectsV2Command,
   CreateMultipartUploadCommand,
   type S3Client,
 } from '@aws-sdk/client-s3';
@@ -31,6 +30,7 @@ import {
 } from '@/adapters/object-lock.errors';
 import { is_backend_mode_rejection } from '@/adapters/s3-error-classifier';
 import { copy_object_server_side } from '@/adapters/s3-large-copy';
+import { list_object_keys } from '@/adapters/s3-object-key-listing';
 import {
   list_object_version_pages,
   list_object_versions,
@@ -226,32 +226,12 @@ export class S3ObjectStorage implements ObjectStorage {
   }
 
   /** One paginated walk; the two listings differ only in what they keep and when they stop. */
-  private async collect_keys(
+  private collect_keys(
     prefix: string,
     keep: (last_modified: Date | undefined) => boolean,
     limit?: number,
   ): Promise<string[]> {
-    const keys: string[] = [];
-    let continuation_token: string | undefined;
-
-    do {
-      const response = await this._client.send(
-        new ListObjectsV2Command({
-          Bucket: this._bucket,
-          Prefix: prefix,
-          ContinuationToken: continuation_token,
-          ...(limit !== undefined ? { MaxKeys: Math.min(limit, 1000) } : {}),
-        }),
-      );
-
-      for (const obj of response.Contents ?? []) {
-        if (obj.Key && keep(obj.LastModified)) keys.push(obj.Key);
-      }
-      if (limit !== undefined && keys.length >= limit) return keys.slice(0, limit);
-      continuation_token = response.NextContinuationToken;
-    } while (continuation_token);
-
-    return keys;
+    return list_object_keys(this._client, this._bucket, { prefix, keep, limit });
   }
 
   /** Lists all object versions and delete markers under a prefix. */
