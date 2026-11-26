@@ -80,13 +80,10 @@ describe('list_calendars', () => {
     });
   });
 
-  it('refuses a listing whose pages carry no count', async () => {
+  it('accepts a listing whose pages carry no count, since it cannot be checked', async () => {
     const { client } = client_for(() => ({ value: [{ id: 'cal-1', name: 'One', canEdit: true }] }));
 
-    await expect(list_calendars(client, MAILBOX)).rejects.toMatchObject({
-      code: 'ATLAS_LISTING_INCOMPLETE',
-      reported_count: undefined,
-    });
+    await expect(list_calendars(client, MAILBOX)).resolves.toHaveLength(1);
   });
 });
 

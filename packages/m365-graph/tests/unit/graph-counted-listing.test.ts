@@ -40,9 +40,7 @@ describe('assert_listing_complete', () => {
     );
   });
 
-  it('refuses a listing that carried no count, since it cannot be shown complete', () => {
-    expect(() => assert_listing_complete('teams', 2, undefined)).toThrow(
-      'without reporting how many exist',
-    );
+  it('accepts a listing that carried no count, since that endpoint cannot be checked', () => {
+    expect(() => assert_listing_complete('teams', 2, undefined)).not.toThrow();
   });
 });

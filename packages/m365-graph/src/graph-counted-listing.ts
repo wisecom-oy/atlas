@@ -1,4 +1,5 @@
 import { ListingIncompleteError } from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 /**
  * Asks Graph to report the collection's size on every page of a listing. A plain collection ends
@@ -23,14 +24,21 @@ export function reported_collection_count(
 }
 
 /**
- * Throws `ListingIncompleteError` when a listing returned fewer items than Graph counted, or when no
- * page carried a count. More items than counted is accepted: a unit created while the listing ran.
+ * Throws `ListingIncompleteError` when a listing returned fewer items than Graph counted. More items
+ * than counted is accepted: a unit created while the listing ran. A listing whose pages carried no
+ * count is only logged, because an endpoint that never reports one would otherwise fail every run.
  */
 export function assert_listing_complete(
   listing: string,
   listed_count: number,
   reported_count: number | undefined,
 ): void {
-  if (reported_count !== undefined && listed_count >= reported_count) return;
+  if (reported_count === undefined) {
+    logger.warn(
+      `Microsoft Graph listed ${listed_count} ${listing} without reporting how many exist; completeness is not checked`,
+    );
+    return;
+  }
+  if (listed_count >= reported_count) return;
   throw new ListingIncompleteError(listing, listed_count, reported_count);
 }
