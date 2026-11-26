@@ -14,7 +14,8 @@ export class RootRefusal extends Error {
 
 /**
  * Runs one Graph call for a root and rethrows a 400 or 404 as a {@link RootRefusal}, so the root
- * applier can classify it. Other errors pass through unchanged.
+ * applier can tell a 404 from other failures and a 400's message keeps Graph's status and error
+ * code. Other errors pass through unchanged.
  */
 export async function as_root_refusal<T>(call: () => Promise<T>): Promise<T> {
   try {
