@@ -19,6 +19,7 @@ import type {
 import type { SharePointSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type { FileSaveOptions, FileSaveResult } from '@/ports/save/file-save.port';
 import type { DeletionResult } from '@/ports/deletion/use-case.port';
+import type { SnapshotPruneSdkOptions, SnapshotPruneSdkResult } from '@/ports/retention/api.port';
 import type { SharePointSite } from '@/ports/sharepoint/connector.port';
 import type { SharePointStatusResult } from '@/ports/sharepoint/status.port';
 import type { DriveStats } from '@/domain/stats/stats';
@@ -100,6 +101,8 @@ export interface SharePointApi {
   resolveSite(urlOrId: string): Promise<SharePointSdkSite>;
   deleteSiteData(siteId: string): Promise<SharePointSdkDeletionResult>;
   deleteSnapshot(siteId: string, snapshotId: string): Promise<SharePointSdkDeletionResult>;
+  /** Removes the site's snapshots older than `options.before`; see `OutlookApi.pruneSnapshots`. */
+  pruneSnapshots(siteId: string, options: SnapshotPruneSdkOptions): Promise<SnapshotPruneSdkResult>;
   checkStatus(siteId: string): Promise<SharePointSdkStatusResult>;
   /** Aggregates SharePoint backup statistics; without siteId, tenant-wide across sites. */
   getStats(siteId?: string): Promise<SharePointSdkStats>;

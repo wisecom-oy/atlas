@@ -139,6 +139,8 @@ export type {
 
 export type { KeysApi, KeysRewrapOptions, KeysPurgeOptions } from '@wisecom/atlas-types';
 
+export type { SnapshotPruneSdkOptions, SnapshotPruneSdkResult } from '@wisecom/atlas-types';
+
 export type {
   SdkOperationOptions,
   OperationProgressEvent,
@@ -148,6 +150,16 @@ export type {
 
 export type { ObjectLockMode, BackupSyncMode } from '@wisecom/atlas-types';
 export type { GraphServicePool, ThrottleCoordinator, ThrottleScope } from '@wisecom/atlas-types';
+export type {
+  OwnerExclusion,
+  OwnerExclusionRequest,
+  OwnerExclusionResult,
+  OwnerExclusionGrant,
+  OwnerExclusionRefusal,
+  OwnerLeaseWorkload,
+  OwnerLeaseOperation,
+  WriterExclusionMode,
+} from '@wisecom/atlas-types';
 
 /**
  * These carry converted fields, so the public name resolves to the converted type. Exporting the

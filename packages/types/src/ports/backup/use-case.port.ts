@@ -3,6 +3,7 @@ import type { Snapshot } from '@/domain/shared/snapshot';
 import type { OperationCost } from '@/domain/graph/cost';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
 import type { ExcludedFolder } from '@/ports/outlook/connector.port';
+import type { AtlasErrorCode } from '@/errors/atlas-errors';
 
 export type BackupSyncMode = 'full' | 'incremental' | 'initial';
 export type ObjectLockMode = 'GOVERNANCE' | 'COMPLIANCE';
@@ -88,12 +89,32 @@ export interface SyncOptions extends OperationControlOptions {
   readonly include_recoverable_items?: boolean | undefined;
 }
 
+/**
+ * A folder whose sync failed as a whole. It kept its previous delta link, so the next backup reads
+ * its changes again (issue #869).
+ */
+export interface FolderFailure {
+  readonly folder_id: string;
+  readonly folder_path: string;
+  /** The failure's message, as in `folder_errors`. */
+  readonly message: string;
+  /** The Atlas code of the failure, or undefined for an error Atlas did not classify. */
+  readonly code?: AtlasErrorCode | undefined;
+  /**
+   * True for a Graph call that spent its retry budget (`ATLAS_GRAPH_UNAVAILABLE` or
+   * `ATLAS_THROTTLED`): Microsoft 365 was unavailable, not the folder at fault.
+   */
+  readonly transient: boolean;
+}
+
 export interface BackupSyncSummary {
   readonly stored: number;
   readonly deduplicated: number;
   readonly attachments_stored: number;
   readonly processed: number;
   readonly folder_errors: string[];
+  /** The folders among `folder_errors` that failed as a whole, with the code of each failure. */
+  readonly folder_failures: FolderFailure[];
   readonly warnings: string[];
   readonly interrupted: boolean;
   readonly completed_folder_count: number;

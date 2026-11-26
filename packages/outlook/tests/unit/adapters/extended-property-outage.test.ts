@@ -24,7 +24,8 @@ describe('fetch_message_extended_properties under a Graph outage', () => {
 
   it('throws after one chunk spent its budget instead of starting the next chunk', async () => {
     const graph = new GraphOutageFault();
-    const client = { api: vi.fn(() => ({ post: graph.send })) } as unknown as Client;
+    const request = { post: graph.send, option: () => request };
+    const client = { api: vi.fn(() => request) } as unknown as Client;
 
     const fetching = fetch_message_extended_properties(client, 'owner-1', message_ids(45), 'p');
     const outcome = fetching.catch((err: unknown) => err);

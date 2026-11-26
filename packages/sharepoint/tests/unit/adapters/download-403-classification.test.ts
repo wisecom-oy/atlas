@@ -60,7 +60,15 @@ function make_client(): GraphClientMock {
   const get = vi.fn().mockResolvedValue({ '@microsoft.graph.downloadUrl': 'https://fresh' });
   const get_stream = vi.fn(() => Promise.resolve(binary_graph_response(CONTENT_BODY)));
   const select = vi.fn(() => ({ get }));
-  const api = vi.fn(() => ({ select, get, responseType: () => ({ get: get_stream }) }));
+  const api = vi.fn(() => ({
+    select,
+    get,
+    responseType: () => ({ get: get_stream }),
+    // The /content request is handed its abort signal before it is sent (issue #890).
+    option() {
+      return this;
+    },
+  }));
   const client = { api } as unknown as Client;
   return { client, api, get, get_stream };
 }

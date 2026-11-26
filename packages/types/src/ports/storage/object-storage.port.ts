@@ -28,7 +28,21 @@ export interface StorageObjectVersion {
    * so an adapter that leaves it out deletes nothing.
    */
   readonly is_latest?: boolean;
+  /** Stored bytes of the version, when the listing reports them. Absent for a delete marker. */
+  readonly size_bytes?: number | undefined;
 }
+
+/** One object or object version to delete. Without `version_id` the visible key is deleted. */
+export interface StorageDeleteTarget {
+  readonly key: string;
+  readonly version_id?: string | undefined;
+}
+
+/**
+ * What became of one delete target. `retained` means Object Lock retention or a legal hold
+ * refused it; every other refusal is `failed`, so an IAM gap is never reported as retained.
+ */
+export type StorageDeleteOutcome = 'deleted' | 'retained' | 'failed';
 
 /** The object a completed multipart upload created. */
 export interface CompletedMultipartUpload {
@@ -99,6 +113,23 @@ export interface ObjectStorage {
 
   /** Deletes a specific object version or delete marker. */
   delete_version(key: string, version_id: string): Promise<void>;
+
+  /**
+   * Lists the versions and delete markers under a prefix one listing page at a time, so a caller
+   * that walks a whole bucket holds one page instead of every version. Optional: without it a
+   * caller falls back to `list_versions`.
+   */
+  readonly list_version_pages?:
+    ((prefix: string) => AsyncIterable<readonly StorageObjectVersion[]>) | undefined;
+
+  /**
+   * Deletes up to 1,000 targets (the S3 `DeleteObjects` limit) and returns one outcome per target, in
+   * the order given. A refusal of one target never rejects the call; a call that rejects left no
+   * outcome it could vouch for. An adapter whose backend cannot delete in bulk deletes one target
+   * per request behind this method. Optional: without it a caller uses `delete_version`.
+   */
+  readonly delete_batch?:
+    ((targets: readonly StorageDeleteTarget[]) => Promise<StorageDeleteOutcome[]>) | undefined;
 
   /**
    * Reads one specific version of an object. Optional: an adapter without it cannot serve a

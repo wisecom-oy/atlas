@@ -26,11 +26,7 @@ function connector_throttling_only(owner_to_throttle: string): RateLimitedGraphC
       }),
   } as unknown as MailboxConnector;
   const throttle = new InProcessThrottleCoordinator();
-  return new RateLimitedGraphConnector(
-    inner,
-    new DefaultMailboxRateLimiterFactory(throttle),
-    throttle,
-  );
+  return new RateLimitedGraphConnector(inner, new DefaultMailboxRateLimiterFactory(), throttle);
 }
 
 /**
@@ -80,7 +76,7 @@ describe('RateLimitedGraphConnector per-mailbox throttle scope', () => {
     const raise = vi.spyOn(throttle, 'raise');
     const connector = new RateLimitedGraphConnector(
       inner,
-      new DefaultMailboxRateLimiterFactory(throttle),
+      new DefaultMailboxRateLimiterFactory(),
       throttle,
     );
 

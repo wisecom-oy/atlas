@@ -22,9 +22,21 @@ export interface InMemoryTenantContext {
   readonly destroyed: () => number;
 }
 
+/** One stored object: its bytes, ETag and when it was last written, read from `Date.now()`. */
+interface StoredObject {
+  readonly body: Buffer;
+  readonly etag: string;
+  readonly last_modified: Date;
+}
+
+/** Stores the bytes under the key, stamped with the current time as S3 would. */
+function store(bucket: Bucket, key: string, data: Buffer): void {
+  bucket.data.set(key, { body: Buffer.from(data), etag: etag_of(data), last_modified: new Date() });
+}
+
 /** Stored-object key-value map with ETags, shared by every method of one harness. */
 interface Bucket {
-  readonly data: Map<string, { body: Buffer; etag: string }>;
+  readonly data: Map<string, StoredObject>;
 }
 
 /** Storage error shaped the way S3 reports a missing key, so `is_absent_object_error` matches. */
@@ -47,7 +59,7 @@ function etag_of(body: Buffer): string {
 
 /** Builds the storage half of the harness, honouring `if_match` and `if_none_match`. */
 function build_storage(bucket: Bucket): ObjectStorage {
-  const read = (key: string): { body: Buffer; etag: string } => {
+  const read = (key: string): StoredObject => {
     const stored = bucket.data.get(key);
     if (!stored) throw no_such_key(key);
     return stored;
@@ -64,7 +76,7 @@ function build_storage(bucket: Bucket): ObjectStorage {
       const current = bucket.data.get(key);
       if (if_none_match && current) throw precondition_failed(key);
       if (if_match !== undefined && current?.etag !== if_match) throw precondition_failed(key);
-      bucket.data.set(key, { body: Buffer.from(data), etag: etag_of(data) });
+      store(bucket, key, data);
     },
     async get(key: string): Promise<Buffer> {
       return Buffer.from(read(key).body);
@@ -86,9 +98,19 @@ function build_storage(bucket: Bucket): ObjectStorage {
       const keys = [...bucket.data.keys()].filter((key) => key.startsWith(prefix)).sort();
       return limit === undefined ? keys : keys.slice(0, limit);
     },
+    /** Lists keys last written before `older_than`; fake the clock to age them. */
+    async list_stale(prefix: string, older_than: Date): Promise<string[]> {
+      return [...bucket.data.entries()]
+        .filter(([key, stored]) => key.startsWith(prefix) && stored.last_modified < older_than)
+        .map(([key]) => key)
+        .sort();
+    },
     async copy(source_key: string, dest_key: string): Promise<void> {
-      const body = Buffer.from(read(source_key).body);
-      bucket.data.set(dest_key, { body, etag: etag_of(body) });
+      store(bucket, dest_key, read(source_key).body);
+    },
+    /** An unversioned bucket lists no versions, so a version sweep falls back to the keys. */
+    async list_versions(): Promise<[]> {
+      return [];
     },
     /** Accepts every policy, as a lock-capable bucket would, so a run can attach retention. */
     async validate_object_lock_policy(): Promise<void> {},
@@ -146,7 +168,7 @@ export function in_memory_tenant_context(tenant_id = 'tenant-test'): InMemoryTen
     keys: () => [...bucket.data.keys()].sort(),
     raw: (key: string): Buffer | undefined => bucket.data.get(key)?.body,
     set_raw: (key: string, data: Buffer): void => {
-      bucket.data.set(key, { body: Buffer.from(data), etag: etag_of(data) });
+      store(bucket, key, data);
     },
     remove: (key: string): void => {
       bucket.data.delete(key);

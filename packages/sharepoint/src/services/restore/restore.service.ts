@@ -17,6 +17,7 @@ import type {
   SharePointRestoreOptions,
   SharePointRestoreResult,
   SharePointRestoreUseCase,
+  OutcomeUnknownFile,
   TenantContext,
   OwnerLeasePort,
   TenantContextFactory,
@@ -28,6 +29,7 @@ import {
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { resolve_entry_destination, type EntryRouting } from '@/services/restore/entry-routing';
+import { stop_restore_on_refusal } from '@wisecom/atlas-drive/restore/restore-run-refusal';
 import { restore_sharepoint_file_entry } from '@/services/restore/restore-file-entry';
 import { restore_sharepoint_item_metadata } from '@/services/restore/restore-item-metadata';
 import { with_unmatched_file_filters } from '@wisecom/atlas-drive/shared/entry-filter';
@@ -131,6 +133,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     let files_restored = 0;
     let files_skipped = 0;
     const errors: string[] = [];
+    const outcome_unknown: OutcomeUnknownFile[] = [];
     const sharing: ItemSharingRestoreDeps = {
       connector: this._connector,
       restore_permissions: options.restore_permissions === true,
@@ -173,9 +176,9 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
               root: restore_root,
               file_name: options.rename_to ?? entry.file_name,
             },
-            errors,
+            { errors, outcome_unknown },
             sharing,
-          )
+          ).catch((err: unknown) => stop_restore_on_refusal('sharepoint', files_restored, err))
         : 'skipped';
       // Cut short by Ctrl+C: neither restored nor skipped, so the count reads as interrupted.
       if (outcome === 'cancelled') break;
@@ -227,6 +230,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
           folders_created,
           files_skipped,
           errors,
+          outcome_unknown,
           interrupted,
           ...sharing.tally.summary(),
           ...folder_colors_not_restored(selection.item_metadata),

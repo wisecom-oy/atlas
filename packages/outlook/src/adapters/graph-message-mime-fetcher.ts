@@ -2,7 +2,7 @@ import type { Client } from '@microsoft/microsoft-graph-client';
 import {
   cancellable_sleep,
   describe_graph_error,
-  get_graph_bytes,
+  get_graph_binary_with_idle_timeout,
   is_permanent_item_error,
   read_graph_error_code,
   rethrow_if_access_denied,
@@ -13,8 +13,11 @@ import { logger } from '@wisecom/atlas-core/utils/logger';
 import { get_active_abort_signal } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { MimeUnavailableError } from '@wisecom/atlas-types';
 
-// 30 min per attempt: a MIME body carries its attachments inline and runs to
-// Graph's message ceiling, which the default 60s window kills on slow links.
+/**
+ * Per-attempt timeout. A MIME body carries its attachments inline and runs to Graph's message
+ * ceiling, which the default 60 s window kills on slow links (issue #33). A body that stops
+ * arriving is cut off sooner, by the download's 60 s idle timeout (issue #883).
+ */
 const MIME_DOWNLOAD_TIMEOUT_MS = 1_800_000;
 /** Requests per message when `$value` keeps answering 2xx with no body (issue #848). */
 const EMPTY_BODY_ATTEMPTS = 3;
@@ -78,15 +81,22 @@ async function download_non_empty_mime(
   }
 }
 
-/** One `/$value` download under the Graph retry policy for transient statuses and transport. */
+/**
+ * One `/$value` download under the Graph retry policy for transient statuses and transport, with
+ * the body read inside each attempt under its idle timeout.
+ */
 async function download_mime_once(
   client: Client,
   url: string,
   immutable_id_prefer: string,
 ): Promise<Buffer> {
-  const data = await with_graph_retry(
-    () => get_graph_bytes(client.api(url).header('Prefer', immutable_id_prefer)),
+  const { bytes } = await with_graph_retry(
+    (attempt_signal) =>
+      get_graph_binary_with_idle_timeout(
+        client.api(url).header('Prefer', immutable_id_prefer),
+        attempt_signal,
+      ),
     { timeout_ms: MIME_DOWNLOAD_TIMEOUT_MS },
   );
-  return Buffer.from(data);
+  return bytes;
 }

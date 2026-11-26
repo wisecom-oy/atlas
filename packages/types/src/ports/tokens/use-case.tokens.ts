@@ -55,3 +55,8 @@ export const ONEDRIVE_QUARANTINE_USE_CASE_TOKEN = Symbol.for('OneDriveQuarantine
 export const SHAREPOINT_QUARANTINE_USE_CASE_TOKEN = Symbol.for('SharePointQuarantineUseCase');
 export const CONTACTS_QUARANTINE_USE_CASE_TOKEN = Symbol.for('ContactsQuarantineUseCase');
 export const CALENDAR_QUARANTINE_USE_CASE_TOKEN = Symbol.for('CalendarQuarantineUseCase');
+export const OUTLOOK_SNAPSHOT_PRUNE_USE_CASE_TOKEN = Symbol.for('OutlookSnapshotPruneUseCase');
+export const ONEDRIVE_SNAPSHOT_PRUNE_USE_CASE_TOKEN = Symbol.for('OneDriveSnapshotPruneUseCase');
+export const SHAREPOINT_SNAPSHOT_PRUNE_USE_CASE_TOKEN = Symbol.for(
+  'SharePointSnapshotPruneUseCase',
+);

@@ -16,6 +16,7 @@ import type {
   OneDriveManifestRepository,
   OneDriveRestoreOptions,
   OneDriveRestoreResult,
+  OutcomeUnknownFile,
   OneDriveRestoreUseCase,
   TenantContext,
   OwnerLeasePort,
@@ -37,7 +38,11 @@ import { select_restore_entries } from '@wisecom/atlas-drive/restore/restore-sel
 import type { ItemSharingRestoreDeps } from '@wisecom/atlas-drive/restore/item-sharing-restore';
 import { SharingRestoreTally } from '@wisecom/atlas-drive/restore/sharing-restore-tally';
 import { folder_colors_not_restored } from '@wisecom/atlas-drive/restore/folder-color-restore';
-import { restore_onedrive_file_entry } from '@/services/restore/restore-file-entry';
+import { stop_restore_on_refusal } from '@wisecom/atlas-drive/restore/restore-run-refusal';
+import {
+  restore_onedrive_file_entry,
+  type FileRestoreOutcome,
+} from '@/services/restore/restore-file-entry';
 import { restore_onedrive_item_metadata } from '@/services/restore/restore-item-metadata';
 import { empty_restore_result } from '@/services/restore/restore-result';
 import {
@@ -131,6 +136,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
     let files_restored = 0;
     let files_skipped = 0;
     const errors: string[] = [];
+    const outcome_unknown: OutcomeUnknownFile[] = [];
 
     emit_operation_progress(options, {
       operation: 'restore',
@@ -173,15 +179,14 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
           file_name: options.rename_to ?? entry.file_name,
         },
         sharing,
-      );
+      ).catch((err: unknown) => stop_restore_on_refusal('onedrive', files_restored, err));
+      // Recorded before a cancellation too: a file whose final chunk may have landed is still named
+      // when Ctrl+C cut its restore short (issue #892).
+      record_file_failure(result, errors, outcome_unknown);
       // Cut short by Ctrl+C: neither restored nor skipped, so the count reads as interrupted.
       if (result.cancelled === true) break;
-      if (result.restored) {
-        files_restored++;
-      } else {
-        files_skipped++;
-        if (result.error) errors.push(result.error);
-      }
+      if (result.restored) files_restored++;
+      else files_skipped++;
       emit_operation_progress(options, {
         operation: 'restore',
         workload: 'onedrive',
@@ -220,6 +225,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
           folders_created,
           files_skipped,
           errors,
+          outcome_unknown,
           interrupted,
           ...sharing.tally.summary(),
           ...folder_colors_not_restored(selection.item_metadata),
@@ -229,4 +235,17 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       chain.unreadable_keys,
     );
   }
+}
+
+/**
+ * Records a file's error line, and the file as possibly present in the target when its upload may
+ * have committed (issue #893).
+ */
+function record_file_failure(
+  result: FileRestoreOutcome,
+  errors: string[],
+  outcome_unknown: OutcomeUnknownFile[],
+): void {
+  if (result.error !== undefined) errors.push(result.error);
+  if (result.outcome_unknown !== undefined) outcome_unknown.push(result.outcome_unknown);
 }

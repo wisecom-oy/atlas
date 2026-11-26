@@ -4,6 +4,7 @@
  * through the signal `fn` receives so it cannot commit beside its retry.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CreateOutcomeUnknownError } from '@wisecom/atlas-types';
 import { is_throttle_response, with_graph_retry } from '@/graph-request-error-handler';
 import { run_with_abort_signal } from '@wisecom/atlas-core/services/shared/graph-request-context';
 
@@ -16,6 +17,13 @@ function failing_once(err: unknown): { fn: () => Promise<string>; calls: () => n
     return calls === 1 ? Promise.reject(err) : Promise.resolve('second');
   };
   return { fn, calls: () => calls };
+}
+
+/** Asserts the write failed as an unknown outcome that keeps Graph's answer as its cause (#893). */
+function expect_unknown_outcome(outcome: unknown, cause: unknown): void {
+  expect(outcome).toBeInstanceOf(CreateOutcomeUnknownError);
+  expect((outcome as Error).message).toMatch(/^outcome unknown, the item may exist/);
+  expect((outcome as Error).cause).toBe(cause);
 }
 
 beforeEach(() => {
@@ -56,7 +64,7 @@ describe('with_graph_retry with idempotent: false', () => {
     const outcome = with_graph_retry(fn, CREATE_ONCE).catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(600_000);
 
-    expect(await outcome).toBe(err);
+    expect_unknown_outcome(await outcome, err);
     expect(calls()).toBe(1);
   });
 
@@ -67,7 +75,7 @@ describe('with_graph_retry with idempotent: false', () => {
     const outcome = with_graph_retry(fn, CREATE_ONCE).catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(600_000);
 
-    expect(await outcome).toBe(err);
+    expect_unknown_outcome(await outcome, err);
     expect(calls()).toBe(1);
   });
 
@@ -83,7 +91,9 @@ describe('with_graph_retry with idempotent: false', () => {
     );
     await vi.advanceTimersByTimeAsync(600_000);
 
-    expect(await outcome).toMatchObject({ code: 'ETIMEDOUT' });
+    const failure = await outcome;
+    expect(failure).toBeInstanceOf(CreateOutcomeUnknownError);
+    expect((failure as Error).cause).toMatchObject({ code: 'ETIMEDOUT' });
     expect(fn).toHaveBeenCalledTimes(1);
     expect(signals[0]?.aborted).toBe(true);
   });

@@ -14,6 +14,9 @@ const OTHER_MAILBOX = '00000000-0000-0000-0000-00000000beef';
 const SNAPSHOT = 'cal-snap-1-abcdef';
 const MANIFEST_KEY = `calendar/manifests/${MAILBOX}/${SNAPSHOT}.json`;
 
+/** Keys removed by version, in order, across the current test. */
+let deletion_order: string[] = [];
+
 /** An in-memory bucket with only the listing and delete calls the deletion path uses. */
 function deletion_storage(objects: Record<string, Buffer>): ObjectStorage {
   const keys = (prefix: string) =>
@@ -28,6 +31,7 @@ function deletion_storage(objects: Record<string, Buffer>): ObjectStorage {
       delete objects[key];
     },
     delete_version: async (key: string) => {
+      deletion_order.push(key);
       delete objects[key];
     },
   };
@@ -95,6 +99,15 @@ describe('CalendarDeletionService', () => {
     expect(result.deleted_objects).toBe(3);
     expect(result.deleted_manifests).toBe(1);
     expect(Object.keys(objects)).toEqual([`calendar/data/${OTHER_MAILBOX}/d2`]);
+  });
+
+  it('deletes the mailbox manifests before its items (issue #922)', async () => {
+    deletion_order = [];
+
+    await build_service(seeded_objects()).delete_mailbox_data('tenant-1', MAILBOX);
+
+    expect(deletion_order[0]).toBe(MANIFEST_KEY);
+    expect(deletion_order.length).toBeGreaterThan(1);
   });
 
   it('deletes only the named snapshot manifest and keeps the content objects', async () => {

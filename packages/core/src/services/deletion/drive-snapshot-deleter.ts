@@ -40,8 +40,10 @@ export interface DriveSnapshotDeletion<M extends OrderedSnapshot> {
 }
 
 /**
- * Deletes the newest snapshot of a drive owner or site: its manifest, then the delta cursor, then
- * its row in the summary index. Content blobs stay, because other snapshots reference the same
+ * Deletes the newest snapshot of a drive owner or site: its manifest, then the entry parts of a
+ * manifest stored in parts (#920), then the delta cursor in either form, then its row in the
+ * summary index. The manifest goes first because it is what makes the parts a snapshot: an
+ * interrupted deletion leaves parts that nothing references, never a manifest missing parts. Content blobs stay, because other snapshots reference the same
  * keys. The summary goes last because it matters least: readers already skip a row whose manifest
  * is gone, so a failed prune is only logged.
  *
@@ -76,9 +78,17 @@ export async function delete_newest_drive_snapshot<M extends OrderedSnapshot>(
   );
   if (has_survivors(manifest_result)) return manifest_result;
 
+  const parts_result = await delete_scopes(ctx.storage, [
+    `${workload}/manifest-parts/${owner_id}/${snapshot_id}/`,
+  ]);
   const cursor_result = await delete_scopes(ctx.storage, [
     `${workload}/_meta/${owner_id}/delta.json`,
+    `${workload}/_meta/${owner_id}/delta/head.json`,
+    `${workload}/_meta/${owner_id}/delta/`,
   ]);
   await deletion.forget_summary();
-  return merge_deletion_results(manifest_result, cursor_result);
+  return merge_deletion_results(
+    merge_deletion_results(manifest_result, parts_result),
+    cursor_result,
+  );
 }

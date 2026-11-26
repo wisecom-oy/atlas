@@ -1,6 +1,7 @@
 import type { LogSink } from '@/ports/atlas/log-sink.port';
 import type { StorageRequestObserver } from '@/ports/storage/storage-request-observer.port';
 import type { ThrottleCoordinator } from '@/ports/shared/throttle-coordinator.port';
+import type { OwnerExclusion } from '@/ports/lease/owner-exclusion.port';
 import type { StorageCheckRequest, StorageCheckResult } from '@/ports/storage-check/use-case.port';
 import type { BucketStats } from '@/domain/stats/stats';
 import type { StorageUsage } from '@/domain/stats/storage-usage';
@@ -66,6 +67,15 @@ export interface AtlasInstanceConfig {
    * Defaults to 1. Set it to `1 / n` when `n` processes back up teams of the same tenant.
    */
   readonly teamsPacingShare?: number;
+  /**
+   * Replaces the storage owner lease with the host's own exclusion (issue #974). Omitted means
+   * Atlas takes lease objects in the bucket and refuses a backend that does not enforce conditional
+   * writes. When supplied, Atlas asks it for every owner and tenant scope, writes no lease object,
+   * and never sends a conditional header: it checks create-only and compare-and-swap writes itself.
+   * Use it for a backend without conditional `PUT` on versioned buckets, and only when the host
+   * upholds the rules on {@link OwnerExclusion} across every process that writes this tenant.
+   */
+  readonly ownerExclusion?: OwnerExclusion;
 }
 
 export interface AtlasInstance extends AsyncDisposable {

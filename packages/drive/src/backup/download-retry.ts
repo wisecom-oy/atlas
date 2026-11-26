@@ -1,12 +1,13 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
-import {
-  cancellable_sleep,
-  is_retryable_error,
-  is_unretryable_download_failure,
-} from '@wisecom/atlas-m365-graph';
+import { is_graph_outage } from '@wisecom/atlas-core/services/shared/graph-outage-latch';
+import { cancellable_sleep, is_unretryable_download_failure } from '@wisecom/atlas-m365-graph';
 import type { DriveContentConnector, DriveDeltaItem } from '@/drive-ports';
 import { is_download_size_changed } from '@/backup/download-integrity';
-import { transient_download_error_for } from '@/backup/transient-download-failure';
+import { is_download_url_expired } from '@/backup/large-file-url-refresh';
+import {
+  is_transient_drive_failure,
+  transient_download_error_for,
+} from '@/backup/transient-download-failure';
 import { format_bytes } from '@/shared/format-bytes';
 
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -19,10 +20,10 @@ export interface DownloadRetryOptions {
   /**
    * Cancellation for the run.
    *
-   * It is handed to the connector, which aborts a transfer from a pre-authenticated URL and its
-   * chunk backoff. The Graph `/content` fallback takes no signal, so a request there still
-   * finishes under its own timeout. This loop also stops starting another attempt or sitting out a
-   * backoff of up to 30 seconds after the run was cancelled (issues #344, #632).
+   * It is handed to the connector, which aborts a transfer from a pre-authenticated URL, its chunk
+   * backoff, and a Graph `/content` request that has not answered yet. This loop also stops
+   * starting another attempt or sitting out a backoff of up to 30 seconds after the run was
+   * cancelled (issues #344, #632).
    */
   readonly abort_signal?: AbortSignal | undefined;
 }
@@ -35,9 +36,12 @@ export interface DownloadRetryOptions {
  * A missing grant and a service refusal are the exceptions: both are rethrown so
  * the caller can name the cause. Swallowing them here is what turned one missing
  * permission into a per-file retry storm reported as a skipped file (issue #246).
- * A size change is the third exception, so the caller can re-read the item (issue #759).
- * A failure outside the file (throttling, an outage, a reset or timeout) ends as a
- * `TransientDownloadError`, so the caller records it without spending an attempt (issue #857).
+ * A size change is the third exception, so the caller can re-read the item (issue #759), and an
+ * expired URL whose refresh and `/content` fallback failed is the fourth, so the caller records it
+ * without spending an attempt (issue #895).
+ * A failure outside the file (throttling, an outage, a reset or timeout) is repeated up to
+ * `max_attempts` times and then ends as a `TransientDownloadError`, so the caller records it
+ * without spending an attempt (issues #857, #890).
  */
 export async function download_with_retry(
   connector: DriveContentConnector,
@@ -58,11 +62,8 @@ export async function download_with_retry(
       const reason = err instanceof Error ? err.message : String(err);
       const is_last = attempt === max_attempts;
 
-      if (is_unretryable_download_failure(err)) throw err;
-      // Passed up so the caller can re-read the item once (issue #759).
-      if (is_download_size_changed(err)) throw err;
-
-      if (is_last || !is_retryable_error(err)) return give_up_on_file(err, item, attempt);
+      rethrow_if_caller_decides(err);
+      if (is_last || !is_worth_another_attempt(err)) return give_up_on_file(err, item, attempt);
 
       const delay = compute_file_retry_delay(attempt);
       logger.info(
@@ -90,6 +91,28 @@ function give_up_on_file(err: unknown, item: DriveDeltaItem, attempts_made: numb
   const transient = transient_download_error_for(err, `${item.file_name} (${item.item_id})`);
   if (transient) throw transient;
   return undefined;
+}
+
+/**
+ * Rethrows a failure the caller acts on itself instead of this loop retrying it: a refusal or a
+ * missing grant (issue #246), a size change the caller re-reads the item for once (issue #759), and
+ * an expired URL whose refresh and `/content` fallback were this file's retry already, which the
+ * caller records without spending an attempt (issue #895).
+ */
+function rethrow_if_caller_decides(err: unknown): void {
+  if (is_unretryable_download_failure(err)) throw err;
+  if (is_download_size_changed(err)) throw err;
+  if (is_download_url_expired(err)) throw err;
+}
+
+/**
+ * True for a failure outside the file that another attempt may get past: a transient status, a
+ * reset, or a timed-out request or body (issue #890). A failure that already spent Microsoft
+ * Graph's whole retry budget is not, because repeating it would wait out that budget again for the
+ * same file, and in a backup run the outage latch ends every later Graph call anyway (issue #885).
+ */
+function is_worth_another_attempt(err: unknown): boolean {
+  return is_transient_drive_failure(err) && !is_graph_outage(err);
 }
 
 function compute_file_retry_delay(attempt: number): number {

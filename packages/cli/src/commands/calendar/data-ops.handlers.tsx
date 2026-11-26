@@ -16,7 +16,8 @@ import {
   print_delete_result,
   render_delete_banner,
 } from '@/commands/shared/deletion-presenter';
-import { resolve_owner, resolve_tenant_id } from '@/commands/onedrive/command.handlers';
+import { resolve_tenant_id } from '@/commands/onedrive/command.handlers';
+import { resolve_owner, resolve_stored_owner } from '@/commands/shared/owner-resolution';
 import type { CalendarTenantOptions } from '@/commands/calendar/command.handlers';
 
 export interface CalendarListCommandOptions extends CalendarTenantOptions {
@@ -47,7 +48,7 @@ export async function execute_calendar_list(
   options: CalendarListCommandOptions,
 ): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
-  const mailbox = await resolve_owner(container, tenant_id, options.mailbox);
+  const mailbox = await resolve_stored_owner(container, tenant_id, options.mailbox);
   const catalog = container.get<CalendarCatalogUseCase>(CALENDAR_CATALOG_USE_CASE_TOKEN);
   const listing = await read_listing(() =>
     catalog.list_calendar_snapshot_summaries(tenant_id, mailbox.object_id),

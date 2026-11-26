@@ -29,6 +29,7 @@ The [exit code table](#exit-codes-and-whether-to-retry) says which codes a rerun
 | A `404` or other `4xx` on a run's first existence check or listing | Reads it twice more, 2 s and 4 s later, before it decides the owner is gone | [The first read of a run](#first-reads-of-a-run) |
 | Microsoft Graph outage outlasts the retry budget during a backup | Stops the run after one budget, commits what finished, exits `3` | [When retries run out](#when-retries-run-out-on-a-throttle) |
 | A large file transfer stalls or its URL expires | Retries the range, refreshes the URL, resumes at the failed range | [File transfers](#file-transfers-onedrive-and-sharepoint) |
+| The file download hosts are down while Microsoft Graph is up | Gives each file 3 attempts within a bounded wait, lists it for the next run without using an attempt, and moves to the next file | [File transfers](#file-transfers-onedrive-and-sharepoint) |
 | S3 request fails or the backend stops answering | Retries each request up to 3 times, cuts off a connect after 10 s and a silent socket after 5 min, then exits `3`. Writes that must not collide are conditional | [Storage](#storage) |
 | You press Ctrl+C | Commits what finished, exits `2` | [Ctrl+C and signals](#ctrl-c-and-signals) |
 | Process killed mid-run | Storage only references what was fully written. The next run resumes from the last saved cursor | [Crash safety and resume](#crash-safety-and-resume) |
@@ -56,8 +57,9 @@ Every Microsoft Graph call goes through one retry loop. The Graph SDK's own retr
 | `Retry-After` below 1 s | Raised to 1 s |
 | `Retry-After` above 1 hour | The call fails at once with `ThrottledError` naming the value. The pool or mailbox still cools down for the hour, for the rest of the run |
 | `429` or `509` without `Retry-After` | 30 s cooldown for the pool |
-| Waiting budget per call | 24 minutes of backoff, `Retry-After`, and cooldown waits. A wait already started runs in full |
-| Per-attempt timeout | 60 s by default. A timed-out request is aborted before the next attempt is sent |
+| Waiting budget per call | 24 minutes of backoff, `Retry-After`, and cooldown waits, including the cooldown an Outlook call waits out before it is sent. A wait already started runs in full |
+| Per-attempt timeout | 60 s by default. 30 min for an Outlook MIME download (`/messages/{id}/$value`), an attachment download (`/attachments/{id}/$value`), and a Teams hosted-content download (`/hostedContents/{id}/$value`), so a large body on a slow link completes. A timed-out request is closed before the next attempt is sent, and a request still waiting for its access token is never sent |
+| Idle timeout on a download | 60 s on an Outlook MIME or attachment download and a Teams hosted-content download. When neither the response headers nor any body bytes arrive for 60 s, the request is closed and the attempt is retried as a timed-out transfer |
 
 `500` and `502` are retried because Microsoft Graph returns them for load and gateway faults that clear on their own. `408 Request Timeout` is retried like a `504`, as it already is for a token request. `509 Bandwidth Limit Exceeded` is SharePoint's throttle for a tenant or app over its bandwidth limit, so it is retried and pauses the pool like a `429`.
 
@@ -69,7 +71,52 @@ A JSON read that answers `2xx` with a body that does not parse, empty or cut sho
 
 A token request that Microsoft Entra ID answers with a `429` or `5xx` is held back for at least 60 s by MSAL, the Microsoft library that requests the token, or for as long as Entra's `Retry-After` asks. A repeat inside that window never reaches Entra ID, so Atlas waits at least 60 s between token attempts. An Entra ID outage is retried through the whole budget and ends in `ATLAS_GRAPH_UNAVAILABLE`, exit `3`. A refusal of the credentials (`invalid_client`, an unknown client ID or tenant, an expired secret) is never retried and exits `4`.
 
-The 24-minute budget sits just above the full exponential schedule (1 + 2 + 4 + ... capped at 5 minutes comes to about 23.5 minutes), so backoff alone always gets all 12 retries. Time spent inside a request does not count, so a slow download keeps its retries. One call therefore waits at most about 24 minutes plus one cooldown, and so does a whole backup run: see [When retries run out](#when-retries-run-out-on-a-throttle).
+The 24-minute budget sits just above the full exponential schedule (1 + 2 + 4 + ... capped at 5 minutes comes to about 23.5 minutes), so backoff alone always gets all 12 retries. Time spent inside a request does not count, so a slow download keeps its retries. One call therefore waits at most about 24 minutes plus one wait of up to 1 hour and 5 s, and so does a whole backup run: see [When retries run out](#when-retries-run-out-on-a-throttle).
+
+That bounds the waiting, not the wall-clock time of a call. The time inside its 13 attempts comes on top:
+
+| Call | Attempts | Waits | Worst case |
+| --- | ---: | ---: | ---: |
+| Any Graph request with the 60 s timeout | 13 × 60 s = 13 min | 24 min + 1 h 0 min 5 s | about 1 h 37 min |
+| Outlook MIME, attachment, or Teams hosted-content download whose body keeps trickling in | 13 × 30 min = 6 h 30 min | 24 min + 1 h 0 min 5 s | about 7 h 55 min |
+| Outlook MIME, attachment, or Teams hosted-content download that stalls on every attempt | 13 × 60 s idle = 13 min | about 23.5 min of backoff | about 37 min |
+
+The 7 h 55 min case needs every attempt to receive at least one byte a minute for its full 30 minutes, and Graph to answer the last wait with a 1-hour `Retry-After`. A download that stops sending loses its attempt after 60 s instead, so a stalled server costs the stall row. Each message and attachment has its own call. An empty MIME body starts a new call, up to 3 per message, as described above.
+
+Downloads read their whole body inside the attempt, so the attempt timeout, the idle timeout, the retry on a body cut off mid-transfer, and Ctrl+C cover the body as well as the headers.
+
+An Outlook call waits out its mailbox's cooldown before it takes a [pacing](#pacing) slot, and that wait counts against the same budget. Under a persistent 1-hour throttle the call is sent once the cooldown ends, and the next `429` ends it with `ThrottledError` instead of starting a second hour. A short cooldown, such as the 30 s after a `429` without `Retry-After`, leaves almost the whole budget for the retries after it. The wait before the send is itself capped at one cooldown wait (1 hour plus the release delay): if other requests keep raising the cooldown past that, the call fails with `ThrottledError` without sending anything.
+
+### Long waits
+
+```text
+[!] Waiting 60 min, until 2026-11-26T14:05:12Z, for the cooldown on mailbox <object-id> after HTTP 429 ApplicationThrottled with Retry-After 3600 s
+[!] Waiting 64 s, until 2026-11-26T13:06:16Z, for backoff before retry 7 of 12 after HTTP 503
+```
+
+A wait longer than 60 s prints one warning when it starts, so a run that is waiting can be told from one that hangs. The line names what is waited for, the HTTP status and Graph or network error code that caused it, and when the wait ends, in UTC. Shorter waits print nothing at the default level; with `DEBUG` set, every retry still prints its own debug line. The 60 s threshold is fixed. It sits above the waits a healthy run makes: the 30 s default cooldown, the 60 s hold after a failed token request, and the first six backoff delays.
+
+| Wait | When the line prints |
+| --- | --- |
+| Cooldown for a mailbox, team, or pool | Once, when the cooldown is raised. Every request parked on it waits for the same end, so ten parked requests share one line. A later `429` prints again only if it moves the end by more than 60 s |
+| `Retry-After` that raises no cooldown, such as a `503` | Once per call, before its retry |
+| Backoff without `Retry-After` | Once per call and retry, from the seventh retry on (64 s, 128 s, 256 s, then 5 minutes) |
+| Hold after a failed token request | Only when Microsoft Entra ID asked for more than 60 s |
+
+A mailbox is named by its object ID only. When the command was given an address, the line says "the mailbox" instead. Under the SDK the line goes to the host's log sink as a `warn` record. With a host coordinator shared by several processes, only the process that received the `429` prints the cooldown line.
+
+### Timed-out and abandoned attempts
+
+```text
+$ DEBUG=1 atlas outlook backup -m user@example.com
+[.] Retry 1/12 in 62.5s -- Microsoft Entra ID did not issue a Graph token before the attempt timed out: last answer HTTP 429
+```
+
+Every request an attempt sends carries that attempt's abort signal, whichever workload sends it. When the attempt times out, the request is closed before the retry goes out, so a slow backend never holds a request and its retry open side by side. A read is also closed at once on Ctrl+C. A write is closed only by its timeout, so a write already on the wire finishes on Ctrl+C (see [Writes that are sent once](#writes-that-are-sent-once)). A `$batch` read sends no further POST once its attempt has ended.
+
+Requests that need an access token at the same time share one token request, so a slow or throttling Entra ID sees one token request per credential, not one per waiting call. An attempt that times out or is cancelled while it waits stops waiting, and its Graph request is never sent, even when the token arrives later. Its timeout is reported as a failed token request naming Entra's last answer, as above, rather than as `ETIMEDOUT`, and is retried like one: after a `429` or `5xx` the next attempt waits at least 60 s, and a write that timed out there is repeated, because it was never sent. Once no request waits for the token request, Atlas aborts it, including any `Retry-After` wait that `@azure/identity`, the library that sends it, was sitting out between its own retries.
+
+An abandoned attempt leaves no open socket, token request, or timer behind, so a command exits as soon as it has printed its result, after a soft stop too. An endpoint that accepts a connection and never answers cannot hold the process open.
 
 ### The first read of a run {#first-reads-of-a-run}
 
@@ -93,6 +140,8 @@ The first Microsoft Graph read of a run decides whether the run happens at all: 
 
 An owner that is really gone costs at most 2 extra requests on the existence check and 5 on a listing, about 12 s in all, before exit `7`. The directory check needs `User.Read.All`. Without it, a listing that keeps answering `404` cannot be shown to belong to a missing owner and ends with exit `3`.
 
+The lookup of an email address, which comes before all of these, follows the rule for a `404` only. `GET /users/{address}` and the `mail` filter Atlas tries after it are read 3 times in about 6 s before Atlas believes the address is unknown. Any other `4xx` on the lookup is judged on its first answer. See [Owner lookup](#owner-lookup) for what a believed `404` does.
+
 The rule only delays a verdict within one run, and a run that ends here writes nothing. It differs from the rule for a file, version, or contact photo that answers `404`, which spreads its 3 reads over 24 hours because that verdict removes data from later snapshots. A `404` on a later calendar's, folder's, or drive's changes still fails only that unit, with exit `2`.
 
 ### Cooldowns shared across requests
@@ -114,6 +163,8 @@ Atlas paces requests below Microsoft's published limits rather than waiting for 
 
 A request that finds its mailbox's window spent waits until earlier requests age out of it, up to 10 minutes, and the run then continues. That wait keeps the CLI process running only while the command is still working, like a cooldown does.
 
+These waits pace requests and count against no retry budget. The first Ctrl+C, or the SDK `signal` option, ends them at once, like a cooldown wait, and the request is not sent.
+
 Concurrency is fixed, not adaptive. A `429` does not lower it; the shared cooldown is what slows the instance down. `atlas teams backup --concurrency` sets how many channels run at once (default 4, maximum 16).
 
 ### When retries run out {#when-retries-run-out-on-a-throttle}
@@ -128,21 +179,40 @@ A call that spends its whole budget has met an incident at Microsoft or on the n
 
 1. Writes the snapshot for every folder, drive, library, calendar, contact folder, or channel it finished before the outage.
 2. Leaves each unit it did not finish at its previous sync checkpoint, so the next run reads those changes again. A Graph call the outage stopped is not recorded as a failed file or thread, so it spends none of their retry attempts.
-3. Releases the owner lease and exits `3` with the error of the first exhausted call.
+3. Releases the owner lease and exits `3` with the error of the first exhausted call, printed with its `Atlas code` line. An SDK caller gets the result of the run up to the outage as the error's `partial_result`, see [Graph failures](/reference/sdk#graph-failures).
 
 One outage therefore holds a backup for about one budget: 1,411 s of backoff for a `503` without `Retry-After` (1 + 2 + 4 + ... + 256 s, then three waits of 300 s), plus the requests in flight.
 
 The scope is one run, meaning one owner under one lease. A host that backs up many owners at once lets each one spend its own budget, because one mailbox's exhausted calls can come from its own Exchange server rather than from all of Microsoft 365, and the shared [cooldowns](#cooldowns-shared-across-requests) already spread a `429` across owners. Within a run the stop covers every pool: a run that cannot read one pool is incomplete and is rerun either way. A command that loops over owners stops at the first one that ends on an outage: `atlas teams backup --all` does not start the next team, and `atlas sharepoint backup --include-subsites` does not start the next subsite.
 
-A call that is not retried to exhaustion stays the item's own failure and the run continues, as described in [Partial runs](#partial-runs). See [Microsoft Graph unavailable after retries](/troubleshooting#microsoft-graph-unavailable-after-retries) for the message and what to do.
+A call that is not retried to exhaustion stays the item's own failure and the run continues, as described in [Partial runs](#partial-runs).
+
+A Calendar or Contacts restore lists what each target calendar or contact folder already holds once, before its first entry, to skip what an earlier restore created. When that listing spends its budget, every entry of that calendar or folder fails with the listing error, and the calendar or folder is not listed again in the run. The other calendars and folders still restore, and the command exits `2`. A failed listing is never read as an empty target, so it cannot cause duplicates. See [Microsoft Graph unavailable after retries](/troubleshooting#microsoft-graph-unavailable-after-retries) for the message and what to do.
+
+### Owner lookup {#owner-lookup}
+
+```text
+[!] Microsoft Graph did not resolve user@example.com (Microsoft Graph did not answer within 15 s). Using the identity registry entry <object-id>.
+```
+
+A command given an email address looks it up in Microsoft Graph before its run starts. The identity registry, the tenant's record of every user Atlas has backed up, can stand in for Graph's answer. When it does, Atlas logs the warning above with the reason.
+
+| Command | Graph answers `404` | Graph's retry budget runs out | Graph is slow |
+| --- | --- | --- | --- |
+| `backup`, `restore`, `restore-version`, `status`, `delete` | Registry entry, after the [3 reads](#first-reads-of-a-run) | Exit `3`, before the owner lease is taken | Waits for the answer |
+| `list`, `list-snapshots`, `list-versions`, `list-permissions`, `verify`, `save`, `atlas stats` | Registry entry, after the 3 reads | Registry entry | Registry entry after 15 s |
+
+Commands that work on live data wait for Graph so an address reassigned to a new user resolves to that user, not to the departed one the registry still holds. A spent budget there means Microsoft Graph is down, and the run's next Graph call would only spend a second budget on the same outage while it holds the lease. Commands that only read stored backups need nothing more from Graph, so they wait 15 s at most when the registry holds the address. An address the registry does not hold always goes to Graph with the full budget, and a `404` for it exits `7`. An object ID skips the lookup.
 
 ### Writes that are sent once
 
 A restore request that creates something (a message, attachment, event, contact, folder, or a drive file under `--conflict rename` or `--conflict fail`) is retried only on a `429`, a `503` carrying `Retry-After`, or a single `401` with the code `InvalidAuthenticationToken`. Microsoft Graph sends those instead of processing the request: it checks the token before the request reaches Exchange or SharePoint. A `401` with any other code is not repeated.
 
-A `408`, `500`, `502`, `504`, `509`, timeout, or dropped connection after a create may arrive after Microsoft 365 committed it, so repeating the request could leave a duplicate. So may a `2xx` whose body did not parse, which means the create succeeded. The item is reported as failed and the restore continues. See [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) for what to check before restoring it again.
+A `408`, `500`, `502`, `504`, `509`, timeout, or dropped connection after a create may arrive after Microsoft 365 committed it, so repeating the request could leave a duplicate. So may a `2xx` whose body did not parse, which means the create succeeded. The item is reported as `outcome unknown, the item may exist`, counted in the run summary, and listed in the SDK result's `outcomeUnknown` for Outlook, OneDrive, and SharePoint, and the restore continues. A refusal such as a `400` is reported as a plain error. See [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) for what to check before restoring it again.
 
-Once a restore write is on the wire, Ctrl+C lets it finish, up to its timeout, instead of aborting it. An aborted write might exist in the target while Atlas reports it as not written.
+Once a restore write is on the wire, Ctrl+C lets it finish, up to its timeout, instead of aborting it, and an item it created is counted as restored. An aborted write might exist in the target while Atlas reports it as not written. A write still waiting for its access token when Ctrl+C arrives has not been sent, so it is dropped and reported as not written. A write attempt that times out is closed at its timeout and never sent later. This holds for every workload's restore, including Calendar event updates and deletes and contact photos. Only the waits before a send (backoff, `Retry-After`, cooldowns) end on the first Ctrl+C.
+
+The final chunk of an upload session is such a create, see [Upload sessions](#upload-sessions).
 
 ### File transfers (OneDrive and SharePoint)
 
@@ -152,14 +222,25 @@ File content comes from pre-authenticated download URLs rather than through the 
 | --- | --- |
 | File-level attempts | 3, with backoff from 2 s capped at 30 s |
 | Ranged download | Files over 4 MiB are read in 4 MiB ranges |
-| Range timeout | `max(30 s, size in bytes / 256)`, about 33 s for a 4 MiB range |
+| Range timeout | `max(30 s, size in bytes / 256 ms)`, so 30 s for a 4 MiB range |
 | Range retries | Up to 5 per range, backoff from 1 s plus up to 1 s of jitter, capped at 30 s. `Retry-After` honoured on `429` |
 | Streaming threshold | 64 MiB and above: streamed to storage through a multipart upload |
 | Upload part size | Smallest multiple of 8 MiB that fits the file in 10,000 parts, at most 32 MiB. A file or version above 312.5 GiB is refused before its download starts, see [object size limits](/self-hosting/storage#object-size-limits) |
-| Expired URL (`401` or `403` from the CDN) | Looked up again. Files of 64 MiB and more resume at the failed range, until 3 refreshed URLs in a row deliver nothing |
+| Expired URL (`401` or `403` from the CDN) | Looked up again. Files of 64 MiB and more resume at the failed range, until 3 refreshed URLs in a row deliver nothing. Smaller files retry once on the fresh URL, then fall back to `/content` |
+| Graph `/content` fallback | Files under 64 MiB only. Used when no URL resolves, after an expired URL's one refresh, or after a host answer that is not transient, such as a `404` or a body of the wrong length. Never after a `429`, `5xx`, reset, or timeout from the download host |
+| `/content` retries | The [Graph retry rules](#microsoft-graph-requests): up to 12 retries and 24 minutes of waiting, `Retry-After` honoured. The request times out after `max(30 s, size in bytes / 256 ms)` and the body after twice that. A timeout aborts the request and goes to the file-level attempts, not to Graph's retries |
 | Truncation check | Each range's length and `Content-Range`, and the total size, must match what Microsoft Graph listed |
 
-A file that still fails is added to the drive's list of failed files, and the drive's sync checkpoint moves on. Each later run fetches the listed files again before processing new changes, up to 5 attempts per file. Failures outside the file do not use an attempt: throttling, a Microsoft Graph `5xx`, a reset or timed-out connection, or a download host that is down, once the retries above are spent, and an expired URL. The same holds for the re-read of a listed file at the start of a run. A `404` on that re-read uses no attempt and keeps the file listed: Atlas drops it as deleted only when the change listing reports the deletion, or when the `404` repeats on 3 runs in a row spanning at least 24 hours. A body of the wrong length or range, and any other `4xx`, use one. [Failed files](/onedrive-backup#failed-files) lists each case and how to fetch a permanently skipped file again. A missing Microsoft Graph permission (`403 accessDenied`) stops the drive instead of costing one file per item. [Snapshot health](/onedrive-backup#snapshot-health) describes the list and the `403` cases.
+`/content` answers with a redirect to the same download hosts, so a failure of the host itself goes to the file-level attempts instead. Falling back would send each file into the same outage under Graph's 24-minute budget. While the hosts fail every request, a file below 64 MiB is given up within these bounds, then listed and the run moves to the next file:
+
+| Host behaviour | File up to 4 MiB | File over 4 MiB, under 64 MiB |
+| --- | --- | --- |
+| Answers `5xx` at once | About 10 s: 3 requests and the file backoff | About 2 minutes: 3 attempts of 6 range requests with their backoff |
+| Never answers | About 100 s: 3 request timeouts of 30 s | About 11 minutes: 3 attempts of 6 range timeouts of 30 s |
+
+Each file given up this way is logged as `Skipping drive file ... after 3 attempt(s)` with the host's answer, and listed as `will retry (no attempt counted yet)`. A failure that already spent the Graph retry budget is not repeated at file level, and stops the run with exit `3` as described in [When retries run out](#when-retries-run-out-on-a-throttle).
+
+A file that still fails is added to the drive's list of failed files, and the drive's sync checkpoint moves on. Each later run fetches the listed files again before processing new changes, up to 5 attempts per file. Failures outside the file do not use an attempt: throttling, a Microsoft Graph `5xx`, a reset or timed-out connection or `/content` request, or a download host that is down, once the retries above are spent, and an expired URL at any file size, even when the fresh URL and `/content` fail too. The same holds for the re-read of a listed file at the start of a run. A `404` on that re-read uses no attempt and keeps the file listed: Atlas drops it as deleted only when the change listing reports the deletion, or when the `404` repeats on 3 runs in a row spanning at least 24 hours. A body of the wrong length or range, and any other `4xx`, use one. [Failed files](/onedrive-backup#failed-files) lists each case and how to fetch a permanently skipped file again. A missing Microsoft Graph permission (`403 accessDenied`) stops the drive instead of costing one file per item. [Snapshot health](/onedrive-backup#snapshot-health) describes the list and the `403` cases.
 
 A failure to write the file to storage is not the file's either, whatever its size: a full disk or quota, an S3 `5xx` after the [storage retries](#storage), or an endpoint that never answers. It fails the drive or library, which keeps its sync checkpoint, so the file is read again by the next run without entering the list. A file of 64 MiB or more is streamed from the download into the multipart upload, and a failure on the storage side of that stream is told apart from a download failure by its type and status, never by its message.
 
@@ -169,7 +250,33 @@ A `404` or `410` on the content of a file version is not taken at its word, beca
 
 A file whose content was stored but whose versions were not captured, because the drive failed, the file failed, or Ctrl+C stopped the run in between, is recorded in the cursor. The next run that sees the file captures its versions even though the content is already stored.
 
-During a restore, a file over 4 MiB is uploaded through an upload session in 10 MiB chunks. Each chunk is sent up to 3 times in all: a `429`, `500`, `502`, `503`, or `504` on either of the first two attempts sends it again after `Retry-After` or 1 s. A failed session is not resumed: Atlas deletes it, giving the delete 10 s, and the next restore starts a new one. The final chunk is the request that creates the file, so a checksum mismatch found while streaming abandons the session before anything is created.
+During a restore, a file over 4 MiB is uploaded through an upload session in 10 MiB chunks, see [Upload sessions](#upload-sessions). The final chunk is the request that creates the file, so a checksum mismatch found while streaming abandons the session before anything is created.
+
+### Upload sessions {#upload-sessions}
+
+A OneDrive or SharePoint file over 4 MiB, and an Outlook or Calendar attachment of 3 MiB or more, is restored through a Microsoft Graph upload session: a series of chunk `PUT`s, each naming its byte range in `Content-Range`. Sending an intermediate chunk again rewrites the same bytes. The final chunk is the request that creates the file or attachment, so it follows the [sent once](#writes-that-are-sent-once) rule.
+
+| Parameter | OneDrive and SharePoint files | Outlook and Calendar attachments |
+| --- | --- | --- |
+| Chunk size | 10 MiB | About 4 MiB (13 × 320 KiB) |
+| Per-attempt deadline | `max(60 s, chunk bytes / 128)` ms, about 82 s for a 10 MiB chunk | The same formula, 60 s per chunk |
+| Intermediate chunk | Up to 3 attempts after a `408`, `429`, `500`, `502`, `503`, `504`, `509`, a dropped connection, or the deadline. Waits `Retry-After` or 1 s | The [Graph retry policy](#microsoft-graph-requests): up to 13 attempts within the 24-minute budget |
+| Final chunk | Sent again only after a `429`, or a `503` with `Retry-After`, within the 3 attempts | Sent again only after a `429`, or a `503` with `Retry-After`, within the Graph retry policy |
+| Any other `4xx` | Not sent again | Not sent again |
+
+The deadline covers sending the chunk and reading the answer. A chunk that passes it is aborted before it is sent again, so two copies of one range are never in flight. It assumes at least about 1 Mbit/s of upload bandwidth: on a slower link, a 10 MiB chunk times out on every attempt.
+
+A final chunk that ends with a `408`, `500`, `502`, `504`, `509`, a `503` without `Retry-After`, a timeout, or a dropped connection may have been committed by Microsoft 365. So may any failure of a final chunk sent again after a throttle, such as a `416` because the session already holds the bytes. Atlas does not send it again and reports the item as an unknown outcome, distinct from a refusal:
+
+```
+Report.docx: outcome unknown, the file may exist: the final upload chunk (bytes 10485760-12582911/12582912) ended with HTTP 504 after Microsoft 365 may have committed it. Check the target before restoring it again
+```
+
+A `4xx` on the first send of the final chunk, or any failure of an intermediate chunk, is reported as `Resumable upload failed at range ...`: nothing was created. Either way the restore continues and exits `2`. See [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) for what to check.
+
+A failed file upload is not resumed. Atlas deletes the session, giving the `DELETE` 10 s, and the next restore starts a new one. After an unknown outcome the delete can fail because the session already completed, and the warning names `a final chunk with an unknown outcome`. When every chunk was accepted but the session never reported a finished file, Atlas asks it which ranges it still expects before deleting it, and that query has the same 10 s. A failed attachment session is left to expire, since it creates nothing on its own.
+
+Ctrl+C ends an intermediate chunk and any wait at once, so the file or attachment is not created. A final chunk already sent runs to its deadline: the first Ctrl+C returns control within about 82 s for a file and 60 s for an attachment. A final chunk that did not complete cleanly is still named in the result.
 
 ### Storage
 
@@ -205,11 +312,11 @@ Object Lock retention is set per object at write time, and a delete it refuses e
 
 | Signal | Result |
 | --- | --- |
-| First Ctrl+C (`SIGINT`) | Soft stop. Microsoft Graph requests, retries, and cooldown waits end at once; restore writes already sent finish. Completed work is committed, the lease is released, and the command exits `2` |
+| First Ctrl+C (`SIGINT`) | Soft stop. Microsoft Graph reads, download bodies being read, token requests, retries, and cooldown waits end at once, and their connections are closed, including an Outlook call still waiting for its mailbox's cooldown, request window, or concurrency slot; restore writes already sent finish. Completed work is committed, the lease is released, and the command exits `2` within moments of printing its result |
 | Second Ctrl+C | Exits at once with `130`. Nothing more is committed and the lease is left to expire, so a run on the same owner within 10 minutes exits `12` |
 | `SIGTERM` | Atlas installs no handler, so Node ends the process at once, as with a second Ctrl+C. The shell reports `143` |
 
-The soft stop covers the long-running commands, such as backup, restore, `restore-version`, and save. A command without it ends at once on the first Ctrl+C. A cooldown raised during the run is dropped on Ctrl+C, so an hour-long `Retry-After` does not hold the process open. [Stopping a run](/operations/delta-sync#interruption) describes what a soft-stopped backup saves.
+The soft stop covers the long-running commands, such as backup, restore, `restore-version`, and save. A command without it ends at once on the first Ctrl+C. A backup's soft stop starts with its first step, the lookup of the mailbox, drive owner, site, or the teams of `--all`, so a Ctrl+C there exits `2` within moments, even while a token request or a retry wait is pending, and before any lease is taken. A restore or save starts its soft stop after the owner lookup and any confirmation prompt, so a Ctrl+C during the lookup exits `130` before anything is written. A cooldown raised during the run is dropped on Ctrl+C, so an hour-long `Retry-After` does not hold the process open. A call cut short while it waits is never sent: stopping does not turn into an early request to a throttled mailbox. The SDK `signal` option stops the same waits. [Stopping a run](/operations/delta-sync#interruption) describes what a soft-stopped backup saves.
 
 ::: tip Soft stop under systemd
 `systemctl stop` sends `SIGTERM` by default. Set `KillSignal=SIGINT` in the service unit so a stopped backup commits what it finished and releases its lease, rather than leaving the next run to wait out the 10-minute lease.
@@ -273,6 +380,8 @@ Some failures are not the item's fault. Atlas stops the larger unit instead of f
 | Failure | What stops |
 | --- | --- |
 | `AuthError` (`ATLAS_AUTH_DENIED`) or `MailboxNotLicensedError` in Calendar or Contacts | The command, with exit `4` |
+| `AuthError` or `MailboxNotLicensedError` during an Outlook, OneDrive, or SharePoint restore | The command, with exit `4`. No further item is sent. Items restored before it stay in the target and are logged, with the count, before the error. The SDK call rejects with the error |
+| A Calendar or Contacts restore cannot list a target calendar or contact folder, after retries | That calendar or folder: each of its entries is reported failed with the listing error, without another listing. Other calendars and folders run and the command exits `2` |
 | `AuthError` in a Teams channel | Sibling channels are cancelled and the command exits `4`. With `--all`, the remaining teams are not started |
 | `AuthError` or a missing permission inside a OneDrive drive or SharePoint library | That drive or library, recorded as its error. Other drives still run and the command exits `2` |
 | Storage failure while writing a OneDrive or SharePoint file, such as a full disk, a quota, or an S3 `5xx` | That drive or library, recorded as its error with its sync checkpoint kept. Other drives still run and the command exits `2`, or with the storage error's code when the commit then fails too |
@@ -291,7 +400,7 @@ Microsoft Graph answers `403 Forbidden` for a missing permission and for other r
 | `Forbidden` on a Teams call | The same | The same. Teams uses this code for a missing role permission and for a protected API Microsoft has not approved |
 | Any other code, or no code | A failure of that request, naming the code Graph sent | Fails the item, channel, folder, or team that request belonged to. The rest of the run continues and the command exits `2` |
 
-The codes are compared without regard to case. A `403` with no code, such as one from a proxy with no JSON body, does not name a missing permission and is treated as a failure of the request. A `403` that reaches the command before any item is read still exits `4`, whatever its code, since an unwrapped `403` maps to `ATLAS_AUTH_DENIED`; the message then names the code. OneDrive and SharePoint classify their own `403` responses, described in [Failed files](/onedrive-backup#failed-files).
+The codes are compared without regard to case. A `403` with no code, such as one from a proxy with no JSON body, does not name a missing permission and is treated as a failure of the request. A `403` that reaches the command before any item is read still exits `4`, whatever its code, since an unwrapped `403` maps to `ATLAS_AUTH_DENIED`; the message then names the code. OneDrive and SharePoint classify their own `403` responses, described in [Failed files](/onedrive-backup#failed-files). A OneDrive or SharePoint restore write follows the table above: a `403 accessDenied` on a folder create or upload ends the restore with `MissingGraphPermissionsError`, naming `Files.ReadWrite.All` or `Sites.ReadWrite.All`, and any other `403` fails that file.
 
 ### Unit listings that end early {#unit-listings}
 
@@ -304,7 +413,16 @@ Every backup first lists the units it will read: calendars, contact folders, mai
 
 The count costs no extra request. The channel check costs one request for each channel that disappears, once: a channel already marked deleted is not read again. More items than counted is accepted, since a unit created while the listing paged is still a real unit. A unit deleted while the listing paged can leave one fewer than counted, which fails that run; the next run lists again.
 
-A mail folder listed more than once, on one page, across pages, or under two parents, is backed up once, at the place it was first listed, and its subfolders are listed once. Every copy still counts toward the `@odata.count` check, because Microsoft Graph counted it that way.
+A unit listed more than once, on one page or across pages, is backed up once per run, from the first copy listed:
+
+| Unit listed twice | Result |
+| --- | --- |
+| Mail folder or contact folder, including under two parents | Backed up once, at the place it was first listed. Its subfolders are listed once |
+| Calendar | Read once. Each of its events has one manifest entry |
+| Team, with `atlas teams backup --all` | Backed up once |
+| Teams channel | Read by one worker, with one index entry. Its errors are reported once |
+
+In the listings checked with `$count=true`, every copy still counts toward the `@odata.count` check, because Microsoft Graph counted it that way.
 
 ## Concurrency guards
 
@@ -373,7 +491,7 @@ When a scheduled run did not exit `0`:
 1. Read the exit code against the [table below](#exit-codes-and-whether-to-retry). It tells you whether a rerun can fix it.
 2. Read stderr. A classified failure prints an `Atlas code` line, such as `ATLAS_OWNER_BUSY`, which [Troubleshooting](/troubleshooting) indexes.
 3. For exit `3`, check the [Microsoft 365 service health](https://admin.microsoft.com/#/servicehealth) page, and schedule the rerun for later rather than immediately.
-4. For exit `2` after a restore, check the target for the reported items before restoring them again, because their create may have committed.
+4. For exit `2` after a restore, check the target for the items marked `outcome unknown` before restoring them again, because their create may have committed. The `Outcome unknown:` summary line counts them, and the SDK result lists them in `outcomeUnknown`.
 5. For exit `12`, wait for the other operation, or for the lease to expire, before rerunning.
 
 ## Exit codes and whether to retry
@@ -383,7 +501,7 @@ When a scheduled run did not exit `0`:
 | `0` | Complete | |
 | `1` | Unclassified failure, storage failure, or `ATLAS_WRITE_REFUSED` | Once, after reading stderr. A persistent `1` needs a person |
 | `2` | Partial run, soft interrupt, or items skipped | Backup: yes, the next backup retries failed items. Items lost for good, such as a message Exchange cannot convert to MIME or a file permanently skipped after 5 attempts, are reported but not retried. Restore: first check the target for items whose create may have committed, see [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) |
-| `3` | Throttled, network failure, Microsoft Graph `5xx`, or an S3 endpoint that never answered, after retries. Also a run's first read that kept answering `4xx` for an owner that exists | Yes, later |
+| `3` | Throttled, network failure, Microsoft Graph `5xx`, or an S3 endpoint that never answered, after retries. Also a run's first read that kept answering `4xx` for an owner that exists. A backup in which every folder, drive, or channel failed because Microsoft Graph was unavailable exits `3`, because the first exhausted call stops the run | Yes, later |
 | `4` | Authentication, permission, or licence | No. Fix consent or licensing |
 | `5` | Wrong passphrase | No. Supply the original passphrase |
 | `6` | Invalid configuration | No |

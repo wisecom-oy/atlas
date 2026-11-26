@@ -75,9 +75,10 @@ atlas teams backup --team <team-id>
 | `atlas calendar backup`   | Back up a mailbox's Outlook calendars                               |
 | `atlas sharepoint backup` | Back up a SharePoint site                                           |
 | `atlas teams backup`      | Back up Teams channel messages to object storage                    |
+| `atlas outlook prune`     | Remove snapshots older than a cut-off, e.g. `--before 90d`; also `onedrive` and `sharepoint` |
 | `atlas stats`             | Storage statistics                                                  |
 | `atlas stats storage`     | Physical bytes in the bucket: versions, staging, incomplete uploads |
-| `atlas storage-check`     | Check Object Lock, conditional writes, and lifecycle rules; `--apply-lifecycle` adds or repairs them |
+| `atlas storage-check`     | Check Object Lock, conditional writes, the writer-exclusion mode, and lifecycle rules; `--apply-lifecycle` adds or repairs them |
 
 Run `atlas --help` or `atlas <command> --help` for every flag.
 
@@ -90,7 +91,7 @@ Treat every nonzero code as a failed or incomplete run.
 | `0`  | Success                                                                                                     |
 | `1`  | Unclassified or command-reported failure                                                                    |
 | `2`  | Partial result                                                                                              |
-| `3`  | Retryable network or throttling failure, including an S3 endpoint that never answered                       |
+| `3`  | Retryable network or throttling failure, including an S3 endpoint that never answered, and a backup that a Microsoft Graph outage stopped, even when every folder failed |
 | `4`  | Authentication or licensing                                                                                 |
 | `5`  | Wrong passphrase                                                                                            |
 | `6`  | Invalid configuration                                                                                       |

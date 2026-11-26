@@ -60,7 +60,7 @@ exit "$status"
 | `0`  | Success, help, or a command with no failure reported                          | Continue                                                    |
 | `1`  | Unclassified failure, invalid usage, or `ATLAS_WRITE_REFUSED`                 | Read stderr. Do not assume it is transient                  |
 | `2`  | Partial run: items failed or were skipped, a soft interrupt, or `ATLAS_LISTING_INCOMPLETE` | Inspect the partial result before relying on it |
-| `3`  | `ATLAS_THROTTLED`, `ATLAS_GRAPH_UNAVAILABLE`, or `ATLAS_STORAGE_UNAVAILABLE` after the retry budget, or a run's [first read](/operations/reliability#first-reads-of-a-run) that kept answering `4xx` for an owner that exists | Schedule a later attempt |
+| `3`  | `ATLAS_THROTTLED`, `ATLAS_GRAPH_UNAVAILABLE`, or `ATLAS_STORAGE_UNAVAILABLE` after the retry budget, or a run's [first read](/operations/reliability#first-reads-of-a-run) that kept answering `4xx` for an owner that exists. A backup stops on the first call that spends its budget, so a backup in which every folder failed because Microsoft Graph was unavailable exits `3`, not `2` | Schedule a later attempt |
 | `4`  | `ATLAS_AUTH_DENIED`, `ATLAS_MAILBOX_NOT_LICENSED`, or `ATLAS_ACCESS_REFUSED`  | Fix credentials, permissions, admin consent, or licensing   |
 | `5`  | `ATLAS_WRONG_PASSPHRASE`: the data key would not unwrap                       | Supply the original tenant passphrase                       |
 | `6`  | `ATLAS_CONFIG_INVALID`                                                        | Correct the configuration or its storage access             |
@@ -78,7 +78,7 @@ What each code covers:
 - **`3`** means Microsoft Graph kept answering `408`, `429`, `500`, `502`, `503`, `504`, `509`, a `200` whose JSON body did not parse, or a network error through the retry budget, or the command met an unwrapped transient status or recognized network error. A backup stops at the first call that spends its budget, after writing the snapshot of what it finished, even when that call was reading a folder, drive, or channel. A restore or save does not stop: the item whose call spent its budget fails with this error on its error line, and the command exits `2`. A `2` from a restore or save can therefore also be a Microsoft 365 incident. For `ATLAS_GRAPH_UNAVAILABLE`, check Microsoft 365 service health first. A Graph token request that Microsoft Entra ID leaves unanswered, or answers with `408`, `429`, a `5xx`, or `temporarily_unavailable`, is retried the same way and also ends in `ATLAS_GRAPH_UNAVAILABLE`. After a `429` or `5xx`, token attempts are at least 60 s apart. A timeout does not prove a write was never committed, so inspect partial work before repeating a restore. `ATLAS_STORAGE_UNAVAILABLE` means the S3 endpoint never answered: the connection was refused or did not open within `ATLAS_S3_CONNECTION_TIMEOUT_MS`, or a request's socket stayed silent past `ATLAS_S3_IDLE_TIMEOUT_MS`, on each of `ATLAS_S3_MAX_ATTEMPTS` attempts. See [S3 timeouts and retries](/self-hosting/storage#s3-timeouts-and-retries).
 - **`4`** also covers an unwrapped HTTP `401` or `403`. Atlas repeats a Graph `401` once with a newly issued token first, so only a `401` that survives a new token exits `4`. A Graph token request that Microsoft Entra ID refuses also exits `4` with `ATLAS_AUTH_DENIED`: a wrong or expired client secret, an unknown client ID, or a tenant that does not exist. Entra's answer, including its AADSTS code, is printed as the cause. See [AADSTS error codes](/troubleshooting#aadsts-error-codes). `ATLAS_ACCESS_REFUSED` means Graph refused one site, drive, or owner and Atlas did not attribute it to a missing grant, as with a SharePoint Embedded container. Retrying returns the same answer: leave a container out of the run, and check the per-site grant of an ordinary site. See [SharePoint: site refused while the root site is readable](/troubleshooting#sharepoint-site-refused-while-the-root-site-is-readable).
 - **`5`**: never pad the passphrase or delete the wrapped key. If the passphrase is correct, investigate possible corruption.
-- **`6`** includes failure to load the CLI configuration, and a partial `ATLAS_*` Graph override that changes the selected profile's tenant or client ID. It also covers a storage backend that does not enforce conditional writes: every command that writes refuses such a bucket before its first lease, key, or backup write. See [Conditional writes not enforced](/troubleshooting#conditional-writes-not-enforced).
+- **`6`** includes failure to load the CLI configuration, and a partial `ATLAS_*` Graph override that changes the selected profile's tenant or client ID. It also covers a storage backend that does not enforce conditional writes: every command that writes refuses such a bucket before its first lease, key, or backup write, unless `ATLAS_SINGLE_WRITER` is set. See [Conditional writes not enforced](/troubleshooting#conditional-writes-not-enforced). An `ATLAS_SINGLE_WRITER` value other than `1`, `true`, `0`, or `false` also exits `6`.
 - **`7`** includes an unwrapped HTTP `404`, and a `--folder`, `--file-filter`, or `--message` selection that matched nothing.
 - **`8`** means storage refused to remove an object because of retention or a legal hold. The `quarantine` commands return it when the original cannot be removed, and a Teams `backup` returns it when the backend refuses to delete a finished channel checkpoint. A `delete` that meets retained objects reports them as retained and exits `1`.
 - **`9`** means the stored bytes cannot be parsed back, or were written by a newer Atlas format. Repeating the command will not help. For a newer format, upgrade Atlas. For a named manifest or version index, see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes). Otherwise extract the raw content with `save`.
@@ -120,7 +120,8 @@ These rules apply to Outlook, Contacts, Calendar, OneDrive, and SharePoint. Team
 
 #### Stopping a run
 
-The first Ctrl+C is a soft interrupt. It covers every backup, every restore including `restore-version`, and `atlas outlook save`:
+The first Ctrl+C is a soft interrupt. It covers every backup, every restore including `restore-version`, and `atlas outlook save`. A backup's soft stop begins when it starts to look up the mailbox, drive owner, site, or the teams of `--all`, so a Ctrl+C during that lookup also exits `2`, before the run takes a lease. A restore or save starts its soft stop after the owner lookup and any confirmation prompt. A Ctrl+C during that lookup ends the command at once with `130`, and one at a prompt exits `1`. Neither writes anything.
+
 
 - The Graph request in flight and any retry backoff or throttle wait end at once, including a `Retry-After` wait of up to an hour, and the command exits `2`.
 - Restore writes already sent to Microsoft 365 finish, so what the restore reports matches what was written. An interrupted restore prints what it restored before the stop, and the message or file in flight is not counted as failed.
@@ -144,6 +145,18 @@ Atlas runs one operation at a time per mailbox, drive owner, site, or team. It d
 - The lease is not encrypted, so a deletion needs no passphrase for it.
 
 Lease lifetime and renewal are listed in [Retries and fail-safes](/operations/reliability).
+
+#### Single-writer mode
+
+```bash
+ATLAS_SINGLE_WRITER=1 atlas outlook backup -m user@example.com
+```
+
+`ATLAS_SINGLE_WRITER=1` (or `true`) replaces the leases with an exclusion inside the process, for a storage backend that cannot enforce conditional writes on a versioned bucket. Within the process the table above still holds and a conflict still exits `12`. No lease object is written, and no conditional header is sent: Atlas checks create-only and compare-and-swap writes itself. Each run prints `ATLAS_SINGLE_WRITER is set` on stderr.
+
+::: warning You keep other processes off the tenant
+Atlas no longer sees a second process. Run one Atlas process at a time per tenant, for example one scheduler job per tenant with no overlap, and set the variable on every process that writes the tenant or on none. See [Backends without conditional writes](/self-hosting/storage#backends-without-conditional-writes) for what is no longer guaranteed.
+:::
 
 ### Fatal error diagnostics
 
@@ -208,7 +221,9 @@ error: option '-s <value>' argument 'https://...' is invalid. -s no longer means
 | Mailbox, drive owner  | Email address or Entra object ID                                                                                                                                            |
 | Site (`--site`)       | Browser URL (`https://contoso.sharepoint.com/sites/Engineering`), Graph short form (`contoso.sharepoint.com:/sites/Engineering`), or site ID with or without its hostname (`contoso.sharepoint.com,<siteGuid>,<webGuid>` or `<siteGuid>,<webGuid>`) |
 
-- An email address is looked up through Microsoft Graph before any object path is built. Object IDs are used as given. Backups are keyed by object ID, so the address is display metadata only.
+- An email address is looked up through Microsoft Graph before any object path is built. Object IDs are used as given, with no lookup. Backups are keyed by object ID, so the address is display metadata only.
+- `backup`, `restore`, `restore-version`, `status`, and `delete` wait for Graph's answer, so an address reassigned to a new user resolves to that user. When Graph answers `404`, Atlas reads the address twice more, 2 s and 4 s later, then uses the entry in the identity registry (the record of every user Atlas has backed up) and logs a warning. A Graph outage that spends the lookup's retry budget, about 24 minutes, ends the command with exit `3` before it takes the owner's lease.
+- Commands that only read backups (`list`, `list-snapshots`, `list-versions`, `list-permissions`, `verify`, `save`, and `atlas stats -m` or `-o`) wait at most 15 s for Graph when the identity registry already holds the address. If Graph has not answered by then, or fails, they use the registry entry and log a warning that names the reason, so backups stay reachable while Graph is unavailable. An address the registry does not hold is looked up with the full retry budget, and a `404` still reports the user as not found.
 - Owner and site IDs are case-insensitive. They are lowercased before they become object paths, so one identifier always addresses one tree.
 - Object paths use `<siteGuid>,<webGuid>`, so a SharePoint domain rename does not start a second backup history. See [SharePoint storage layout](../sharepoint-backup.md#storage-layout).
 - Commands that read existing backups (`list-snapshots`, `list-versions`, `save`, `verify`, `status`, `delete`, the source site of `restore`, and `atlas stats --site`) drop the hostname from a site ID with string handling alone. They make no Graph call, so backups of a site deleted from SharePoint stay reachable and disaster recovery works while Graph is unavailable.
@@ -218,7 +233,7 @@ error: option '-s <value>' argument 'https://...' is invalid. -s no longer means
 
 Back up, restore, export, verify, and manage Outlook mailboxes. Storage and tenant-wide commands live at the root.
 
-Mailboxes are identified by Entra object ID. `-m` accepts an email address or an object ID, and a value containing `@` is looked up through `GET /users/{email}` first. Backups written by v5 were keyed by address; see [Migrating to v6](/migration/v6).
+Mailboxes are identified by Entra object ID. `-m` accepts an email address or an object ID, and a value containing `@` is looked up through `GET /users/{email}` first, as described under [Identifiers](#identifiers). Backups written by v5 were keyed by address; see [Migrating to v6](/migration/v6).
 
 `restore`, `list`, and `save` select what to act on with `-s, --snapshot` (one snapshot) or `-m, --mailbox` (every snapshot for a mailbox):
 
@@ -263,6 +278,7 @@ Snapshot <id> -- <n> objects (<size> captured by this run)
 
 `<n>` counts the messages in the snapshot's chain, the same set `verify`, `restore -s`, and `save -s` read, so it rises when mail arrives and falls when the run records deletions. `<size>` is only what this run captured. A run that captured nothing reports the existing newest snapshot and its count.
 
+- **Failed folders.** A folder whose sync failed keeps its previous sync checkpoint, and the run prints it as `folder error: <path>: <message> (Atlas code: <code>)` and exits `2`. A folder that failed because Microsoft Graph was unavailable is the exception: the first call that spends its retry budget stops the whole run, which prints that error with its `Atlas code` line and exits `3`, see [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
 - **One mailbox per run.** To back up several, list them with `atlas outlook mailboxes` and loop from your scheduler. Atlas does not fan out across mailboxes itself.
 - **Mailbox existence check.** Before it reads anything, the run asks Microsoft Graph for the mailbox's user. A `404` is read again, 3 reads in about 6 s, before the run ends with `ATLAS_NOT_FOUND` (exit `7`), because Graph answers `404` for a user whose directory replica lags. `restore` and `status` run the same check. See [The first read of a run](/operations/reliability#first-reads-of-a-run).
 - **Object Lock.** `--lock-mode` alone is rejected, so a run meant to be immutable cannot exit `0` with unprotected data. Retention without a mode defaults to `governance`. Atlas turns `--retention-days` into a UTC `retain_until`, checks that the bucket supports versioning and Object Lock in the requested mode, and stops before writing if it does not, instead of writing unprotected data. See [Immutability and Object Lock](/operations/immutability).
@@ -430,18 +446,32 @@ A folder deleted while the restore lists the source mailbox's folders is skipped
 
 #### What a restored message looks like
 
-- Restored messages keep their original received and sent timestamps, appear as received mail rather than drafts, and include all backed-up attachments. Attachments larger than 3 MB use Graph upload sessions.
+- Restored messages keep their original received and sent timestamps, appear as received mail rather than drafts, and include all backed-up attachments. Attachments of 3 MiB or more use Graph upload sessions, whose final chunk creates the attachment and is sent once, see [Upload sessions](/operations/reliability#upload-sessions).
 - Messages archived as RFC 5322 MIME are parsed at restore time and recreated through Graph's JSON message-create path, because Graph's MIME import always marks the created message as a draft. The restored copy does not carry the original `Received:` chain. For the original bytes, use [`atlas outlook save`](#atlas-outlook-save).
 - A meeting response restores as a meeting response with its meeting time and location, where the message states them unambiguously. A meeting request or cancellation restores as an ordinary message, because Microsoft Graph refuses to create those. See [Meeting messages](/security#meeting-messages).
-- A message that receives fewer attachments than its snapshot holds is listed as a warning, for example `<message-id>: 1 of 2 attachments restored`. A failed upload is an error and exits `2`. A legacy attachment that was never backed up is skipped with a warning only.
+- A message that receives fewer attachments than its snapshot holds is listed as a warning, for example `<message-id>: 1 of 2 attachments restored`. A failed upload is an error and exits `2`. An attachment whose create ended without a clear answer is reported as `outcome unknown, the attachment may exist`: check the message before restoring it again. A legacy attachment that was never backed up is skipped with a warning only.
+
+#### When a create may have committed
+
+```text
+  message error: <object-id>: outcome unknown, the item may exist: the create request ended with HTTP 504 -- GatewayTimeout after Microsoft 365 may have committed it. Check the target before restoring it again
+[!] Outcome unknown: 1 message(s) may exist in the target although the restore reported an error. Check the target before restoring them again: https://docs.atlas.wisecom.fi/troubleshooting#restore-writes-are-sent-once
+Run incomplete: 1 message error(s) -- exit 2
+```
+
+A message create, or an attachment upload, is sent once. One that ended with a `500`, `502`, `504`, a `503` without `Retry-After`, a timeout, or a dropped connection may have landed, so its line is marked `outcome unknown` and the `Outcome unknown:` line counts it. A message Graph refused (`400`, `403`, `404`, `409`, `413`) carries no marker and is not counted. The exit code is `2` either way. Check the marked messages in the restore folder before restoring them again: an Outlook restore does not skip messages already in the target, so restoring the whole snapshot again duplicates every message that landed. See [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once).
 
 #### Stopping an Outlook restore
 
 Ctrl+C stops the restore at once, including a message create or attachment upload parked in a Graph retry or throttle wait. The run prints how many messages it restored and exits `2`. The folder they went into is named when the restore starts.
 
-- A create or upload already sent to Graph finishes, so a created message is counted. A message stopped before its create was sent is not reported as failed.
-- A message created before the stop whose attachments were not all uploaded is reported once as `<message-id>: N attachment(s) not uploaded: the run was interrupted`. Delete it, or restore again into a fresh folder.
+- A create already sent to Graph finishes, and so does the final chunk of an attachment upload session, so a created message is counted. An earlier chunk of an attachment upload is cut off, which creates nothing. A message stopped before its create was sent is not reported as failed.
+- A message created before the stop whose attachments were not all uploaded is reported once as `<message-id>: N attachment(s) not uploaded: the run was interrupted`. Delete it, or restore again into a fresh folder. An attachment whose final upload chunk was in flight runs to its 60 s deadline, and is named on its own if it did not complete cleanly.
 - A second Ctrl+C exits at once with status `130`.
+
+#### When Microsoft Graph refuses the restore
+
+A missing grant (`403` with `ErrorAccessDenied`), a revoked credential, or an unlicensed mailbox applies to every message, so the restore stops at the first one with exit `4` and the error's Atlas code (`ATLAS_AUTH_DENIED` or `ATLAS_MAILBOX_NOT_LICENSED`). No further folder, message, or attachment is sent. The summary line still counts the messages restored before it, and they stay in the restore folder. A failure of one message, such as a `400`, fails only that message and the run exits `2`.
 
 ### atlas outlook list
 
@@ -576,7 +606,7 @@ atlas outlook delete -m user@example.com -y     # skip the confirmation prompt
 
 This covers mail only. For a tenant-wide purge, use [`atlas delete`](#atlas-delete). `atlas outlook delete --purge` no longer exists.
 
-- **Order.** Atlas deletes manifests first, then data objects. An interrupted delete leaves orphan objects, which are harmless, rather than manifests that point at missing data. `--snapshot` removes only the manifest, because other snapshots may reference the same objects.
+- **Order.** Atlas deletes manifests first, then data objects. An interrupted delete leaves orphan objects, which are harmless, rather than manifests that point at missing data. `--snapshot` removes only the manifest, because other snapshots may reference the same objects. Deletes run in batches, see [Bulk deletes](/self-hosting/storage#bulk-deletes).
 - **Lease.** Every workload's `delete` and `quarantine` takes the [owner lease](#run-leases), so it exits `12` while a backup of the same owner runs, and a backup exits `12` while the deletion runs.
 - **`--mailbox`** also removes the mailbox's delta cursor (`_meta/outlook-cursors/`) and the Atlas 6 replication status records of the deleted snapshots. Records under `_meta/replication/` that belong to a OneDrive snapshot of the same user stay; [Legacy Atlas 6 objects](/operations/replication#legacy-atlas-6-objects) shows how to remove them. The next backup is a full backup.
 - **`--snapshot` accepts only the newest snapshot.** Each snapshot stores only its own run's changes and every newer one is built on the chain before it, so deleting an older one would drop the messages it recorded from every later snapshot and bring back the ones it recorded as deleted. Atlas refuses that with `SnapshotNotNewestError` (`ATLAS_SNAPSHOT_NOT_NEWEST`, exit `11`) and deletes nothing. Delete the newer snapshots first, newest first, or the whole mailbox with `--mailbox`.
@@ -690,6 +720,7 @@ The purge sweeps the whole bucket rather than a fixed list of prefixes: Outlook,
 - The purge is refused under `ATLAS_S3_BUCKET` set for another tenant.
 - The purge takes the [tenant lease](#run-leases) after the confirmation and before its first write. It exits `12` when any owner of the tenant has a live lease, or when a backup, restore, deletion, or quarantine starts while it runs. A refusal writes nothing and removes its own lease. The confirmation comes first, so a purge that is going to be refused still asks for the tenant ID.
 - Objects under Object Lock retention stay until retention ends and are reported as retained. See [Erasure](/security#erasure).
+- The purge streams the version listing and deletes up to 1,000 versions per `DeleteObjects` request, 4 requests at a time, so it holds about 6,000 version entries whatever the bucket size. Owner deletes work the same way. A backend without `DeleteObjects` falls back to one delete per version. See [Bulk deletes](/self-hosting/storage#bulk-deletes).
 
 ## Damaged manifests and version indexes
 
@@ -780,6 +811,8 @@ atlas contacts quarantine --key contacts/manifests/<mailbox-id>/<snapshot-id>.js
 
 - **Complete snapshots.** Each snapshot manifest is complete, so `restore` and `verify` read one manifest and no chain.
 - **Restore never overwrites or deletes.** It tags each contact it creates with its source contact id, and skips an entry the target folder already holds as the original contact or as a tagged copy, counting it in `contacts_skipped`. Same-name contacts are restored separately, and a rerun creates nothing. Folders map by display-name path, compared without case. See [Contacts backup](/contacts-backup#restore).
+- **A target folder that cannot be listed** after retries fails each of its contacts with the listing error and is not listed again in the run. Other folders restore, exit `2`.
+- **Ctrl+C** lets a contact, folder, or photo write already sent finish, counts it, then stops with exit `2`. A second Ctrl+C exits `130` at once.
 - **`verify`** exits `1` when a check fails and `2` when interrupted. A full `verify` checks every object and lists each damaged one; other storage errors stop the run, as for [`atlas outlook verify`](#atlas-outlook-verify).
 - **`delete -s`** removes the snapshot's manifest and the mailbox's delta cursor. The other snapshots stay whole, and the next backup reads every folder in full, so it captures again every change the deleted snapshot held. `delete -m` removes the cursor with the rest of the mailbox's data. A cursor left behind is resumed only while the snapshot it was saved with is still the newest readable one.
 
@@ -816,6 +849,8 @@ atlas calendar quarantine --key calendar/manifests/<mailbox-id>/<snapshot-id>.js
 - **Complete snapshots.** Each snapshot manifest is complete, so `restore` and `verify` read one manifest and no chain.
 - **Restore never overwrites or deletes an event it did not create.** An event already in the target is skipped and counted in `events_skipped`. An event an earlier restore left incomplete (a failed attachment upload or recurrence change) is deleted and recreated in full.
 - **No invitations.** Restored events carry no attendees, so no invitations are sent; the attendee list is written into the event body instead. See [why attendees are not re-invited](/calendar-backup#why-attendees-are-not-re-invited).
+- **A target calendar that cannot be listed** after retries fails each of its events with the listing error and is not listed again in the run. Other calendars restore, exit `2`.
+- **Ctrl+C** lets an event or calendar write already sent finish, counts it, then stops with exit `2`. A second Ctrl+C exits `130` at once.
 - **`verify`** exits `1` when a check fails and `2` when interrupted. A full `verify` checks every object and lists each damaged one; other storage errors stop the run, as for [`atlas outlook verify`](#atlas-outlook-verify).
 - **`delete -s`** removes the snapshot's manifest and the mailbox's delta cursor. The other snapshots stay whole, and the next backup reads every calendar in full, so it captures again every change the deleted snapshot held. `delete -m` removes the cursor with the rest of the mailbox's data. A cursor left behind is resumed only while the snapshot it was saved with is still the newest readable one.
 
@@ -883,6 +918,7 @@ atlas onedrive backup -o user@example.com --retention-days 30 --lock-mode govern
 - Versions before 6.1.0 set a bucket default retention instead. A default left by them stays in force until you remove it; see [Removing a bucket default retention](/self-hosting/storage#removing-a-bucket-default-retention). An explicit per-object date always takes precedence.
 - The bucket must be created with Object Lock (see `atlas storage-check`). Otherwise the backup fails before it contacts Microsoft Graph: `ObjectLockVersioningDisabledError` when versioning is off, `ObjectLockUnsupportedError` when Object Lock is not enabled, or `ObjectLockModeRejectedError` when the backend refuses the mode.
 - The delta cursor and the snapshot summary index are replaced by every run, so they are written without a lock and their old versions expire under the noncurrent-version rule. See [What Object Lock covers](/operations/immutability#what-object-lock-covers).
+- From 7.3.0 each snapshot manifest records the policy as `object_lock`, with the requested mode and days and the applied mode and retain-until date, and the snapshot summary index repeats the applied half. With `--include-subsites`, every site's snapshot records it. A manifest written before 7.3.0 has no `object_lock`, which means the policy was not recorded, not that the run was unlocked.
 
 See [Erasure](/security#erasure) and [Immutability and Object Lock](/operations/immutability).
 :::
@@ -921,7 +957,9 @@ atlas onedrive restore -o user@example.com -s od-snap-123 --file-filter "/Docume
 - **Folder colours.** Never written, because Microsoft Graph refuses the write. The summary shows `Folder colours not restored` with a count, which does not change the exit code. See [Folder colours](/onedrive-backup#folder-colours).
 - **`--file-filter` paths** are the rooted paths shown in a listing. A file at the root is `/Report.docx`, not `//Report.docx`. Version commands accept the same path forms.
 - **Unmatched `--file-filter`.** On `restore` and `save`, for OneDrive and SharePoint: when no value matches, the command stops with `ATLAS_NOT_FOUND` (exit `7`) after reading the snapshot and before any Graph listing or write, so no file or archive is written. When some values match, it restores or saves those, names each unmatched value, and exits `2`, whether or not a file also failed. A value selects every file whose ID or full path it names.
-- **Ctrl+C.** An upload already sent is never cut off, because Microsoft 365 may already have committed it; that file counts as restored if it was accepted. A large file stopped before its final chunk is not created. The run prints the files restored so far and exits `2`, and a file stopped before it was written is not reported as failed. A second Ctrl+C exits at once with status `130`, so the file in flight may or may not exist: check the destination before retrying, especially with `--in-place`. This applies to `atlas sharepoint restore` and to `restore-version` on both drives. Upload sizes and session cleanup are under [File transfers](/operations/reliability#file-transfers-onedrive-and-sharepoint).
+- **Uploads that may have committed.** A file uploaded in one request under `--conflict rename` or `fail`, or the final chunk of a larger upload, is sent once. One that ended with a `5xx` other than a throttle, a timeout, or a dropped connection is listed as `outcome unknown, the file may exist`, and an `Outcome unknown: <n> file(s) may exist in the target` line counts these files with a link to [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once). A refused upload, such as a `400` or `409`, is not counted. The exit code stays `2`. Check the counted files in the destination before restoring them again, because a rerun under `rename` next to a file that landed creates a second copy.
+- **Ctrl+C.** An upload already sent is never cut off, because Microsoft 365 may already have committed it; that file counts as restored if it was accepted. A large file's final chunk runs to its deadline of about 82 s, and one that did not complete cleanly is listed as `outcome unknown, the file may exist`. A large file stopped before its final chunk is not created. The run prints the files restored so far and exits `2`, and a file stopped before it was written is not reported as failed. A second Ctrl+C exits at once with status `130`, so the file in flight may or may not exist: check the destination before retrying, especially with `--in-place`. This applies to `atlas sharepoint restore` and to `restore-version` on both drives. Upload sizes, chunk retries, and session cleanup are under [Upload sessions](/operations/reliability#upload-sessions).
+- **A refusal for the whole drive.** An `AuthError`, or a `403 accessDenied` on a folder create or upload, stops `restore` with exit `4` and `ATLAS_AUTH_DENIED`, naming `Files.ReadWrite.All` (OneDrive) or `Sites.ReadWrite.All` (SharePoint). No further file is sent, and the files restored before it are logged with their count. Any other `403` fails only its file. This applies to `atlas sharepoint restore` too.
 
 ::: details Upload limits behind the interrupt rules
 A file up to 4 MiB is one upload request. A larger file goes through an upload session, and its final chunk is the request that creates it. When Ctrl+C stops a larger file before that chunk, Atlas deletes the upload session, giving the delete 10 s. A session Atlas cannot delete expires on Graph's side without creating a file.
@@ -1349,6 +1387,32 @@ atlas sharepoint delete --site https://contoso.sharepoint.com/sites/Engineering 
 
 Without `-s`, the command removes the site's `manifests`, `data`, `index`, `_meta`, and `staging` prefixes. With `-s`, the site's newest snapshot manifest, the delta cursor, and the snapshot's row in the [summary index](/operations/storage-layout#snapshot-summary-index) are removed, and the shared files stay. Any other snapshot is refused with exit `11`, and the next backup reads every library in full. See [Deleting one drive snapshot](#drive-snapshot-delete).
 
+## atlas outlook, onedrive, and sharepoint prune {#atlas-workload-prune}
+
+Remove one mailbox's, drive owner's, or site's snapshots older than a cut-off, and keep every newer snapshot restorable. Available for `outlook`, `onedrive`, and `sharepoint`.
+
+```bash
+atlas outlook prune -m user@example.com --before 90d --dry-run
+atlas outlook prune -m user@example.com --before 90d -y
+atlas onedrive prune -o user@example.com --before 2026-08-01 -y
+atlas sharepoint prune --site https://contoso.sharepoint.com/sites/Engineering --before 12w -y
+```
+
+| Option                                           | Description                                                                                    |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `-m, --mailbox`, `-o, --owner`, or `--site`      | The mailbox, drive owner, or site, as for the workload's other commands (required)              |
+| `--before <date-or-age>`                          | Cut-off: an ISO 8601 date or date-time, or an age such as `90d`, `12w`, or `36h` (required)    |
+| `--dry-run`                                      | Report the snapshots, object versions, and bytes a run would remove, and change nothing. Object Lock is predicted from each snapshot's recorded retention, see [Snapshot retention](/operations/retention#how-a-dry-run-predicts-object-lock) |
+| `-y, --yes`                                      | Skip the confirmation prompt                                                                   |
+| `-t, --tenant <id>`                              | Override the tenant ID from config                                                             |
+
+- **Cut-off.** Snapshots created strictly before `--before` are removed. One created at exactly that instant is kept, and the newest snapshot is always kept. A date without a time is midnight UTC.
+- **Baseline.** The oldest kept snapshot absorbs everything the removed snapshots contributed to it, under its own snapshot ID, before anything is deleted. Then the older manifests and the content no remaining snapshot references are deleted. See [Snapshot retention](/operations/retention).
+- **Lease.** The prune takes the [owner lease](#run-leases), so it exits `12` while another operation holds the owner.
+- **Damaged manifests.** A manifest of the owner that cannot be read stops the prune with exit `9` before anything is written. A quarantined object, or a version index that cannot be read, leaves content unswept, which the command reports.
+- **Exit codes.** The command exits `1` when an object was retained by Object Lock, a delete failed, or unreferenced content was not swept. Running it again later finishes the job. A dry run exits `0`.
+- **Interruption.** Every step leaves a bucket in which every kept snapshot restores, and running the same command again ends in the same state as an uninterrupted run.
+
 ## atlas teams
 
 Back up Microsoft Teams channel messages, replies, membership, and tabs per team, and export a snapshot as a zip archive. Restore is not yet available. Files and manifests live under the `teams/` prefix of the tenant bucket, and a team is named by its Graph team ID. See [Teams backup](../teams-backup.md).
@@ -1525,7 +1589,7 @@ atlas storage-check --apply-lifecycle
 | `--apply-lifecycle`    | Add the Atlas lifecycle rules the bucket lacks, keeping every existing rule |
 | `-t, --tenant <id>`    | Override the tenant ID from config                                          |
 
-The command reports versioning, Object Lock status, the bucket class, and conditional-write support. It checks the effective bucket, including a [bucket override](/configuration#bucket-override), and exits `1` when the bucket is not ready, so it can gate scheduled jobs.
+The command reports versioning, Object Lock status, the bucket class, conditional-write support, and the writer-exclusion mode. It checks the effective bucket, including a [bucket override](/configuration#bucket-override), and exits `1` when the bucket is not ready, so it can gate scheduled jobs.
 
 | Bucket class              | Meaning                                                |
 | ------------------------- | ------------------------------------------------------ |
@@ -1540,10 +1604,17 @@ The `Conditional writes` row reports a probe of the three writes that keep concu
 | Value          | Meaning                                                                                                                       | Exit code |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------- |
 | `supported`    | All three rules held                                                                                                          | Unchanged |
-| `NOT ENFORCED` | The backend broke at least one rule, and the row names which. Every command that writes refuses this bucket with exit `6`. Upgrade or replace the backend | `1`       |
+| `NOT ENFORCED` | The backend broke at least one rule, and the row names which. Every command that writes refuses this bucket with exit `6`. Upgrade or replace the backend, or see [Single-writer mode](#single-writer-mode). Under `ATLAS_SINGLE_WRITER` the row adds `not sent in this mode` and is yellow | `1`, unchanged under `ATLAS_SINGLE_WRITER` |
 | `not probed`   | The probe could not run: the bucket does not exist yet, the credentials are read-only, or a request failed. The row gives the reason | Unchanged |
 
-Backup, restore, delete, quarantine, and the `keys` commands run the same probe once per bucket and process before their first conditional write, and refuse a bucket that fails it. See [Atlas refuses a backend that does not enforce them](/self-hosting/storage#atlas-refuses-a-backend-that-does-not-enforce-them).
+Backup, restore, delete, quarantine, and the `keys` commands run the same probe once per bucket and process before their first conditional write, and refuse a bucket that fails it. See [Atlas refuses a backend that does not enforce them](/self-hosting/storage#atlas-refuses-a-backend-that-does-not-enforce-them). Under `ATLAS_SINGLE_WRITER` they never run it.
+
+The `Writer exclusion` row names what keeps two writers off one owner:
+
+| Value | Meaning |
+| --- | --- |
+| `owner leases in the bucket` | The default. Leases taken with conditional writes |
+| `single writer (ATLAS_SINGLE_WRITER): one Atlas process per tenant` | [Single-writer mode](#single-writer-mode). Shown in yellow. When the backend enforces conditional writes, the row adds that the default owner lease would work there |
 
 - **The probe is the only write.** It puts one plaintext object of a few bytes under `_meta/storage-check/` and deletes it, with its versions, before the command returns. It needs `s3:PutObject` and `s3:DeleteObject` on that prefix. On a bucket with a default retention the probe's versions stay until that retention ends.
 - **Bucket default retention.** On a lock-capable bucket the command also reports the bucket's default retention. Atlas does not set one, because it would lock every object written without its own retention: backups without `--retention-days`, and the staging uploads Atlas deletes after copying them. A default found here was left by a version before 6.1.0 or set by hand. It is shown in yellow and does not change the exit code. See [Removing a bucket default retention](/self-hosting/storage#removing-a-bucket-default-retention).

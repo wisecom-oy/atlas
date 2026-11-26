@@ -98,7 +98,12 @@ export function in_memory_versioned_storage(
       for (const [key, versions] of objects) {
         if (!key.startsWith(prefix)) continue;
         versions.forEach((v, i) => {
-          const base = { key, version_id: v.version_id, is_delete_marker: false };
+          const base = {
+            key,
+            version_id: v.version_id,
+            is_delete_marker: false,
+            size_bytes: v.body.length,
+          };
           const is_latest = i === versions.length - 1;
           listed.push(options.without_is_latest ? base : { ...base, is_latest });
         });
@@ -108,10 +113,10 @@ export function in_memory_versioned_storage(
     async delete_version(key: string, version_id: string): Promise<void> {
       const refusal = locked.get(version_id);
       if (refusal) throw refusal;
-      objects.set(
-        key,
-        (objects.get(key) ?? []).filter((v) => v.version_id !== version_id),
-      );
+      const remaining = (objects.get(key) ?? []).filter((v) => v.version_id !== version_id);
+      // A key with no version left is gone, as S3 lists it.
+      if (remaining.length === 0) objects.delete(key);
+      else objects.set(key, remaining);
     },
     ...(options.without_get_version
       ? {}

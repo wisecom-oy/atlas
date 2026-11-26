@@ -1,4 +1,5 @@
 import type {
+  ManifestObjectLockPolicy,
   MultipartUploadHandle,
   ObjectLockRequest,
   ObjectStorage,
@@ -10,6 +11,7 @@ import type {
   TenantContext,
 } from '@wisecom/atlas-types';
 import { compute_retain_until_utc } from '@/services/shared/object-lock-policy';
+import { build_manifest_object_lock_policy } from '@/services/shared/manifest-object-lock';
 
 /**
  * Policy the staging multipart upload passes to opt out of the run's lock, compared by identity.
@@ -34,6 +36,13 @@ export const UNLOCKED_STAGING_UPLOAD: StorageObjectLockPolicy = Object.freeze({}
  */
 export const UNLOCKED_STATE_WRITE: StorageObjectLockPolicy = Object.freeze({});
 
+/** A run's storage context with its Object Lock policy, and that policy as its manifest records it. */
+export interface RunRetention {
+  readonly ctx: TenantContext;
+  /** Absent when the run requested no retention, so its manifest records no `object_lock`. */
+  readonly object_lock?: ManifestObjectLockPolicy | undefined;
+}
+
 /**
  * Returns a context whose writes all carry the run's Object Lock policy, or `ctx` unchanged when no
  * retention was requested. Rejects before anything is written when the bucket cannot lock.
@@ -47,13 +56,27 @@ export async function attach_run_retention(
   ctx: TenantContext,
   request: ObjectLockRequest | undefined,
 ): Promise<TenantContext> {
-  if (!request?.retention_days) return ctx;
+  return (await apply_run_retention(ctx, request)).ctx;
+}
+
+/**
+ * {@link attach_run_retention}, also returning the policy it applied as the run's manifest records
+ * it, so a snapshot can report the mode and retain-until instant its objects carry (#975).
+ */
+export async function apply_run_retention(
+  ctx: TenantContext,
+  request: ObjectLockRequest | undefined,
+): Promise<RunRetention> {
+  if (!request?.retention_days) return { ctx };
   const policy: StorageObjectLockPolicy = {
     mode: request.mode ?? 'GOVERNANCE',
     retain_until: compute_retain_until_utc(request.retention_days),
   };
   await ctx.storage.validate_object_lock_policy(policy);
-  return { ...ctx, storage: new ObjectLockingStorage(ctx.storage, policy) };
+  return {
+    ctx: { ...ctx, storage: new ObjectLockingStorage(ctx.storage, policy) },
+    object_lock: build_manifest_object_lock_policy(request, policy),
+  };
 }
 
 /**
@@ -152,6 +175,16 @@ export class ObjectLockingStorage implements ObjectStorage {
   /** Deletes one object version. */
   delete_version(key: string, version_id: string): Promise<void> {
     return this._inner.delete_version(key, version_id);
+  }
+
+  /** Pages through object versions, when the wrapped storage can. */
+  get list_version_pages(): ObjectStorage['list_version_pages'] {
+    return this._inner.list_version_pages?.bind(this._inner);
+  }
+
+  /** Deletes a batch of objects or versions, when the wrapped storage can. */
+  get delete_batch(): ObjectStorage['delete_batch'] {
+    return this._inner.delete_batch?.bind(this._inner);
   }
 
   /** Reads one object version, when the wrapped storage can. */

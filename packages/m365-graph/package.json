@@ -1,6 +1,6 @@
 {
   "name": "@wisecom/atlas-m365-graph",
-  "version": "7.2.1",
+  "version": "7.3.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

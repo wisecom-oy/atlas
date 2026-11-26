@@ -40,11 +40,7 @@ function container_with_mailbox_connector(build: () => MailboxConnector): Contai
 function one_token_connector(): RateLimitedGraphConnector {
   const throttle = new InProcessThrottleCoordinator();
   const inner = { fetch_mime: async () => Buffer.from('mime') } as unknown as MailboxConnector;
-  return new RateLimitedGraphConnector(
-    inner,
-    new DefaultMailboxRateLimiterFactory(throttle, 1),
-    throttle,
-  );
+  return new RateLimitedGraphConnector(inner, new DefaultMailboxRateLimiterFactory(1), throttle);
 }
 
 describe('request windows once a CLI command has ended', () => {

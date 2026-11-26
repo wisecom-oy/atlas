@@ -36,6 +36,33 @@ export async function forget_snapshot_summary_or_warn<TManifest, TSummary extend
 }
 
 /**
+ * Drops the rows of several removed snapshots in one summary rewrite, and logs instead of failing,
+ * as {@link forget_snapshot_summary_or_warn} does for one. A prune removes many snapshots at once,
+ * and one rewrite per snapshot would rewrite the whole summary that many times.
+ */
+export async function forget_snapshot_summaries_or_warn<
+  TManifest,
+  TSummary extends SnapshotSummary,
+>(
+  ctx: TenantContext,
+  layout: SnapshotSummaryLayout<TManifest, TSummary>,
+  owner_id: string,
+  snapshot_ids: readonly string[],
+  lease?: HeldOwnerLease,
+): Promise<void> {
+  if (snapshot_ids.length === 0) return;
+  try {
+    await forget_snapshot_rows(ctx, layout, owner_id, snapshot_ids, lease);
+  } catch (err) {
+    if (err instanceof OwnerLeaseLostError) throw err;
+    logger.warn(
+      `${layout.label} snapshot summary for ${owner_id} still lists ${snapshot_ids.length} removed ` +
+        `snapshot(s); reads skip them, and the next backup rewrites the summary (${String(err)})`,
+    );
+  }
+}
+
+/**
  * Rewrites the owner's summary without the snapshot's row, as a compare-and-swap on the summary
  * read. Writes nothing when there is no summary or it has no such row, so it never creates one.
  * `lease`, when the caller holds one, is checked right before the summary write.
@@ -47,10 +74,21 @@ export async function forget_snapshot_summary<TManifest, TSummary extends Snapsh
   snapshot_id: string,
   lease?: HeldOwnerLease,
 ): Promise<void> {
-  const manifest_key = layout.manifest_key(owner_id, snapshot_id);
+  await forget_snapshot_rows(ctx, layout, owner_id, [snapshot_id], lease);
+}
+
+/** Rewrites the summary without the rows of these snapshots; writes nothing when it has none. */
+async function forget_snapshot_rows<TManifest, TSummary extends SnapshotSummary>(
+  ctx: TenantContext,
+  layout: SnapshotSummaryLayout<TManifest, TSummary>,
+  owner_id: string,
+  snapshot_ids: readonly string[],
+  lease: HeldOwnerLease | undefined,
+): Promise<void> {
+  const manifest_keys = new Set(snapshot_ids.map((id) => layout.manifest_key(owner_id, id)));
   const stored = await load_snapshot_summaries(ctx, layout, owner_id);
-  if (!stored?.summaries.some((summary) => summary.manifest_key === manifest_key)) return;
-  const remaining = stored.summaries.filter((summary) => summary.manifest_key !== manifest_key);
+  if (!stored?.summaries.some((summary) => manifest_keys.has(summary.manifest_key))) return;
+  const remaining = stored.summaries.filter((summary) => !manifest_keys.has(summary.manifest_key));
   lease?.assert_held();
   await write_snapshot_summaries(ctx, layout, owner_id, remaining, stored.etag);
 }

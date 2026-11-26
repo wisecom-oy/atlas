@@ -1,9 +1,14 @@
 import { S3ServiceException } from '@aws-sdk/client-s3';
 import { describe, it, expect } from 'vitest';
-import { is_backend_mode_rejection, names_object_lock } from '@/adapters/s3-error-classifier';
+import {
+  is_backend_mode_rejection,
+  is_bulk_delete_unsupported,
+  names_object_lock,
+} from '@/adapters/s3-error-classifier';
 
-function s3_error(name: string, message: string): S3ServiceException {
-  const err = new S3ServiceException({ name, $fault: 'client', $metadata: {} });
+function s3_error(name: string, message: string, status?: number): S3ServiceException {
+  const metadata = status !== undefined ? { httpStatusCode: status } : {};
+  const err = new S3ServiceException({ name, $fault: 'client', $metadata: metadata });
   err.message = message;
   return err;
 }
@@ -47,6 +52,38 @@ describe('s3-error-classifier', () => {
     it('rejects errors without Object Lock wording', () => {
       expect(names_object_lock(s3_error('InvalidArgument', 'bad request'))).toBe(false);
       expect(names_object_lock('Object Lock')).toBe(false);
+    });
+  });
+
+  describe('is_bulk_delete_unsupported (issue #922)', () => {
+    it.each([
+      [
+        'NotImplemented',
+        'A header you provided implies functionality that is not implemented',
+        501,
+      ],
+      ['MethodNotAllowed', 'The specified method is not allowed', 405],
+      ['MissingContentMD5', 'Missing required header for this request: Content-MD5', 400],
+      ['InvalidDigest', 'The Content-MD5 you specified is not valid', 400],
+      ['BadDigest', 'The Content-MD5 you specified did not match', 400],
+      ['InvalidRequest', 'Missing required header for this request: Content-Md5', 400],
+      ['InvalidArgument', 'Unsupported checksum header x-amz-checksum-crc32', 400],
+      ['UnknownError', 'gateway', 501],
+    ])('falls back on %s (%s)', (name, message, status) => {
+      expect(is_bulk_delete_unsupported(s3_error(name, message, status))).toBe(true);
+    });
+
+    it.each([
+      ['AccessDenied', 'Access Denied', 403],
+      ['InternalError', 'We encountered an internal error', 500],
+      ['SlowDown', 'Please reduce your request rate', 503],
+      ['InvalidRequest', 'Malformed XML', 400],
+    ])('propagates %s (%s)', (name, message, status) => {
+      expect(is_bulk_delete_unsupported(s3_error(name, message, status))).toBe(false);
+    });
+
+    it('ignores a value that is not an error', () => {
+      expect(is_bulk_delete_unsupported('NotImplemented')).toBe(false);
     });
   });
 });

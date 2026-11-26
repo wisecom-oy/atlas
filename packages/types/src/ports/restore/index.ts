@@ -5,4 +5,5 @@ export type {
   RestoreOptions,
   RestoredMessageReport,
   AttachmentKindCounts,
+  OutcomeUnknownMessage,
 } from './use-case.port';

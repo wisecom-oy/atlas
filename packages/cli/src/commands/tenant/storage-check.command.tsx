@@ -6,7 +6,6 @@ import type { ObjectLockMode } from '@wisecom/atlas-types/ports/backup/use-case.
 import type {
   StorageCheckResult,
   StorageCheckUseCase,
-  StorageConditionalWriteCheck,
   StorageDefaultRetention,
   StorageLifecycleCheck,
   StorageLifecycleMissingAction,
@@ -22,6 +21,12 @@ import type { KeyValueItem } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
 import { parse_object_lock_mode } from '@wisecom/atlas-core/services/shared/object-lock-policy';
 import { parse_retention_days } from '@/command-object-lock';
+import {
+  describe_conditional_writes,
+  describe_writer_exclusion,
+  is_write_safety_ready,
+  writer_exclusion_of,
+} from '@/commands/tenant/storage-check-write-safety';
 
 type ContainerFactory = () => Container;
 
@@ -64,9 +69,7 @@ async function execute_storage_check(
     result.versioning_enabled &&
     result.object_lock_enabled &&
     result.mode_supported &&
-    // A backend that does not enforce write conditions cannot keep two runs off one owner, and
-    // every command that writes refuses it (issues #623, #915).
-    result.conditional_writes.support !== 'ignored';
+    is_write_safety_ready(result);
 
   await render_static_view(
     <Box flexDirection="column">
@@ -93,7 +96,8 @@ function build_result_items(result: StorageCheckResult, ready: boolean): KeyValu
   if (result.object_lock_enabled) {
     items.push(describe_default_retention(result.default_retention));
   }
-  items.push(describe_conditional_writes(result.conditional_writes));
+  items.push(describe_conditional_writes(result.conditional_writes, writer_exclusion_of(result)));
+  items.push(describe_writer_exclusion(result));
   items.push(describe_lifecycle(result.lifecycle));
   if (result.lifecycle_update) items.push(describe_lifecycle_update(result.lifecycle_update));
   if (result.requested_mode) {
@@ -137,20 +141,6 @@ function describe_default_retention(retention?: StorageDefaultRetention): KeyVal
     value: `${retention.mode} ${period} (not set by Atlas since 6.1.0; remove it)`,
     color: 'yellow',
   };
-}
-
-/**
- * Reports the conditional-write probe. `ignored` is the dangerous answer: owner leases, the data
- * key bootstrap, create-only manifests and the identity registry all depend on the backend
- * enforcing these conditions, and every command that writes refuses such a bucket (issue #915).
- */
-function describe_conditional_writes(check: StorageConditionalWriteCheck): KeyValueItem {
-  const label = 'Conditional writes';
-  if (check.support === 'supported') return { label, value: 'supported', color: 'green' };
-  if (check.support === 'ignored') {
-    return { label, value: `NOT ENFORCED: ${check.detail ?? 'see docs'}`, color: 'red' };
-  }
-  return { label, value: `not probed (${check.detail ?? 'no reason given'})`, color: 'yellow' };
 }
 
 /**

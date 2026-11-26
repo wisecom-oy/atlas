@@ -157,7 +157,7 @@ atlas contacts delete -m user@example.com
 atlas contacts delete -m user@example.com -s ct-snap-123
 ```
 
-Without `-s`, every contacts backup for the mailbox is removed. With `-s`, Atlas removes that snapshot's manifest and the mailbox's sync checkpoints, and keeps the contact and photo objects other snapshots share. Each snapshot is complete, so deleting any one leaves the others whole. The next backup reads every folder in full and captures again what the deleted snapshot held. `atlas delete --purge` removes contacts together with the rest of the tenant bucket.
+Without `-s`, every contacts backup for the mailbox is removed, manifests before the contact and photo objects they list. With `-s`, Atlas removes that snapshot's manifest and the mailbox's sync checkpoints, and keeps the contact and photo objects other snapshots share. Each snapshot is complete, so deleting any one leaves the others whole. The next backup reads every folder in full and captures again what the deleted snapshot held. `atlas delete --purge` removes contacts together with the rest of the tenant bucket.
 
 ::: danger Irreversible
 Deletion cannot be undone. Objects under Object Lock retention stay until the retention period ends. See [Erasure](/security#erasure).
@@ -212,6 +212,8 @@ See [Exit codes](/reference/cli#exit-codes) for the full list.
 | A newer snapshot manifest cannot be read        | Reads every folder in full, writes a fresh snapshot, names the key, exits `9`                                    | Quarantine the key                              |
 | A stored object fails its SHA-256 on restore    | Reports an error naming the contact, continues. Exits `2`                                                        | Run `verify` on the snapshot                    |
 | A photo upload fails on restore                 | Counts the contact as restored and reports the photo failure separately                                          | Check the reported contact                      |
+| A restore cannot list the contacts of a target folder after retries | Reports each of that folder's contacts as failed, naming the listing error, and does not list it again. Other folders restore. Exits `2` | Rerun the restore once Exchange answers |
+| Ctrl+C during a restore                         | A contact, folder, or photo write already sent finishes and the contact is counted. The run then stops and exits `2`. A second Ctrl+C exits `130` at once | Rerun the restore. Contacts already restored are skipped |
 | Missing permission or unlicensed mailbox        | Ends the backup or restore. Exits `4`                                                                            | Fix consent or licensing                        |
 
 The failed contact's folder keeps its old sync checkpoint, or none if Microsoft Graph rejected the old one, which is why the next run delivers that contact again.

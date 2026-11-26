@@ -23,7 +23,11 @@ import {
   require_outlook_manifest,
 } from '@/adapters/outlook-manifest-reader';
 import { write_encrypted_json } from '@wisecom/atlas-core/services/shared/stored-json-writer';
-import { forget_snapshot_summary_or_warn } from '@wisecom/atlas-core/services/shared/snapshot-summary-pruner';
+import {
+  forget_snapshot_summaries_or_warn,
+  forget_snapshot_summary_or_warn,
+} from '@wisecom/atlas-core/services/shared/snapshot-summary-pruner';
+import { baseline_lock_policy } from '@wisecom/atlas-core/services/retention/baseline-lock-policy';
 import {
   list_snapshot_summaries,
   list_tenant_snapshot_summaries,
@@ -101,6 +105,56 @@ export class S3ManifestRepository implements ManifestRepository {
       OUTLOOK_SUMMARY_LAYOUT,
       owner_id,
       snapshot_id,
+      lease,
+    );
+  }
+
+  /**
+   * Writes a folded baseline over its snapshot's manifest, then the snapshot's summary row. The
+   * pointers already name this key, and the latest pointer is left alone: the baseline is never
+   * newer than the snapshot it names. The write replaces rather than creates, and is refused
+   * before upload when `require_outlook_manifest` would reject it.
+   */
+  async replace_with_baseline(
+    ctx: TenantContext,
+    manifest: Manifest,
+    lease: HeldOwnerLease,
+  ): Promise<void> {
+    const key = outlook_manifest_key(manifest.owner_id, manifest.snapshot_id);
+    lease.assert_held();
+    await write_encrypted_json(
+      ctx,
+      {
+        key,
+        label: 'Outlook manifest',
+        reader_check: require_outlook_manifest,
+        write: 'overwrite',
+        confirm_read_back: true,
+        object_lock_policy: baseline_lock_policy(manifest.object_lock),
+      },
+      manifest,
+    );
+    await record_snapshot_summary_or_warn(
+      ctx,
+      OUTLOOK_SUMMARY_LAYOUT,
+      manifest.owner_id,
+      summarize_outlook_manifest(manifest, key),
+      lease,
+    );
+  }
+
+  /** Drops several removed snapshots' rows in one summary rewrite; logs instead of failing. */
+  async forget_snapshot_summaries(
+    ctx: TenantContext,
+    owner_id: string,
+    snapshot_ids: readonly string[],
+    lease?: HeldOwnerLease,
+  ): Promise<void> {
+    await forget_snapshot_summaries_or_warn(
+      ctx,
+      OUTLOOK_SUMMARY_LAYOUT,
+      owner_id,
+      snapshot_ids,
       lease,
     );
   }

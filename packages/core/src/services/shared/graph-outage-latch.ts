@@ -68,6 +68,8 @@ export function get_active_graph_outage_signal(): AbortSignal | undefined {
  * so a failed folder, drive, calendar or channel keeps its previous checkpoint, and the run still
  * commits what it finished before the outage. The run then rejects with the outage, so the caller
  * sees `ATLAS_GRAPH_UNAVAILABLE` or `ATLAS_THROTTLED` rather than a partial result that hides it.
+ * The rejection carries that result as `partial_result`, so a caller still learns which snapshot
+ * was committed and which units failed (issue #869).
  *
  * A run whose `abort_signal` fired keeps its interrupted result: the operator stopped it, and that
  * is what it reports. A run that rejects on its own rejects with its own error.
@@ -79,6 +81,37 @@ export async function run_stopping_on_graph_outage<T>(
   const latch = new GraphOutageLatch();
   const result = await _latch.run(latch, run);
   const outage = latch.outage;
-  if (outage !== undefined && abort_signal?.aborted !== true) throw outage;
+  if (outage !== undefined && abort_signal?.aborted !== true) {
+    throw outage_with_partial_result(outage, result);
+  }
   return result;
+}
+
+/**
+ * A copy of `outage` that carries the run's result as `partial_result`. A copy, not the recorded
+ * error: one error can reach several runs, such as a shared cooldown's, and each run's caller must
+ * see its own result. The copy keeps the class, the fields, the cause and the stack.
+ */
+export function outage_with_partial_result(
+  outage: GraphOutage,
+  partial_result: unknown,
+): GraphOutage {
+  const copy =
+    outage instanceof ThrottledError
+      ? new ThrottledError(outage.message, outage.retry_after_ms, {
+          cause: outage.cause,
+          partial_result,
+        })
+      : new GraphUnavailableError(
+          outage.message,
+          { retries: outage.retries, elapsed_ms: outage.elapsed_ms },
+          {
+            status_code: outage.status_code,
+            graph_code: outage.graph_code,
+            cause: outage.cause,
+            partial_result,
+          },
+        );
+  if (outage.stack !== undefined) copy.stack = outage.stack;
+  return copy;
 }

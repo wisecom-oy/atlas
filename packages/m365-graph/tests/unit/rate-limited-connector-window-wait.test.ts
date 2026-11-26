@@ -68,7 +68,7 @@ beforeEach(() => {
   graph = stub_graph();
   connector = new RateLimitedGraphConnector(
     graph.inner,
-    new DefaultMailboxRateLimiterFactory(throttle, WINDOW_CAPACITY),
+    new DefaultMailboxRateLimiterFactory(WINDOW_CAPACITY),
     throttle,
   );
 });

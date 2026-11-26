@@ -117,6 +117,7 @@ describe('SharePoint restore of folder colours (#581)', () => {
       folders_created: 2,
       files_skipped: 0,
       errors: [],
+      outcome_unknown: [],
       interrupted: false,
     });
   });

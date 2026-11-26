@@ -1,8 +1,10 @@
+import { WriteOutcomeUnknownError } from '@wisecom/atlas-types';
 import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { restore_parent_path } from '@wisecom/atlas-core/services/shared/restore-destination';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import type {
   LargeFileContent,
+  OutcomeUnknownFile,
   SharePointManifestEntry,
   SharePointSiteConnector,
   TenantContext,
@@ -12,6 +14,8 @@ import {
   apply_restored_file_permissions,
   type ItemSharingRestoreDeps,
 } from '@wisecom/atlas-drive/restore/item-sharing-restore';
+import { rethrow_if_restore_run_refusal } from '@wisecom/atlas-drive/restore/restore-run-refusal';
+import { unknown_file_upload } from '@wisecom/atlas-drive/restore/outcome-unknown-file';
 import { ensure_sharepoint_folder_path } from '@/services/restore/restore-folder-path';
 
 /** Where one file is restored. */
@@ -25,19 +29,28 @@ export interface FileRestoreTarget {
   readonly file_name: string;
 }
 
+/** Where the failures of a SharePoint restore are recorded. */
+export interface FileRestoreReport {
+  readonly errors: string[];
+  /** The files among `errors` whose upload may have committed (issue #893). */
+  readonly outcome_unknown: OutcomeUnknownFile[];
+}
+
 /**
  * Restores one file entry, reporting whether it landed or was skipped, then reapplies its
  * permissions when the operator asked for them. A permission that cannot be reapplied is reported
- * on the run's sharing summary and never fails the file.
+ * on the run's sharing summary and never fails the file. Throws a refusal of every restore write,
+ * such as a missing grant.
  */
 export async function restore_sharepoint_file_entry(
   connector: SharePointSiteConnector,
   ctx: TenantContext,
   entry: SharePointManifestEntry,
   target: FileRestoreTarget,
-  errors: string[],
+  report: FileRestoreReport,
   sharing: ItemSharingRestoreDeps,
 ): Promise<'restored' | 'skipped' | 'cancelled'> {
+  const { errors } = report;
   const target_path = restore_parent_path(target.root, entry.parent_path);
   try {
     const parent_id = await ensure_sharepoint_folder_path(
@@ -66,12 +79,19 @@ export async function restore_sharepoint_file_entry(
     await apply_restored_file_permissions(sharing, target.drive_id, item_id, entry);
     return 'restored';
   } catch (err) {
-    // An upload cut short by Ctrl+C is the run stopping, not a failed file (issue #682).
-    if (is_active_run_cancelled()) return 'cancelled';
+    // An upload cut short by Ctrl+C is the run stopping, not a failed file (issue #682), unless the
+    // request that creates the file was sent and may have landed, which is named either way
+    // (issues #892, #893).
+    const may_exist = err instanceof WriteOutcomeUnknownError;
+    if (is_active_run_cancelled() && !may_exist) return 'cancelled';
+    // A refusal of every write would fail each remaining file the same way (issue #871).
+    rethrow_if_restore_run_refusal('sharepoint', err);
     const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
     errors.push(msg);
+    const unknown = unknown_file_upload(err, target_path, target.file_name, msg);
+    if (unknown !== undefined) report.outcome_unknown.push(unknown);
     logger.warn(`Skipped ${entry.file_name}: ${msg}`);
-    return 'skipped';
+    return is_active_run_cancelled() ? 'cancelled' : 'skipped';
   }
 }
 

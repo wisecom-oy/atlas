@@ -11,6 +11,9 @@ import {
   ONEDRIVE_DELETION_USE_CASE_TOKEN,
   SHAREPOINT_DELETION_USE_CASE_TOKEN,
   OWNER_LEASE_TOKEN,
+  OUTLOOK_SNAPSHOT_PRUNE_USE_CASE_TOKEN,
+  type OwnerExclusion,
+  type SnapshotPruneUseCase,
   type OwnerLeasePort,
   type OneDriveDeletionUseCase,
   type SharePointDeletionUseCase,
@@ -19,6 +22,7 @@ import { CatalogService } from '@/services/catalog/catalog.service';
 import { DeletionService } from '@/services/deletion/deletion.service';
 import { DekRewrapService } from '@/services/keys/dek-rewrap.service';
 import { StorageOwnerLeases } from '@/services/lease/storage-owner-leases';
+import { ExclusionOwnerLeases } from '@/services/lease/exclusion-owner-leases';
 import { OneDriveDeletionService } from '@/services/deletion/onedrive-deletion.service';
 import { SharePointDeletionService } from '@/services/deletion/sharepoint-deletion.service';
 import { VerificationService } from '@/services/verification/verification.service';
@@ -26,9 +30,18 @@ import { StatsService } from '@/services/stats/stats.service';
 import { StorageUsageService } from '@/services/stats/storage-usage.service';
 import { TenantSetRewrapService } from '@/services/keys/tenant-set-rewrap.service';
 import { OldWrapperPurgeService } from '@/services/keys/old-wrapper-purge.service';
+import { OutlookSnapshotPruneService } from '@/services/retention/outlook-snapshot-prune.service';
 
-export function bind_core_services(container: Container): void {
-  container.bind<OwnerLeasePort>(OWNER_LEASE_TOKEN).toConstantValue(new StorageOwnerLeases());
+/**
+ * Binds the core services. `owner_exclusion`, when given, replaces the storage owner lease: the
+ * host's own exclusion or the CLI's in-process one (issue #974).
+ */
+export function bind_core_services(container: Container, owner_exclusion?: OwnerExclusion): void {
+  const leases: OwnerLeasePort =
+    owner_exclusion === undefined
+      ? new StorageOwnerLeases()
+      : new ExclusionOwnerLeases(owner_exclusion);
+  container.bind<OwnerLeasePort>(OWNER_LEASE_TOKEN).toConstantValue(leases);
   container.bind(CatalogService).toSelf();
   container.bind(CATALOG_USE_CASE_TOKEN).toService(CatalogService);
   container.bind(DeletionService).toSelf();
@@ -47,6 +60,10 @@ export function bind_core_services(container: Container): void {
   container
     .bind<SharePointDeletionUseCase>(SHAREPOINT_DELETION_USE_CASE_TOKEN)
     .toService(SharePointDeletionService);
+  container.bind(OutlookSnapshotPruneService).toSelf();
+  container
+    .bind<SnapshotPruneUseCase>(OUTLOOK_SNAPSHOT_PRUNE_USE_CASE_TOKEN)
+    .toService(OutlookSnapshotPruneService);
   container.bind(VerificationService).toSelf();
   container.bind(VERIFICATION_USE_CASE_TOKEN).toService(VerificationService);
   container.bind(StatsService).toSelf();

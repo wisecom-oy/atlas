@@ -186,8 +186,10 @@ at 5 minutes per wait. A Retry-After up to 1 hour is waited out, followed by a
 random release delay of up to a tenth of the wait, kept between 1 and 5 s
 (`packages/core/src/services/shared/cooldown-release-jitter.ts`), so no retry goes
 out before the advised time. A Retry-After above 1 hour fails the call at once with
-`ThrottledError` naming the value. Each attempt has a 60 s timeout, and a timed-out
-attempt is aborted before the next one is sent. [Retries and
+`ThrottledError` naming the value. Each attempt has a 60 s timeout. A timed-out
+attempt's request is closed before the next one is sent, and a request still waiting
+for its token is never sent. Requests share one token request, which Atlas aborts once
+no request waits for it. [Retries and
 fail-safes](/operations/reliability#microsoft-graph-requests) lists the full policy.
 
 ### Throttle
@@ -407,10 +409,12 @@ default the newest run's:
 
 Verdicts 1 to 7 are inferences. A re-request of the same URL is taken as a retry,
 and non-GET requests are also matched by a digest of the request body, so two
-different writes to one URL stay apart. Because Atlas times out by racing a promise
-rather than aborting the request, a client timeout usually appears as a new attempt
-arriving while the old exchange is still open, not as a closed connection. The
-report lists those under "Inferred timeouts".
+different writes to one URL stay apart. Atlas closes a timed-out attempt's request
+before it sends the next one, so a client timeout appears as a `client_closed`
+exchange under "Client timeouts", with the wait it took. A request re-sent while the
+previous exchange was still open is listed under "Inferred timeouts". Atlas should
+produce none, so an entry there points at a request that bypasses the attempt's
+abort signal.
 
 Verdict 3 treats POST, and PATCH without If-Match, as non-idempotent. Token
 requests are the exception: they change nothing, so a re-sent token request never

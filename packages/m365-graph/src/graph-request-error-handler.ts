@@ -10,27 +10,29 @@ import {
   get_active_graph_outage_signal,
   record_graph_outage,
 } from '@wisecom/atlas-core/services/shared/graph-outage-latch';
-import {
-  MAX_COOLDOWN_RELEASE_JITTER_MS,
-  cooldown_release_jitter_ms,
-} from '@wisecom/atlas-core/services/shared/cooldown-release-jitter';
+import { cooldown_release_jitter_ms } from '@wisecom/atlas-core/services/shared/cooldown-release-jitter';
 import {
   MAX_RETRY_AFTER_MS,
   extract_requested_retry_after_ms,
   extract_retry_after_ms,
 } from '@/graph-retry-after';
+import { link_signals, run_attempt, sleep, throw_if_cancelled } from '@/graph-attempt-cancellation';
 import {
-  link_signals,
-  race_abort,
-  run_attempt,
-  sleep,
-  throw_if_cancelled,
-} from '@/graph-attempt-cancellation';
+  MAX_COOLDOWN_WAIT_MS,
+  RETRY_BUDGET_MS,
+  cooldown_wait_bound_ms,
+  wait_out_throttle,
+} from '@/graph-cooldown-wait';
+import { take_uncharged_wait_ms } from '@/graph-presend-cooldown';
+import { announce_retry_delay, announce_throttle_cooldown } from '@/graph-wait-notice';
 import { is_network_error } from '@/graph-network-error';
 import { is_permanent_item_error } from '@/graph-permanent-item-errors';
 import { is_retryable_graph_status, is_throttle_status } from '@/graph-retryable-status';
 import { is_unreadable_success_body } from '@/graph-unreadable-body';
 import { to_graph_unavailable_error } from '@/graph-unavailable-failure';
+import { describe_graph_error } from '@/graph-error-description';
+import { is_throttle_response } from '@/graph-throttle-response';
+import { throw_if_send_once_outcome_unknown } from '@/graph-send-once-outcome';
 import {
   GraphTokenRequestError,
   is_transient_token_request_error,
@@ -39,7 +41,11 @@ import {
   token_request_retry_after_ms,
 } from '@/graph-token-failure';
 import { NewTokenRepeat, is_graph_unauthorized } from '@/graph-unauthorized-retry';
+import { get_active_graph_attempt, rethrow_if_stopped_before_send } from '@/graph-attempt';
 import { GraphUnavailableError, ThrottledError } from '@wisecom/atlas-types';
+
+export { describe_graph_error } from '@/graph-error-description';
+export { is_throttle_response } from '@/graph-throttle-response';
 
 const MAX_RETRIES = 12;
 const BASE_DELAY_MS = 1_000;
@@ -48,17 +54,6 @@ const REQUEST_TIMEOUT_MS = 60_000;
 /** Cooldown applied to a 429 or 509 that arrives without a usable Retry-After. */
 const DEFAULT_THROTTLE_SECONDS = 30;
 
-/**
- * Waiting after which one logical call starts no new wait: backoff delays, Retry-After waits and
- * cooldown waits. A wait it does start runs in full, so a Retry-After or cooldown up to the 1-hour
- * cap is honoured rather than failed (issue #641), and one call waits at most this budget plus one
- * such wait. Time spent inside an attempt does not count, so a slow download keeps its retries.
- * Sized just above the 12-retry exponential schedule (about 23.5 minutes at the 5-minute cap, plus
- * jitter), so backoff alone always keeps every retry.
- */
-const RETRY_BUDGET_MS = 24 * 60_000;
-/** The longest one cooldown wait may run: the Retry-After cap plus the release jitter. */
-const MAX_COOLDOWN_WAIT_MS = MAX_RETRY_AFTER_MS + MAX_COOLDOWN_RELEASE_JITTER_MS;
 /** Retry-After values below this are raised to it, so a zero value cannot spin the loop. */
 const MIN_RETRY_AFTER_MS = 1_000;
 
@@ -88,18 +83,6 @@ export interface GraphRetryOptions {
    * that exists. Waits before a send stay cancellable. Defaults to false (issue #682).
    */
   readonly complete_in_flight?: boolean;
-}
-
-/**
- * Whether a failure is Graph refusing the request before processing it: a 429, or a 503 carrying
- * Retry-After, the form SharePoint and OneDrive throttling also takes. Only these are safe to
- * repeat for a write that is not idempotent. A 509 is not among them: nothing documents that Graph
- * refuses a write with it before processing, so a write answered 509 is not sent again (#867).
- */
-export function is_throttle_response(err: unknown): boolean {
-  const status = status_code_of(err);
-  if (status === 429) return true;
-  return status === 503 && extract_retry_after_ms(err) !== undefined;
 }
 
 /**
@@ -172,12 +155,15 @@ export function is_retryable_error(err: unknown): boolean {
  * Retries up to 12 times with backoff delays capped at 5 minutes. A call starts no new wait once it
  * has waited 24 minutes, counting waits and cooldowns. Honours Retry-After up to the 1-hour cap,
  * plus a small positive jitter so callers throttled together do not retry together, and fails with
- * ThrottledError naming the value when Retry-After exceeds that cap. Each retry is logged.
+ * ThrottledError naming the value when Retry-After exceeds that cap. Each retry is logged at debug
+ * level, and a wait longer than a minute also at warn level when it starts (issue #880). An Outlook
+ * call starts with the cooldown it waited out before it was sent already on its budget (issue #884).
  *
  * `fn` receives a signal that fires when its attempt times out or the run is cancelled. A request
  * that passes it to fetch (`.option('signal', signal)` on a Graph request) is torn down rather than
  * left running beside the next attempt. A call marked `idempotent: false` is retried only on a
- * throttle response. A 401 is repeated once, with a newly issued token. A failed token request waits
+ * throttle response, and one that ended the way a committed request can, a 5xx, a timeout or a
+ * dropped connection, throws `CreateOutcomeUnknownError` (issue #893). A 401 is repeated once, with a newly issued token. A failed token request waits
  * at least MSAL's throttle window before its repeat, since MSAL replays the failure until then.
  *
  * Inside a backup run (`run_stopping_on_graph_outage`), a call that spends its budget records the
@@ -192,33 +178,46 @@ export async function with_graph_retry<T>(
   fn: (attempt_signal: AbortSignal) => Promise<T>,
   options: GraphRetryOptions = {},
 ): Promise<T> {
-  const stop = link_signals(get_active_abort_signal(), get_active_graph_outage_signal());
+  // A call made inside another call's attempt is abandoned with that attempt (issue #888).
+  const cancel = link_signals(get_active_abort_signal(), get_active_graph_attempt()?.signal);
+  const stop = link_signals(cancel.signal, get_active_graph_outage_signal());
   try {
-    return await retry_until_settled(fn, options, stop.signal);
+    return await retry_until_settled(fn, options, { cancel: cancel.signal, stop: stop.signal });
   } catch (err) {
     record_graph_outage(err);
     throw err;
   } finally {
     stop.release();
+    cancel.release();
   }
 }
 
 /**
+ * What ends a call early: `cancel` when the run is cancelled or the attempt that made this call was
+ * abandoned, `stop` on either of those or an outage of the run.
+ */
+interface CallStopSignals {
+  readonly cancel: AbortSignal | undefined;
+  readonly stop: AbortSignal | undefined;
+}
+
+/**
  * The retry loop of `with_graph_retry`. Every wait, and the start of every attempt, ends as soon as
- * `stop_signal` fires: the run was cancelled, or another call of the run spent its budget. A
- * request already sent is cut off only by cancellation, so a read in flight still completes.
+ * `signals.stop` fires: the run was cancelled, or another call of the run spent its budget. A
+ * request already sent is cut off only by cancellation, so a read in flight still completes, and a
+ * request still waiting for its token is not sent.
  */
 async function retry_until_settled<T>(
   fn: (attempt_signal: AbortSignal) => Promise<T>,
   options: GraphRetryOptions,
-  stop_signal: AbortSignal | undefined,
+  signals: CallStopSignals,
 ): Promise<T> {
   const timeout_ms = options.timeout_ms ?? REQUEST_TIMEOUT_MS;
   const idempotent = options.idempotent ?? true;
-  const abort_signal = get_active_abort_signal();
+  const { cancel: cancel_signal, stop: stop_signal } = signals;
   // What may cut off a request already sent; waits before a send honour `stop_signal`.
-  const in_flight_signal = options.complete_in_flight === true ? undefined : abort_signal;
-  let waited_ms = 0;
+  const in_flight_signal = options.complete_in_flight === true ? undefined : cancel_signal;
+  let waited_ms = take_uncharged_wait_ms();
   const new_token_repeat = new NewTokenRepeat();
   const started_at = Date.now();
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -234,15 +233,21 @@ async function retry_until_settled<T>(
       waited_ms += await wait_out_throttle(cooldown_wait_bound_ms(waited_ms), stop_signal);
     }
     try {
-      return await run_attempt(fn, timeout_ms, in_flight_signal);
+      return await run_attempt(fn, timeout_ms, {
+        in_flight: in_flight_signal,
+        before_send: stop_signal,
+      });
     } catch (err) {
-      throw_if_cancelled(abort_signal);
+      // Before the cancellation check: a create sent once may have landed, even after Ctrl+C (#893).
+      throw_if_send_once_outcome_unknown(err, idempotent, cancel_signal);
+      throw_if_cancelled(cancel_signal);
+      rethrow_if_stopped_before_send(err);
       if (!claim_retry(err, idempotent, new_token_repeat)) throw as_final_failure(err);
 
       const retry_after = requested_wait_ms(err);
       // Raise on the response that carried the 429 or 509, not after the budget
       // is spent, so every other owner backs off during this cooldown too.
-      raise_throttle_on_throttle_status(err, retry_after);
+      const cooldown_raised = raise_throttle_on_throttle_status(err, retry_after);
       if (is_throttle_status(status_code_of(err))) get_active_request_pacing()?.on_throttled();
       throw_if_retry_after_above_cap(err);
       if (attempt === MAX_RETRIES || waited_ms >= RETRY_BUDGET_MS) {
@@ -253,6 +258,11 @@ async function retry_until_settled<T>(
       const reason = describe_graph_error(err);
       logger.debug(
         `Retry ${attempt + 1}/${MAX_RETRIES} in ${(delay / 1000).toFixed(1)}s -- ${reason}`,
+      );
+      announce_retry_delay(
+        err,
+        { delay_ms: delay, retry_after_ms: retry_after, cooldown_raised },
+        { retry: attempt + 1, max_retries: MAX_RETRIES },
       );
       waited_ms += await wait_before_retry(delay, retry_after ?? delay, stop_signal);
     }
@@ -317,32 +327,6 @@ function throw_if_retry_after_above_cap(err: unknown): void {
   );
 }
 
-/** How long a cooldown wait may run: up to the cap while budget remains, otherwise not at all. */
-function cooldown_wait_bound_ms(waited_ms: number): number {
-  return waited_ms < RETRY_BUDGET_MS ? MAX_COOLDOWN_WAIT_MS : 0;
-}
-
-/**
- * Waits out any cooldown the ambient coordinator holds for this request's pool, but no longer than
- * `bound_ms`. A cooldown that outlasts it fails the call with the throttle instead of waiting past
- * its bound. Rejects as soon as the run is cancelled, so a cancelled run does not sit out a cooldown
- * of up to an hour. Resolves with the time waited.
- */
-async function wait_out_throttle(
-  bound_ms: number,
-  abort_signal: AbortSignal | undefined,
-): Promise<number> {
-  const throttle = get_active_throttle();
-  const pool = get_active_throttle_pool();
-  if (!throttle || !pool) return 0;
-  const started = Date.now();
-  await race_budget(
-    race_abort(throttle.coordinator.wait(pool, get_active_throttle_scope()), abort_signal),
-    bound_ms,
-  );
-  return Date.now() - started;
-}
-
 /**
  * Waits before the next attempt and resolves with the time waited. The coordinator goes first: a
  * 429 has just raised its cooldown, and it releases this call with the jitter it gives every other
@@ -378,21 +362,6 @@ function floor_retry_after_ms(retry_after_ms: number | undefined): number | unde
   return MIN_RETRY_AFTER_MS;
 }
 
-/** Resolves with `promise`, or rejects with ThrottledError once `ms` elapses first. */
-function race_budget(promise: Promise<void>, ms: number): Promise<void> {
-  const { promise: expired, reject } = Promise.withResolvers<never>();
-  const timer = setTimeout(
-    () =>
-      reject(
-        new ThrottledError(
-          `Microsoft Graph cooldown outlasted the ${Math.round(ms / 1000)} s Atlas waits out`,
-        ),
-      ),
-    Math.max(ms, 0),
-  );
-  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
-}
-
 /**
  * The wait before the next attempt. A Retry-After, already capped at one hour, is honoured plus a
  * small positive jitter (`cooldown_release_jitter_ms`), so calls throttled together do not retry in
@@ -408,7 +377,8 @@ function retry_delay_ms(attempt: number, retry_after_ms: number | undefined): nu
 
 /**
  * Reports a 429 or 509 to the ambient throttle coordinator, so the cooldown starts on
- * the first throttled response rather than after a retry budget is spent.
+ * the first throttled response rather than after a retry budget is spent, and announces it when it
+ * is long. True when a cooldown was raised.
  *
  * Only a throttle status raises a cooldown. A 500 or a socket reset is one unlucky
  * request and is the retry loop's business alone; a 429, or SharePoint's 509
@@ -416,41 +386,21 @@ function retry_delay_ms(attempt: number, retry_after_ms: number | undefined): nu
  * Cooldowns are non-additive, so concurrent owners hitting the same one extend it
  * rather than stacking it.
  */
-function raise_throttle_on_throttle_status(err: unknown, retry_after_ms: number | undefined): void {
-  if (!is_throttle_status(status_code_of(err))) return;
+function raise_throttle_on_throttle_status(
+  err: unknown,
+  retry_after_ms: number | undefined,
+): boolean {
+  if (!is_throttle_status(status_code_of(err))) return false;
 
   const throttle = get_active_throttle();
   const pool = get_active_throttle_pool();
-  if (!throttle || !pool) return;
+  if (!throttle || !pool) return false;
 
-  throttle.coordinator.raise(
-    pool,
-    retry_after_ms ?? DEFAULT_THROTTLE_SECONDS * 1000,
-    get_active_throttle_scope(),
-  );
-}
-
-/**
- * Renders any Graph/network error as a non-empty, actionable one-liner.
- * Graph SDK errors routinely carry an empty `message` with the useful part in
- * `statusCode`/`code`/`body`, so every available facet is joined rather than
- * picking the first one present (issue #92).
- */
-export function describe_graph_error(err: unknown): string {
-  if (err === null || err === undefined) return 'unknown error';
-  if (typeof err !== 'object') return String(err);
-
-  const graph_err = err as Record<string, unknown>;
-  const status = graph_err.statusCode ?? graph_err.status;
-  const message = err instanceof Error ? err.message.trim() : '';
-  const parts = [
-    typeof status === 'number' || typeof status === 'string' ? `HTTP ${status}` : '',
-    typeof graph_err.code === 'string' ? graph_err.code.trim() : '',
-    message.slice(0, 200),
-    message === '' && typeof graph_err.body === 'string' ? graph_err.body.slice(0, 200) : '',
-  ].filter((part) => part !== '');
-
-  return parts.length > 0 ? parts.join(' -- ') : `unknown error (${err.constructor.name})`;
+  const cooldown_ms = retry_after_ms ?? DEFAULT_THROTTLE_SECONDS * 1000;
+  const target = { coordinator: throttle.coordinator, pool, scope: get_active_throttle_scope() };
+  throttle.coordinator.raise(pool, cooldown_ms, target.scope);
+  announce_throttle_cooldown(target, cooldown_ms, err);
+  return true;
 }
 
 /**

@@ -6,6 +6,7 @@ import type {
 import type { DriveEntryKind, DrivePermission } from '@/domain/drive/permission';
 import type { FailedItemLedger } from '../shared/failed-item';
 import type { PendingVersionCapture } from '@/domain/shared/pending-version-capture';
+import type { ManifestObjectLockPolicy } from '@/domain/outlook/manifest';
 
 /**
  * `permissions_changed` records a sharing change on an item whose content did not change: the
@@ -30,6 +31,12 @@ export interface SharePointSnapshotManifest {
   readonly created_at: Date;
   readonly total_files: number;
   readonly total_size_bytes: number;
+  /**
+   * The Object Lock retention the run stamped on the objects it wrote: the mode and days it
+   * requested, and the mode and retain-until instant it applied. Absent when the run requested no
+   * retention, and on manifests written before 7.3.0, where it means "not recorded" (#975).
+   */
+  readonly object_lock?: ManifestObjectLockPolicy | undefined;
   readonly entries: SharePointManifestEntry[];
 }
 

@@ -1,27 +1,32 @@
-import { inject, injectable } from 'inversify';
+import { inject, injectable, optional } from 'inversify';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
 import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
-import { PreconditionFailedError } from '@/adapters/object-lock.errors';
+import { STORAGE_LEASE_POLICY, ConditionalWritePolicy } from '@/adapters/conditional-write-policy';
+import {
+  DEK_META_KEY,
+  create_dek_exclusively,
+  load_stored_dek,
+} from '@/adapters/tenant-dek-bootstrap';
+import { run_with_owner_lease } from '@wisecom/atlas-core/services/lease/run-with-owner-lease';
 import { bucket_exists, ensure_bucket_exists } from '@/adapters/s3-bucket-manager';
 import { BucketCache } from '@/adapters/bucket-cache';
 import {
   missing_configured_bucket,
   require_configured_bucket,
 } from '@/adapters/configured-bucket-check';
-import { EnvelopeKeyService, ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
+import { EnvelopeKeyService, ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
 import type { AtlasConfig } from '@wisecom/atlas-core';
-import { BUCKET_NAME_RESOLVER_TOKEN, NotFoundError } from '@wisecom/atlas-types';
+import { BUCKET_NAME_RESOLVER_TOKEN, NotFoundError, OWNER_LEASE_TOKEN } from '@wisecom/atlas-types';
 import type {
   BucketNameResolver,
+  OwnerLeasePort,
   ResolvedBucket,
   TenantContext,
   TenantContextFactory,
   TenantStorageContext,
 } from '@wisecom/atlas-types';
-
-const DEK_META_KEY = '_meta/dek.enc';
 
 @injectable()
 export class DefaultTenantContextFactory implements TenantContextFactory {
@@ -30,6 +35,10 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
     @inject(ATLAS_CONFIG_TOKEN) private readonly _config: AtlasConfig,
     @inject(BucketCache) private readonly _buckets: BucketCache,
     @inject(BUCKET_NAME_RESOLVER_TOKEN) private readonly _bucket_names: BucketNameResolver,
+    @inject(ConditionalWritePolicy)
+    @optional()
+    private readonly _policy: ConditionalWritePolicy = STORAGE_LEASE_POLICY,
+    @inject(OWNER_LEASE_TOKEN) @optional() private readonly _leases?: OwnerLeasePort,
   ) {}
 
   /**
@@ -44,7 +53,7 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
       if (bucket.configured) throw missing_configured_bucket(name, tenant_id);
       throw new NotFoundError(`No backups found for tenant ${tenant_id}`);
     }
-    return { tenant_id, storage: new S3ObjectStorage(this._s3, name, this._buckets) };
+    return { tenant_id, storage: new S3ObjectStorage(this._s3, name, this._buckets, this._policy) };
   }
 
   /**
@@ -59,7 +68,7 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
     } else {
       await ensure_bucket_exists(this._s3, bucket, this._buckets);
     }
-    const storage = new S3ObjectStorage(this._s3, bucket, this._buckets);
+    const storage = new S3ObjectStorage(this._s3, bucket, this._buckets, this._policy);
 
     const key_service = new EnvelopeKeyService(this._config.encryption_passphrase);
     const dek = await this.load_or_create_dek(storage, key_service, tenant_id);
@@ -76,7 +85,7 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
    */
   async create_readonly(tenant_id: string): Promise<TenantContext> {
     const bucket = this._bucket_names.resolve(tenant_id);
-    const storage = new S3ObjectStorage(this._s3, bucket.name, this._buckets);
+    const storage = new S3ObjectStorage(this._s3, bucket.name, this._buckets, this._policy);
     const key_service = new EnvelopeKeyService(this._config.encryption_passphrase);
 
     let wrapped: Buffer;
@@ -111,86 +120,57 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
     return new NotFoundError(`No backups found for tenant ${tenant_id}`, { cause });
   }
 
-  /** Loads an existing DEK or creates one with a race-safe conditional write. */
+  /**
+   * Loads an existing DEK or creates one with a race-safe create-only write. In an opt-in
+   * writer-exclusion mode the creation also holds the tenant scope (issue #974): with no conditional
+   * write at the backend, two processes creating the first key of one tenant would otherwise each
+   * encrypt with their own, and the one overwritten could never be read again.
+   */
   private async load_or_create_dek(
     storage: S3ObjectStorage,
     key_service: EnvelopeKeyService,
     tenant_id: string,
   ): Promise<Buffer> {
-    const dek_exists = await storage.exists(DEK_META_KEY);
-
-    if (dek_exists) {
-      const wrapped = await storage.get(DEK_META_KEY);
-      return await key_service.unwrap_dek(wrapped, tenant_id);
+    if (await storage.exists(DEK_META_KEY)) {
+      return load_stored_dek(storage, key_service, tenant_id);
     }
-    return this.create_dek_exclusively(storage, key_service, tenant_id);
+    if (!this._policy.emulates_conditions()) {
+      return create_dek_exclusively(storage, key_service, tenant_id);
+    }
+    return this.create_dek_under_tenant_scope(storage, key_service, tenant_id);
   }
 
   /**
-   * Persists a freshly generated DEK with a create-only conditional write
-   * (If-None-Match: *). If a concurrent bootstrap wins the race, the write
-   * fails with 412 and the winner's key is adopted. The key is then read
-   * back and unwrapped so the DEK in use is always exactly what storage
-   * holds - verified before any tenant data is encrypted with it. Unwrap
-   * failure here is fatal by design: a DEK is never regenerated over an
-   * existing one.
+   * Creates the DEK while holding the tenant scope of the owner exclusion. Bootstraps in this
+   * process queue instead of refusing each other, and each one that waited first looks again for
+   * the key the one before it stored.
+   *
+   * @throws OwnerBusyError when another process holds the tenant or an owner scope.
    */
-  private async create_dek_exclusively(
+  private async create_dek_under_tenant_scope(
     storage: S3ObjectStorage,
     key_service: EnvelopeKeyService,
     tenant_id: string,
   ): Promise<Buffer> {
-    logger.info(`Generating new encryption key for tenant ${tenant_id}`);
-    const dek = key_service.generate_dek();
-    const stored_by_this_run = await store_dek_if_absent(storage, key_service, dek, tenant_id);
-
-    const stored = await storage.get(DEK_META_KEY);
-    const stored_dek = await key_service.unwrap_dek(stored, tenant_id);
-    report_adopted_dek(tenant_id, stored_by_this_run, stored_dek.equals(dek));
-    return stored_dek;
+    const leases = this.require_leases();
+    return this._policy.key_serializer.run(`#dek-bootstrap/${tenant_id}`, async () => {
+      if (await storage.exists(DEK_META_KEY)) {
+        return load_stored_dek(storage, key_service, tenant_id);
+      }
+      return run_with_owner_lease(
+        leases,
+        { tenant_id, storage },
+        { workload: 'tenant', owner_id: tenant_id, operation: 'bootstrap' },
+        () => create_dek_exclusively(storage, key_service, tenant_id),
+      );
+    });
   }
-}
 
-/**
- * Writes the wrapped DEK create-only. Returns false when another run's key was
- * already stored (412), which is the expected outcome of a lost bootstrap race.
- */
-async function store_dek_if_absent(
-  storage: S3ObjectStorage,
-  key_service: EnvelopeKeyService,
-  dek: Buffer,
-  tenant_id: string,
-): Promise<boolean> {
-  const wrapped = await key_service.wrap_dek(dek, tenant_id);
-  try {
-    await storage.put(DEK_META_KEY, wrapped, undefined, undefined, undefined, true);
-    return true;
-  } catch (err) {
-    if (err instanceof PreconditionFailedError) return false;
-    throw err;
-  }
-}
-
-/**
- * Logs which key a bootstrap ended up using. Losing the race is routine and
- * gets one info line. A key that changed after this run's create-only write
- * succeeded means the backend let a second write through, so that warns.
- */
-function report_adopted_dek(
-  tenant_id: string,
-  stored_by_this_run: boolean,
-  stored_matches_generated: boolean,
-): void {
-  if (!stored_by_this_run) {
-    logger.info(`Tenant ${tenant_id}: another run created the data key first; using it`);
-    return;
-  }
-  if (!stored_matches_generated) {
-    logger.warn(
-      `Tenant ${tenant_id}: the stored data key is not the one this run wrote, so the ` +
-        'backend may ignore create-only writes (check with "atlas storage-check"); using the ' +
-        'stored key',
-    );
+  private require_leases(): OwnerLeasePort {
+    if (this._leases === undefined) {
+      throw new Error('An owner exclusion must be bound to create a data key in this mode');
+    }
+    return this._leases;
   }
 }
 

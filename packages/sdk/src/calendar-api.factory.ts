@@ -2,6 +2,7 @@ import type { Container } from 'inversify';
 import type { QuarantineUseCase } from '@wisecom/atlas-types';
 import { CALENDAR_QUARANTINE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { with_camelized_partial_result } from '@/partial-listing';
+import { with_camelized_outage_result } from '@/outage-partial-result';
 import type {
   CalendarApi,
   CalendarBackupUseCase,
@@ -38,6 +39,8 @@ export function create_calendar_api(tenant_id: string, container: Container): Ca
 
   const resolve_mailbox_id = (mailbox: string) =>
     resolve_owner_object_id(identity, tenant_id, mailbox);
+  const resolve_stored_mailbox_id = (mailbox: string) =>
+    resolve_owner_object_id(identity, tenant_id, mailbox, 'stored_backups');
 
   // An email target is resolved to its object id, the key that mailbox's backups use. A
   // cross-tenant target resolves in its own tenant.
@@ -63,7 +66,9 @@ export function create_calendar_api(tenant_id: string, container: Container): Ca
     async backup(mailbox, options) {
       const mailbox_id = await resolve_mailbox_id(mailbox);
       return camelize(
-        await backup.backup_calendar(tenant_id, mailbox_id, adapt_operation_options(options)),
+        await with_camelized_outage_result(() =>
+          backup.backup_calendar(tenant_id, mailbox_id, adapt_operation_options(options)),
+        ),
       );
     },
     async restore(mailbox, options) {
@@ -87,7 +92,7 @@ export function create_calendar_api(tenant_id: string, container: Container): Ca
       );
     },
     async verify(mailbox, snapshot_id, options) {
-      const mailbox_id = await resolve_mailbox_id(mailbox);
+      const mailbox_id = await resolve_stored_mailbox_id(mailbox);
       return camelize(
         await verification.verify_calendar_snapshot(
           tenant_id,
@@ -98,7 +103,7 @@ export function create_calendar_api(tenant_id: string, container: Container): Ca
       );
     },
     async listSnapshots(mailbox) {
-      const resolved_id = await resolve_mailbox_id(mailbox);
+      const resolved_id = await resolve_stored_mailbox_id(mailbox);
       return camelize(
         await with_camelized_partial_result(() =>
           catalog.list_calendar_snapshots(tenant_id, resolved_id),
@@ -106,7 +111,7 @@ export function create_calendar_api(tenant_id: string, container: Container): Ca
       );
     },
     async listSnapshotSummaries(mailbox) {
-      const resolved_id = await resolve_mailbox_id(mailbox);
+      const resolved_id = await resolve_stored_mailbox_id(mailbox);
       return camelize(
         await with_camelized_partial_result(() =>
           catalog.list_calendar_snapshot_summaries(tenant_id, resolved_id),

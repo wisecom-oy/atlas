@@ -53,7 +53,9 @@ describe('OneDrive owner resolution (issue #181)', () => {
 
     await api.backup(EMAIL);
 
-    expect(resolver.resolve_user).toHaveBeenCalledWith(TENANT_ID, EMAIL);
+    expect(resolver.resolve_user).toHaveBeenCalledWith(TENANT_ID, EMAIL, {
+      purpose: 'microsoft_365',
+    });
     expect(backup_onedrive.mock.calls[0]![1]).toBe(OBJECT_ID);
   });
 
@@ -219,7 +221,9 @@ describe('Outlook owner resolution (issue #479)', () => {
 
     await api.backup(EMAIL);
 
-    expect(resolver.resolve_user).toHaveBeenCalledWith(TENANT_ID, EMAIL);
+    expect(resolver.resolve_user).toHaveBeenCalledWith(TENANT_ID, EMAIL, {
+      purpose: 'microsoft_365',
+    });
     expect(sync_mailbox).toHaveBeenCalledWith(
       TENANT_ID,
       OBJECT_ID,

@@ -5,7 +5,11 @@
 import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { with_graph_retry } from '@wisecom/atlas-m365-graph';
-import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
+import {
+  UploadCommitUnknownError,
+  type TenantContext,
+  type TenantContextFactory,
+} from '@wisecom/atlas-types';
 import { DAMAGED_OBJECT_REASON } from '@/restore/restore-content-read';
 import type { DriveFileVersionIndexView, DriveFileVersionRecord } from '@/drive-ports';
 import { restore_drive_version, type DriveVersionRestoreDeps } from '@/restore/version-restore';
@@ -121,5 +125,27 @@ describe('restore_drive_version cancelled during a Graph retry wait (issue #682)
     expect(result.files_restored).toBe(1);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toContain(DAMAGED_OBJECT_REASON);
+  });
+
+  it('names a version whose final upload chunk was in flight when Ctrl+C landed (issue #892)', async () => {
+    const deps = make_deps();
+    const controller = new AbortController();
+    vi.mocked(deps.connector.upload_small_file as () => Promise<void>)
+      .mockReset()
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(async () => {
+        controller.abort(new Error('Run interrupted by Ctrl+C'));
+        throw new UploadCommitUnknownError({ range: 'bytes 0-6/7', item: 'file' }, 'HTTP 504');
+      });
+
+    const result = await restore_drive_version(deps, 'tenant-1', 'owner-1', {
+      before: CUTOFF,
+      abort_signal: controller.signal,
+    });
+
+    expect(result.interrupted).toBe(true);
+    expect(result.files_restored).toBe(1);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatch(/file-2\.docx: outcome unknown, the file may exist/);
   });
 });

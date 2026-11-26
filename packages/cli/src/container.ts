@@ -8,9 +8,12 @@ import {
   load_tenant_profile,
   ATLAS_CONFIG_TOKEN,
   CachingIdentityResolver,
+  logger,
 } from '@wisecom/atlas-core';
+import { InProcessOwnerExclusion } from '@wisecom/atlas-core/services/lease/in-process-owner-exclusion';
 import { bind_core_services } from '@wisecom/atlas-core';
 import { ConfigError, USER_IDENTITY_RESOLVER_TOKEN } from '@wisecom/atlas-types';
+import type { OwnerExclusion } from '@wisecom/atlas-types';
 import { bind_graph_client } from '@wisecom/atlas-m365-graph';
 import { bind_s3_storage } from '@wisecom/atlas-s3';
 import { bind_outlook } from '@wisecom/atlas-outlook';
@@ -52,7 +55,7 @@ export function compose_container_from_config(config: AtlasConfig): Container {
   container.bind<AtlasConfig>(ATLAS_CONFIG_TOKEN).toConstantValue(config);
   bind_graph_client(container, config);
   bind_s3_storage(container, config);
-  bind_core_services(container);
+  bind_core_services(container, select_owner_exclusion(config));
   container.bind(USER_IDENTITY_RESOLVER_TOKEN).to(CachingIdentityResolver).inSingletonScope();
   bind_outlook(container);
   bind_onedrive(container);
@@ -61,4 +64,18 @@ export function compose_container_from_config(config: AtlasConfig): Container {
   bind_sharepoint(container);
   bind_teams(container);
   return container;
+}
+
+/**
+ * The exclusion that replaces the storage lease under `ATLAS_SINGLE_WRITER` (issue #974), or
+ * undefined for the default lease. Announces the mode on stderr, because it moves a guarantee from
+ * the bucket to the operator.
+ */
+function select_owner_exclusion(config: AtlasConfig): OwnerExclusion | undefined {
+  if (config.writer_exclusion !== 'single_writer') return undefined;
+  logger.warn(
+    'ATLAS_SINGLE_WRITER is set: no owner lease is written and write conditions are checked by ' +
+      'Atlas, so only one Atlas process may write each tenant at a time',
+  );
+  return new InProcessOwnerExclusion();
 }

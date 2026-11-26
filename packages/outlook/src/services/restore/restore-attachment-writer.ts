@@ -2,7 +2,12 @@ import type { TenantContext } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { AttachmentEntry, AttachmentKindCounts } from '@wisecom/atlas-types';
 import type { MimeAttachment } from '@/services/shared/mime-message-parser';
+import { WriteOutcomeUnknownError } from '@wisecom/atlas-types';
 import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
+import {
+  is_run_fatal_error,
+  type RunFatalError,
+} from '@wisecom/atlas-core/services/shared/run-fatal-error';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { assert_restored_content_matches } from '@wisecom/atlas-core/services/shared/restored-content-verifier';
 
@@ -12,6 +17,23 @@ export interface AttachmentRestoreResult {
   readonly uploaded: AttachmentKindCounts;
   readonly skipped: number;
   readonly errors: string[];
+  /** The attachments among `errors` whose create may have committed (issue #893). */
+  readonly outcome_unknown: AttachmentOutcomeUnknown[];
+  /** A refusal for the whole mailbox that stopped the uploads; it ends the restore (#871). */
+  readonly refusal?: RunFatalError;
+}
+
+/** An attachment whose create ended without a clear answer, so it may be on the message. */
+export interface AttachmentOutcomeUnknown {
+  readonly name: string;
+  /** The line recorded for it in `errors`. */
+  readonly error: string;
+}
+
+/** What failed among one message's attachment uploads. */
+interface UploadFailures {
+  readonly errors: string[];
+  readonly outcome_unknown: AttachmentOutcomeUnknown[];
 }
 
 /**
@@ -30,7 +52,8 @@ export async function restore_entry_attachments(
   let restored = 0;
   let inline = 0;
   let skipped = 0;
-  const errors: string[] = [];
+  const failures: UploadFailures = { errors: [], outcome_unknown: [] };
+  let refusal: RunFatalError | undefined;
 
   for (const [index, att] of attachments.entries()) {
     if (!att.storage_key) {
@@ -53,16 +76,17 @@ export async function restore_entry_attachments(
       restored++;
       if (att.is_inline) inline++;
     } catch (err) {
-      if (is_active_run_cancelled()) {
-        errors.push(interrupted_attachments(attachments.length - index));
-        break;
-      }
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`${att.name}: ${msg}`);
+      const stop = record_failed_upload(failures, att.name, attachments.length - index, err);
+      if (stop === undefined) continue;
+      refusal = stop.refusal;
+      break;
     }
   }
 
-  return { restored, uploaded: { file: restored - inline, inline }, skipped, errors };
+  return with_refusal(
+    { restored, uploaded: { file: restored - inline, inline }, skipped, ...failures },
+    refusal,
+  );
 }
 
 /**
@@ -79,7 +103,8 @@ export async function restore_parsed_attachments(
 ): Promise<AttachmentRestoreResult> {
   let restored = 0;
   let inline = 0;
-  const errors: string[] = [];
+  const failures: UploadFailures = { errors: [], outcome_unknown: [] };
+  let refusal: RunFatalError | undefined;
 
   for (const [index, att] of attachments.entries()) {
     try {
@@ -93,15 +118,81 @@ export async function restore_parsed_attachments(
       restored++;
       if (att.is_inline) inline++;
     } catch (err) {
-      if (is_active_run_cancelled()) {
-        errors.push(interrupted_attachments(attachments.length - index));
-        break;
-      }
-      errors.push(`${att.name}: ${err instanceof Error ? err.message : String(err)}`);
+      const stop = record_failed_upload(failures, att.name, attachments.length - index, err);
+      if (stop === undefined) continue;
+      refusal = stop.refusal;
+      break;
     }
   }
 
-  return { restored, uploaded: { file: restored - inline, inline }, skipped: 0, errors };
+  return with_refusal(
+    { restored, uploaded: { file: restored - inline, inline }, skipped: 0, ...failures },
+    refusal,
+  );
+}
+
+/** Why the remaining uploads of a message stop: Ctrl+C, or a refusal for the whole mailbox. */
+interface UploadStop {
+  readonly refusal?: RunFatalError;
+}
+
+/**
+ * Records one failed attachment upload and says whether the remaining uploads stop. Ctrl+C and a
+ * refusal for the whole mailbox stop them with one line for all that are left (#682, #871); any
+ * other failure is the attachment's own, and the next one is still sent.
+ */
+function record_failed_upload(
+  failures: UploadFailures,
+  name: string,
+  remaining: number,
+  err: unknown,
+): UploadStop | undefined {
+  if (is_active_run_cancelled()) {
+    record_interrupted_upload(failures, name, remaining, err);
+    return {};
+  }
+  if (is_run_fatal_error(err)) {
+    failures.errors.push(`${remaining} attachment(s) not uploaded: ${err.message}`);
+    return { refusal: err };
+  }
+  record_attachment_error(failures, name, err);
+  return undefined;
+}
+
+/**
+ * Records one attachment's failure line, and names the attachment as possibly on the message when
+ * its create ended without a clear answer (issue #893).
+ */
+function record_attachment_error(failures: UploadFailures, name: string, err: unknown): void {
+  const line = `${name}: ${err instanceof Error ? err.message : String(err)}`;
+  failures.errors.push(line);
+  if (err instanceof WriteOutcomeUnknownError) failures.outcome_unknown.push({ name, error: line });
+}
+
+/** The result, carrying the refusal that stopped it when there was one. */
+function with_refusal(
+  result: AttachmentRestoreResult,
+  refusal: RunFatalError | undefined,
+): AttachmentRestoreResult {
+  return refusal === undefined ? result : { ...result, refusal };
+}
+
+/**
+ * Records the attachments a cancelled run did not upload, in one line, after naming an attachment
+ * whose create was sent and may have landed (issues #891, #893).
+ */
+function record_interrupted_upload(
+  failures: UploadFailures,
+  name: string,
+  remaining: number,
+  err: unknown,
+): void {
+  if (!(err instanceof WriteOutcomeUnknownError)) {
+    failures.errors.push(interrupted_attachments(remaining));
+    return;
+  }
+  record_attachment_error(failures, name, err);
+  if (remaining > 1) failures.errors.push(interrupted_attachments(remaining - 1));
 }
 
 /**

@@ -47,7 +47,9 @@ describe('create_calendar_api', () => {
       forceFull: true,
     });
 
-    expect(identity.resolve_user).toHaveBeenCalledWith(TENANT_ID, EMAIL);
+    expect(identity.resolve_user).toHaveBeenCalledWith(TENANT_ID, EMAIL, {
+      purpose: 'microsoft_365',
+    });
     expect(backup.backup_calendar).toHaveBeenCalledWith(TENANT_ID, OBJECT_ID, { force_full: true });
     expect(result).toEqual(camelize(backup_result));
   });

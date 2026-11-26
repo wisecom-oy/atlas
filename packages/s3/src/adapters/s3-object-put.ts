@@ -29,16 +29,17 @@ export function is_conditional_put(
 /**
  * Sends one `PutObject` with a Content-MD5 header for transport integrity, and names a refused
  * condition or Object Lock mode. Checks nothing first: the caller decides whether the bucket is fit.
+ * Resolves to the ETag the backend gave the stored object, when it returned one.
  */
 export async function send_put_object(
   client: S3Client,
   bucket: string,
   request: S3PutRequest,
-): Promise<void> {
+): Promise<string | undefined> {
   const { key, data, metadata, object_lock_policy, if_match, if_none_match } = request;
   const content_md5 = createHash('md5').update(data).digest('base64');
   try {
-    await client.send(
+    const response = await client.send(
       new PutObjectCommand({
         Bucket: bucket,
         Key: key,
@@ -53,6 +54,7 @@ export async function send_put_object(
         ...(if_none_match ? { IfNoneMatch: '*' } : {}),
       }),
     );
+    return response?.ETag;
   } catch (err) {
     if (is_precondition_failed(err)) throw new PreconditionFailedError(key);
     if (is_backend_mode_rejection(err, object_lock_policy?.mode)) {

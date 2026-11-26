@@ -10,10 +10,12 @@ export type OwnerLeaseWorkload =
 /**
  * The operations that take the lease: those that write per-owner state, and restore, which reads it
  * while a delete or another restore of the same owner would change what it restores. `purge` and
- * `rewrap` take the tenant lease.
+ * `rewrap` take the tenant lease. `bootstrap` takes the tenant scope only while a new tenant's data
+ * key is created, and only when a host-supplied or single-writer exclusion replaces the storage
+ * lease (issue #974): conditional writes cannot settle that race there.
  */
 export type OwnerLeaseOperation =
-  'backup' | 'delete' | 'quarantine' | 'restore' | 'purge' | 'rewrap';
+  'backup' | 'delete' | 'quarantine' | 'restore' | 'purge' | 'rewrap' | 'bootstrap';
 
 /** Which owner an operation needs exclusively, and what the operation is. */
 export interface OwnerLeaseRequest {

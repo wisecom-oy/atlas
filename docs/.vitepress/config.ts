@@ -154,6 +154,7 @@ export default defineConfig({
           { text: 'Delta sync', link: '/operations/delta-sync' },
           { text: 'Storage layout', link: '/operations/storage-layout' },
           { text: 'Storage usage', link: '/operations/storage-usage' },
+          { text: 'Snapshot retention', link: '/operations/retention' },
           { text: 'Replicas', link: '/operations/replication' },
           { text: 'Graph rate limits', link: '/operations/graph-rate-limits' },
           { text: 'Retries and fail-safes', link: '/operations/reliability' },

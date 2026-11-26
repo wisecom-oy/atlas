@@ -14,19 +14,23 @@ import {
   restore_entry_attachments,
   restore_parsed_attachments,
 } from '@/services/restore/restore-attachment-writer';
-import type { AttachmentRestoreResult } from '@/services/restore/restore-attachment-writer';
+import type {
+  AttachmentOutcomeUnknown,
+  AttachmentRestoreResult,
+} from '@/services/restore/restore-attachment-writer';
+import {
+  unknown_attachment_creates,
+  unknown_message_create,
+  unknown_single_message_result,
+} from '@/services/restore/outcome-unknown-messages';
 import {
   attachment_shortfall_warning,
   count_attachment_kinds,
 } from '@/services/restore/restored-message-report';
 import { ensure_subfolder } from '@/services/restore/folder-restore-planner';
 import { resolve_folder_paths } from '@/services/shared/recorded-folder-catalog';
-import type { OperationControlOptions, TransferProgressReporter } from '@wisecom/atlas-types';
-import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
-import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
+import type { RunFatalError } from '@wisecom/atlas-core/services/shared/run-fatal-error';
 import { logger } from '@wisecom/atlas-core/utils/logger';
-import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
-import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /** The folder_id of a legacy MIME entry, whose RFC 822 payload records no source folder. */
 const UNKNOWN_FOLDER_ID = '__unknown__';
@@ -56,7 +60,11 @@ export async function restore_one_entry(
 export interface EntryRestoreOutcome {
   readonly att: number;
   readonly attachment_errors: string[];
+  /** The attachments among `attachment_errors` whose create may have committed (issue #893). */
+  readonly attachment_outcome_unknown: readonly AttachmentOutcomeUnknown[];
   readonly report: RestoredMessageReport;
+  /** A refusal for the whole mailbox met while uploading the attachments; it ends the restore. */
+  readonly refusal?: RunFatalError;
 }
 
 /** Builds the outcome of one created message from what it should hold and what was uploaded. */
@@ -70,8 +78,10 @@ function entry_outcome(
   const uploaded = result?.uploaded ?? { file: 0, inline: 0 };
   const attachment_errors = result?.errors ?? [];
   return {
+    ...(result?.refusal !== undefined && { refusal: result.refusal }),
     att: uploaded.file + uploaded.inline,
     attachment_errors,
+    attachment_outcome_unknown: result?.outcome_unknown ?? [],
     report: {
       object_id,
       target_message_id,
@@ -150,90 +160,6 @@ async function restore_mime_entry(
   return entry_outcome(entry.object_id, new_msg_id, target_folder_id, parsed.attachments, result);
 }
 
-/** Restores all entries for a single folder, updating dashboard per-message. */
-export async function restore_folder_entries(
-  ctx: TenantContext,
-  restore_connector: RestoreConnector,
-  tenant_id: string,
-  owner_id: string,
-  target_folder_id: string,
-  entries: ManifestEntry[],
-  folder_index: number,
-  global_before: number,
-  global_total: number,
-  start: number,
-  dashboard: TransferProgressReporter,
-  is_interrupted: () => boolean,
-  control: OperationControlOptions,
-): Promise<{
-  restored: number;
-  attachments: number;
-  errors: string[];
-  attachment_errors: string[];
-  messages: RestoredMessageReport[];
-  warnings: string[];
-}> {
-  let restored = 0;
-  let attachments = 0;
-  const errors: string[] = [];
-  const attachment_errors: string[] = [];
-  const messages: RestoredMessageReport[] = [];
-  const warnings: string[] = [];
-
-  for (const entry of entries) {
-    if (is_interrupted()) break;
-
-    try {
-      const outcome = await restore_one_entry(
-        ctx,
-        restore_connector,
-        tenant_id,
-        owner_id,
-        target_folder_id,
-        entry,
-      );
-      restored++;
-      attachments += outcome.att;
-      // The message landed, so this is not an entry failure, but the mailbox is missing content
-      // the snapshot holds. Reporting it keeps the run out of a clean exit (issue #341).
-      append_all(
-        attachment_errors,
-        outcome.attachment_errors.map((e) => `${entry.object_id}: ${e}`),
-      );
-      messages.push(outcome.report);
-      const shortfall = attachment_shortfall_warning(outcome.report);
-      if (shortfall) warnings.push(shortfall);
-    } catch (err) {
-      // A create cut short by Ctrl+C is the run stopping, not a failed message (issue #682).
-      if (is_active_run_cancelled()) break;
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`${entry.object_id}: ${msg}`);
-    }
-
-    const gp = global_before + restored;
-    const rate = calc_rate(gp, Date.now() - start);
-    const eta = rate > 0 ? (global_total - gp) / rate : 0;
-    dashboard.update_active(folder_index, {
-      transferred: restored,
-      attachments,
-      rate,
-      eta_seconds: eta,
-    });
-    dashboard.update_total(gp, global_total, rate, eta);
-    emit_operation_progress(control, {
-      operation: 'restore',
-      workload: 'outlook',
-      phase: 'processing',
-      processed: gp,
-      total: global_total,
-      current: entry.subject ?? entry.object_id,
-      rate,
-    });
-  }
-
-  return { restored, attachments, errors, attachment_errors, messages, warnings };
-}
-
 /**
  * Restores a single message with its attachments under an opened restore root. No dashboard
  * needed. `restore_connector` is the root's connector, so a chosen destination also reuses the
@@ -269,19 +195,29 @@ export async function restore_single_message(
     created_folders,
   );
 
-  const outcome = await restore_one_entry(
-    ctx,
-    restore_connector,
-    tenant_id,
-    target_mailbox,
-    target_fid,
-    entry,
-  );
+  let outcome: EntryRestoreOutcome;
+  try {
+    outcome = await restore_one_entry(
+      ctx,
+      restore_connector,
+      tenant_id,
+      target_mailbox,
+      target_fid,
+      entry,
+    );
+  } catch (err) {
+    // A create that may have committed is reported on the result, not thrown (issue #893).
+    const line = `${entry.object_id}: ${err instanceof Error ? err.message : String(err)}`;
+    const unknown = unknown_message_create(entry.object_id, target_fid, line, err);
+    if (unknown === undefined) throw err;
+    return unknown_single_message_result(snapshot_id, root.display_name, unknown);
+  }
   const att_count = outcome.att;
   const shortfall = attachment_shortfall_warning(outcome.report);
 
   logger.success(`Restored 1 message${att_count > 0 ? ` + ${att_count} attachments` : ''}`);
   for (const failure of outcome.attachment_errors) logger.warn(`Attachment failed: ${failure}`);
+  if (outcome.refusal !== undefined) throw outcome.refusal;
   return {
     snapshot_id,
     restored_count: 1,
@@ -292,6 +228,12 @@ export async function restore_single_message(
     verification_warnings: shortfall ? [shortfall] : [],
     messages: [outcome.report],
     restore_folder_name: root.display_name,
+    outcome_unknown: unknown_attachment_creates(
+      entry.object_id,
+      target_fid,
+      outcome.attachment_outcome_unknown,
+      '',
+    ),
     interrupted: false,
   };
 }

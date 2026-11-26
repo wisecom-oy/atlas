@@ -29,6 +29,21 @@ export interface RestoredMessageReport {
   readonly attachments_failed: number;
 }
 
+/**
+ * A message whose create, or whose attachment's create, ended without a clear answer, so it may
+ * exist in the target (issue #893). Its line is in `errors` too; this names which errors those are.
+ */
+export interface OutcomeUnknownMessage {
+  /** The source message in the snapshot. */
+  readonly object_id: string;
+  /** The target folder the message was created in, or was being created in. */
+  readonly target_folder_id: string;
+  /** The attachment whose create is unknown, when the message itself was created. */
+  readonly attachment_name?: string | undefined;
+  /** The line reported for it in `errors`. */
+  readonly error: string;
+}
+
 export interface RestoreResult {
   readonly snapshot_id: string;
   readonly restored_count: number;
@@ -40,6 +55,12 @@ export interface RestoreResult {
   /** One report per message that was created in the target mailbox, in restore order. */
   readonly messages: RestoredMessageReport[];
   readonly restore_folder_name: string;
+  /**
+   * Messages and attachments whose create may have committed although it failed: a `5xx`, a
+   * timeout or a dropped connection after the request was sent. Check the target before restoring
+   * them again. Graph's refusals (`400`, `403`, `404`, `409`, `413`) are never listed here.
+   */
+  readonly outcome_unknown: OutcomeUnknownMessage[];
   /** Graph API cost for this operation. Present when called via the SDK; absent via CLI. */
   readonly graph_cost?: OperationCost;
   readonly interrupted: boolean;

@@ -78,7 +78,8 @@ Once the tenant bucket exists, `await atlas.validate()` is an optional read-only
 | ---------------------------------------- | ---------------------- |
 | Wrong passphrase for an existing backup  | `WrongPassphraseError` |
 | S3 failure                               | `StorageError`         |
-| Microsoft Graph token failure            | `AuthError`            |
+| Microsoft Entra ID refused the credentials | `AuthError`            |
+| Microsoft Entra ID unavailable or unreachable | `GraphUnavailableError` |
 
 A fresh tenant with no wrapped key still passes. The check never creates key material, writes objects, tests write permissions, or checks workload-specific Graph consent. See the [SDK reference](https://docs.atlas.wisecom.fi/reference/sdk#validation).
 
@@ -89,16 +90,18 @@ Upgrading from v6? See the [v7 migration guide](https://docs.atlas.wisecom.fi/mi
 - **Streaming exports.** `atlas.outlook.save(snapshotId, { output: res })` pipes the archive to any Node `Writable`, so an HTTP download never stages on local disk. See [streaming exports](https://docs.atlas.wisecom.fi/reference/sdk#streaming-exports).
 - **Storage metrics.** Pass `onStorageRequest` to receive one event per S3 request with its latency, connection-pool queueing, retries, payload size, and outcome, for example to feed OpenTelemetry histograms. It works against any S3-compatible backend and never carries object keys, bucket names, or hostnames. See [storage request events](https://docs.atlas.wisecom.fi/reference/storage-request-events).
 - **Concurrency.** Run one operation at a time per tenant unless your scheduler guarantees that no two operations touch the same mailbox, drive owner, or site. When several processes work on one tenant, pass a `throttleCoordinator` so that when Microsoft Graph throttles one process (HTTP 429), the others pause too. See [concurrent operations](https://docs.atlas.wisecom.fi/reference/sdk#concurrent-operations).
+- **Retention.** `atlas.outlook.pruneSnapshots(mailbox, { before })`, and the same on `onedrive` and `sharepoint`, removes the snapshots older than a cut-off and keeps every newer one restorable, so a stated retention period can be honoured on a schedule. See [snapshot retention](https://docs.atlas.wisecom.fi/operations/retention).
+- **Storage without conditional writes.** Atlas refuses a backend that does not enforce `If-None-Match` and `If-Match`. If your host already keeps operations apart per owner, pass an `ownerExclusion` and Atlas uses it instead of lease objects and checks write conditions itself. See [exclusion supplied by the host](https://docs.atlas.wisecom.fi/reference/sdk#exclusion-supplied-by-the-host).
 
 ## API overview
 
 | Namespace or method       | Purpose                                                                       |
 | ------------------------- | ----------------------------------------------------------------------------- |
-| `atlas.outlook`           | Mailbox backup, restore, save, verification, catalog, and deletion            |
-| `atlas.onedrive`          | OneDrive backup, restore, file version restore, save, verification, and deletion |
+| `atlas.outlook`           | Mailbox backup, restore, save, verification, catalog, deletion, and pruning   |
+| `atlas.onedrive`          | OneDrive backup, restore, file version restore, save, verification, deletion, and pruning |
 | `atlas.contacts`          | Contacts backup, restore, verification, and deletion                          |
 | `atlas.calendar`          | Calendar backup, restore, verification, and deletion                          |
-| `atlas.sharepoint`        | SharePoint site backup, restore, file version restore, save, verification, and deletion |
+| `atlas.sharepoint`        | SharePoint site backup, restore, file version restore, save, verification, deletion, and pruning |
 | `atlas.teams`             | Teams channel backup, verification, export, snapshot catalog, and deletion    |
 | `atlas.keys`              | Re-wrap and purge data key wrappers across tenants that share the passphrase  |
 | `atlas.getBucketStats()`  | Storage statistics                                                            |

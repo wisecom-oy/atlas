@@ -52,6 +52,7 @@ export class OneDriveDeletionService implements OneDriveDeletionUseCase {
       const staging_prefix = `onedrive/staging/${owner_id}/`;
       const result = await erase_leased_owner_scopes(storage, lease, [
         `onedrive/manifests/${owner_id}/`,
+        `onedrive/manifest-parts/${owner_id}/`,
         `onedrive/data/${owner_id}/`,
         `onedrive/index/${owner_id}/`,
         `onedrive/_meta/${owner_id}/`,

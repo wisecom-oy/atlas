@@ -58,6 +58,20 @@ Three variables bound how long the S3 client waits on a backend that stops answe
 
 A value outside its range exits `6` (`ATLAS_CONFIG_INVALID`) before any request. A backend that never answers fails with exit `3` (`ATLAS_STORAGE_UNAVAILABLE`). [S3 timeouts and retries](/self-hosting/storage#s3-timeouts-and-retries) explains what each timeout measures and when to change it.
 
+### Single-writer mode
+
+```bash
+export ATLAS_SINGLE_WRITER=1
+```
+
+| Environment variable  | Default | Accepted                          | Description |
+| --------------------- | ------- | --------------------------------- | ----------- |
+| `ATLAS_SINGLE_WRITER` | unset   | `1` or `true` on; `0`, `false`, or empty off | Replaces the owner and tenant leases with an exclusion inside the process, and stops sending conditional write headers, so Atlas runs on a backend without conditional `PUT` on versioned buckets |
+
+Read from the environment or `.env` only. Any other value exits `6` (`ATLAS_CONFIG_INVALID`) before any request, so a typo never changes how writers are kept apart. The SDK equivalent is the `ownerExclusion` option, which takes your host's exclusion instead. See [Exclusion supplied by the host](/reference/sdk#exclusion-supplied-by-the-host).
+
+Set it only when one Atlas process at a time writes each tenant, and set it on every process that writes the tenant. Atlas cannot see a second process in this mode. [Backends without conditional writes](/self-hosting/storage#backends-without-conditional-writes) lists what replaces each conditional write and what is no longer guaranteed.
+
 ## Tenant profiles
 
 A tenant profile holds one Microsoft Entra app registration: a tenant ID, a client ID, and a client secret. Add a profile, then check that it can sign in:

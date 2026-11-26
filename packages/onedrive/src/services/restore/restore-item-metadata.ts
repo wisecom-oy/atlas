@@ -8,6 +8,7 @@ import {
   restore_item_metadata_entry,
   type ItemSharingRestoreDeps,
 } from '@wisecom/atlas-drive/restore/item-sharing-restore';
+import { rethrow_if_restore_run_refusal } from '@wisecom/atlas-drive/restore/restore-run-refusal';
 import type { RoutedDrive } from '@/services/restore/drive-router';
 import { ensure_onedrive_folder_path } from '@/services/restore/restore-folder-path';
 
@@ -23,7 +24,8 @@ export interface ItemMetadataRestoreTarget {
 /**
  * Reapplies folder permissions after the files are in place, when asked. Every
  * outcome lands on the sharing summary; only an unexpected failure is returned as an error.
- * Resolves `interrupted` when the run was cancelled part-way.
+ * Resolves `interrupted` when the run was cancelled part-way. Throws a refusal of every restore
+ * write.
  */
 export async function restore_onedrive_item_metadata(
   connector: OneDriveConnector,
@@ -56,6 +58,7 @@ export async function restore_onedrive_item_metadata(
       });
     } catch (err) {
       if (is_active_run_cancelled()) return { errors, interrupted: true };
+      rethrow_if_restore_run_refusal('onedrive', err);
       errors.push(`${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }

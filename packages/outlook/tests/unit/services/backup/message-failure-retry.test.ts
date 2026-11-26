@@ -177,7 +177,9 @@ describe('a per-message failure withholds the folder delta link', () => {
 
       const result = await harness.service.sync_mailbox('t', OWNER);
 
-      expect(result.summary.folder_errors).toEqual([`Inbox: ${failure.message}`]);
+      expect(result.summary.folder_errors).toEqual([
+        `Inbox: ${failure.message} (Atlas code: ${failure.code})`,
+      ]);
       expect(saved_links(harness)).toEqual({ 'folder-1': PREVIOUS_LINK });
     });
   });

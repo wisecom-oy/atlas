@@ -16,7 +16,8 @@ import {
   print_delete_result,
   render_delete_banner,
 } from '@/commands/shared/deletion-presenter';
-import { resolve_owner, resolve_tenant_id } from '@/commands/onedrive/command.handlers';
+import { resolve_tenant_id } from '@/commands/onedrive/command.handlers';
+import { resolve_owner, resolve_stored_owner } from '@/commands/shared/owner-resolution';
 import type { ContactsTenantOptions } from '@/commands/contacts/command.handlers';
 
 export interface ContactsListCommandOptions extends ContactsTenantOptions {
@@ -47,7 +48,7 @@ export async function execute_contacts_list(
   options: ContactsListCommandOptions,
 ): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
-  const mailbox = await resolve_owner(container, tenant_id, options.mailbox);
+  const mailbox = await resolve_stored_owner(container, tenant_id, options.mailbox);
   const catalog = container.get<ContactsCatalogUseCase>(CONTACTS_CATALOG_USE_CASE_TOKEN);
   const listing = await read_listing(() =>
     catalog.list_contacts_snapshot_summaries(tenant_id, mailbox.object_id),

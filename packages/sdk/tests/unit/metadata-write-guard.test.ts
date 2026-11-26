@@ -29,7 +29,7 @@ const RAW_PUT_ALLOWLIST: Record<string, string> = {
   'outlook/src/services/backup/message-payload-store.ts': 'message body content',
   'teams/src/services/backup/message-blob-writer.ts': 'Teams message and hosted content',
   // The wrapped data key: binary, with its own create-only and compare-and-swap protocol.
-  's3/src/adapters/tenant-context.factory.ts': 'data key bootstrap, create-only',
+  's3/src/adapters/tenant-dek-bootstrap.ts': 'data key bootstrap, create-only',
   'core/src/services/keys/dek-wrapper-rewrite.ts': 'data key rewrap, compare-and-swap',
   // The registry retries on its own ETag compare-and-swap, which the guarded writer does not model.
   's3/src/adapters/s3-identity-registry-repository.adapter.ts': 'identity registry CAS loop',
@@ -41,6 +41,9 @@ const RAW_PUT_ALLOWLIST: Record<string, string> = {
   // are enforced, then removes. `storage-check` and the guard before each first conditional write
   // run it.
   's3/src/adapters/s3-conditional-write-probe.ts': 'conditional-write probe',
+  // A port stub for tests: it stores plaintext manifests so a prune test can read, replace and
+  // damage them through the bucket the prune deletes from. No product code imports it.
+  'types/src/testing/in-memory-snapshot-store.ts': 'test stub, plaintext manifests',
 };
 
 /** Every `.ts` file under `packages/<name>/src`, as a path relative to `packages/`. */

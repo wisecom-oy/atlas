@@ -5,6 +5,7 @@ export {
 } from '@/graph-client.factory';
 export { parse_retry_after_ms } from './graph-retry-after';
 export { sleep as cancellable_sleep } from './graph-attempt-cancellation';
+export { get_active_attempt_signal } from '@/graph-attempt';
 export {
   is_invalid_delta_error,
   is_transient_error,
@@ -16,6 +17,11 @@ export {
 export { read_owner_listing, read_user_exists } from '@/graph-owner-listing';
 export type { OwnerListing } from '@/graph-owner-listing';
 export { is_network_error } from './graph-network-error';
+export {
+  GraphTokenRequestError,
+  is_transient_token_request_error,
+  token_request_refusal,
+} from '@/graph-token-failure';
 export { is_permanent_item_error } from '@/graph-permanent-item-errors';
 export { is_exhausted_retry, rethrow_if_retry_exhausted } from './graph-exhausted-retry';
 export {
@@ -23,6 +29,7 @@ export {
   get_graph_bytes,
   get_graph_content_stream,
 } from '@/graph-binary-download';
+export { get_graph_binary_with_idle_timeout } from '@/graph-idle-download';
 export type { GraphRetryOptions } from './graph-request-error-handler';
 export {
   is_missing_grant_refusal,
@@ -62,3 +69,13 @@ export {
   reported_collection_count,
   with_collection_count,
 } from '@/graph-counted-listing';
+export { create_repeated_listing_filter, drop_repeated_listings } from '@/graph-listing-repeats';
+export type { ListedItemId, RepeatedListingFilter } from '@/graph-listing-repeats';
+export {
+  UploadChunkTransportError,
+  is_upload_chunk_retry_safe,
+  leaves_commit_unknown,
+  send_upload_chunk,
+  upload_chunk_timeout_ms,
+} from '@/graph-upload-session-chunk';
+export type { UploadChunk, UploadChunkRole, UploadChunkRunner } from '@/graph-upload-session-chunk';

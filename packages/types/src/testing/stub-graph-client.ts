@@ -18,6 +18,8 @@ export interface GraphCall {
   readonly version?: string;
   /** Headers set through `.header()`, recorded only when `record_headers` is on. */
   readonly headers?: Readonly<Record<string, string>>;
+  /** The abort signal passed through `.option('signal', ...)`, recorded only when `record_signal` is on. */
+  readonly signal?: AbortSignal;
 }
 
 /** Answers one call: return the response body, or throw to fail it. */
@@ -29,6 +31,8 @@ export interface GraphClientOptions {
    * never look at headers keep comparing exactly the method, url, body and select they expect.
    */
   readonly record_headers?: boolean;
+  /** Record the attempt signal each request was given, so a test can tell whether it was aborted. */
+  readonly record_signal?: boolean;
 }
 
 export interface GraphRequestStub {
@@ -37,7 +41,7 @@ export interface GraphRequestStub {
   header(name: string, value: string): GraphRequestStub;
   headers(values: Record<string, string>): GraphRequestStub;
   responseType(type: string): GraphRequestStub;
-  /** Accepts fetch options such as the attempt's abort `signal`; nothing is recorded. */
+  /** Accepts fetch options such as the attempt's abort `signal`; only the signal is recorded. */
   option(key: string, value: unknown): GraphRequestStub;
   get(): Promise<unknown>;
   post(body?: unknown): Promise<unknown>;
@@ -64,6 +68,7 @@ export function stub_graph_client(
     let select: string | undefined;
     let version: string | undefined;
     const headers: Record<string, string> = {};
+    let signal: AbortSignal | undefined;
     const send = async (method: GraphMethod, body?: unknown): Promise<unknown> => {
       const call: GraphCall = {
         method,
@@ -74,6 +79,7 @@ export function stub_graph_client(
         ...(options.record_headers === true && Object.keys(headers).length > 0
           ? { headers: { ...headers } }
           : {}),
+        ...(options.record_signal === true && signal !== undefined ? { signal } : {}),
       };
       calls.push(call);
       return route(call);
@@ -96,7 +102,10 @@ export function stub_graph_client(
         return request;
       },
       responseType: () => request,
-      option: () => request,
+      option: (key, value) => {
+        if (key === 'signal' && value instanceof AbortSignal) signal = value;
+        return request;
+      },
       get: () => send('get'),
       post: (body) => send('post', body),
       put: (body) => send('put', body),

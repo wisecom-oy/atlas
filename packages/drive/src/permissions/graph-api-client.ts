@@ -4,6 +4,8 @@
  * test passes `stub_graph_client` directly.
  */
 export interface GraphApiRequest {
+  /** Sets a fetch option, such as the attempt's abort `signal`. */
+  option(key: string, value: unknown): GraphApiRequest;
   get(): Promise<unknown>;
   post(body: unknown): Promise<unknown>;
 }

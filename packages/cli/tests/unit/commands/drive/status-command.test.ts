@@ -119,7 +119,9 @@ describe('drive status commands (issue #163)', () => {
   it('checks OneDrive status under the resolved owner object id', async () => {
     await h.program.parseAsync(['onedrive', 'status', '-o', OWNER_EMAIL], { from: 'user' });
 
-    expect(h.resolve_user).toHaveBeenCalledWith(TENANT_ID, OWNER_EMAIL);
+    expect(h.resolve_user).toHaveBeenCalledWith(TENANT_ID, OWNER_EMAIL, {
+      purpose: 'microsoft_365',
+    });
     expect(h.check_onedrive_status).toHaveBeenCalledWith(TENANT_ID, OWNER_OBJECT_ID);
   });
 

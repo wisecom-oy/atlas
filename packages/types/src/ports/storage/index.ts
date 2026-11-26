@@ -8,6 +8,8 @@ export type {
   StorageImmutabilityProbeRequest,
   StorageImmutabilityProbeResult,
   StorageObjectVersion,
+  StorageDeleteTarget,
+  StorageDeleteOutcome,
 } from './object-storage.port';
 export type { ManifestRepository } from './manifest-repository.port';
 export type * from '@/ports/storage/readable-listing.port';

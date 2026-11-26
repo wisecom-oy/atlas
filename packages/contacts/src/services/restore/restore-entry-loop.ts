@@ -1,5 +1,9 @@
 import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
+import {
+  list_target_once,
+  type TargetListings,
+} from '@wisecom/atlas-core/services/shared/target-listing-once';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
 import type { ContactManifestEntry, OperationControlOptions } from '@wisecom/atlas-types';
 
@@ -40,26 +44,33 @@ interface RestoreScope {
   readonly target_by_source: ReadonlyMap<string, string>;
   /** Every contact id in the snapshot. */
   readonly snapshot_ids: ReadonlySet<string>;
-  /** What each target folder holds, loaded once per folder. */
-  readonly cache: Map<string, TargetFolderContacts>;
+  /** What each target folder holds, or why it could not be listed, loaded once per folder. */
+  readonly listings: TargetListings<TargetFolderContacts>;
 }
 
-/** Loads what a target folder already holds once, reused for every entry that targets it. */
+/**
+ * Loads what a target folder already holds once, reused for every entry that targets it. A
+ * listing that failed is not repeated: every entry of that folder fails with it (issue #886).
+ */
 async function existing_contacts_for(
   deps: RestoreWriteDeps,
   folder_id: string,
   scope: RestoreScope,
 ): Promise<TargetFolderContacts> {
-  const cached = scope.cache.get(folder_id);
-  if (cached !== undefined) return cached;
-  const contacts = await deps.connector.list_folder_contacts(
-    deps.tenant_id,
-    deps.target_mailbox_id,
+  return list_target_once(
+    scope.listings,
     folder_id,
+    'the contacts in the target folder',
+    async () =>
+      index_target_contacts(
+        await deps.connector.list_folder_contacts(
+          deps.tenant_id,
+          deps.target_mailbox_id,
+          folder_id,
+        ),
+        scope.snapshot_ids,
+      ),
   );
-  const existing = index_target_contacts(contacts, scope.snapshot_ids);
-  scope.cache.set(folder_id, existing);
-  return existing;
 }
 
 /**
@@ -92,7 +103,7 @@ export async function restore_all_entries(
   const scope: RestoreScope = {
     target_by_source,
     snapshot_ids: new Set(entries.map((entry) => entry.contact_id)),
-    cache: new Map(),
+    listings: new Map(),
   };
   const errors: string[] = [];
   let processed = 0;

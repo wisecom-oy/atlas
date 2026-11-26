@@ -4,7 +4,8 @@
 // branch, which is the shape that made the copies hard to change.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { with_summary_unreadable_keys } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
-import { attach_run_retention } from '@wisecom/atlas-core/services/shared/run-object-lock';
+import { apply_run_retention } from '@wisecom/atlas-core/services/shared/run-object-lock';
+import { with_run_object_lock } from '@wisecom/atlas-core/services/shared/manifest-object-lock';
 import { run_cancellable_backup } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { randomBytes } from 'node:crypto';
 import {
@@ -25,6 +26,7 @@ import { SHAREPOINT_KEYS } from '@/services/shared/storage-keys';
 import { build_version_errors } from '@wisecom/atlas-drive/backup/version-failure-errors';
 import type {
   HeldOwnerLease,
+  ManifestObjectLockPolicy,
   OwnerLeasePort,
   SharePointBackupOptions,
   SharePointBackupResult,
@@ -52,6 +54,7 @@ import {
   build_package_warnings,
   build_run_version_indexes,
   build_snapshot_manifest,
+  build_success_result,
   persist_snapshot_backup,
 } from '@/services/backup/backup-builders';
 import { load_run_version_collector } from '@/services/versioning/run-version-collector';
@@ -119,7 +122,8 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       });
       // Per-object retention carried by this run's context, not the bucket default: concurrent
       // runs on one tenant would overwrite each other's bucket setting (#551).
-      const ctx = await attach_run_retention(tenant_ctx, options.object_lock_request);
+      const retention = await apply_run_retention(tenant_ctx, options.object_lock_request);
+      const ctx = retention.ctx;
       const stored_cursor = await this._cursors.load(ctx, site_id);
       // Read before this run saves a manifest, which would become the head and hide a damaged one.
       const head = await this._manifests.find_latest_readable(ctx, site_id);
@@ -271,6 +275,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
           errors,
           warnings,
           healthy,
+          retention.object_lock,
         );
       }
       emit_operation_progress(options, {
@@ -279,10 +284,9 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         phase: scan.interrupted ? 'interrupted' : 'completed',
         processed: scan.items_processed,
       });
-      return with_summary_unreadable_keys(
-        result,
-        merge_damaged_manifest_keys(head.unreadable_keys, skipped_manifests),
-      );
+      const unreadable_keys = merge_damaged_manifest_keys(head.unreadable_keys, skipped_manifests);
+      const reported = with_summary_unreadable_keys(result, unreadable_keys);
+      return with_run_object_lock(reported, retention.object_lock);
     } finally {
       await lease?.release();
       tenant_ctx.destroy();
@@ -303,6 +307,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     errors: string[],
     warnings: string[],
     healthy: boolean,
+    object_lock: ManifestObjectLockPolicy | undefined,
   ): Promise<SharePointBackupResult> {
     const snapshot = build_snapshot_manifest(
       tenant_id,
@@ -312,6 +317,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       manifest_created_at,
       options.site_url,
       options.site_display_name,
+      object_lock,
     );
     await persist_snapshot_backup(
       this._manifests,
@@ -326,24 +332,14 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       scan.version_rows,
     );
 
-    return {
+    return build_success_result(
       site_id,
       snapshot,
-      interrupted: scan.interrupted,
-      summary: {
-        libraries_scanned,
-        files_changed: scan.entries.length,
-        files_stored: scan.files_stored,
-        files_deduplicated: scan.files_deduplicated,
-        deleted_items: scan.deleted_items,
-        cursor_updated: true,
-        snapshot_created: true,
-        versions_stored: scan.version_stats.total_versions_stored,
-        versions_unavailable: scan.version_stats.total_versions_unavailable,
-        errors,
-        warnings,
-        healthy,
-      },
-    };
+      scan,
+      libraries_scanned,
+      errors,
+      warnings,
+      healthy,
+    );
   }
 }

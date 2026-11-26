@@ -61,7 +61,9 @@ describe('run_stopping_on_graph_outage', () => {
       return 'partial';
     });
 
-    await expect(result).rejects.toBe(first);
+    const rejection = await result.catch((err: unknown) => err);
+    expect(rejection).toBeInstanceOf(GraphUnavailableError);
+    expect(rejection).toMatchObject({ message: first.message, retries: 12 });
     expect(committed).toEqual(['snapshot']);
   });
 

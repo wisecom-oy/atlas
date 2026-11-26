@@ -2,6 +2,7 @@ import type { Container } from 'inversify';
 import type { QuarantineUseCase } from '@wisecom/atlas-types';
 import { SHAREPOINT_QUARANTINE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { with_camelized_partial_result } from '@/partial-listing';
+import { with_camelized_outage_result } from '@/outage-partial-result';
 import type {
   SharePointApi,
   SharePointSiteTreeBackupUseCase,
@@ -11,6 +12,7 @@ import type {
   SharePointSaveUseCase,
   SharePointVerificationUseCase,
   SharePointDeletionUseCase,
+  SnapshotPruneUseCase,
   SharePointStatusUseCase,
   SharePointSiteConnector,
   StatsUseCase,
@@ -23,6 +25,7 @@ import {
   SHAREPOINT_SAVE_USE_CASE_TOKEN,
   SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
   SHAREPOINT_DELETION_USE_CASE_TOKEN,
+  SHAREPOINT_SNAPSHOT_PRUNE_USE_CASE_TOKEN,
   SHAREPOINT_STATUS_USE_CASE_TOKEN,
   SHAREPOINT_CONNECTOR_TOKEN,
   STATS_USE_CASE_TOKEN,
@@ -31,6 +34,7 @@ import { camelize } from '@wisecom/atlas-types/public/case-convert';
 import { adapt_operation_options, adapt_required_operation_options } from '@/operation-options';
 import { canonical_site_id } from '@wisecom/atlas-types/domain/sharepoint/site-id';
 import { split_target_tenant, with_restore_side } from '@/target-tenant';
+import { adapt_prune_options } from '@/snapshot-prune-options';
 
 /** Builds the SharePointApi sub-namespace from the DI container. */
 export function create_sharepoint_api(tenant_id: string, container: Container): SharePointApi {
@@ -47,6 +51,7 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
   const save = container.get<SharePointSaveUseCase>(SHAREPOINT_SAVE_USE_CASE_TOKEN);
   const catalog = container.get<SharePointCatalogUseCase>(SHAREPOINT_CATALOG_USE_CASE_TOKEN);
   const deletion = container.get<SharePointDeletionUseCase>(SHAREPOINT_DELETION_USE_CASE_TOKEN);
+  const prune = container.get<SnapshotPruneUseCase>(SHAREPOINT_SNAPSHOT_PRUNE_USE_CASE_TOKEN);
   const status = container.get<SharePointStatusUseCase>(SHAREPOINT_STATUS_USE_CASE_TOKEN);
   const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
   const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
@@ -65,7 +70,9 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
     async backup(site_input, options) {
       const site_id = await resolve_site_id(site_input);
       return camelize(
-        await backup.backup_site_tree(tenant_id, site_id, adapt_operation_options(options)),
+        await with_camelized_outage_result(() =>
+          backup.backup_site_tree(tenant_id, site_id, adapt_operation_options(options)),
+        ),
       );
     },
     async verify(site_input, snapshot_id, options) {
@@ -158,6 +165,11 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
     async deleteSnapshot(site_input, snapshot_id) {
       const site_id = await resolve_site_id(site_input);
       return camelize(await deletion.delete_snapshot(tenant_id, site_id, snapshot_id));
+    },
+    async pruneSnapshots(site_input, options) {
+      const adapted = adapt_prune_options(options, 'sharepoint.pruneSnapshots');
+      const site_id = await resolve_site_id(site_input);
+      return camelize(await prune.prune_snapshots(tenant_id, site_id, adapted));
     },
     async checkStatus(site_input) {
       return camelize(

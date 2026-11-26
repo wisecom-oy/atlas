@@ -3,6 +3,7 @@
 // entry, so the shared version would be generic over almost every line.
 import type {
   HeldOwnerLease,
+  ManifestObjectLockPolicy,
   NoSnapshotReason,
   OneDriveBackupResult,
   OneDriveChangeType,
@@ -17,7 +18,8 @@ import type {
   OneDriveSnapshotManifest,
   TenantContext,
 } from '@wisecom/atlas-types';
-import type { VersionSyncResult } from '@/services/versioning/version-sync';
+import type { RunVersionCollector, VersionSyncResult } from '@/services/versioning/version-sync';
+import type { DriveTrackingState } from '@/services/backup/delta-item-processor';
 import { count_file_entries, records_file_content } from '@wisecom/atlas-drive/shared/entry-kind';
 
 export function build_deleted_entry(
@@ -74,6 +76,7 @@ export function build_snapshot_manifest(
   created_at: Date,
   owner_email?: string,
   owner_display_name?: string,
+  object_lock?: ManifestObjectLockPolicy,
 ): OneDriveSnapshotManifest {
   return {
     id: `${owner_id}-${snapshot_id}`,
@@ -85,7 +88,35 @@ export function build_snapshot_manifest(
     created_at,
     total_files: count_file_entries(entries),
     total_size_bytes: entries.reduce((sum, entry) => sum + entry.size_bytes, 0),
+    ...(object_lock !== undefined && { object_lock }),
     entries,
+  };
+}
+
+/**
+ * Builds the delta cursor a run saves. `snapshot_id` is the snapshot the run wrote or left as the
+ * newest, or `null` when the owner has none: the next run resumes the cursor only while that
+ * snapshot's manifest still exists (issue #725).
+ */
+export function build_delta_cursor(
+  owner_id: string,
+  delta_link_by_drive: Record<string, string>,
+  tracking: Required<DriveTrackingState>,
+  failed_items: NonNullable<OneDriveDeltaCursor['failed_items']>,
+  versions: Pick<RunVersionCollector, 'watermarks' | 'pending'>,
+  folder_scope: string | undefined,
+  snapshot_id: string | null,
+): OneDriveDeltaCursor {
+  return {
+    owner_id,
+    delta_link_by_drive,
+    ...tracking,
+    version_watermark_by_file_id: versions.watermarks,
+    pending_versions_by_file_id: versions.pending,
+    failed_items,
+    ...(folder_scope !== undefined ? { folder_scope } : {}),
+    updated_at: new Date().toISOString(),
+    snapshot_id,
   };
 }
 

@@ -66,7 +66,15 @@ function make_client(overrides: { download_url?: string | undefined } = {}): Gra
     );
   const get_stream = vi.fn(() => Promise.resolve(binary_graph_response(CONTENT_BODY)));
   const select = vi.fn(() => ({ get }));
-  const api = vi.fn(() => ({ select, get, responseType: () => ({ get: get_stream }) }));
+  const api = vi.fn(() => ({
+    select,
+    get,
+    responseType: () => ({ get: get_stream }),
+    // The /content request is handed its abort signal before it is sent (issue #890).
+    option() {
+      return this;
+    },
+  }));
   // The real Client has a large surface; these helpers touch only api/select/get/responseType.
   const client = { api } as unknown as Client;
   return { client, api, get, get_stream, select };
@@ -194,7 +202,7 @@ describe('SharePoint download helpers', () => {
 
     it('goes straight to /content without re-resolving for a non-expired failure', async () => {
       const mock = make_client();
-      fetch_mock.mockResolvedValue(make_response({ status: 500 }));
+      fetch_mock.mockResolvedValue(make_response({ status: 404 }));
 
       const body = await download_with_fallback(
         mock.client,
@@ -205,6 +213,23 @@ describe('SharePoint download helpers', () => {
       expect(mock.get).not.toHaveBeenCalled();
       expect(fetch_mock).toHaveBeenCalledOnce();
       expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('falling back'));
+    });
+
+    // Issue #885: /content redirects to the same host, so a host that is down is left to the
+    // file-level retry instead of being sent the file again under Graph's retry budget.
+    it('does not fall back to /content when the download host answers 503', async () => {
+      const mock = make_client();
+      fetch_mock.mockResolvedValue(make_response({ status: 503 }));
+
+      const failure = await download_with_fallback(
+        mock.client,
+        make_item({ download_url: STALE_URL }),
+      ).catch((err: unknown) => err);
+
+      expect(failure).toMatchObject({ status_code: 503 });
+      expect(fetch_mock).toHaveBeenCalledOnce();
+      expect(mock.get).not.toHaveBeenCalled();
+      expect(mock.get_stream).not.toHaveBeenCalled();
     });
   });
 
@@ -228,17 +253,18 @@ describe('SharePoint download helpers', () => {
       fetch_mock.mockResolvedValue(make_response({ status: 429, retry_after: '0' }));
       const mock = make_client();
 
-      // The CdnHttpError surfaces into attempt_download_with_refresh, which classifies
-      // 429 as not-expired and falls back to /content rather than propagating it.
-      const body = await download_with_fallback(
+      // The download host is throttling, so /content, which redirects to it, is not tried: the
+      // 429 goes to the file-level retry (issue #885).
+      const failure = await download_with_fallback(
         mock.client,
         make_item({ download_url: STALE_URL }),
-      );
+      ).catch((err: unknown) => err);
 
-      expect(body).toEqual(CONTENT_BODY);
+      expect(failure).toBeInstanceOf(CdnHttpError);
+      expect(failure).toMatchObject({ status_code: 429, retry_after_ms: 0 });
       expect(fetch_mock).toHaveBeenCalledTimes(MAX_URL_RETRIES + 1);
-      expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('HTTP 429'));
       expect(mock.get).not.toHaveBeenCalled();
+      expect(mock.get_stream).not.toHaveBeenCalled();
     });
 
     // A 429 with no Retry-After header falls back to exponential backoff. Asserted on
@@ -251,10 +277,13 @@ describe('SharePoint download helpers', () => {
         .mockResolvedValueOnce(make_response({ status: 429 }));
       const mock = make_client();
 
-      await download_with_fallback(mock.client, make_item({ download_url: STALE_URL }));
+      const failure = await download_with_fallback(
+        mock.client,
+        make_item({ download_url: STALE_URL }),
+      ).catch((err: unknown) => err);
 
       expect(fetch_mock).toHaveBeenCalledTimes(MAX_URL_RETRIES + 1);
-      expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('HTTP 429'));
+      expect(failure).toMatchObject({ status_code: 429, retry_after_ms: undefined });
     });
 
     it('raises CdnHttpError carrying the status for a non-ok response', async () => {

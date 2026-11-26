@@ -69,7 +69,7 @@ Atlas stops instead of falling back to writes without a lock, so you never learn
 
 - **The storage backend enforces the lock.** It rejects overwrites and deletes. Atlas never requests a governance bypass, and no S3 client can get past a `compliance` lock.
 - **Retention is set per object.** `--retention-days` locks only the backup data that run writes, listed in [What Object Lock covers](#what-object-lock-covers). Atlas never sets or changes a bucket default retention. If `atlas storage-check` reports one, it was left by Atlas before 6.1.0 or set by hand. See [Removing a bucket default retention](/self-hosting/storage#removing-a-bucket-default-retention).
-- **Manifests record the policy for audit.** Each manifest stores `object_lock.requested` (what you asked for) and `object_lock.effective` (what was applied). This metadata records the policy. It does not protect anything; the backend does.
+- **Manifests record the policy for audit.** Outlook, OneDrive, and SharePoint manifests store `object_lock.requested` (what you asked for) and `object_lock.effective` (the mode and retain-until date applied), and the snapshot summary index repeats the effective half. OneDrive and SharePoint record it from 7.3.0; an older drive manifest has no `object_lock` even if its run used `--retention-days`. Teams, contacts, and calendar manifests do not record it. This metadata records the policy. It does not protect anything; the backend does.
 - **Reused content keeps its first retention.** Each unique file or message is stored once. If an object already exists, Atlas skips the upload, with or without Object Lock, so only new content costs storage. A reused object keeps the retention it received on its first write, and a later run does not extend it.
 
 ## What Object Lock covers
@@ -110,7 +110,7 @@ These commands remove objects in a fixed order:
 1. **Manifests first.** This removes the index that points to data.
 2. **Data objects second.** These are the encrypted messages and files.
 
-If deletion stops between the two steps, the leftover data objects are orphans. They are harmless and can be removed later. The reverse order would leave manifests pointing at missing data. `atlas teams delete` removes the channel cursors first, then the snapshot indexes, then the channel shards, then the message and image blobs.
+A purge deletes every workload's manifest prefix before it lists the rest of the bucket. If deletion stops between the two steps, the leftover data objects are orphans. They are harmless and can be removed later. The reverse order would leave manifests pointing at missing data. `atlas teams delete` removes the channel cursors first, then the snapshot indexes, then the channel shards, then the message and image blobs.
 
 While retention is active, a delete removes what it can and reports what it kept:
 

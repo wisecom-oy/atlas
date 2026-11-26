@@ -72,6 +72,7 @@ describe('deletion prefixes ignore identifier case', () => {
 
     expect(swept()).toEqual([
       `onedrive/manifests/${LOWER}/`,
+      `onedrive/manifest-parts/${LOWER}/`,
       `onedrive/data/${LOWER}/`,
       `onedrive/index/${LOWER}/`,
       `onedrive/_meta/${LOWER}/`,
@@ -102,7 +103,10 @@ describe('deletion prefixes ignore identifier case', () => {
     expect(find_by_snapshot).toHaveBeenCalledWith(expect.anything(), LOWER, 'snap-1');
     expect(swept()).toEqual([
       `onedrive/manifests/${LOWER}/snap-1.json`,
+      `onedrive/manifest-parts/${LOWER}/snap-1/`,
       `onedrive/_meta/${LOWER}/delta.json`,
+      `onedrive/_meta/${LOWER}/delta/head.json`,
+      `onedrive/_meta/${LOWER}/delta/`,
     ]);
   });
 });

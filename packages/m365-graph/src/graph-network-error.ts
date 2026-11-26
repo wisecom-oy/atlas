@@ -24,6 +24,19 @@ const NETWORK_ERROR_CODES = new Set([
 ]);
 
 /**
+ * Codes that mean the socket never connected: the name did not resolve, or the host refused or
+ * could not be reached. A request that failed this way was never sent.
+ */
+const NEVER_CONNECTED_CODES = new Set([
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'ENETDOWN',
+]);
+
+/**
  * An aborted or timed-out transfer: a per-chunk or per-request timer firing, or the service
  * cutting the body off. A cancelled run is checked by every retry loop before it classifies, so
  * an abort that reaches this point is a transfer that can be tried again.
@@ -45,6 +58,17 @@ const SDK_WRAPPED_FETCH_FAILURE_CODE = 'TypeError';
  */
 export function is_network_error(err: unknown): boolean {
   return error_and_causes(err).some(is_network_failure);
+}
+
+/**
+ * Returns true when the error chain shows the socket never connected, so no byte of the request
+ * reached the service. A fetch failure the Graph SDK wrapped keeps no socket code and is not
+ * recognised here.
+ */
+export function is_never_connected_error(err: unknown): boolean {
+  return error_and_causes(err).some(
+    (link) => typeof link.code === 'string' && NEVER_CONNECTED_CODES.has(link.code),
+  );
 }
 
 /** One link of the chain, judged on its own `code` and `name`. */

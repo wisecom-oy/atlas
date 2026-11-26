@@ -1,4 +1,4 @@
-import { inject, injectable } from 'inversify';
+import { inject, injectable, optional } from 'inversify';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
 import { check_bucket_lifecycle } from '@/adapters/s3-bucket-lifecycle';
@@ -7,6 +7,7 @@ import { probe_bucket_immutability } from '@/adapters/s3-bucket-manager';
 import { read_bucket_default_retention } from '@/adapters/s3-default-retention';
 import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
 import { BucketCache } from '@/adapters/bucket-cache';
+import { ConditionalWritePolicy, STORAGE_LEASE_POLICY } from '@/adapters/conditional-write-policy';
 import { BUCKET_NAME_RESOLVER_TOKEN } from '@wisecom/atlas-types';
 import type {
   BucketNameResolver,
@@ -21,6 +22,9 @@ export class StorageCheckService implements StorageCheckUseCase {
     @inject(S3_CLIENT_TOKEN) private readonly _s3: S3Client,
     @inject(BucketCache) private readonly _buckets: BucketCache,
     @inject(BUCKET_NAME_RESOLVER_TOKEN) private readonly _bucket_names: BucketNameResolver,
+    @inject(ConditionalWritePolicy)
+    @optional()
+    private readonly _policy: ConditionalWritePolicy = STORAGE_LEASE_POLICY,
   ) {}
 
   /**
@@ -28,7 +32,8 @@ export class StorageCheckService implements StorageCheckUseCase {
    * backend enforces the conditional writes the owner lease relies on (issues #623, #915). The probe
    * writes and deletes one object, so it needs write access to the bucket. With `apply_lifecycle`
    * it first adds the Atlas lifecycle rules the bucket lacks (issue #918), so the lifecycle check
-   * reports the result.
+   * reports the result. The probe always sends real conditions, so it reports the backend even in an
+   * opt-in writer-exclusion mode, and the result names that mode (issue #974).
    */
   async check_storage(
     tenant_id: string,
@@ -63,6 +68,7 @@ export class StorageCheckService implements StorageCheckUseCase {
       mode_supported: probe.mode_supported,
       default_retention,
       conditional_writes,
+      writer_exclusion: this._policy.mode,
       lifecycle,
       ...(lifecycle_update !== undefined ? { lifecycle_update } : {}),
       requested_mode: request.mode,

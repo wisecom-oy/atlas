@@ -87,6 +87,19 @@ export class S3OneDriveFileVersionIndexRepository implements OneDriveFileVersion
     await write_run_version_index(ctx, { key, provider: 'OneDrive', payload });
   }
 
+  /** Replaces one run's index object with these rows, creating it when absent. */
+  async replace_run_index(
+    ctx: TenantContext,
+    owner_id: string,
+    snapshot_id: string,
+    indexes: OneDriveFileVersionIndex[],
+  ): Promise<void> {
+    validate_key_segment(snapshot_id);
+    const payload: RunIndexPayload = { owner_id, snapshot_id, indexes };
+    const key = onedrive_run_index_key(owner_id, snapshot_id);
+    await write_run_version_index(ctx, { key, provider: 'OneDrive', payload }, 'overwrite');
+  }
+
   /** Lists per-file version histories for an owner, naming the index objects it could not read. */
   async list_readable_by_owner(
     ctx: TenantContext,

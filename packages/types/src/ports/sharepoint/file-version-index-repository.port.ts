@@ -39,6 +39,17 @@ export interface SharePointFileVersionIndexRepository {
   ): Promise<void>;
 
   /**
+   * Replaces one run's index object with these rows, creating it when absent. Only snapshot
+   * pruning calls this, to give a folded baseline the rows of the entries it carries over.
+   */
+  replace_run_index(
+    ctx: TenantContext,
+    site_id: string,
+    snapshot_id: string,
+    indexes: SharePointFileVersionIndex[],
+  ): Promise<void>;
+
+  /**
    * Lists per-file version histories for a site, merged across index objects.
    * One scan answers every file: there is no per-file lookup, because with a
    * per-run layout that would rescan the whole prefix for a single file.

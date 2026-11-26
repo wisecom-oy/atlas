@@ -17,7 +17,7 @@ import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list'
 import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary';
 import { render_static_view } from '@/ui/render';
 import { create_transfer_progress } from '@/ui/dashboards/transfer-progress-factory';
-import { resolve_owner } from '@/commands/onedrive/command.handlers';
+import { resolve_owner } from '@/commands/shared/owner-resolution';
 import {
   require_target_for_profile,
   resolve_restore_container,
@@ -224,6 +224,7 @@ async function report_restore_result(result: RestoreResult): Promise<void> {
       errors: result.errors,
       warnings: result.verification_warnings,
       interrupted: result.interrupted,
+      outcome_unknown: result.outcome_unknown.length,
     },
     'message',
   );

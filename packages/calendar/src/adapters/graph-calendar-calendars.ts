@@ -1,6 +1,6 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
 import type { GraphCalendar } from '@wisecom/atlas-types';
-import { read_owner_listing } from '@wisecom/atlas-m365-graph';
+import { drop_repeated_listings, read_owner_listing } from '@wisecom/atlas-m365-graph';
 import {
   CALENDARS_READ,
   CALENDARS_READ_WRITE,
@@ -30,6 +30,8 @@ function to_calendar(payload: CalendarPayload): GraphCalendar {
 /**
  * Lists the mailbox's calendars with the default calendar first. A 404 or other unclassified 4xx
  * is read again before it is believed, since the listing decides whether the run happens (#864).
+ * A calendar Graph lists twice is returned once, at its first copy, so its events are read and
+ * recorded once (#964). Every copy still counts toward the `@odata.count` check.
  *
  * @throws ListingIncompleteError when the pages hold fewer calendars than Graph counted.
  * @throws NotFoundError when the listing and the mailbox's user both answered 404 on every read.
@@ -47,7 +49,7 @@ export async function list_calendars(client: Client, mailbox_id: string): Promis
         'calendars',
       ),
   );
-  const calendars = payloads.map(to_calendar);
+  const calendars = drop_repeated_listings(payloads, (payload) => payload.id).map(to_calendar);
   return [...calendars.filter((c) => c.is_default), ...calendars.filter((c) => !c.is_default)];
 }
 

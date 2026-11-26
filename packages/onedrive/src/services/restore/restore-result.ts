@@ -8,6 +8,7 @@ export function empty_restore_result(snapshot_id: string): OneDriveRestoreResult
     folders_created: 0,
     files_skipped: 0,
     errors: [],
+    outcome_unknown: [],
     interrupted: true,
   };
 }
