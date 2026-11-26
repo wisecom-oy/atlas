@@ -197,6 +197,7 @@ pnpm run test:coverage  # merged coverage, one row per package (docs/development
 - Fill in the PR template checklist.
 - Make sure CI passes before requesting review.
 - Avoid committing secrets, credentials, or `.env` files.
+- Leave assistant attribution out of commits and PR text. The `commit-msg` hook removes a `Co-Authored-By` trailer that names Claude or an Anthropic address, and a "Generated with Claude Code" line. A human co-author trailer is kept.
 
 ## Reporting issues
 

@@ -1,0 +1,16 @@
+# Strip assistant attribution from the commit message, so the committer is the
+# only author. See "Authorship and Attribution" in .claude/CLAUDE.md.
+# A human Co-Authored-By trailer is kept: only one that names an Anthropic
+# address or a Claude product is removed.
+msg_file="$1"
+tmp_file="$msg_file.attribution"
+
+grep -v -i -E \
+  -e '^[[:space:]]*co-authored-by:.*(@anthropic\.com|claude (code|opus|sonnet|haiku|fable))' \
+  -e 'generated with \[?claude code' \
+  "$msg_file" > "$tmp_file" || true
+
+# Drop the blank lines the removed trailer leaves at the end of the message.
+awk '{ line[NR] = $0 } NF { last = NR } END { for (i = 1; i <= last; i++) print line[i] }' \
+  "$tmp_file" > "$msg_file"
+rm -f "$tmp_file"
