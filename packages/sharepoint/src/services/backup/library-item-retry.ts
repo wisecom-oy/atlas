@@ -14,6 +14,7 @@ import {
 import { is_transient_drive_failure } from '@wisecom/atlas-drive/backup/transient-download-failure';
 import { resolve_retry_read_not_found } from '@wisecom/atlas-drive/backup/retry-read-not-found';
 import type { DriveItemMetadataCapture } from '@wisecom/atlas-drive/backup/item-metadata-capture';
+import { is_permission_read_failure } from '@wisecom/atlas-drive/backup/unread-permissions';
 import {
   process_item_guarded,
   type FileTrackingState,
@@ -62,8 +63,10 @@ export async function retry_failed_items(
 
     // No successful backup of this item exists, so treat it as new content
     // regardless of stale tracking state: an unchanged etag would otherwise
-    // classify as "no change" and leave the item stuck in the ledger.
-    forget_item_tracking(tracking, record.item_id);
+    // classify as "no change" and leave the item stuck in the ledger. An item
+    // listed for its permission read had its content stored, so it keeps its
+    // tracking and only its permissions are read again, as on OneDrive (#856).
+    if (!is_permission_read_failure(record)) forget_item_tracking(tracking, record.item_id);
     try {
       await process_item_guarded(
         connector,

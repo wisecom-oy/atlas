@@ -301,7 +301,7 @@ What these checks do not cover:
 - **Content.** Message, file, and attachment objects are not JSON metadata. The three integrity layers above cover them.
 - **Values that are well formed but wrong.** The reader check is exactly as strict as the reader. The Outlook, OneDrive, and SharePoint readers check a manifest's identity, its `entries` list, and its date, not each entry, so a wrong field inside an entry passes.
 - **Changes after the read-back.** An attacker with write access can still replace or damage the object later. Object Lock and versioning address that.
-- **Backends that ignore conditional headers.** There the create-only write overwrites like any other. The tenant key bootstrap relies on the same header, see [Storage](/self-hosting/storage#protecting-the-tenant-data-key).
+- **Backends that ignore conditional headers.** There the create-only write would overwrite like any other, so Atlas refuses to write to such a bucket at all. See [Conditional writes are enforced or refused](#conditional-writes-are-enforced-or-refused).
 
 See [Refused and unconfirmed metadata writes](/troubleshooting#refused-and-unconfirmed-metadata-writes) for each message.
 
@@ -347,6 +347,29 @@ The bundled `docker/docker-compose.yml` publishes MinIO on `127.0.0.1` only and 
 
 Microsoft Graph is stricter: Atlas refuses to call it at all when `NODE_TLS_REJECT_UNAUTHORIZED=0` disables certificate validation. Storage has no equivalent check.
 
+## Conditional writes are enforced or refused
+
+```text
+Refusing to write to bucket <bucket>: the storage backend does not enforce conditional writes (...)
+```
+
+Atlas keeps concurrent runs apart, and keeps one data key per tenant, with conditional writes: a create-only `PUT` (`If-None-Match: *`) and a compare-and-swap `PUT` (`If-Match: <etag>`). These are the only lock Atlas has. On a backend that accepts them without checking:
+
+| What depends on it | What goes wrong without it |
+| --- | --- |
+| Owner and tenant leases | Two backups, or a backup and a delete, run on the same owner at once and overwrite each other's manifests and cursors |
+| Data key bootstrap | Two first runs of a tenant can each store a data key. Atlas reads the stored key back, but data already encrypted under the losing key would be unreadable |
+| Create-only manifests and indexes | A snapshot ID collision or a retried `PUT` replaces a stored manifest instead of failing |
+| Identity registry | Concurrent backups drop each other's new entries. A backend that refuses a correct `If-Match`, as Ceph RGW 18 does, makes every registry update fail |
+
+Every Atlas process therefore probes each bucket before its first conditional write to it, with the same three checks `atlas storage-check` runs, and remembers the answer for the rest of the process. A backend that accepts a create-only write onto an existing object, accepts a stale ETag, or refuses the current ETag is refused with `ConditionalWritesNotEnforcedError` (`ATLAS_CONFIG_INVALID`, exit `6`) before any lease, key, or backup data is written. There is no override: running without these guarantees corrupts backups silently, and the damage surfaces only at restore.
+
+The probe is a behaviour check from one client, not a proof:
+
+- **It does not detect a malicious backend.** A backend that answers the probe correctly and ignores the headers later is not caught. Choose the backend for its conditional-write support, as listed in [Backend compatibility](/self-hosting/storage#backend-compatibility).
+- **It tests single `PUT` requests.** Atlas sends every conditional write as a single `PutObject`, never as `CopyObject` or `CompleteMultipartUpload`, so a backend that enforces the conditions only on `PutObject` is sufficient.
+- **A probe that cannot run does not block.** If the bucket does not exist yet, the credentials may not write, or a request fails, the command logs a warning and continues without the check. After a failed request the next conditional write probes again, so a storage outage never becomes a lasting refusal.
+
 ## S3 permissions by command class
 
 Read and write storage access are separate, so an operator who only browses never needs write credentials:
@@ -364,7 +387,7 @@ Only the provisioning row creates a bucket or a new data key, and only a derived
 
 Give monitoring and audit principals the read-only row only. They never need `s3:CreateBucket`; a principal that holds it from Atlas versions before 2.1.0-beta can have it revoked.
 
-`storage-check` is read-only except for its conditional-write probe, which puts and deletes one object under `_meta/storage-check/`. With read-only credentials the probe reports `not probed` and the rest of the check still runs.
+`storage-check` is read-only except for its conditional-write probe, which puts and deletes one object under `_meta/storage-check/`. With read-only credentials the probe reports `not probed` and the rest of the check still runs. Every command that writes runs the same probe once per bucket before its first conditional write, so writing principals need `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`, `s3:ListBucketVersions`, and `s3:DeleteObjectVersion` on that prefix too. Without them the probe is skipped with a warning, and the command runs without that check.
 
 ::: details Owner leases and write permissions
 Atlas runs one operation at a time per mailbox, drive owner, site, or team. Backups, restores, deletions, and quarantines write, renew, and delete the [owner lease](/operations/storage-layout#owner-leases) for what they act on. A purge and a key re-wrap do the same with the tenant lease. A principal that may write but not delete, for example under a policy that denies `DeleteObject` on `_meta/*`, marks the lease released in place with a conditional write instead. A restore whose credentials cannot write the lease runs without one and logs that concurrent-run protection is off, so read-only restore credentials keep working at the cost of that protection.

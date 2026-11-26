@@ -4,6 +4,8 @@ import {
   type TeamsChannelShardRepository,
   type TeamsGraphResource,
 } from '@wisecom/atlas-types';
+import { graph_error } from '@wisecom/atlas-types/testing/stub-graph-client';
+import { graph_teams_call } from '@/adapters/graph-teams-request';
 import type { BackupRunScope } from '@/services/backup/backup-run-scope';
 import {
   backup_channel,
@@ -168,6 +170,40 @@ describe('process_channels worker pool', () => {
 
     expect(sibling_settled).toBe(true);
     expect(vi.mocked(backup_channel)).toHaveBeenCalledTimes(2);
+  });
+
+  // Issue #865: a 403 whose code is not a missing grant fails its channel, not the team.
+  it('fails only the channel a non-permission 403 answered, and its siblings complete', async () => {
+    vi.mocked(backup_channel).mockImplementation(async (_scope, channel) => {
+      if (channel.id === 'channel-2') {
+        await graph_teams_call(() => Promise.reject(graph_error(403, 'UnknownError', 'Refused')));
+      }
+      return output(channel.id);
+    });
+
+    const state = await process_channels(make_scope(), channels(3), make_inputs(2));
+
+    expect(state.records.get('channel-1')?.outcome).toBe('completed');
+    expect(state.records.get('channel-2')?.outcome).toBe('failed');
+    expect(state.records.get('channel-3')?.outcome).toBe('completed');
+    expect(state.errors).toEqual([
+      'Channel channel-2: Microsoft Graph returned 403 UnknownError, which does not name a ' +
+        'missing permission: Refused',
+    ]);
+  });
+
+  it('still stops the pool for a 403 whose code means a missing grant', async () => {
+    vi.mocked(backup_channel).mockImplementation(async (_scope, channel) => {
+      if (channel.id === 'channel-1') {
+        await graph_teams_call(() => Promise.reject(graph_error(403, 'Forbidden')));
+      }
+      return output(channel.id);
+    });
+
+    const run = process_channels(make_scope(), channels(3), make_inputs(1));
+
+    await expect(run).rejects.toBeInstanceOf(AuthError);
+    expect(vi.mocked(backup_channel)).toHaveBeenCalledTimes(1);
   });
 
   it('records a finished channel as completed, incomplete, or failed and keeps going', async () => {

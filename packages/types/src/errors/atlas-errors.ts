@@ -18,7 +18,8 @@ export type AtlasErrorCode =
   | 'ATLAS_CONFIG_INVALID'
   | 'ATLAS_ACCESS_REFUSED'
   | 'ATLAS_GRAPH_UNAVAILABLE'
-  | 'ATLAS_STORAGE_UNAVAILABLE';
+  | 'ATLAS_STORAGE_UNAVAILABLE'
+  | 'ATLAS_LISTING_INCOMPLETE';
 
 /**
  * Base class for every failure Atlas raises on purpose.
@@ -403,6 +404,10 @@ export class GraphAccessRefusedError extends AtlasError {
  * Graph kept failing a request with a transient answer (500, 502, 503, 504, a network error or a
  * timeout) until the retry budget ran out (issue #773). The service, not the request, is at fault,
  * so a later attempt can succeed. An exhausted 429 is `ThrottledError` instead.
+ *
+ * Also raised when a run's first read, such as a mailbox existence check or a unit listing, kept
+ * answering a 404, 400 or other 4xx through its confirming reads for an owner that exists
+ * (issues #862, #863 and #864).
  */
 export class GraphUnavailableError extends AtlasError {
   /** HTTP status of the last attempt, or undefined when it got no response at all. */
@@ -427,6 +432,34 @@ export class GraphUnavailableError extends AtlasError {
     this.graph_code = options.graph_code;
     this.retries = attempts.retries;
     this.elapsed_ms = attempts.elapsed_ms;
+  }
+}
+
+/**
+ * A Graph listing of a run's units (calendars, contact folders, mail folders, teams) ended with
+ * fewer items than the `@odata.count` Graph reported for the collection, or carried no count at all
+ * (issue #853). The listing cannot be shown complete, so a unit missing from it may still exist. The
+ * run stops before it reads or writes anything: a unit left off the listing must never be recorded
+ * as deleted, and every unit keeps its previous checkpoint.
+ */
+export class ListingIncompleteError extends AtlasError {
+  /** What was listed, e.g. `calendars`. */
+  readonly listing: string;
+  /** Items the listing's pages returned. */
+  readonly listed_count: number;
+  /** The collection size Graph reported, or undefined when no page carried `@odata.count`. */
+  readonly reported_count: number | undefined;
+
+  constructor(listing: string, listed_count: number, reported_count: number | undefined) {
+    super(
+      'ATLAS_LISTING_INCOMPLETE',
+      reported_count === undefined
+        ? `Microsoft Graph listed ${listed_count} ${listing} without reporting how many exist, so the listing cannot be shown complete`
+        : `Microsoft Graph listed ${listed_count} of ${reported_count} ${listing}: the listing ended before its last page`,
+    );
+    this.listing = listing;
+    this.listed_count = listed_count;
+    this.reported_count = reported_count;
   }
 }
 

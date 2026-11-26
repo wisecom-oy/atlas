@@ -1,6 +1,7 @@
-import type { TenantContext } from '@wisecom/atlas-types';
+import type { NotFoundStreak, TenantContext } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { describe_graph_error, is_content_gone_error } from '@wisecom/atlas-m365-graph';
+import { is_listed_size_part_limit_refusal } from '@wisecom/atlas-core/services/shared/multipart-part-plan';
 import type {
   DriveContentConnector,
   DriveDeltaItem,
@@ -19,7 +20,11 @@ import {
   is_version_already_captured,
   later_watermark,
 } from '@/versioning/version-watermark';
-import { append_all } from '@wisecom/atlas-core/utils/append-all';
+import {
+  create_version_relisting,
+  judge_version_not_found,
+  type VersionRelisting,
+} from '@/versioning/version-not-found';
 
 export interface VersionSyncResult {
   new_versions_stored: number;
@@ -37,16 +42,15 @@ export interface VersionSyncOutcome extends VersionSyncResult {
    * instead of skipping past it.
    */
   next_watermark?: DriveVersionWatermark | string;
+  /** Listed versions whose content still answers "not found", unconfirmed, by version id. */
+  not_found?: Record<string, NotFoundStreak>;
 }
 
-/**
- * Per-run version bookkeeping shared by every delta item of a backup. `watermarks` is carried in
- * and out through the delta cursor, so version dedup costs no index reads at all; `rows`
- * accumulates what this run captured for its single index object (issue #161).
- */
-export interface RunVersionCollector {
-  watermarks: Record<string, DriveVersionWatermark | string>;
-  rows: Map<string, DriveFileVersionRecord[]>;
+/** What earlier runs recorded about one file's historical versions. */
+export interface VersionHistoryState {
+  readonly watermark?: DriveVersionWatermark | string | undefined;
+  /** "Not found" streaks of listed versions, carried from the file's pending capture (issue #855). */
+  readonly not_found?: Readonly<Record<string, NotFoundStreak>> | undefined;
 }
 
 /** A fresh outcome per call: `records` is a mutable array and must not be shared between files. */
@@ -61,34 +65,15 @@ function empty_outcome(): VersionSyncOutcome {
 }
 
 /**
- * Records what one file's sync captured: the index rows for this run, and the advanced watermark.
- * Writing the watermark back immediately also means a file that appears twice in one delta cycle
- * is not downloaded twice.
- */
-export function collect_run_versions(
-  versions: RunVersionCollector,
-  file_id: string,
-  outcome: VersionSyncOutcome,
-): void {
-  if (outcome.records.length > 0) {
-    const rows = versions.rows.get(file_id);
-    if (rows) append_all(rows, outcome.records);
-    else versions.rows.set(file_id, [...outcome.records]);
-  }
-  if (outcome.next_watermark !== undefined) {
-    versions.watermarks[file_id] = outcome.next_watermark;
-  }
-}
-
-/**
  * Enumerates historical versions for a file and stores any not already captured, deciding that
  * from the file's dedup watermark rather than from the version index (issue #161).
  *
  * Versions are walked oldest first so the returned watermark can stop at the first version this
  * run could not capture:
- * - captured, or permanently gone from Graph (404/410, expired by the library's version policy):
- *   the watermark advances past it, since a later run can neither improve on it nor ever see it
- *   again
+ * - captured, or confirmed gone from Graph: the watermark advances past it, since a later run can
+ *   neither improve on it nor ever see it again. A version whose content answers 404 or 410 is
+ *   gone only once it has left the version list or the answer has repeated across runs
+ *   (issue #855); until then it counts as failed.
  * - failed for any other reason: the watermark stops there, so the next run retries that version
  *   and everything after it
  *
@@ -102,7 +87,7 @@ export async function sync_file_versions(
   owner_id: string,
   snapshot_id: string,
   ctx: TenantContext,
-  watermark: DriveVersionWatermark | string | undefined,
+  history: VersionHistoryState,
   abort_signal?: AbortSignal,
 ): Promise<VersionSyncOutcome> {
   const versions = await connector.list_file_versions(item.drive_id, item.item_id);
@@ -116,7 +101,7 @@ export async function sync_file_versions(
     snapshot_id,
     ctx,
     versions,
-    watermark,
+    history,
     abort_signal,
   );
   if (outcome.new_versions_stored > 0) {
@@ -136,9 +121,12 @@ async function capture_new_versions(
   snapshot_id: string,
   ctx: TenantContext,
   versions: readonly DriveFileVersion[],
-  watermark: DriveVersionWatermark | string | undefined,
+  history: VersionHistoryState,
   abort_signal?: AbortSignal,
 ): Promise<VersionSyncOutcome> {
+  const { watermark } = history;
+  const relisting = create_version_relisting(connector, item, abort_signal);
+  const not_found: Record<string, NotFoundStreak> = {};
   const totals: VersionSyncResult = {
     new_versions_stored: 0,
     versions_deduplicated: 0,
@@ -154,7 +142,7 @@ async function capture_new_versions(
       continue;
     }
 
-    const captured = await capture_version(
+    const attempt = await capture_version(
       keys,
       connector,
       item,
@@ -164,6 +152,7 @@ async function capture_new_versions(
       version,
       abort_signal,
     );
+    const captured = await settle_not_found(attempt, relisting, item, version, history, not_found);
     // Not `||=`: that short-circuits once blocked and would stop tallying the remaining versions
     // entirely.
     if (!tally_capture(totals, records, captured)) watermark_blocked = true;
@@ -180,7 +169,28 @@ async function capture_new_versions(
     ...totals,
     records,
     ...(next_watermark !== undefined && next_watermark !== watermark ? { next_watermark } : {}),
+    ...(Object.keys(not_found).length > 0 ? { not_found } : {}),
   };
+}
+
+/**
+ * Turns a "not found" content read into `gone` or `failed` (issue #855), recording the streak of an
+ * unconfirmed one in `not_found`. Any other capture passes through unchanged.
+ */
+async function settle_not_found(
+  attempt: VersionAttempt,
+  relisting: VersionRelisting,
+  item: DriveDeltaItem,
+  version: DriveFileVersion,
+  history: VersionHistoryState,
+  not_found: Record<string, NotFoundStreak>,
+): Promise<VersionCapture> {
+  if (attempt.kind !== 'not_found') return attempt;
+  const previous = history.not_found?.[version.version_id];
+  const verdict = await judge_version_not_found(relisting, item, version, previous, new Date());
+  if (verdict.kind === 'gone') return { kind: 'gone' };
+  not_found[version.version_id] = verdict.streak;
+  return { kind: 'failed' };
 }
 
 /**
@@ -212,11 +222,15 @@ type VersionCapture =
   | { kind: 'gone' }
   | { kind: 'failed' };
 
+/** One download attempt, before a "not found" answer has been judged. */
+type VersionAttempt = VersionCapture | { kind: 'not_found' };
+
 /**
- * Downloads one historical version, stores it content-addressed, and builds its index row. `gone`
- * means Graph no longer has the version at all, which is expected once a library's version policy
- * expires it; `failed` means the version may still be retrievable and the run should come back
- * for it.
+ * Downloads one historical version, stores it content-addressed, and builds its index row.
+ * `not_found` means the content read answered 404 or 410, which the caller still has to judge;
+ * `failed` means the version may still be retrievable and the run should come back for it.
+ * `gone` here means the version is too large to store at all, which no later run can change
+ * (issue #925), so it is counted unavailable and the watermark moves past it.
  */
 async function capture_version(
   keys: DriveStorageKeys,
@@ -227,7 +241,7 @@ async function capture_version(
   ctx: TenantContext,
   version: DriveFileVersion,
   abort_signal?: AbortSignal,
-): Promise<VersionCapture> {
+): Promise<VersionAttempt> {
   let stored: StoredVersionContent;
   try {
     stored = await store_version_content(
@@ -243,13 +257,12 @@ async function capture_version(
     // A cancelled run is not a version that failed to download: recording it as failed would block
     // the watermark and re-fetch it next run for no reason (issue #344).
     if (abort_signal?.aborted === true) throw err;
-    if (!(err instanceof VersionDownloadError)) throw err;
-    if (is_content_gone_error(err.source)) {
-      logger.debug(
-        `Version ${version.version_id} of ${item.file_name} no longer available (expired)`,
-      );
+    if (is_listed_size_part_limit_refusal(err)) {
+      logger.warn(`Version ${version.version_id} of ${item.file_name} not stored: ${err.message}`);
       return { kind: 'gone' };
     }
+    if (!(err instanceof VersionDownloadError)) throw err;
+    if (is_content_gone_error(err.source)) return { kind: 'not_found' };
     logger.warn(
       `Version ${version.version_id} of ${item.file_name}: ${describe_graph_error(err.source)}`,
     );

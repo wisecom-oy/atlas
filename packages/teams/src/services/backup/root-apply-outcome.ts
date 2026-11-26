@@ -26,8 +26,7 @@ export interface RootTask {
 export type RootOutcome =
   | { readonly kind: 'applied'; readonly thread: TeamsThread | undefined }
   | { readonly kind: 'missing' }
-  | { readonly kind: 'failed'; readonly message: string }
-  | { readonly kind: 'refused'; readonly message: string };
+  | { readonly kind: 'failed'; readonly message: string };
 
 /** A root task's result, including an interrupt that stops the pass. */
 export type RootTaskOutcome = RootOutcome | { readonly kind: 'interrupted' };
@@ -49,9 +48,7 @@ export function record_root_outcome(
   outcome: RootOutcome,
 ): void {
   if (outcome.kind === 'failed') {
-    record_failure(state, channel_id, task.root_id, outcome.message, false);
-  } else if (outcome.kind === 'refused') {
-    record_refusal(state, channel_id, task.root_id, outcome.message);
+    record_failure(state, channel_id, task.root_id, outcome.message);
   } else if (outcome.kind === 'missing') {
     record_missing(state, channel_id, task);
   } else {
@@ -59,35 +56,23 @@ export function record_root_outcome(
   }
 }
 
+/**
+ * Counts one attempt for a root that failed, 400 included: a 400 can be transient, so the root is
+ * retried on later runs until its attempt budget is spent (issue #896).
+ */
 function record_failure(
   state: RootApplyState,
   channel_id: string,
   root_id: string,
   message: string,
-  permanent: boolean,
 ): void {
   state.failed_roots = record_item_failure(state.failed_roots, {
     item_id: root_id,
     drive_id: channel_id,
     name: root_id,
     reason: message,
-    ...(permanent ? { permanent: true } : {}),
   });
   state.errors.push(`Channel ${channel_id} root ${root_id}: ${message}`);
-}
-
-/** A 400 from Graph is permanent, so the root leaves the recheck as well. */
-function record_refusal(
-  state: RootApplyState,
-  channel_id: string,
-  root_id: string,
-  message: string,
-): void {
-  record_failure(state, channel_id, root_id, message, true);
-  // Graph refused the root, so a recheck would be refused too.
-  state.hosted_recheck = Object.fromEntries(
-    Object.entries(state.hosted_recheck).filter(([id]) => id !== root_id),
-  );
 }
 
 /**

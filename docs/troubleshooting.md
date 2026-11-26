@@ -19,7 +19,9 @@ Before you open an issue, run `./tools/diagnostics.sh` from the repository root 
 
 These occur before any backup work starts. Atlas signs in to Microsoft Graph with the OAuth 2.0 client credentials flow, so a failure here is a credential or tenant configuration problem, not a network or storage problem.
 
-When Microsoft Entra ID refuses the token request, the command exits `4` with `Atlas code: ATLAS_AUTH_DENIED` and prints Entra's answer as the cause, for example `Cause: invalid_client: Error(s): 7000215`. Atlas does not retry a refusal, because Entra gives the same answer until the credentials change. A token request that gets no answer, or a `5xx` from Entra, is retried and ends in exit `3`.
+When Microsoft Entra ID refuses the token request, the command exits `4` with `Atlas code: ATLAS_AUTH_DENIED` and prints Entra's answer as the cause, for example `Cause: invalid_client: Error(s): 7000215`. Atlas does not retry a refusal, because Entra gives the same answer until the credentials change. A token request that gets no answer, or a `429` or `5xx` from Entra (for example `AADSTS90033`, a transient error), is retried through the [retry budget](/operations/reliability#microsoft-graph-requests), at least 60 s apart, and ends in exit `3` with `ATLAS_GRAPH_UNAVAILABLE` if Entra does not recover. Check Microsoft 365 service health and run the command again later.
+
+When Microsoft Graph answers `401 InvalidAuthenticationToken` to an issued token, Atlas requests a new token and repeats the call once. A `401` that persists after that exits `4` with `ATLAS_AUTH_DENIED`. Check **Microsoft Entra ID → Sign-in logs → Service principal sign-ins** for the application, and Microsoft 365 service health for an incident affecting Graph sign-in.
 
 `atlas tenants validate` and `atlas tenants add` are the exception. They request one token, print Entra's answer, and exit `1` for any failure, refused or unanswered, without retrying.
 
@@ -44,6 +46,25 @@ To fix a stored value:
 
 For any other AADSTS code, look it up in Microsoft's AADSTS error reference, then check **Microsoft Entra ID → Sign-in logs → Service principal sign-ins**, filtered by the application's client ID.
 
+### Microsoft Graph refused a request with 403
+
+```text
+[x] Microsoft Graph returned 403 Forbidden (ErrorAccessDenied).
+The app registration needs these Application permissions with admin consent:
+```
+
+The token was accepted, but Graph refused the call. When the code is `accessDenied`, `ErrorAccessDenied`, or `Authorization_RequestDenied`, or `Forbidden` on a Teams call, the app registration lacks a permission. The command exits `4` with `ATLAS_AUTH_DENIED`.
+
+1. Add the permissions the message lists, as Application permissions.
+2. Select **Grant admin consent for \<tenant\>**.
+3. For Teams, confirm Microsoft approved the protected API, see [Teams application permissions](/azure-ad-setup#teams-application-permissions).
+
+```text
+Channel <channel-id>: Microsoft Graph returned 403 UnknownError, which does not name a missing permission: ...
+```
+
+Any other code is not a missing permission, and Atlas does not report it as one. The request fails alone: one message, event, contact, or channel. The run continues, exits `2`, and the next run asks again. If the same item fails on every run, look up the code in the Microsoft Graph documentation for that endpoint. [Which `403` responses stop a run](/operations/reliability#forbidden-responses) lists the codes.
+
 ## Throttling and Microsoft Graph errors {#graph-throttling-and-transient-server-errors}
 
 Microsoft Graph returns `429` when it throttles a request, and occasionally `500`, `502`, `503`, or `504` under load. Atlas retries these on its own, up to 12 times per call, honouring `Retry-After`, so occasional throttling or server errors during a large first backup need no action. [Retries and fail-safes](/operations/reliability#microsoft-graph-requests) lists every retry parameter, and [Graph rate limits](/operations/graph-rate-limits) explains the budgets behind the `429`.
@@ -54,7 +75,7 @@ Microsoft Graph returns `429` when it throttles a request, and occasionally `500
 - Backoff is exponential with jitter, capped at 5 minutes per wait. Once a call has spent 24 minutes waiting, counting backoff, `Retry-After` waits, and cooldowns, it starts no new wait. A wait already started runs in full, so one call waits at most about 24 minutes plus one cooldown. Time spent inside each request does not count.
 - Each attempt times out after 60 seconds and is aborted before the next one is sent.
 - Atlas decides whether to retry from the HTTP status and from Node and undici error codes such as `ECONNRESET` or `UND_ERR_SOCKET`, never from the error message.
-- When retries run out on one item, the failure is recorded in the run summary and the backup continues. When they run out on a call the whole run depends on, such as listing a mailbox's folders or a site's libraries, the run fails as described below.
+- When a call spends its retry budget, a backup stops, commits what it finished, and exits `3`, whichever folder, drive, or channel it was reading. A restore or save fails only that item, continues, and exits `2`. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
 :::
 
 ### When to act
@@ -62,12 +83,14 @@ Microsoft Graph returns `429` when it throttles a request, and occasionally `500
 | What you see | What it means | What to do |
 | --- | --- | --- |
 | Occasional `429`s during a large first backup | Normal. Microsoft Graph throttles per application and per mailbox, and Atlas waits it out | Nothing |
-| Repeated `429`s that cause folder failures | Several backups run at the same time and exceed the tenant's Microsoft Graph capacity | Run one `atlas outlook backup -m` per mailbox and stagger the schedules |
+| Repeated `429`s that stop backups with `ATLAS_THROTTLED`, exit `3` | Several backups run at the same time and exceed the tenant's Microsoft Graph capacity | Run one `atlas outlook backup -m` per mailbox and stagger the schedules |
 | `429`s on every request from the start | Another application in the tenant may be using most of the quota | Review tenant-wide Microsoft Graph usage. Contact Microsoft support if the limits look lower than expected |
 | Occasional `500` or `502` responses | Normal under load. Retried automatically | Nothing, if the run completes |
-| Persistent `500` or `502` on the same item | Retries ran out against a server-side fault, not throttling | Rerun the backup later. If it repeats, open a Microsoft support case with the time of the failure and the affected item |
-| `ATLAS_GRAPH_UNAVAILABLE`, exit `3` | Microsoft Graph kept failing a call the run depends on | See [Microsoft Graph unavailable after retries](#microsoft-graph-unavailable-after-retries) |
-| `ATLAS_THROTTLED`, exit `3` | A `429` outlasted the retry budget on a call the run depends on | Schedule the run again later, or run fewer jobs at once for that mailbox or tenant |
+| Persistent `500` or `502` that stops a backup with `ATLAS_GRAPH_UNAVAILABLE`, exit `3`, at the same folder, drive, or item | Retries ran out against a server-side fault, not throttling | Rerun the backup later. If it repeats, open a Microsoft support case with the time of the failure and the affected item |
+| `ATLAS_GRAPH_UNAVAILABLE`, exit `3` | Microsoft Graph kept failing a call through its retry budget, and the backup stopped. A restore or save fails only that item, with this message on its error line, and exits `2` | See [Microsoft Graph unavailable after retries](#microsoft-graph-unavailable-after-retries) |
+| `ATLAS_GRAPH_UNAVAILABLE`, exit `3`, naming a `404` or `400` | A run's first read kept answering it for an owner that exists | See [A run's first read kept answering 404 or 400](#first-read-kept-answering-4xx) |
+| `ATLAS_THROTTLED`, exit `3` | A `429`, or SharePoint's `509 Bandwidth Limit Exceeded`, outlasted the retry budget, or `Retry-After` exceeded 1 hour, and the backup stopped. A restore or save fails only that item and exits `2` | Schedule the run again later, or run fewer jobs at once for that mailbox or tenant |
+| `ATLAS_LISTING_INCOMPLETE`, exit `2` | A listing of calendars, contact folders, mail folders, or teams ended with fewer items than Microsoft Graph counted. Nothing was written | Rerun. If it repeats for the same mailbox or tenant, open an issue with the message, which names both counts. See [Unit listings that end early](/operations/reliability#unit-listings) |
 
 Throttling caps throughput even with unlimited bandwidth. For a first full tenant backup, measure the real transfer rate and plan the schedule from it. See [Scheduling and bandwidth](/self-hosting/scheduling).
 
@@ -78,7 +101,7 @@ Throttling caps throughput even with unlimited bandwidth. For a first full tenan
 [x]   Atlas code: ATLAS_GRAPH_UNAVAILABLE
 ```
 
-Microsoft Graph answered `500`, `502`, `503`, or `504`, or the connection failed or timed out, on every attempt until the retry budget ran out. This is a service incident at Microsoft or a network problem between the host and Microsoft 365, not a fault in the backup. The run exits `3`.
+Microsoft Graph answered `408`, `500`, `502`, `503`, or `504`, answered `200` with a JSON body that was empty or cut short, or the connection failed or timed out, on every attempt until the retry budget ran out. This is a service incident at Microsoft or a network problem between the host and Microsoft 365, not a fault in the backup. A backup exits `3`. A restore or save reports the same message on the error line of each item it hit and exits `2`, so a `2` from a restore or save can also be a Microsoft 365 incident. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
 
 1. Check the [Microsoft 365 service health](https://admin.microsoft.com/#/servicehealth) page.
 2. Schedule the run again once the incident clears. Back off at the run level rather than retrying immediately: each attempt spends up to one retry budget, about 24 minutes, before it gives up.
@@ -92,16 +115,30 @@ In the SDK the error is `GraphUnavailableError`:
 | Field | Value |
 | --- | --- |
 | `status_code` | The last HTTP status, or `undefined` when no response arrived |
-| `graph_code` | The Microsoft Graph error code, or `undefined` when no response arrived |
+| `graph_code` | The Microsoft Graph error code, or `undefined` when no response arrived or the `200` body did not parse |
 | `retries` | Retries made, up to 12. Fewer when the 24-minute wait budget ran out first |
 | `elapsed_ms` | Time the call spent before giving up |
 | `cause` | The original Microsoft Graph error |
 
-A `429` that outlasts the budget is `ThrottledError` (`ATLAS_THROTTLED`) instead, also exit `3`.
+A `429` that outlasts the budget is `ThrottledError` (`ATLAS_THROTTLED`) instead, with the same exit codes: `3` from a backup, `2` from a restore or save.
+
+### A run's first read kept answering 404 or 400 {#first-read-kept-answering-4xx}
+
+```text
+[x] Microsoft Graph kept answering HTTP 404 -- itemNotFound -- ... on 3 reads over 12 s, to a request it answers for an owner that exists. Run the command again later.
+[x]   Atlas code: ATLAS_GRAPH_UNAVAILABLE
+```
+
+The mailbox existence check, drive listing, calendar listing, or contact folder listing answered a `4xx` on 3 reads about 6 s apart, and the owner's directory record still exists. Nothing was written. The run exits `3`, so a scheduler tries again later. `status_code` and `graph_code` on the SDK error name the answer.
+
+1. Rerun later. A replica that lags behind usually catches up within minutes.
+2. If the same owner repeats this for hours, open an issue with the status and code from the message.
+
+When the directory record answers `404` too, the owner is gone and the run exits `7` with `does not exist in the tenant`. See [The first read of a run](/operations/reliability#first-reads-of-a-run).
 
 ### Restore writes are sent once
 
-A restore reports an item as failed after a `500`, `502`, `504`, a `503` without `Retry-After`, a dropped connection, or a timeout. The item may or may not exist in the target: Microsoft 365 can commit a create and still lose the response, so Atlas does not repeat it and risk two copies. The restore continues with the other items.
+A restore reports an item as failed after a `408`, `500`, `502`, `504`, `509`, a `503` without `Retry-After`, a dropped connection, or a timeout. The item may or may not exist in the target: Microsoft 365 can commit a create and still lose the response, so Atlas does not repeat it and risk two copies. The restore continues with the other items.
 
 This covers messages, message and event attachments, events, contacts, mail, contact, and calendar folders, and OneDrive or SharePoint files restored with `--conflict rename` or `--conflict fail`.
 
@@ -109,7 +146,7 @@ This covers messages, message and event attachments, events, contacts, mail, con
 2. **Outlook:** check the reported message in the restore folder before restoring it again.
 3. **OneDrive or SharePoint with `--conflict rename` or `--conflict fail`:** check the target for the reported file before restoring it again.
 
-A `429`, or a `503` with `Retry-After`, is still retried, because Microsoft Graph sends these instead of processing the request. Files restored with `--conflict replace`, folder creation on OneDrive and SharePoint, and upload sessions are safe to repeat and keep the full retry policy. Upload chunks are safe to repeat too and have their own retry, up to 3 attempts on a `429` or `5xx`. See [File transfers](/operations/reliability#file-transfers-onedrive-and-sharepoint).
+A `429`, or a `503` with `Retry-After`, is still retried, because Microsoft Graph sends these instead of processing the request. Files restored with `--conflict replace`, folder creation on OneDrive and SharePoint, and upload sessions are safe to repeat and keep the full retry policy. Upload chunks are safe to repeat too and have their own retry, up to 3 attempts on a `408`, `429`, `500`, `502`, `503`, `504`, or `509`. See [File transfers](/operations/reliability#file-transfers-onedrive-and-sharepoint).
 
 ## OneDrive and SharePoint permission errors
 
@@ -128,7 +165,9 @@ Atlas could not find the owner in the tenant.
 No OneDrive is provisioned for user@example.com.
 ```
 
-The account exists and permissions are fine, but the user has never opened OneDrive. Microsoft Graph returns `404` for such a user, which is normal for admin and service accounts, and gives the same response for an account that does not exist. Atlas reports it as `ATLAS_NOT_FOUND` (exit `7`).
+The account exists and permissions are fine, but the user has never opened OneDrive. Microsoft Graph returns `404` with the code `ResourceNotFound` ("User's mysite not found.") for such a user, which is normal for admin and service accounts, and gives the same response for an account that does not exist. Atlas reports it as `ATLAS_NOT_FOUND` (exit `7`) on the first answer.
+
+Any other `404` on the drive listing, such as `itemNotFound`, is not this answer. Atlas reads it again, and one that persists for an owner who exists ends with `ATLAS_GRAPH_UNAVAILABLE` (exit `3`). See [A run's first read kept answering 404 or 400](#first-read-kept-answering-4xx).
 
 1. Sign in to OneDrive once as that user to provision the drive, or leave the account out of the run. A script that iterates over a tenant can skip the owner on exit `7` and continue.
 2. Do not re-check consent for this case. A missing permission is a `403`, reported separately as `ATLAS_AUTH_DENIED` (exit `4`).
@@ -241,6 +280,25 @@ The signature Atlas computed differs from the one the server expects. The cause 
 2. Remove trailing spaces and newlines from the values in your environment or `.env` file.
 3. For MinIO, confirm the keys match the root user and password the server was started with.
 4. Check the clock. S3 rejects requests whose timestamp differs from the server time by more than 15 minutes. Run NTP on both the Atlas host and the S3 server.
+
+### Conditional writes not enforced
+
+```
+Refusing to write to bucket atlas-<tenant-id>: the storage backend does not enforce conditional writes (the backend accepted a create-only write (If-None-Match: *) onto an existing object). ...
+```
+
+The storage backend failed the conditional-write probe Atlas runs before its first lease, key, or manifest write. The error is a `ConditionalWritesNotEnforcedError`, a `ConfigError` (`ATLAS_CONFIG_INVALID`, exit `6`), and nothing was written apart from the probe object, which Atlas removes. The text in brackets names the broken rule:
+
+| Text in the message | Backend behaviour | Seen on |
+| --- | --- | --- |
+| `accepted a create-only write (If-None-Match: *) onto an existing object` | Ignores `If-None-Match` | Garage, Scality CloudServer, Ceph RGW 18 |
+| `accepted a compare-and-swap (If-Match) with a stale ETag` | Ignores `If-Match` | Garage, Scality CloudServer |
+| `refused a compare-and-swap (If-Match) with the current ETag` | Refuses every `If-Match` | Ceph RGW 18 |
+
+Retrying returns the same answer, and there is no option to run anyway.
+
+1. Run `atlas storage-check` and read the `Conditional writes` row to confirm it.
+2. Upgrade the backend to a release that enforces conditional writes, or move the bucket to one that does. See [Backend compatibility](/self-hosting/storage#backend-compatibility).
 
 ## Decryption failures
 
@@ -514,7 +572,7 @@ Atlas checks every manifest, index, and cursor before it uploads it, writes snap
 | `Refusing to write ... its reader would reject it` | `RefusedWriteError`, `ATLAS_WRITE_REFUSED`, exit `1` | The object Atlas built fails its own reader's checks. Storing it would have produced a damaged manifest | Rerun. If it repeats, report it with the message, which names the object and the failed check, never content |
 | `Refusing to write ... too large to store as one JSON document` | The same | One manifest or index passed the JSON string limit of about 512 MB | Rerunning gives the same result. Report it with the message |
 | `Refusing to write ... decrypts to different bytes`, `does not decrypt` | The same | The ciphertext did not decrypt back to what was encrypted, which points at faulty memory or CPU on the host | Rerun. If it repeats, test the host's memory before trusting any backup made on it |
-| `already exists and holds a different object` | `StoredObjectConflictError`, `ATLAS_STORAGE_FAILURE`, exit `1` | Another object sits under this run's snapshot ID. The owner lease keeps two runs off one owner, so suspect a backend that ignores write conditions | Rerun, which uses a new snapshot ID. Run `atlas storage-check` and read its `Conditional writes` row |
+| `already exists and holds a different object` | `StoredObjectConflictError`, `ATLAS_STORAGE_FAILURE`, exit `1` | Another object sits under this run's snapshot ID. The owner lease keeps two runs off one owner, and Atlas refuses a backend that does not enforce write conditions, so this points at an object written outside Atlas | Rerun, which uses a new snapshot ID. Run `atlas storage-check` and read its `Conditional writes` row |
 | `was written, but reading it back returned different bytes` | `StorageError`, `ATLAS_STORAGE_FAILURE`, exit `1` | Storage returned something other than what was sent: a backend fault, or for a cursor, another run writing the same cursor | Rerun, then check `status`. If the object is reported damaged, see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes) or [Delta cursor or identity registry cannot be read](#delta-cursor-or-identity-registry-cannot-be-read) |
 | `was written but could not be read back to confirm it` | The same | The upload succeeded and the confirming `GET` failed. The cause is attached | Rerun once storage responds |
 

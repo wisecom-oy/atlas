@@ -13,6 +13,8 @@ export {
   is_content_gone_error,
   with_graph_retry,
 } from './graph-request-error-handler';
+export { read_owner_listing, read_user_exists } from '@/graph-owner-listing';
+export type { OwnerListing } from '@/graph-owner-listing';
 export { is_network_error } from './graph-network-error';
 export { is_permanent_item_error } from '@/graph-permanent-item-errors';
 export { is_exhausted_retry, rethrow_if_retry_exhausted } from './graph-exhausted-retry';
@@ -23,6 +25,8 @@ export {
 } from '@/graph-binary-download';
 export type { GraphRetryOptions } from './graph-request-error-handler';
 export {
+  is_missing_grant_refusal,
+  is_no_onedrive_answer,
   no_onedrive_message,
   rethrow_if_access_denied,
   rethrow_if_teams_access_denied,
@@ -53,3 +57,8 @@ export {
 export type { GraphFileSystemInfo, GraphIdentitySet } from './graph-drive-metadata';
 export { list_drive_item_versions } from './graph-drive-version-listing';
 export type { DriveItemVersionRecord } from './graph-drive-version-listing';
+export {
+  assert_listing_complete,
+  reported_collection_count,
+  with_collection_count,
+} from '@/graph-counted-listing';

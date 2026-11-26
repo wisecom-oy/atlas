@@ -190,6 +190,7 @@ export {
   MissingGraphPermissionsError,
   GraphAccessRefusedError,
   GraphUnavailableError,
+  ListingIncompleteError,
   StorageUnavailableError,
 } from '@wisecom/atlas-types';
 export type {
@@ -202,4 +203,5 @@ export {
   ObjectLockUnsupportedError,
   ObjectLockModeRejectedError,
   PreconditionFailedError,
+  ConditionalWritesNotEnforcedError,
 } from '@wisecom/atlas-s3';

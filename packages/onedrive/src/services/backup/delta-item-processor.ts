@@ -14,6 +14,7 @@ import {
 } from '@/services/backup/backup-builders';
 import { process_backup_file } from '@/services/backup/backup-file-processor';
 import { is_download_refused } from '@wisecom/atlas-m365-graph';
+import { is_listed_size_part_limit_refusal } from '@wisecom/atlas-core/services/shared/multipart-part-plan';
 import { resolve_backed_up_kind } from '@wisecom/atlas-drive';
 import { spares_failed_item_attempt } from '@wisecom/atlas-drive/backup/transient-download-failure';
 import { classify_change_type } from '@/services/backup/change-classifier';
@@ -30,9 +31,10 @@ import {
   type DriveItemMetadataCapture,
 } from '@wisecom/atlas-drive/backup/item-metadata-capture';
 import { plan_sharing_only_change } from '@wisecom/atlas-drive/backup/sharing-only-change';
+import { carry_forward_unread_permissions } from '@wisecom/atlas-drive/backup/unread-permissions';
 import {
-  collect_run_versions,
-  sync_file_versions,
+  capture_owed_file_versions,
+  forget_pending_versions,
   type RunVersionCollector,
 } from '@/services/versioning/version-sync';
 
@@ -136,6 +138,7 @@ export async function process_delta_item(
   );
 
   if (item.deleted) {
+    forget_pending_versions(versions, item.item_id);
     if (!classified) return NOTHING;
     delete permission_digests(state)[item.item_id];
     // Graph omits `name` for a removed item, so the last name we saw is the
@@ -173,17 +176,18 @@ export async function process_delta_item(
   if (download.outcome) return download.outcome;
   const result = download.result;
 
-  if (!result.deduplicated) {
-    const version_result = await sync_file_versions(
-      connector,
-      item,
-      owner_id,
-      snapshot_id,
-      ctx,
-      versions.watermarks[item.item_id],
-      abort_signal,
-    );
-    collect_run_versions(versions, item.item_id, version_result);
+  // Deduplicated content still owes versions when an earlier run stopped before capturing them.
+  const version_result = await capture_owed_file_versions(
+    connector,
+    item,
+    owner_id,
+    snapshot_id,
+    ctx,
+    versions,
+    result.deduplicated,
+    abort_signal,
+  );
+  if (version_result) {
     accumulate_version_stats(version_result, version_stats, on_version_stats_update);
   }
   state.previous_path_by_file_id[item.item_id] = item.parent_path;
@@ -191,7 +195,13 @@ export async function process_delta_item(
   state.previous_kind_by_file_id[item.item_id] = 'file';
   if (item.etag) state.previous_etag_by_file_id[item.item_id] = item.etag;
 
-  record_file_permission_digest(state, item.item_id, observation);
+  // A failed permission read keeps the newest earlier entry's grants; the caller records the failure.
+  const stored_permissions = await carry_forward_unread_permissions(
+    item.item_id,
+    observation,
+    capture.sharing,
+  );
+  record_file_permission_digest(state, item.item_id, stored_permissions);
 
   return {
     // The stored length, which is the refreshed size when the file grew on its first download (#759).
@@ -202,7 +212,7 @@ export async function process_delta_item(
         result.checksum,
         change_type,
       ),
-      observation,
+      stored_permissions,
     ),
     files_stored: result.stored ? 1 : 0,
     files_deduplicated: result.deduplicated ? 1 : 0,
@@ -233,7 +243,9 @@ async function sharing_only_change(
  * A refusal is permanent for this item but not for the run, so it is recorded the
  * way a quarantined item is. A missing grant is deliberately not caught: it applies
  * to every item and must stop the run (issue #246). A failure outside the file is
- * recorded without spending an attempt (issues #718, #857).
+ * recorded without spending an attempt (issues #718, #857). A file too large for the
+ * multipart part limit is recorded as permanent too, since nothing was uploaded and
+ * every retry would be refused the same way (issue #925).
  */
 async function download_or_record_refusal(
   connector: OneDriveConnector,
@@ -256,7 +268,7 @@ async function download_or_record_refusal(
     if (spares_failed_item_attempt(err)) {
       return { outcome: { ...empty, error: err.message, consumes_attempt: false } };
     }
-    if (!is_download_refused(err)) throw err;
+    if (!is_download_refused(err) && !is_listed_size_part_limit_refusal(err)) throw err;
     return { outcome: { ...empty, error: err.message, permanent: true } };
   }
 }

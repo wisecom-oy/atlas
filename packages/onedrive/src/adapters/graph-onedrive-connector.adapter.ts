@@ -6,7 +6,6 @@ import {
   GRAPH_CLIENT_TOKEN,
   get_graph_content_stream,
   is_invalid_delta_error,
-  no_onedrive_message,
   rethrow_if_no_onedrive,
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
@@ -25,7 +24,6 @@ import type {
   OneDriveDrive,
   OneDriveFileVersion,
 } from '@wisecom/atlas-types';
-import { NotFoundError } from '@wisecom/atlas-types';
 import { compute_chunk_timeout_ms } from '@wisecom/atlas-drive/backup/cdn-chunk-request';
 import { stream_to_buffer } from '@wisecom/atlas-drive/backup/stream-drain';
 import {
@@ -38,18 +36,10 @@ import { execute_onedrive_delta } from '@/adapters/graph-onedrive-delta-fetch';
 import { create_graph_drive_sharing } from '@wisecom/atlas-drive/permissions/graph-drive-sharing';
 import { fetch_drive_folder_colors } from '@wisecom/atlas-drive/graph/graph-folder-color-fetch';
 import { graph_onedrive_fetch_item_by_id } from '@/adapters/graph-onedrive-item-fetch';
+import { list_owner_drives } from '@/adapters/graph-onedrive-drive-listing';
 
 /** Floor for draining one buffered version, whatever its listed size. */
 const VERSION_DRAIN_TIMEOUT_MS = 120_000;
-
-interface GraphCollectionResponse<T> {
-  value?: T[];
-}
-
-interface GraphDriveRecord {
-  id?: string;
-  name?: string;
-}
 
 /** Microsoft Graph adapter for OneDrive delta sync, file download, restore and sharing. */
 @injectable()
@@ -60,20 +50,13 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     this._sharing = create_graph_drive_sharing(_client);
   }
 
-  /** Lists all OneDrive drives for a user (falls back to default drive). */
+  /**
+   * Lists all OneDrive drives for a user (falls back to default drive). A 403 is classified as a
+   * missing grant or a refused owner; Graph's "no OneDrive" answer becomes `NotFoundError`.
+   */
   async list_drives(_tenant_id: string, owner_id: string): Promise<OneDriveDrive[]> {
     try {
-      const response = await with_graph_retry(
-        () =>
-          this._client.api(`/users/${owner_id}/drives?$select=id,name`).get() as Promise<
-            GraphCollectionResponse<GraphDriveRecord>
-          >,
-      );
-      const drives = (response.value ?? [])
-        .filter((drive) => Boolean(drive.id))
-        .map((drive) => ({ drive_id: drive.id ?? '', drive_name: drive.name ?? '' }));
-      if (drives.length > 0) return drives;
-      return await this.fallback_default_drive(owner_id);
+      return await list_owner_drives(this._client, owner_id);
     } catch (err) {
       await ONEDRIVE_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(this._client, err, {
         label: `owner ${owner_id}`,
@@ -257,24 +240,5 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     request: DriveLinkRequest,
   ): Promise<DriveSharingWriteOutcome> {
     return this._sharing.create_item_link(drive_id, item_id, request);
-  }
-
-  private async fallback_default_drive(owner_id: string): Promise<OneDriveDrive[]> {
-    let default_drive: GraphDriveRecord | undefined;
-    try {
-      default_drive = await with_graph_retry(
-        () =>
-          this._client
-            .api(`/users/${owner_id}/drive?$select=id,name`)
-            .get() as Promise<GraphDriveRecord>,
-      );
-    } catch (err) {
-      // 404 here means the drive does not exist, not that a grant is missing. Reporting it as a
-      // permission fault sent operators to Entra to grant what they already had (issue #404).
-      rethrow_if_no_onedrive(err, owner_id);
-      throw err;
-    }
-    if (!default_drive.id) throw new NotFoundError(no_onedrive_message(owner_id));
-    return [{ drive_id: default_drive.id, drive_name: default_drive.name ?? 'default' }];
   }
 }

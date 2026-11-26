@@ -48,6 +48,83 @@ describe('GraphTeamsConnector.list_channels', () => {
   });
 });
 
+describe('GraphTeamsConnector.list_teams', () => {
+  const read = read_all_pages as unknown as Mock;
+
+  beforeEach(() => {
+    read.mockReset();
+  });
+
+  it('asks Graph to count the teams and returns them when the listing holds every one', async () => {
+    const client = {} as Client;
+    read.mockResolvedValueOnce({ items: [{ id: 'team-1' }, { id: 'team-2' }], reported_count: 2 });
+
+    const teams = await new GraphTeamsConnector(client).list_teams('tenant-1');
+
+    expect(read).toHaveBeenCalledWith(client, '/teams?$select=id,displayName&$count=true');
+    expect(teams.map((team) => team.id)).toEqual(['team-1', 'team-2']);
+  });
+
+  it('refuses a team listing that ended with fewer teams than Graph counted', async () => {
+    read.mockResolvedValueOnce({ items: [{ id: 'team-1' }], reported_count: 3 });
+
+    await expect(
+      new GraphTeamsConnector({} as Client).list_teams('tenant-1'),
+    ).rejects.toMatchObject({
+      code: 'ATLAS_LISTING_INCOMPLETE',
+      listing: 'teams',
+      listed_count: 1,
+      reported_count: 3,
+    });
+  });
+});
+
+describe('GraphTeamsConnector.channel_exists', () => {
+  function client_answering(answer: () => Promise<unknown>): { client: Client; urls: string[] } {
+    const urls: string[] = [];
+    const client = {
+      api: (url: string) => {
+        urls.push(url);
+        return { get: answer };
+      },
+    } as unknown as Client;
+    return { client, urls };
+  }
+
+  it('reads the channel by id and reports it present when Graph answers', async () => {
+    const { client, urls } = client_answering(async () => ({ id: 'channel-1' }));
+
+    const exists = await new GraphTeamsConnector(client).channel_exists(
+      'tenant-1',
+      'team-1',
+      'channel-1',
+    );
+
+    expect(exists).toBe(true);
+    expect(urls).toEqual(['/teams/team-1/channels/channel-1?$select=id']);
+  });
+
+  it('reports the channel gone only on a 404', async () => {
+    const { client } = client_answering(async () => {
+      throw Object.assign(new Error('Not found'), { statusCode: 404 });
+    });
+
+    await expect(
+      new GraphTeamsConnector(client).channel_exists('tenant-1', 'team-1', 'channel-1'),
+    ).resolves.toBe(false);
+  });
+
+  it('rethrows any other failure rather than guess that the channel is gone', async () => {
+    const { client } = client_answering(async () => {
+      throw Object.assign(new Error('Bad request'), { statusCode: 400 });
+    });
+
+    await expect(
+      new GraphTeamsConnector(client).channel_exists('tenant-1', 'team-1', 'channel-1'),
+    ).rejects.toThrow('Bad request');
+  });
+});
+
 describe('GraphTeamsConnector.list_channel_shared_teams', () => {
   const read = read_all_pages as unknown as Mock;
 

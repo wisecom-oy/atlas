@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { Container } from 'inversify';
 import { GRAPH_CLIENT_TOKEN } from '@wisecom/atlas-m365-graph';
-import { MimeUnavailableError } from '@wisecom/atlas-types';
+import { AuthError, MimeUnavailableError } from '@wisecom/atlas-types';
 import { GraphMailboxConnector } from '@/adapters/graph-mailbox-connector.adapter';
 
 interface GraphError {
@@ -98,28 +98,50 @@ describe('GraphMailboxConnector.fetch_mime', () => {
     }
   });
 
-  it('resolves undefined when the message no longer exists', async () => {
-    const harness = create_harness(() =>
-      Promise.reject(graph_error(404, 'ErrorItemNotFound') as unknown as Error),
-    );
+  // A 401 is sent once more with a newly issued token before it is final (issue #861).
+  it.each([
+    [400, 'ErrorInvalidRequest', 1],
+    [401, 'InvalidAuthenticationToken', 2],
+    [404, 'ErrorItemNotFound', 1],
+  ])(
+    'rejects with the Graph error on %i %s instead of resolving no MIME (issue #849)',
+    async (status, code, attempts) => {
+      vi.useFakeTimers();
+      try {
+        const refusal = graph_error(status, code);
+        const harness = create_harness(() => Promise.reject(refusal as unknown as Error));
 
-    await expect(harness.connector.fetch_mime('t', 'owner-1', 'gone')).resolves.toBeUndefined();
-  });
+        const outcome = harness.connector
+          .fetch_mime('t', 'owner-1', 'msg-1')
+          .catch((e: unknown) => e);
+        await vi.advanceTimersByTimeAsync(5_000);
 
-  it('resolves undefined when the item type has no MIME representation', async () => {
-    const harness = create_harness(() =>
-      Promise.reject(graph_error(400, 'ErrorInvalidRequest') as unknown as Error),
-    );
-
-    await expect(harness.connector.fetch_mime('t', 'owner-1', 'odd')).resolves.toBeUndefined();
-  });
+        expect(await outcome).toBe(refusal);
+        expect(harness.get).toHaveBeenCalledTimes(attempts);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it('rethrows access denied instead of silently downgrading to JSON', async () => {
     const harness = create_harness(() =>
       Promise.reject(graph_error(403, 'ErrorAccessDenied') as unknown as Error),
     );
 
-    await expect(harness.connector.fetch_mime('t', 'owner-1', 'msg-1')).rejects.toThrow();
+    await expect(harness.connector.fetch_mime('t', 'owner-1', 'msg-1')).rejects.toThrow(AuthError);
+  });
+
+  // Issue #865: a 403 whose code is not a missing grant fails the one message, not the folder.
+  it('rejects a non-permission 403 as a failed request naming its code, not an AuthError', async () => {
+    const harness = create_harness(() =>
+      Promise.reject(graph_error(403, 'UnknownError') as unknown as Error),
+    );
+
+    const attempt = harness.connector.fetch_mime('t', 'owner-1', 'msg-1');
+
+    await expect(attempt).rejects.not.toBeInstanceOf(AuthError);
+    await expect(attempt).rejects.toThrow('403 UnknownError');
   });
 
   it('rejects with MimeUnavailableError after one request when Exchange cannot convert the item', async () => {

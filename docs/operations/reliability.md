@@ -24,7 +24,9 @@ The [exit code table](#exit-codes-and-whether-to-retry) says which codes a rerun
 
 | Failure | What Atlas does | Section |
 | --- | --- | --- |
-| Microsoft Graph `429`, `500`, `502`, `503`, `504`, network error | Retries up to 12 times with backoff, honouring `Retry-After` | [Microsoft Graph requests](#microsoft-graph-requests) |
+| Microsoft Graph `408`, `429`, `500`, `502`, `503`, `504`, `509`, network error, or a `200` whose JSON body is empty or cut short | Retries up to 12 times with backoff, honouring `Retry-After` | [Microsoft Graph requests](#microsoft-graph-requests) |
+| Microsoft Graph `401` on an issued token | Requests a new token and repeats the call once. A second `401` exits `4` | [Microsoft Graph requests](#microsoft-graph-requests) |
+| A `404` or other `4xx` on a run's first existence check or listing | Reads it twice more, 2 s and 4 s later, before it decides the owner is gone | [The first read of a run](#first-reads-of-a-run) |
 | Microsoft Graph outage outlasts the retry budget during a backup | Stops the run after one budget, commits what finished, exits `3` | [When retries run out](#when-retries-run-out-on-a-throttle) |
 | A large file transfer stalls or its URL expires | Retries the range, refreshes the URL, resumes at the failed range | [File transfers](#file-transfers-onedrive-and-sharepoint) |
 | S3 request fails or the backend stops answering | Retries each request up to 3 times, cuts off a connect after 10 s and a silent socket after 5 min, then exits `3`. Writes that must not collide are conditional | [Storage](#storage) |
@@ -42,7 +44,10 @@ Every Microsoft Graph call goes through one retry loop. The Graph SDK's own retr
 
 | Parameter | Value |
 | --- | --- |
-| Retried HTTP statuses | `429`, `500`, `502`, `503`, `504` |
+| Retried HTTP statuses | `408`, `429`, `500`, `502`, `503`, `504`, `509` |
+| Retried unreadable answers | A `2xx` whose JSON body is empty, or ends early on a clean close, so it does not parse |
+| `401` | Repeated once per call, with a newly issued access token. A second `401` in the same call ends it |
+| Failed Graph token request | Retried like a `5xx` when Microsoft Entra ID did not answer, or answered `408`, `429`, a `5xx`, or `temporarily_unavailable`. After a `429` or `5xx`, the next attempt waits at least 60 s |
 | Retried transport errors | Node and undici codes such as `ECONNRESET`, `ETIMEDOUT`, `ENOTFOUND`, `EAI_AGAIN`, `UND_ERR_SOCKET`, and aborted or timed-out transfers |
 | Maximum retries | 12, so at most 13 attempts per call |
 | Backoff without `Retry-After` | `min(1 s × 2^attempt + random(0 to 1 s), 5 min)` |
@@ -50,19 +55,49 @@ Every Microsoft Graph call goes through one retry loop. The Graph SDK's own retr
 | `Retry-After` missing, unreadable, or in the past | Exponential backoff as above |
 | `Retry-After` below 1 s | Raised to 1 s |
 | `Retry-After` above 1 hour | The call fails at once with `ThrottledError` naming the value. The pool or mailbox still cools down for the hour, for the rest of the run |
-| `429` without `Retry-After` | 30 s cooldown for the pool |
+| `429` or `509` without `Retry-After` | 30 s cooldown for the pool |
 | Waiting budget per call | 24 minutes of backoff, `Retry-After`, and cooldown waits. A wait already started runs in full |
 | Per-attempt timeout | 60 s by default. A timed-out request is aborted before the next attempt is sent |
 
-`500` and `502` are retried because Microsoft Graph returns them for load and gateway faults that clear on their own. `501` and every other `4xx` are not retried: the same request returns the same answer. A `500` carrying `ErrorMimeContentConversionFailed` is not retried either, because Exchange returns it for an item it can never convert (see [When a message cannot be stored as MIME](/operations/delta-sync#when-a-message-cannot-be-stored-as-mime)). Atlas decides from the HTTP status and structured error codes only, never from message text, which carries request IDs and item IDs whose digits could pass for a status.
+`500` and `502` are retried because Microsoft Graph returns them for load and gateway faults that clear on their own. `408 Request Timeout` is retried like a `504`, as it already is for a token request. `509 Bandwidth Limit Exceeded` is SharePoint's throttle for a tenant or app over its bandwidth limit, so it is retried and pauses the pool like a `429`.
+
+`501` and every other `4xx` are not retried by this loop: the same request returns the same answer. That includes `423 Locked`, which Microsoft 365 returns for a checked-out or exclusively opened file, and `507 Insufficient Storage`, a target out of quota. A lock is held by a person or an app, and quota is not freed by waiting, so either one fails its item or unit at once rather than spending a 24-minute budget. Before any item, the command exits `1`, because someone has to release the lock or free the space. A `401` is the exception. Graph can reject a token Microsoft Entra ID has only just issued, so Atlas discards the token Graph rejected and repeats the request once with a new one. A `401` that a new token does not clear means the credentials or the tenant are at fault, and it ends the call at once with exit `4` rather than after the 24-minute budget. A run's first read is another exception, see [The first read of a run](#first-reads-of-a-run). A `500` carrying `ErrorMimeContentConversionFailed` is not retried either, because Exchange returns it for an item it can never convert (see [When a message cannot be stored as MIME](/operations/delta-sync#when-a-message-cannot-be-stored-as-mime)). Atlas decides from the HTTP status and structured error codes only, never from message text, which carries request IDs and item IDs whose digits could pass for a status.
 
 An Outlook MIME download (`GET /messages/{id}/$value`) that answers `200` with an empty body is requested again, up to 3 requests in all, 2 s and then 4 s apart. Zero bytes are never an RFC 5322 message, and storing them would pass every later check, since `verify` compares a checksum of zero bytes with zero bytes. If the body stays empty, the message is handled as a failed MIME capture (see [Partial runs](#partial-runs)). Attachments and files can be empty legitimately, so the check covers MIME only. A body shorter than its `Content-Length` fails in transport as `UND_ERR_SOCKET` and is retried as above.
 
+A JSON read that answers `2xx` with a body that does not parse, empty or cut short on a clean close, is retried the same way. Microsoft Graph answered, but the answer is unusable and a repeated read normally gets it whole. A `4xx` with an unparseable body is judged by its status only, so a `404` with an empty body is still not retried.
+
+A token request that Microsoft Entra ID answers with a `429` or `5xx` is held back for at least 60 s by MSAL, the Microsoft library that requests the token, or for as long as Entra's `Retry-After` asks. A repeat inside that window never reaches Entra ID, so Atlas waits at least 60 s between token attempts. An Entra ID outage is retried through the whole budget and ends in `ATLAS_GRAPH_UNAVAILABLE`, exit `3`. A refusal of the credentials (`invalid_client`, an unknown client ID or tenant, an expired secret) is never retried and exits `4`.
+
 The 24-minute budget sits just above the full exponential schedule (1 + 2 + 4 + ... capped at 5 minutes comes to about 23.5 minutes), so backoff alone always gets all 12 retries. Time spent inside a request does not count, so a slow download keeps its retries. One call therefore waits at most about 24 minutes plus one cooldown, and so does a whole backup run: see [When retries run out](#when-retries-run-out-on-a-throttle).
+
+### The first read of a run {#first-reads-of-a-run}
+
+```text
+[x] "<owner-id>" does not exist in the tenant: Microsoft Graph answered 404 for the user and for its calendars on every read. Verify the owner and try again.
+[x]   Atlas code: ATLAS_NOT_FOUND
+```
+
+The first Microsoft Graph read of a run decides whether the run happens at all: the mailbox existence check of an Outlook backup, restore, or status (`GET /users/{id}`), the OneDrive drive listing (`GET /users/{id}/drives`, then `/drive` when it lists none), the calendar listing, and the contact folder listing. Microsoft Graph answers `404` for an owner that exists while a directory or mailbox replica lags, so one answer is not taken at its word.
+
+| First read answers | What Atlas does |
+| --- | --- |
+| `404`, `400`, or another `4xx` not listed below | Reads again 2 s later, then 4 s after that: 3 reads in about 6 s. An answer that clears lets the run continue |
+| `404` on all 3 reads of the Outlook existence check | `NotFoundError` (`ATLAS_NOT_FOUND`), exit `7` |
+| `404` on all 3 reads of a listing | Reads the owner's directory record, `GET /users/{id}?$select=id`, under the same rule. A `404` there too is `NotFoundError`, exit `7`. Anything else is `GraphUnavailableError`, exit `3` |
+| Another `4xx` on all 3 reads | `GraphUnavailableError` (`ATLAS_GRAPH_UNAVAILABLE`), exit `3`, naming the status and code |
+| `404 ResourceNotFound` on a OneDrive drive lookup ("User's mysite not found.") | Accepted on the first read: no OneDrive is provisioned, exit `7` |
+| `MailboxNotEnabledForRESTAPI` | Accepted on the first read: the mailbox is unlicensed, exit `4` |
+| `403` | Classified by its code on the first read, see [Which `403` responses stop a run](#forbidden-responses) |
+| `401` or `429` | Not repeated by this rule. The loop above retries a `429`, and repeats a `401` once with a new token. A `401` that survives the new token ends the run as an authentication failure, exit `4` |
+
+An owner that is really gone costs at most 2 extra requests on the existence check and 5 on a listing, about 12 s in all, before exit `7`. The directory check needs `User.Read.All`. Without it, a listing that keeps answering `404` cannot be shown to belong to a missing owner and ends with exit `3`.
+
+The rule only delays a verdict within one run, and a run that ends here writes nothing. It differs from the rule for a file, version, or contact photo that answers `404`, which spreads its 3 reads over 24 hours because that verdict removes data from later snapshots. A `404` on a later calendar's, folder's, or drive's changes still fails only that unit, with exit `2`.
 
 ### Cooldowns shared across requests
 
-A `429` starts a cooldown for every request to the same budget, not only a wait for the one call. Outlook and Teams cooldowns cover one mailbox or team, because Microsoft Graph meters them that way. SharePoint and OneDrive share one tenant-wide cooldown. Overlapping cooldowns do not add up: the longest one wins. When a cooldown ends, waiting requests resume one by one over the release delay instead of in a single burst.
+A `429` or a `509` starts a cooldown for every request to the same budget, not only a wait for the one call. Outlook and Teams cooldowns cover one mailbox or team, because Microsoft Graph meters them that way. SharePoint and OneDrive share one tenant-wide cooldown. Overlapping cooldowns do not add up: the longest one wins. When a cooldown ends, waiting requests resume one by one over the release delay instead of in a single burst.
 
 A cooldown keeps the CLI process running only while the command is still working. Once the command has finished or failed, it exits with its code straight away, even when a cooldown of up to an hour is still in force. Requests still waiting on that cooldown are dropped with the process, not sent early.
 
@@ -85,8 +120,9 @@ Concurrency is fixed, not adaptive. A `429` does not lower it; the shared cooldo
 
 | What ran out | Error | Backup | Restore and save |
 | --- | --- | --- | --- |
-| A `429` (12 retries or the 24-minute budget), or a `Retry-After` above 1 hour | `ThrottledError` (`ATLAS_THROTTLED`) with the last `Retry-After` attached | The run stops, exit `3` | That item fails and the command continues, exit `2` |
-| A `500`, `502`, `503`, `504`, or network error | `GraphUnavailableError` (`ATLAS_GRAPH_UNAVAILABLE`) | The run stops, exit `3` | That item fails and the command continues, exit `2` |
+| A `429` or `509` (12 retries or the 24-minute budget), or a `Retry-After` above 1 hour | `ThrottledError` (`ATLAS_THROTTLED`) with the last `Retry-After` attached | The run stops, exit `3` | That item fails and the command continues, exit `2` |
+| A `408`, `500`, `502`, `503`, `504`, a `200` whose JSON body did not parse, or a network error | `GraphUnavailableError` (`ATLAS_GRAPH_UNAVAILABLE`) | The run stops, exit `3` | That item fails and the command continues, exit `2` |
+| A `4xx` on a run's [first read](#first-reads-of-a-run), for an owner that exists, on all 3 reads | `GraphUnavailableError` (`ATLAS_GRAPH_UNAVAILABLE`) | The run stops before it writes anything, exit `3` | The command stops before it writes anything, exit `3` |
 
 A call that spends its whole budget has met an incident at Microsoft or on the network, not a fault of one item, so a backup treats it as an outage of the whole run. From that moment no Graph call of the run sends a request or starts a wait. Each fails at once with the same error, and requests already sent finish. The run then:
 
@@ -102,9 +138,9 @@ A call that is not retried to exhaustion stays the item's own failure and the ru
 
 ### Writes that are sent once
 
-A restore request that creates something (a message, attachment, event, contact, folder, or a drive file under `--conflict rename` or `--conflict fail`) is retried only on a `429`, or a `503` carrying `Retry-After`. Microsoft Graph sends those instead of processing the request.
+A restore request that creates something (a message, attachment, event, contact, folder, or a drive file under `--conflict rename` or `--conflict fail`) is retried only on a `429`, a `503` carrying `Retry-After`, or a single `401` with the code `InvalidAuthenticationToken`. Microsoft Graph sends those instead of processing the request: it checks the token before the request reaches Exchange or SharePoint. A `401` with any other code is not repeated.
 
-A `500`, `502`, `504`, timeout, or dropped connection after a create may arrive after Microsoft 365 committed it, so repeating the request could leave a duplicate. The item is reported as failed and the restore continues. See [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) for what to check before restoring it again.
+A `408`, `500`, `502`, `504`, `509`, timeout, or dropped connection after a create may arrive after Microsoft 365 committed it, so repeating the request could leave a duplicate. So may a `2xx` whose body did not parse, which means the create succeeded. The item is reported as failed and the restore continues. See [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) for what to check before restoring it again.
 
 Once a restore write is on the wire, Ctrl+C lets it finish, up to its timeout, instead of aborting it. An aborted write might exist in the target while Atlas reports it as not written.
 
@@ -119,6 +155,7 @@ File content comes from pre-authenticated download URLs rather than through the 
 | Range timeout | `max(30 s, size in bytes / 256)`, about 33 s for a 4 MiB range |
 | Range retries | Up to 5 per range, backoff from 1 s plus up to 1 s of jitter, capped at 30 s. `Retry-After` honoured on `429` |
 | Streaming threshold | 64 MiB and above: streamed to storage through a multipart upload |
+| Upload part size | Smallest multiple of 8 MiB that fits the file in 10,000 parts, at most 32 MiB. A file or version above 312.5 GiB is refused before its download starts, see [object size limits](/self-hosting/storage#object-size-limits) |
 | Expired URL (`401` or `403` from the CDN) | Looked up again. Files of 64 MiB and more resume at the failed range, until 3 refreshed URLs in a row deliver nothing |
 | Truncation check | Each range's length and `Content-Range`, and the total size, must match what Microsoft Graph listed |
 
@@ -126,7 +163,11 @@ A file that still fails is added to the drive's list of failed files, and the dr
 
 A failure to write the file to storage is not the file's either, whatever its size: a full disk or quota, an S3 `5xx` after the [storage retries](#storage), or an endpoint that never answers. It fails the drive or library, which keeps its sync checkpoint, so the file is read again by the next run without entering the list. A file of 64 MiB or more is streamed from the download into the multipart upload, and a failure on the storage side of that stream is told apart from a download failure by its type and status, never by its message.
 
-A file version Microsoft Graph reports as gone (`404` or `410`, purged by retention) is counted as unavailable, not as an error. Only the numeric status decides this.
+A file too large for S3's 10,000 parts per multipart upload, above 312.5 GiB, is recorded as permanent at once and not retried, because every run would refuse it the same way until the file changes. Microsoft 365 caps a file at 250 GB, so this needs a file larger than the service allows. A historical version of that size is counted as unavailable.
+
+A `404` or `410` on the content of a file version is not taken at its word, because the run listed that version moments earlier and Microsoft Graph returns a `404` during incidents too. Atlas lists the file's versions again: a version that has left the list was purged by retention and is counted as unavailable, not as an error. A version still listed counts as a failed version until the answer repeats on 3 runs in a row spanning at least 24 hours, the rule a failed file's re-read follows. Only the numeric status decides this. [Version failures](/onedrive-backup#version-failures) describes what the run reports.
+
+A file whose content was stored but whose versions were not captured, because the drive failed, the file failed, or Ctrl+C stopped the run in between, is recorded in the cursor. The next run that sees the file captures its versions even though the content is already stored.
 
 During a restore, a file over 4 MiB is uploaded through an upload session in 10 MiB chunks. Each chunk is sent up to 3 times in all: a `429`, `500`, `502`, `503`, or `504` on either of the first two attempts sends it again after `Retry-After` or 1 s. A failed session is not resumed: Atlas deletes it, giving the delete 10 s, and the next restore starts a new one. The final chunk is the request that creates the file, so a checksum mismatch found while streaming abandons the session before anything is created.
 
@@ -143,7 +184,7 @@ Atlas uses the AWS SDK for JavaScript v3 with a retry strategy of its own: 3 att
 | Identity registry contention | Up to 8 attempts, waiting `50 ms × attempt + random(0 to 200 ms)` between them |
 
 ::: warning Conditional writes must be enforced
-The leases, the data key bootstrap, and the identity registry are only safe on a backend that enforces these conditions. `atlas storage-check` writes a probe object and reports a backend that ignores them in its `Conditional writes` row.
+The leases, the data key bootstrap, and the identity registry are only safe on a backend that enforces these conditions. Every command that writes probes the bucket once per process and refuses one that does not, with exit `6`. `atlas storage-check` runs the same probe and reports the result in its `Conditional writes` row. See [Atlas refuses a backend that does not enforce them](/self-hosting/storage#atlas-refuses-a-backend-that-does-not-enforce-them).
 :::
 
 See [Create-only snapshot objects and the read-back](/self-hosting/storage#create-only-snapshot-objects-and-the-read-back) and [Metadata is checked before and after it is stored](/security#metadata-is-checked-before-and-after-it-is-stored).
@@ -201,7 +242,9 @@ What an interrupted run leaves behind:
 | An Outlook folder fails, or a message in it fails | The folder keeps its previous sync checkpoint (delta link), so the run reads those changes again |
 | A drive or library fails | That drive keeps its previous checkpoint. Drives that finished advance |
 | A drive or library's delta listing ends without `@odata.deltaLink` | The listing stopped early, so the drive fails, keeps its previous checkpoint, and records no deletions. See [Deletions found by a full read](/operations/delta-sync#drive-full-read-deletions) |
+| The listing of calendars, contact folders, mail folders, or teams holds fewer items than Microsoft Graph counted | Nothing moves. The run stops before reading any unit and exits `2`. See [Unit listings that end early](#unit-listings) |
 | An Outlook folder's delta read ends without `@odata.deltaLink` | The read stopped early, so the folder fails and keeps its previous checkpoint. The run records no removals. See [Retry and error handling](/operations/delta-sync#retry-and-error-handling) |
+| A contact's photo request answers `404` | The contact folder's checkpoint moves on. The photo is requested again on each later run, and the contact keeps its previous photo, until the `404` repeats on 3 runs in a row spanning at least 24 hours. See [What is backed up](/contacts-backup#what-is-backed-up) |
 | Microsoft Graph rejects the checkpoint (`syncStateNotFound`, `resyncRequired`, `syncStateInvalid`) | Reads the folder, drive, or calendar in full |
 | Stale-delta safeguard (Outlook) | A saved checkpoint returns nothing while the previous manifest stored nothing: the checkpoint is discarded and the folder read in full |
 | The cursor's snapshot was deleted or quarantined | The checkpoints would skip what that snapshot held, so they are ignored and the owner is read in full |
@@ -218,13 +261,14 @@ A failure that belongs to one item is recorded against that item and the run con
 | One Outlook message (MIME or attachments) | A message error. The folder keeps its entries but not its new checkpoint, unless Exchange refused the MIME for good, which keeps the checkpoint |
 | One Outlook folder | A folder error. The other folders run |
 | One OneDrive or SharePoint file | A failed file, retried by the next run up to 5 times |
+| The sharing permissions of one OneDrive or SharePoint file or folder | A failed item. Content that changed is still stored, and the next run reads the permissions again |
 | One drive or library (for example its delta query) | That drive's error. Other drives run |
 | One Teams channel | A channel error. Other channels run. With `--all`, one team's failure does not stop the others |
 | One calendar or contact folder | That folder's error |
 
 An exhausted retry budget is never one of these. It stops the backup, see [When retries run out](#when-retries-run-out-on-a-throttle).
 
-Some failures are not the item's fault. Atlas stops the larger unit instead of failing every remaining item the same way:
+Some failures are not the item's fault. Atlas stops the larger unit instead of failing every remaining item the same way. A `403` counts as an `AuthError` here only when its code means a missing permission, see [Which `403` responses stop a run](#forbidden-responses):
 
 | Failure | What stops |
 | --- | --- |
@@ -235,6 +279,32 @@ Some failures are not the item's fault. Atlas stops the larger unit instead of f
 | `AuthError` while capturing an Outlook message | That folder, recorded as a folder error. The next folder runs |
 | `AuthError` before any item is read, such as resolving the owner | The command, with exit `4` |
 | Wrong passphrase, unreadable cursor, storage failure while committing | The command, before anything is written past the last commit |
+| A unit listing that ends short of Microsoft Graph's count | The command, before any unit is read, with exit `2`. See [Unit listings that end early](#unit-listings) |
+
+### Which `403` responses stop a run {#forbidden-responses}
+
+Microsoft Graph answers `403 Forbidden` for a missing permission and for other refusals, and only the error code tells them apart. For Outlook, Calendar, Contacts, and Teams, Atlas reads that code:
+
+| Graph error code on the `403` | Reported as | Effect |
+| --- | --- | --- |
+| `accessDenied`, `ErrorAccessDenied`, `Authorization_RequestDenied` | `MissingGraphPermissionsError` (`ATLAS_AUTH_DENIED`), naming the code and the permissions to grant | Stops as an `AuthError` in the table above, exit `4` |
+| `Forbidden` on a Teams call | The same | The same. Teams uses this code for a missing role permission and for a protected API Microsoft has not approved |
+| Any other code, or no code | A failure of that request, naming the code Graph sent | Fails the item, channel, folder, or team that request belonged to. The rest of the run continues and the command exits `2` |
+
+The codes are compared without regard to case. A `403` with no code, such as one from a proxy with no JSON body, does not name a missing permission and is treated as a failure of the request. A `403` that reaches the command before any item is read still exits `4`, whatever its code, since an unwrapped `403` maps to `ATLAS_AUTH_DENIED`; the message then names the code. OneDrive and SharePoint classify their own `403` responses, described in [Failed files](/onedrive-backup#failed-files).
+
+### Unit listings that end early {#unit-listings}
+
+Every backup first lists the units it will read: calendars, contact folders, mail folders, Teams channels, and with `atlas teams backup --all` the teams. Microsoft Graph pages a listing with `@odata.nextLink` and ends it with a page that has none. A page that lost its link looks the same as the last page, so a listing that ended early would otherwise be taken as the whole collection, and the units on the pages never read would drop out of the snapshot or be recorded as deleted. Atlas therefore checks every unit listing against a second signal:
+
+| Listing | Check | When the check fails |
+| --- | --- | --- |
+| Calendars, contact folders, mail folders (every level of the tree), teams for `--all` | Requested with `$count=true`. The pages must hold at least as many items as the latest `@odata.count` Graph reported. A listing whose pages carry no count at all is logged as a warning and not checked | `ListingIncompleteError` (`ATLAS_LISTING_INCOMPLETE`), exit `2`. The run stops before it reads any unit, so no snapshot is written, no checkpoint moves, and nothing is recorded as removed |
+| Channels of a team | Microsoft Graph refuses `$count` on this listing with `400`. A channel the previous snapshot holds as live that the listing omits is read by ID instead | Only a `404` marks the channel deleted. A channel Graph still returns keeps its previous entry, checkpoint, and threads unchanged, and is reported as a channel error, exit `2`. Any other error fails the team |
+
+The count costs no extra request. The channel check costs one request for each channel that disappears, once: a channel already marked deleted is not read again. More items than counted is accepted, since a unit created while the listing paged is still a real unit. A unit deleted while the listing paged can leave one fewer than counted, which fails that run; the next run lists again.
+
+A mail folder listed more than once, on one page, across pages, or under two parents, is backed up once, at the place it was first listed, and its subfolders are listed once. Every copy still counts toward the `@odata.count` check, because Microsoft Graph counted it that way.
 
 ## Concurrency guards
 
@@ -313,11 +383,11 @@ When a scheduled run did not exit `0`:
 | `0` | Complete | |
 | `1` | Unclassified failure, storage failure, or `ATLAS_WRITE_REFUSED` | Once, after reading stderr. A persistent `1` needs a person |
 | `2` | Partial run, soft interrupt, or items skipped | Backup: yes, the next backup retries failed items. Items lost for good, such as a message Exchange cannot convert to MIME or a file permanently skipped after 5 attempts, are reported but not retried. Restore: first check the target for items whose create may have committed, see [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) |
-| `3` | Throttled, network failure, Microsoft Graph `5xx`, or an S3 endpoint that never answered, after retries | Yes, later |
+| `3` | Throttled, network failure, Microsoft Graph `5xx`, or an S3 endpoint that never answered, after retries. Also a run's first read that kept answering `4xx` for an owner that exists | Yes, later |
 | `4` | Authentication, permission, or licence | No. Fix consent or licensing |
 | `5` | Wrong passphrase | No. Supply the original passphrase |
 | `6` | Invalid configuration | No |
-| `7` | Not found | No |
+| `7` | Not found. For a mailbox, drive owner, or its first listing, only after the `404` repeated on 3 reads, see [The first read of a run](#first-reads-of-a-run) | No |
 | `8` | Object Lock retention or legal hold | No, not before the retention ends |
 | `9` | Unreadable or newer-format stored content | No. Quarantine, `save`, or upgrade Atlas |
 | `11` | Snapshot is not the newest | No. Delete newer snapshots first |

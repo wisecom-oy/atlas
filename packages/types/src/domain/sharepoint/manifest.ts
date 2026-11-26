@@ -5,6 +5,7 @@ import type {
 } from '@/domain/drive/item-metadata';
 import type { DriveEntryKind, DrivePermission } from '@/domain/drive/permission';
 import type { FailedItemLedger } from '../shared/failed-item';
+import type { PendingVersionCapture } from '@/domain/shared/pending-version-capture';
 
 /**
  * `permissions_changed` records a sharing change on an item whose content did not change: the
@@ -121,6 +122,11 @@ export interface SharePointDeltaCursor {
    * from the index.
    */
   readonly version_watermark_by_file_id?: Record<string, SharePointVersionWatermark | string>;
+  /**
+   * Files whose version capture has not finished, keyed by file id. A run that finds the content
+   * already stored still captures these files' versions (issue #858). Absent on older cursors.
+   */
+  readonly pending_versions_by_file_id?: Record<string, PendingVersionCapture>;
   /**
    * Items that failed to back up, kept so a later run can retry them: delta
    * will not re-present an unchanged item once the link has advanced past it.

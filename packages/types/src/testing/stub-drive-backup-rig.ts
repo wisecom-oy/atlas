@@ -3,6 +3,7 @@ import type {
   ReadableManifestListing,
 } from '@/ports/storage/readable-listing.port';
 import type { TenantContext } from '@/ports/tenant/context.port';
+import type { DrivePermission } from '@/domain/drive/permission';
 import { stub_tenant_context } from '@/testing/stub-tenant-context';
 
 /** A delta item both drive providers accept: a file, live or deleted. */
@@ -15,6 +16,8 @@ export interface StubDriveItem {
   readonly size_bytes: number;
   readonly deleted: boolean;
   readonly etag?: string;
+  /** Graph's `shared` facet, present while the file has grants. */
+  readonly sharing_facet?: boolean;
 }
 
 /** One delta answer, in the shape both drive connectors return. */
@@ -31,19 +34,33 @@ export interface StubGraphDrive {
   /** Creates the file, or changes its content when it exists. */
   readonly put_file: (file_name: string) => void;
   readonly remove_file: (file_name: string) => void;
+  /**
+   * Replaces the file's grants, with an empty list unsharing it. Delta re-presents the file with
+   * its eTag unchanged, as Graph does for a sharing change.
+   */
+  readonly share_file: (file_name: string, permissions: readonly DrivePermission[]) => void;
+  /** The grants a live file has now, by item id; undefined for a file that does not exist. */
+  readonly permissions_of: (item_id: string) => readonly DrivePermission[] | undefined;
   /** Everything that exists when `delta_link` is undefined, else the changes since that link. */
   readonly delta: (delta_link?: string) => StubDriveDelta;
   /** The link each delta read resumed from, in order; undefined is a full enumeration. */
   readonly requested_links: (string | undefined)[];
 }
 
+/** A live file: when it last changed in delta, when its content last changed, and its grants. */
+interface StubLiveFile {
+  readonly changed_at: number;
+  readonly content_at: number;
+  readonly permissions: readonly DrivePermission[];
+}
+
 /** Builds a scripted drive. A full enumeration lists live files only, as Graph's does. */
 export function stub_graph_drive(drive_id = 'drive-1'): StubGraphDrive {
   let sequence = 0;
-  const live = new Map<string, { changed_at: number }>();
+  const live = new Map<string, StubLiveFile>();
   const removed = new Map<string, number>();
   const requested_links: (string | undefined)[] = [];
-  const live_item = (file_name: string, changed_at: number): StubDriveItem => ({
+  const live_item = (file_name: string, file: StubLiveFile): StubDriveItem => ({
     item_id: `id-${file_name}`,
     drive_id,
     kind: 'file',
@@ -51,7 +68,8 @@ export function stub_graph_drive(drive_id = 'drive-1'): StubGraphDrive {
     parent_path: '/Documents',
     size_bytes: 8,
     deleted: false,
-    etag: `etag-${file_name}-${changed_at}`,
+    etag: `etag-${file_name}-${file.content_at}`,
+    ...(file.permissions.length > 0 && { sharing_facet: true }),
   });
   const removed_item = (file_name: string): StubDriveItem => ({
     item_id: `id-${file_name}`,
@@ -67,8 +85,20 @@ export function stub_graph_drive(drive_id = 'drive-1'): StubGraphDrive {
     requested_links,
     put_file: (file_name): void => {
       removed.delete(file_name);
-      live.set(file_name, { changed_at: ++sequence });
+      const at = ++sequence;
+      live.set(file_name, {
+        changed_at: at,
+        content_at: at,
+        permissions: live.get(file_name)?.permissions ?? [],
+      });
     },
+    share_file: (file_name, permissions): void => {
+      const file = live.get(file_name);
+      if (!file) throw new Error(`stub drive has no file ${file_name} to share`);
+      live.set(file_name, { ...file, changed_at: ++sequence, permissions });
+    },
+    permissions_of: (item_id) =>
+      [...live].find(([file_name]) => `id-${file_name}` === item_id)?.[1].permissions,
     remove_file: (file_name): void => {
       live.delete(file_name);
       removed.set(file_name, ++sequence);
@@ -78,7 +108,7 @@ export function stub_graph_drive(drive_id = 'drive-1'): StubGraphDrive {
       const since = delta_link === undefined ? -1 : Number(delta_link.split(':')[1]);
       const changed = [...live]
         .filter(([, file]) => file.changed_at > since)
-        .map(([file_name, file]) => live_item(file_name, file.changed_at));
+        .map(([file_name, file]) => live_item(file_name, file));
       const gone =
         delta_link === undefined
           ? []

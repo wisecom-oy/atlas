@@ -1,7 +1,10 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
 import {
+  assert_listing_complete,
+  reported_collection_count,
   rethrow_if_access_denied,
   rethrow_if_mailbox_not_licensed,
+  with_collection_count,
   with_graph_retry,
   type GraphRetryOptions,
 } from '@wisecom/atlas-m365-graph';
@@ -62,15 +65,22 @@ export function string_field(body: unknown, field: string): string {
   throw new Error(`Graph response has no ${field}`);
 }
 
+/** Every item of a paged collection, and the latest `@odata.count` any page reported. */
+interface CollectedPages<T> {
+  readonly items: T[];
+  readonly reported_count: number | undefined;
+}
+
 /** Follows `@odata.nextLink` until exhausted, refusing to loop on a repeated link. */
-export async function collect_pages<T>(
+async function read_pages<T>(
   client: Client,
   first_url: string,
   permission: string,
   prefer?: string,
-): Promise<T[]> {
+): Promise<CollectedPages<T>> {
   const items: T[] = [];
   const seen = new Set<string>();
+  let reported_count: number | undefined;
   let next: string | undefined = first_url;
   while (next !== undefined) {
     if (seen.has(next)) throw new Error('Graph paging did not advance');
@@ -82,9 +92,36 @@ export async function collect_pages<T>(
       prefer,
     );
     append_all(items, page.value ?? []);
+    reported_count = reported_collection_count(page, reported_count);
     next = page['@odata.nextLink'];
   }
-  return items;
+  return { items, reported_count };
+}
+
+/** Follows `@odata.nextLink` until exhausted, refusing to loop on a repeated link. */
+export async function collect_pages<T>(
+  client: Client,
+  first_url: string,
+  permission: string,
+  prefer?: string,
+): Promise<T[]> {
+  return (await read_pages<T>(client, first_url, permission, prefer)).items;
+}
+
+/**
+ * Lists a collection of backup units with `$count=true`. Throws `ListingIncompleteError` when the
+ * pages hold fewer items than Graph counted, so a listing that ended early is never taken as the
+ * whole collection (issue #853).
+ */
+export async function collect_listing<T>(
+  client: Client,
+  first_url: string,
+  permission: string,
+  listing: string,
+): Promise<T[]> {
+  const pages = await read_pages<T>(client, with_collection_count(first_url), permission);
+  assert_listing_complete(listing, pages.items.length, pages.reported_count);
+  return pages.items;
 }
 
 /** Whether a Graph error is an HTTP 404 for the requested object. */

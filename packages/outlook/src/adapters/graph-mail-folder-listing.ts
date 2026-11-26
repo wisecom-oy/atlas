@@ -1,5 +1,8 @@
 import type { MailFolder, MailFolderListOptions, WellKnownMailFolder } from '@wisecom/atlas-types';
-import { enumerate_folder_tree } from '@/adapters/graph-folder-tree-enumerator';
+import {
+  enumerate_folder_tree,
+  skip_repeated_folders,
+} from '@/adapters/graph-folder-tree-enumerator';
 import { enumerate_recoverable_items, type FolderReader } from '@/adapters/graph-recoverable-items';
 import type { GraphFolderRecord } from '@/adapters/graph-mailbox-response-mappers';
 import { rethrow_if_retry_exhausted } from '@wisecom/atlas-m365-graph';
@@ -43,11 +46,12 @@ export async function list_mail_folder_tree(
   read_folder?: FolderReader,
 ): Promise<MailFolder[]> {
   // Per-page retry lives inside the fetcher; wrapping the whole enumeration
-  // would put every page under one 60s timeout.
-  const listed = await enumerate_folder_tree(
-    (parent_folder_id) => fetch_page(folder_url(owner_id, parent_folder_id)),
-    options,
+  // would put every page under one 60s timeout. One wrapper serves both walks, so a folder is
+  // returned once per enumeration however often Graph lists it.
+  const fetch_children = skip_repeated_folders((parent_folder_id) =>
+    fetch_page(folder_url(owner_id, parent_folder_id)),
   );
+  const listed = await enumerate_folder_tree(fetch_children, options);
   if (!read_folder) return listed;
 
   const visible = await tag_well_known_folders(listed, read_folder);
@@ -55,11 +59,7 @@ export async function list_mail_folder_tree(
   // Off by default, and when off this costs not one extra request.
   if (options?.include_recoverable_items !== true) return visible;
 
-  const recoverable = await enumerate_recoverable_items(
-    read_folder,
-    (parent_folder_id) => fetch_page(folder_url(owner_id, parent_folder_id)),
-    options,
-  );
+  const recoverable = await enumerate_recoverable_items(read_folder, fetch_children, options);
   return [...visible, ...recoverable];
 }
 

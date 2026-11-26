@@ -12,6 +12,7 @@ import {
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js';
 import { GraphCostMiddleware } from '@/graph-cost-middleware';
 import { TypedTokenAuthProvider } from '@/graph-token-auth-provider';
+import { GraphTokenRejectionMiddleware } from '@/graph-token-rejection-middleware';
 import type { GraphConfig } from '@wisecom/atlas-core/utils/config';
 
 export const GRAPH_CLIENT_TOKEN = Symbol.for('GraphClient');
@@ -60,11 +61,17 @@ export function create_graph_client(auth_provider: AuthenticationProvider): Clie
  * than one logical call. It sits above TelemetryHandler because the SDK requires
  * telemetry to be the handler immediately before the transport, so its usage
  * flags cover the real request.
+ *
+ * With Atlas's own provider, a token-rejection middleware sits below RedirectHandler too, so a
+ * Graph `401` discards the token that hop actually carried and the retry gets a new one.
  */
 function build_middleware_chain(auth_provider: AuthenticationProvider): Middleware {
   const chain: Middleware[] = [
     new AuthenticationHandler(auth_provider),
     new RedirectHandler(new RedirectHandlerOptions()),
+    ...(auth_provider instanceof TypedTokenAuthProvider
+      ? [new GraphTokenRejectionMiddleware(auth_provider)]
+      : []),
     new GraphCostMiddleware(),
     new TelemetryHandler(),
     new HTTPMessageHandler(),
@@ -88,17 +95,21 @@ function assert_tls_not_disabled(): void {
 
 /**
  * Creates the shared, caching authentication provider for Graph requests and validation. A failed
- * token request throws `GraphTokenRequestError` rather than the credential's own error.
+ * token request throws `GraphTokenRequestError` rather than the credential's own error, and a Graph
+ * `401` replaces the credential so the next request carries a newly issued token.
  */
 export function create_graph_auth_provider(config: GraphConfig): AuthenticationProvider {
+  return new TypedTokenAuthProvider(() => create_credential_provider(config));
+}
+
+/** A client-credentials provider with its own, empty MSAL token cache. */
+function create_credential_provider(config: GraphConfig): AuthenticationProvider {
   const credential = new ClientSecretCredential(
     config.tenant_id,
     config.client_id,
     config.client_secret,
   );
-  return new TypedTokenAuthProvider(
-    new TokenCredentialAuthenticationProvider(credential, {
-      scopes: ['https://graph.microsoft.com/.default'],
-    }),
-  );
+  return new TokenCredentialAuthenticationProvider(credential, {
+    scopes: ['https://graph.microsoft.com/.default'],
+  });
 }

@@ -125,6 +125,30 @@ describe('load_team_baseline', () => {
     expect(baseline.channels.get('channel-1')?.failed_roots).toEqual(failed);
   });
 
+  it('makes a root an older Atlas skipped permanently on one 400 retryable again (issue #896)', async () => {
+    const refused = {
+      item_id: 'm1',
+      drive_id: 'channel-1',
+      name: 'm1',
+      reason: 'Graph 400: HTTP 400 -- BadRequest',
+      attempts: 1,
+      permanent: true,
+      first_failed_at: BACKUP_AT,
+      last_failed_at: BACKUP_AT,
+    };
+
+    const baseline = await load_team_baseline(
+      CTX,
+      ports({ index: index_with([entry('channel-1')]) }, cursor({ failed_roots: { m1: refused } })),
+      TEAM,
+      ['channel-1'],
+    );
+
+    const record = baseline.channels.get('channel-1')?.failed_roots.m1;
+    expect(record).not.toHaveProperty('permanent');
+    expect(record).toMatchObject({ item_id: 'm1', attempts: 1, first_failed_at: BACKUP_AT });
+  });
+
   it('throws UnsupportedFormatVersionError before reading any cursor when an index is newer (N1)', async () => {
     const p = ports(
       { index: index_with([]), unsupported_keys: ['teams-snap-9999-cccccc'] },

@@ -71,7 +71,7 @@ function run_with_growing_file() {
     failed_items: {},
     failed_item_ids: new Set<string>(),
   };
-  const versions: RunVersionCollector = { watermarks: {}, rows: new Map() };
+  const versions: RunVersionCollector = { watermarks: {}, pending: {}, rows: new Map() };
   const version_stats: VersionStatsState = {
     total_versions_stored: 0,
     total_versions_unavailable: 0,

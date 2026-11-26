@@ -101,6 +101,18 @@ Microsoft 365 also reports messages deleted from, or moved out of, each folder. 
 
 A moved message keeps its ID, because Atlas uses [immutable message IDs](#immutable-message-ids). Microsoft 365 reports the move as a removal from the old folder and a new message in the new one. A manifest's own entries win over its own removals, so the message stays restorable at its new location.
 
+### Messages listed more than once
+
+Microsoft 365 can report the same message more than once while Atlas reads a folder's changes, on one page or across pages. Atlas keeps the last report for each message ID, in the order Microsoft Graph sent them, and downloads and records each message once per run. A repeat costs no second MIME download, manifest entry, or stored count, so the run's figures match a read without repeats.
+
+| Reports for one message in one read | Result |
+| --- | --- |
+| Listed twice or more | Stored once, from the first listing |
+| Removed, then listed again | Stored, and no removal recorded |
+| Listed, then removed | No entry in the snapshot, and the removal recorded. A copy stored before the removal arrived is not referenced by the snapshot |
+
+When Microsoft Graph rejects an expired checkpoint partway through, the same rules span both reads: a message stored before the rejection is not downloaded again by the full read.
+
 ### When removals are recorded
 
 Removals are only safe when the run saw both ends of a move. Atlas records them only when every selected folder finished:
@@ -109,6 +121,7 @@ Removals are only safe when the run saw both ends of a move. Atlas records them 
 | --- | --- | --- |
 | Every selected folder finished, no `--folder`, no folder that can receive mail excluded | Recorded | Advance |
 | Interrupted, or a folder failed | None | Every folder that reported a removal keeps its previous checkpoint, so the next complete run fetches and records the removals |
+| The folder listing holds fewer folders than Microsoft Graph counted | None. The run stops before reading any folder and exits `2`, see [Unit listings that end early](/operations/reliability#unit-listings) | None move |
 | A folder was deleted while the run listed folders | None. The folder is skipped with a warning and recorded as `deleted-during-listing`, including Recoverable Items subfolders, because mail may have moved into it | The vanished folder keeps its previous checkpoint and stored messages. The next run no longer lists it and records removals as usual |
 | `--folder` or `--exclude-junk` | None, and the removals it saw are dropped | Advance anyway, because a mailbox always backed up this way would otherwise never move forward |
 
@@ -146,15 +159,18 @@ A run covering several drives or libraries commits all their checkpoints togethe
 
 ## File version capture (OneDrive and SharePoint)
 
-OneDrive and SharePoint backups keep earlier versions of each file as well as the current copy. For every file reported as changed, Atlas lists its versions with `GET /drives/{drive-id}/items/{item-id}/versions` and stores each version it has not captured yet. The current version is skipped, because the snapshot entry already holds it.
+OneDrive and SharePoint backups keep earlier versions of each file as well as the current copy. For every file reported as changed whose content was not already stored, and for every file whose earlier version capture did not finish, Atlas lists its versions with `GET /drives/{drive-id}/items/{item-id}/versions` and stores each version it has not captured yet. The current version is skipped, because the snapshot entry already holds it.
 
 Atlas keeps a watermark per file in the cursor, so it knows which versions it already holds without downloading them. Versions are processed oldest first, and the watermark stops at the first version the run could not capture:
 
 | Outcome for a version | Watermark | Next run |
 | --- | --- | --- |
 | Stored, or already stored as a deduplicated object | Advances past it | Skips it |
-| `404` or `410` from Microsoft Graph | Advances past it | Skips it. The library's version policy removed it and it can never be retrieved |
+| `404` or `410`, and the version has left the file's version list | Advances past it | Skips it. The library's version policy removed it and it can never be retrieved |
+| `404` or `410`, and the version is still listed | Stops before it, until the answer repeats on 3 runs in a row spanning at least 24 hours | Retries it and every newer version |
 | Any other error, such as `403` or `500` | Stops before it | Retries it and every newer version |
+
+A file with a failed version, or whose capture was cut short after its content was stored, is kept in the cursor's `pending_versions_by_file_id` map, with the `404` streak of each still-listed version. Content that is already stored does not mean the change was fully processed, so the next run that sees a pending file lists its versions again even when the content deduplicates. A file leaves the map when a capture finishes with no failed version, or when it is deleted.
 
 Nothing is dropped silently. A version with a missing or unparseable `lastModifiedDateTime` is never treated as captured: Atlas fetches it again when the file changes, and deduplication prevents a second stored copy.
 
@@ -221,9 +237,12 @@ Incremental runs fetch MIME only for new and changed messages. The first backup 
 
 | Situation | What Atlas does |
 | --- | --- |
-| Microsoft 365 cannot produce MIME for the message | Stores the legacy JSON form and records the format in the snapshot entry. The run succeeds |
 | Exchange refuses the conversion for good with `500 ErrorMimeContentConversionFailed` | Sends the request once, without retries. Stores the JSON form, records the error code as `mime_unavailable` in the snapshot entry, reports it as an error of its folder, and exits `2`. This failure alone does not hold the folder's checkpoint back, so the next run does not ask for the MIME again unless the message changes or another failure in the folder withholds the checkpoint |
 | The MIME request still fails after [retries](/operations/reliability#microsoft-graph-requests), for example a `503` | Stores the JSON form so the message is kept, reports it as an error of its folder, keeps the folder's previous checkpoint, and exits `2`. The next run fetches the folder's changes again, captures the MIME, and its entry replaces the JSON one |
+| The MIME request answers `400`, `401`, or `404` | Handled as the failed request above. These answers are not retried, and none of them proves that Microsoft 365 has no MIME for the message, so the next run asks again |
+| The message was deleted after its delta page was read, so the MIME request answers `404` | Handled as the failed request above, for one run only. The next run's changes report the message as removed rather than listing it, so its MIME is not requested again and the folder's checkpoint moves on |
+| The MIME request answers `403` with a missing-permission code (`accessDenied`, `ErrorAccessDenied`, or `Authorization_RequestDenied`) | Fails the folder with an error naming the Microsoft Graph permissions to grant. The folder keeps its previous checkpoint. A missing permission would fail every message, so it is never stored as JSON one message at a time |
+| The MIME request answers `403` with any other code, or none | Handled as the failed request above, with the code Graph sent in the error. See [Which `403` responses stop a run](/operations/reliability#forbidden-responses) |
 | The MIME request answers `200` with an empty body on all 3 attempts | Handled as the failed request above. Zero bytes are never stored as MIME, so the empty answer cannot replace the message's content in the snapshot |
 | A JSON entry's attachments could not be fetched or stored | Handled the same way: the next run fetches the message and its attachments again |
 
@@ -270,6 +289,7 @@ Atlas retries `429 Too Many Requests` (honouring `Retry-After`) and `500`, `502`
 | Retries exhausted on a folder | Atlas marks the folder as failed and continues with the remaining folders. The failed folder keeps its previous checkpoint |
 | A drive or library's last delta page carries neither `@odata.nextLink` nor `@odata.deltaLink` | The listing stopped early. Atlas fails that drive or library, which keeps its previous checkpoint and records no deletions. See [Deletions found by a full read](#drive-full-read-deletions) |
 | An Outlook folder's last delta page carries neither `@odata.nextLink` nor `@odata.deltaLink` | The read stopped early, so messages on the pages never requested are missing. Atlas fails that folder, which keeps its previous checkpoint, and the run records no removals and exits `2`. The next run reads the folder again |
+| A listing of calendars, contact folders, or mail folders holds fewer items than its `@odata.count` | The listing stopped early. The run stops before reading any unit and exits `2`, so every checkpoint stays where it was. See [Unit listings that end early](/operations/reliability#unit-listings) |
 
 ## Stopping a run {#interruption}
 

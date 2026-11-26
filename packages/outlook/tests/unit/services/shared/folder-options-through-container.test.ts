@@ -30,6 +30,7 @@ const ROUTES: Record<string, unknown> = {
         isHidden: true,
       },
     ],
+    '@odata.count': 3,
   },
   [`/users/${OWNER}/mailFolders/recoverableitemsdeletions`]: {
     id: 'f-deletions',
@@ -41,6 +42,7 @@ const ROUTES: Record<string, unknown> = {
       { id: 'f-deletions', displayName: 'Deletions', parentFolderId: 'f-rir', totalItemCount: 3 },
       { id: 'f-purges', displayName: 'Purges', parentFolderId: 'f-rir', totalItemCount: 1 },
     ],
+    '@odata.count': 2,
   },
 };
 

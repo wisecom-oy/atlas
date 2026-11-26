@@ -70,10 +70,13 @@ describe('fetch_message_mime Retry-After (issue #674)', () => {
     expect(mime).toEqual(BYTES);
   });
 
-  it('still resolves undefined for a message that is gone', async () => {
+  it('rejects with the Graph status and code for a message that is gone (issue #849)', async () => {
     serve(graph_error_response(404, 'ErrorItemNotFound'));
 
-    await expect(fetch_message_mime(client, 'owner-1', 'gone', PREFER)).resolves.toBeUndefined();
+    await expect(fetch_message_mime(client, 'owner-1', 'gone', PREFER)).rejects.toMatchObject({
+      statusCode: 404,
+      code: 'ErrorItemNotFound',
+    });
   });
 
   it('still rethrows a 403 rather than downgrading to the JSON payload', async () => {

@@ -71,7 +71,7 @@ async function run_once(
       previous_kind_by_file_id: {},
     },
     library,
-    { watermarks: {}, rows: new Map() } as never,
+    { watermarks: {}, pending: {}, rows: new Map() } as never,
     { total_versions_stored: 0, total_versions_unavailable: 0, total_versions_failed: 0 },
   );
 }
@@ -139,7 +139,7 @@ describe('SharePoint re-read of a listed file during an outage (issue #857)', ()
       {} as TenantContext,
       { previous_path_by_file_id: {}, previous_etag_by_file_id: {} } as never,
       library,
-      { watermarks: {}, rows: new Map() } as never,
+      { watermarks: {}, pending: {}, rows: new Map() } as never,
       { total_versions_stored: 0, total_versions_unavailable: 0, total_versions_failed: 0 },
     );
   }

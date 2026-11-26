@@ -2,12 +2,13 @@ import 'reflect-metadata';
 
 import type { Client } from '@microsoft/microsoft-graph-client';
 import { describe, expect, it } from 'vitest';
+import { ListingIncompleteError } from '@wisecom/atlas-types';
 import { stub_graph_client, type GraphCall } from '@wisecom/atlas-types/testing/stub-graph-client';
 
 import { create_calendar, list_calendars } from '@/adapters/graph-calendar-calendars';
 
 const MAILBOX = '00000000-0000-0000-0000-00000000abcd';
-const CALENDARS = `/users/${MAILBOX}/calendars?$select=id,name,isDefaultCalendar,canEdit`;
+const CALENDARS = `/users/${MAILBOX}/calendars?$select=id,name,isDefaultCalendar,canEdit&$count=true`;
 
 function client_for(route: (call: GraphCall) => unknown) {
   const graph = stub_graph_client(route);
@@ -23,6 +24,7 @@ describe('list_calendars', () => {
         { id: 'cal-default', name: 'Calendar', isDefaultCalendar: true, canEdit: true },
         { id: 'cal-shared', name: 'Team' },
       ],
+      '@odata.count': 4,
     }));
 
     const calendars = await list_calendars(client, MAILBOX);
@@ -47,9 +49,10 @@ describe('list_calendars', () => {
     const next = `/users/${MAILBOX}/calendars?$skip=1`;
     const { client, calls } = client_for((call) =>
       call.url === next
-        ? { value: [{ id: 'cal-2', name: 'Two', canEdit: true }] }
+        ? { value: [{ id: 'cal-2', name: 'Two', canEdit: true }], '@odata.count': 2 }
         : {
             value: [{ id: 'cal-1', name: 'One', canEdit: true }],
+            '@odata.count': 2,
             '@odata.nextLink': next,
           },
     );
@@ -58,6 +61,29 @@ describe('list_calendars', () => {
 
     expect(calendars.map((c) => c.id)).toEqual(['cal-1', 'cal-2']);
     expect(calls[0]!.url).toBe(CALENDARS);
+  });
+
+  it('refuses a listing that ends after its first page with fewer calendars than Graph counted', async () => {
+    const { client } = client_for(() => ({
+      value: [{ id: 'cal-1', name: 'One', canEdit: true }],
+      '@odata.count': 3,
+    }));
+
+    const listing = list_calendars(client, MAILBOX);
+
+    await expect(listing).rejects.toBeInstanceOf(ListingIncompleteError);
+    await expect(listing).rejects.toMatchObject({
+      code: 'ATLAS_LISTING_INCOMPLETE',
+      listing: 'calendars',
+      listed_count: 1,
+      reported_count: 3,
+    });
+  });
+
+  it('accepts a listing whose pages carry no count, since it cannot be checked', async () => {
+    const { client } = client_for(() => ({ value: [{ id: 'cal-1', name: 'One', canEdit: true }] }));
+
+    await expect(list_calendars(client, MAILBOX)).resolves.toHaveLength(1);
   });
 });
 

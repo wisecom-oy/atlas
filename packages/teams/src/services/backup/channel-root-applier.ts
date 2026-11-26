@@ -71,7 +71,8 @@ export function drop_unlisted_root_tracking(
  * Applies one root task. An auth failure is rethrown so the channel stops, and so is a Graph outage
  * (an exhausted retry budget): recording it would spend a ledger attempt on every root left in the
  * channel (issue #881). A failure during an interrupt is reported as `interrupted`, not as a root
- * failure.
+ * failure. A 404 is a miss; any other failure, a 400 included, spends one of the root's retry
+ * attempts (issue #896).
  */
 async function apply_task(
   scope: BackupRunScope,
@@ -88,9 +89,7 @@ async function apply_task(
   } catch (err) {
     if (err instanceof AuthError || is_graph_outage(err)) throw err;
     if (scope.should_interrupt()) return { kind: 'interrupted' };
-    if (err instanceof RootRefusal) {
-      return err.status === 400 ? { kind: 'refused', message: err.message } : { kind: 'missing' };
-    }
+    if (err instanceof RootRefusal && err.status === 404) return { kind: 'missing' };
     return { kind: 'failed', message: error_message(err) };
   }
 }

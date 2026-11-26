@@ -11,6 +11,7 @@ export {
   ObjectLockModeRejectedError,
   PreconditionFailedError,
 } from './object-lock.errors';
+export { ConditionalWritesNotEnforcedError } from '@/adapters/conditional-write.errors';
 export { DefaultTenantContextFactory } from './tenant-context.factory';
 export { S3IdentityRegistryRepository } from './s3-identity-registry-repository.adapter';
 export { BucketCache } from './bucket-cache';

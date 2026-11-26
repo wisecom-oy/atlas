@@ -1,5 +1,6 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
+import { is_listed_size_part_limit_refusal } from '@wisecom/atlas-core/services/shared/multipart-part-plan';
 import { is_unretryable_download_failure } from '@wisecom/atlas-m365-graph';
 import type { TenantContext } from '@wisecom/atlas-types';
 import { download_with_retry } from '@/backup/download-retry';
@@ -136,4 +137,8 @@ function rethrow_unless_skippable(err: unknown, abort_signal?: AbortSignal): voi
   if (is_download_url_expired(err)) throw err;
   // The size changed under the transfer: the caller re-reads the item once (issue #759).
   if (is_download_size_changed(err)) throw err;
+  // Too large for the multipart part limit at any part size Atlas uses. Refused before any part
+  // was uploaded, and the caller records it as not retried, since every run would refuse it again
+  // until the file changes (issue #925).
+  if (is_listed_size_part_limit_refusal(err)) throw err;
 }

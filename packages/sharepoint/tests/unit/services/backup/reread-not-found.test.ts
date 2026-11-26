@@ -15,7 +15,7 @@ import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-lease
 import {
   NOT_FOUND_CONFIRMATION_READS,
   NOT_FOUND_CONFIRMATION_WINDOW_MS,
-} from '@wisecom/atlas-drive/backup/retry-read-not-found';
+} from '@wisecom/atlas-core/services/shared/not-found-streak';
 import { SharePointBackupService } from '@/services/backup/backup.service';
 
 /**

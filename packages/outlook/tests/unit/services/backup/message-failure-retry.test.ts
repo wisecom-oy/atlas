@@ -132,7 +132,7 @@ describe('a per-message failure withholds the folder delta link', () => {
       expect(saved_links(harness)).toEqual({ 'folder-1': NEXT_LINK });
     });
 
-    it('advances the link when Graph has no MIME for the item', async () => {
+    it('advances the link when the connector has no MIME to offer', async () => {
       harness.mock_connector.fetch_mime = vi.fn().mockResolvedValue(undefined);
 
       const result = await harness.service.sync_mailbox('t', OWNER);

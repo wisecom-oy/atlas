@@ -21,6 +21,7 @@ import {
 } from '@/services/backup/backup-builders';
 import { process_backup_file } from '@/services/backup/backup-file-processor';
 import { is_download_refused } from '@wisecom/atlas-m365-graph';
+import { is_listed_size_part_limit_refusal } from '@wisecom/atlas-core/services/shared/multipart-part-plan';
 import { resolve_backed_up_kind } from '@wisecom/atlas-drive';
 import { spares_failed_item_attempt } from '@wisecom/atlas-drive/backup/transient-download-failure';
 import { is_storage_failure } from '@wisecom/atlas-drive/backup/storage-failure';
@@ -35,12 +36,16 @@ import {
 } from '@wisecom/atlas-drive/backup/sharing-capture';
 import { plan_sharing_only_change } from '@wisecom/atlas-drive/backup/sharing-only-change';
 import {
+  carry_forward_unread_permissions,
+  record_permission_read_failure,
+} from '@wisecom/atlas-drive/backup/unread-permissions';
+import {
   create_item_metadata_capture,
   type DriveItemMetadataCapture,
 } from '@wisecom/atlas-drive/backup/item-metadata-capture';
 import {
-  collect_run_versions,
-  sync_file_versions,
+  capture_owed_file_versions,
+  forget_pending_versions,
   type RunVersionCollector,
 } from '@/services/versioning/version-sync';
 
@@ -100,6 +105,9 @@ export async function process_delta_item(
     const entry = await process_folder_item(item, tracking, capture);
     if (entry)
       library_state.library_entries.push({ ...entry, library_name: library_state.library_name });
+    // A folder fails only by throwing, so one that got here is no longer a failure of its own.
+    library_state.failed_items = clear_item_failure(library_state.failed_items, item.item_id);
+    record_unread_permissions(library_state, item, capture);
     return;
   }
 
@@ -111,6 +119,7 @@ export async function process_delta_item(
   );
 
   if (item.deleted) {
+    forget_pending_versions(versions, item.item_id);
     if (!classified) return;
     delete permission_digests(tracking)[item.item_id];
     // Graph omits `name` for a removed item, so the last name we saw is the
@@ -128,7 +137,10 @@ export async function process_delta_item(
   const change_type =
     classified ??
     (await sharing_only_change(item, observation, tracking, library_state, capture.sharing));
-  if (change_type === undefined) return;
+  if (change_type === undefined) {
+    record_unread_permissions(library_state, item, capture);
+    return;
+  }
 
   // Quarantined content is never served, so attempting the download only burns
   // the Graph retry budget: the refusal arrives as an aborted transfer, which
@@ -159,23 +171,30 @@ export async function process_delta_item(
   if (result.deduplicated) library_state.library_files_deduplicated++;
   if (result.stored) library_state.library_files_stored++;
 
-  if (!result.deduplicated) {
-    const version_result = await sync_file_versions(
-      connector,
-      item,
-      site_id,
-      snapshot_id,
-      ctx,
-      versions.watermarks[item.item_id],
-      abort_signal,
-    );
-    collect_run_versions(versions, item.item_id, version_result);
+  // Deduplicated content still owes versions when an earlier run stopped before capturing them.
+  const version_result = await capture_owed_file_versions(
+    connector,
+    item,
+    site_id,
+    snapshot_id,
+    ctx,
+    versions,
+    result.deduplicated,
+    abort_signal,
+  );
+  if (version_result) {
     accumulate_version_stats(version_result, version_stats, (s, u, f) => {
       version_stats.total_versions_stored = s;
       version_stats.total_versions_unavailable = u;
       version_stats.total_versions_failed = f;
     });
   }
+  // A failed permission read keeps the newest earlier entry's grants; the guard records the failure.
+  const stored_permissions = await carry_forward_unread_permissions(
+    item.item_id,
+    observation,
+    capture.sharing,
+  );
   library_state.library_entries.push(
     with_captured_permissions(
       // The stored length, which is the refreshed size when the file grew on its first download (#759).
@@ -186,15 +205,34 @@ export async function process_delta_item(
         change_type,
         library_state.library_name,
       ),
-      observation,
+      stored_permissions,
     ),
   );
-  record_file_permission_digest(tracking, item.item_id, observation);
+  record_file_permission_digest(tracking, item.item_id, stored_permissions);
   library_state.failed_items = clear_item_failure(library_state.failed_items, item.item_id);
+  record_unread_permissions(library_state, item, capture);
   tracking.previous_path_by_file_id[item.item_id] = item.parent_path;
   tracking.previous_name_by_file_id[item.item_id] = item.file_name;
   tracking.previous_kind_by_file_id[item.item_id] = 'file';
   if (item.etag) tracking.previous_etag_by_file_id[item.item_id] = item.etag;
+}
+
+/**
+ * Records on the ledger an item whose permissions could not be read, once the rest of it was
+ * processed: content it stored is kept, and the next run re-reads the item and its permissions
+ * (issue #856). It is not a failed item for notebook completeness, since its content came through.
+ */
+function record_unread_permissions(
+  library_state: LibraryProcessingState,
+  item: SharePointDeltaItem,
+  capture: DriveItemMetadataCapture,
+): void {
+  if (!capture.sharing.has_failed_read(item.item_id)) return;
+  library_state.failed_items = record_permission_read_failure(
+    library_state.failed_items,
+    item.drive_id,
+    item,
+  );
 }
 
 /** Processes one item, recording a ledger failure instead of failing the library. */
@@ -261,8 +299,11 @@ async function sharing_only_change(
   if (plan.kind === 'download') return 'updated';
   if (plan.kind === 'entry') {
     library_state.library_entries.push({ ...plan.entry, library_name: library_state.library_name });
-    library_state.failed_items = clear_item_failure(library_state.failed_items, item.item_id);
     record_file_permission_digest(tracking, item.item_id, observation);
+  }
+  // Read permissions settle a file listed for a failed read, changed or not (issue #856).
+  if (observation.read) {
+    library_state.failed_items = clear_item_failure(library_state.failed_items, item.item_id);
   }
   return undefined;
 }
@@ -273,7 +314,8 @@ async function sharing_only_change(
  *
  * A refusal is permanent for this item but not for the run, so it is recorded the
  * way a quarantined item is. A missing grant is deliberately not caught: it applies
- * to every item and must stop the run (issue #246). Mirrors the OneDrive twin.
+ * to every item and must stop the run (issue #246). A file too large for the
+ * multipart part limit is recorded as permanent too (issue #925). Mirrors the OneDrive twin.
  */
 async function download_or_record_refusal(
   connector: SharePointSiteConnector,
@@ -305,7 +347,7 @@ async function download_or_record_refusal(
   } catch (err) {
     // An expired URL or a failure outside the file costs no attempt (issues #718, #857).
     if (spares_failed_item_attempt(err)) return record(err.message, { consumes_attempt: false });
-    if (!is_download_refused(err)) throw err;
+    if (!is_download_refused(err) && !is_listed_size_part_limit_refusal(err)) throw err;
     return record(err.message, { permanent: true });
   }
 }

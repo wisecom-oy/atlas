@@ -60,7 +60,9 @@ describe('plan_sharing_only_change (#580)', () => {
     expect(
       await plan_sharing_only_change(ITEM, { ...CHANGED, changed: false }, sharing(PREVIOUS)),
     ).toEqual({ kind: 'none' });
-    expect(await plan_sharing_only_change(ITEM, { read: false }, sharing(PREVIOUS))).toEqual({
+    expect(
+      await plan_sharing_only_change(ITEM, { read: false, failed: true }, sharing(PREVIOUS)),
+    ).toEqual({
       kind: 'none',
     });
   });

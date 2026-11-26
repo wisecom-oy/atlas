@@ -48,7 +48,7 @@ describe('scan_all_libraries', () => {
 
     const result = await scan_all_libraries({
       connector: {} as SharePointSiteConnector,
-      versions: { rows: new Map(), watermarks: {} } as unknown as RunVersionCollector,
+      versions: { rows: new Map(), watermarks: {}, pending: {} } as unknown as RunVersionCollector,
       tenant_id: 't',
       site_id: 'site-1',
       snapshot_id: 'snap-1',

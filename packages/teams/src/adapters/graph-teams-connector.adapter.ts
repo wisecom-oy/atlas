@@ -1,6 +1,11 @@
 import { inject, injectable } from 'inversify';
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { GRAPH_CLIENT_TOKEN, with_graph_retry } from '@wisecom/atlas-m365-graph';
+import {
+  assert_listing_complete,
+  GRAPH_CLIENT_TOKEN,
+  with_collection_count,
+  with_graph_retry,
+} from '@wisecom/atlas-m365-graph';
 import type {
   TeamsConnector,
   TeamsFilesFolderRef,
@@ -37,14 +42,40 @@ interface GraphFilesFolder {
 export class GraphTeamsConnector implements TeamsConnector {
   constructor(@inject(GRAPH_CLIENT_TOKEN) private readonly _client: Client) {}
 
-  /** Lists every team in the tenant. The tenant is implicit in the app-only Graph client. */
+  /**
+   * Lists every team in the tenant. The tenant is implicit in the app-only Graph client.
+   *
+   * @throws ListingIncompleteError when the pages hold fewer teams than Graph counted.
+   */
   async list_teams(_tenant_id: string): Promise<TeamsGraphResource[]> {
     // `/teams` needs only Team.ReadBasic.All; the `/groups` filter would need Group.Read.All.
-    const { items } = await read_all_pages<TeamsGraphResource>(
+    const { items, reported_count } = await read_all_pages<TeamsGraphResource>(
       this._client,
-      '/teams?$select=id,displayName',
+      with_collection_count('/teams?$select=id,displayName'),
     );
+    assert_listing_complete('teams', items.length, reported_count);
     return items;
+  }
+
+  /**
+   * Whether Graph still has the channel. Graph cannot count a team's channels (`$count` is refused
+   * with 400), so a backed-up channel missing from the listing is read by id before it is recorded
+   * as deleted (issue #853). Only a 404 means gone.
+   */
+  async channel_exists(_tenant_id: string, team_id: string, channel_id: string): Promise<boolean> {
+    try {
+      await graph_teams_call(() =>
+        this._client
+          .api(
+            `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}?$select=id`,
+          )
+          .get(),
+      );
+      return true;
+    } catch (err) {
+      if (graph_status_of(err) === 404) return false;
+      throw err;
+    }
   }
 
   /** Fetches one team with its settings. */

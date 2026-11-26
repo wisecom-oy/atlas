@@ -127,6 +127,7 @@ describe('GraphMailboxConnector - listing APIs', () => {
           { id: 'f-outbox', displayName: 'Outbox', parentFolderId: 'root', totalItemCount: 0 },
           { id: 'f-junk', displayName: 'Junk Email', parentFolderId: 'root', totalItemCount: 5 },
         ],
+        '@odata.count': 5,
       });
 
       const result = await connector.list_mail_folders('tenant-1', 'user-1');
@@ -146,10 +147,12 @@ describe('GraphMailboxConnector - listing APIs', () => {
       mock_client._chain.get
         .mockResolvedValueOnce({
           value: [{ id: 'f-1', displayName: 'Inbox' }],
+          '@odata.count': 2,
           '@odata.nextLink': '/next',
         })
         .mockResolvedValueOnce({
           value: [{ id: 'f-2', displayName: 'Archive' }],
+          '@odata.count': 2,
         });
 
       const result = await connector.list_mail_folders('tenant-1', 'user-1');
@@ -160,6 +163,7 @@ describe('GraphMailboxConnector - listing APIs', () => {
       mock_client._chain.get
         .mockResolvedValueOnce({
           value: [{ id: 'f-inbox', displayName: 'Inbox', totalItemCount: 1, childFolderCount: 1 }],
+          '@odata.count': 1,
         })
         .mockResolvedValueOnce({
           value: [
@@ -171,6 +175,7 @@ describe('GraphMailboxConnector - listing APIs', () => {
               childFolderCount: 1,
             },
           ],
+          '@odata.count': 1,
         })
         .mockResolvedValueOnce({
           value: [
@@ -181,6 +186,7 @@ describe('GraphMailboxConnector - listing APIs', () => {
               totalItemCount: 3,
             },
           ],
+          '@odata.count': 1,
         });
 
       const result = await connector.list_mail_folders('tenant-1', 'user-1');
@@ -198,6 +204,7 @@ describe('GraphMailboxConnector - listing APIs', () => {
     it('does not request children for leaf folders', async () => {
       mock_client._chain.get.mockResolvedValueOnce({
         value: [{ id: 'f-inbox', displayName: 'Inbox', childFolderCount: 0 }],
+        '@odata.count': 1,
       });
 
       await connector.list_mail_folders('tenant-1', 'user-1');
@@ -208,6 +215,7 @@ describe('GraphMailboxConnector - listing APIs', () => {
     it('prunes the subtree of a folder the caller excluded', async () => {
       mock_client._chain.get.mockResolvedValueOnce({
         value: [{ id: 'f-junk', displayName: 'Junk Email', childFolderCount: 2 }],
+        '@odata.count': 1,
       });
 
       const result = await connector.list_mail_folders('tenant-1', 'user-1', {
@@ -219,18 +227,55 @@ describe('GraphMailboxConnector - listing APIs', () => {
     });
 
     it('asks Graph for hidden folders, which it omits by default', async () => {
-      mock_client._chain.get.mockResolvedValueOnce({ value: [] });
+      mock_client._chain.get.mockResolvedValueOnce({ value: [], '@odata.count': 0 });
 
       await connector.list_mail_folders('tenant-1', 'user-1');
 
       const url = mock_client.api.mock.calls[0]?.[0] as string;
       expect(url).toContain('includeHiddenFolders=true');
       expect(url).toContain('isHidden');
+      expect(url).toContain('$count=true');
+    });
+
+    it('refuses a folder listing that ends after its first page with fewer folders than counted', async () => {
+      mock_client._chain.get.mockResolvedValueOnce({
+        value: [{ id: 'f-inbox', displayName: 'Inbox' }],
+        '@odata.count': 2,
+      });
+
+      await expect(connector.list_mail_folders('tenant-1', 'user-1')).rejects.toMatchObject({
+        name: 'ListingIncompleteError',
+        code: 'ATLAS_LISTING_INCOMPLETE',
+        listing: 'mail folders',
+        listed_count: 1,
+        reported_count: 2,
+      });
+    });
+
+    it('refuses a child folder listing that ends early, not only the top level', async () => {
+      mock_client._chain.get
+        .mockResolvedValueOnce({
+          value: [{ id: 'f-inbox', displayName: 'Inbox', childFolderCount: 3 }],
+          '@odata.count': 1,
+        })
+        .mockResolvedValueOnce({
+          value: [{ id: 'f-child', displayName: 'Child' }],
+          '@odata.count': 3,
+        });
+
+      await expect(connector.list_mail_folders('tenant-1', 'user-1')).rejects.toMatchObject({
+        code: 'ATLAS_LISTING_INCOMPLETE',
+        listed_count: 1,
+        reported_count: 3,
+      });
     });
 
     it('reads well-known folders with immutable ids, the format the listing returns', async () => {
       mock_client._chain.get
-        .mockResolvedValueOnce({ value: [{ id: 'f-inbox', displayName: 'Saapuneet' }] })
+        .mockResolvedValueOnce({
+          value: [{ id: 'f-inbox', displayName: 'Saapuneet' }],
+          '@odata.count': 1,
+        })
         .mockResolvedValueOnce({ id: 'f-inbox' });
 
       const [inbox] = await connector.list_mail_folders('tenant-1', 'user-1');

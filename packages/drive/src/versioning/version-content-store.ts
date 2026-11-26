@@ -1,6 +1,11 @@
 import type { TenantContext } from '@wisecom/atlas-types';
 import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
 import { stream_to_content_addressed_storage } from '@wisecom/atlas-core/services/shared/stream-encrypt-upload';
+import {
+  assert_listed_size_fits_part_limit,
+  MultipartPartLimitError,
+  PartLimitBreach,
+} from '@wisecom/atlas-core/services/shared/multipart-part-plan';
 import { assert_transferred_size, size_checked_chunks } from '@/backup/download-integrity';
 import { LARGE_FILE_THRESHOLD } from '@/backup/large-file-threshold';
 import type { DriveContentConnector, DriveDeltaItem, DriveFileVersion } from '@/drive-ports';
@@ -39,7 +44,9 @@ export class VersionDownloadError extends Error {
  * (issue #616).
  *
  * @throws VersionDownloadError when the bytes could not be read from Graph, or did not add up to
- * the version's size (a `DownloadIntegrityError` source).
+ * the version's size (a `DownloadIntegrityError` source, or a `MultipartPartLimitError` when the
+ * stream ran past what its upload was planned for).
+ * @throws MultipartPartLimitError when the version's listed size is too large to store.
  */
 export async function store_version_content(
   keys: DriveStorageKeys,
@@ -65,20 +72,28 @@ async function store_streamed(
   version: DriveFileVersion,
   abort_signal?: AbortSignal,
 ): Promise<StoredVersionContent> {
+  // Before the download opens: a stream refused before its first read is never closed (#925).
+  assert_listed_size_fits_part_limit(version.size_bytes);
   const chunks = await open_version_stream(connector, item, version);
 
-  const result = await stream_to_content_addressed_storage(
-    ctx,
-    tag_source_errors(
-      size_checked_chunks(chunks, version_label(item, version), version.size_bytes),
-      abort_signal,
-    ),
-    {
-      staging_key: keys.staging_key(owner_id, item.item_id),
-      build_data_key: (content_name) => keys.data_key(owner_id, content_name),
-      data_scope: keys.data_prefix_for(owner_id),
-    },
-  );
+  let result: Awaited<ReturnType<typeof stream_to_content_addressed_storage>>;
+  try {
+    result = await stream_to_content_addressed_storage(
+      ctx,
+      tag_source_errors(
+        size_checked_chunks(chunks, version_label(item, version), version.size_bytes),
+        abort_signal,
+      ),
+      {
+        staging_key: keys.staging_key(owner_id, item.item_id),
+        build_data_key: (content_name) => keys.data_key(owner_id, content_name),
+        data_scope: keys.data_prefix_for(owner_id),
+        listed_bytes: version.size_bytes,
+      },
+    );
+  } catch (err) {
+    throw tag_stream_overflow(err);
+  }
 
   return {
     checksum: result.checksum,
@@ -114,6 +129,16 @@ async function store_buffered(
   if (!deduplicated) await ctx.storage.put(storage_key, ctx.encrypt(content, storage_key));
 
   return { checksum, storage_key, deduplicated };
+}
+
+/**
+ * A version stream longer than its listed size is a bad download, not a storage failure: the
+ * version is failed for this run and retried, as a short stream is.
+ */
+function tag_stream_overflow(err: unknown): unknown {
+  const overflowed =
+    err instanceof MultipartPartLimitError && err.breach === PartLimitBreach.STREAM_OVERFLOW;
+  return overflowed ? new VersionDownloadError(err) : err;
 }
 
 /** Names one version in an integrity error, so the log says which version came up short. */

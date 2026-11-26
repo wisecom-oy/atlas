@@ -42,7 +42,7 @@ async function back_up_library(tracking: FileTrackingState) {
   } as unknown as SharePointSiteConnector;
   const result = await process_single_library(
     connector,
-    { watermarks: {}, rows: new Map() },
+    { watermarks: {}, pending: {}, rows: new Map() },
     'tenant-1',
     'site-1',
     'sp-snap-test',

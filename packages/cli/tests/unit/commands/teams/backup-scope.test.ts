@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { Container } from 'inversify';
+import { rethrow_if_teams_access_denied } from '@wisecom/atlas-m365-graph';
+import { graph_error } from '@wisecom/atlas-types/testing/stub-graph-client';
 import { execute_teams_backup } from '@/commands/teams/command.handlers';
+import { handle_fatal_error } from '@/fatal-error';
 import {
   AuthError,
   GraphUnavailableError,
@@ -44,6 +47,16 @@ function healthy_result(team_id: string): TeamsBackupResult {
       },
     },
   };
+}
+
+/** What a Teams Graph call rejects with when Graph answers 403 with `code`. */
+function teams_403(code: string): unknown {
+  try {
+    rethrow_if_teams_access_denied(graph_error(403, code));
+  } catch (refusal) {
+    return refusal;
+  }
+  throw new Error('a 403 always rethrows');
 }
 
 describe('teams backup scope and per-team isolation', () => {
@@ -166,6 +179,31 @@ describe('teams backup scope and per-team isolation', () => {
       expect(backup_team.mock.calls.map((call) => call[1])).toEqual(['team-a', 'team-b']);
     },
   );
+
+  // Issue #865: a 403 that is not a missing grant fails one team, not the run.
+  it('backs up the other teams with --all after a non-permission 403, and exits partial', async () => {
+    backup_team
+      .mockRejectedValueOnce(teams_403('UnknownError'))
+      .mockResolvedValueOnce(healthy_result('team-b'));
+
+    await execute_teams_backup(container, { tenant: TENANT, all: true });
+
+    expect(backup_team.mock.calls.map((call) => call[1])).toEqual(['team-a', 'team-b']);
+    expect(process.exitCode).toBe(2);
+  });
+
+  it('stops --all on a missing-grant 403, which exits 4', async () => {
+    const refusal = teams_403('Authorization_RequestDenied');
+    backup_team.mockRejectedValueOnce(refusal);
+
+    await expect(execute_teams_backup(container, { tenant: TENANT, all: true })).rejects.toBe(
+      refusal,
+    );
+    handle_fatal_error(refusal);
+
+    expect(backup_team).toHaveBeenCalledTimes(1);
+    expect(process.exitCode).toBe(4);
+  });
 
   it('rethrows a single-team failure so the fatal category exit is kept', async () => {
     backup_team.mockRejectedValueOnce(new Error('team not found'));

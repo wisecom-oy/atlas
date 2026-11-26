@@ -248,7 +248,7 @@ atlas sharepoint list-permissions --site https://contoso.sharepoint.com/sites/En
 atlas sharepoint status --site https://contoso.sharepoint.com/sites/Engineering
 ```
 
-Reports, per library, the file changes waiting for the next backup and the files in the list of failed files. It reads the sync checkpoint without moving it, so the next backup is unaffected. A library is up to date only when it has no pending file and no failed file, so a site with files still waiting for a retry is not reported as current. A Microsoft Graph `401` or `403` exits with code `4`. See the [status columns](/reference/cli#drive-status-columns).
+Reports, per library, the file changes waiting for the next backup and the files in the list of failed files. It reads the sync checkpoint without moving it, so the next backup is unaffected. A library is up to date only when it has no pending file and no failed file, so a site with files still waiting for a retry is not reported as current. A Microsoft Graph `401` or `403` exits with code `4`. A library that could not be checked shows `peek failed` and the command exits `3` when Microsoft Graph was throttling or unavailable through the retries, or `2` for any other failure. See the [status columns](/reference/cli#drive-status-columns).
 
 ### delete
 
@@ -293,7 +293,7 @@ Older snapshots do not record library names, so rule 1 cannot apply. Such a snap
 
 ## Sharing
 
-Sharing on files and folders is captured and restored as for OneDrive. See [Sharing](./onedrive-backup.md#sharing) and [Restoring sharing](./onedrive-backup.md#restoring-sharing).
+Sharing on files and folders is captured and restored as for OneDrive. See [Sharing](./onedrive-backup.md#sharing) and [Restoring sharing](./onedrive-backup.md#restoring-sharing). A permission read that Microsoft Graph refuses lists the item on the library's [failed files](#failed-files) and the run exits `2`, as described in [When permissions cannot be read](./onedrive-backup.md#when-permissions-cannot-be-read).
 
 - Site and library permissions are not part of a backup.
 - A restore applies no permission unless you pass `--restore-permissions`.
@@ -379,6 +379,7 @@ One file that cannot be read never stops the rest of the library. Atlas keeps th
 | Any other `403`, including one with no code | Fails that file for this run and retries it next run, up to 5 attempts | Check the Graph error code in the run output |
 | File changes size during the download       | Reads the file again at its current size                             | Nothing, unless it keeps changing |
 | Earlier version cannot be downloaded        | Marks the run UNHEALTHY, or counts the version as `unavailable`      | See [version failures](#version-failures) |
+| File larger than 312.5 GiB                  | Refuses it before downloading or uploading anything, and records a permanent failure that names S3's 10,000-part limit | Nothing. Microsoft 365 caps a file at 250 GB, so this needs a larger file than the service allows. See [object size limits](/self-hosting/storage#object-size-limits) |
 
 A `403` is permanent on the first occurrence only for these Graph error codes:
 
@@ -395,6 +396,7 @@ Microsoft does not document which code a download returns for an IRM or retentio
 Each failed file is retried at the start of the next run, before new changes:
 
 - If the file downloads, it is stored and the failure clears.
+- If it was listed because its permissions could not be read, they are read again without downloading the file, and the failure clears once they are. See [When permissions cannot be read](./onedrive-backup.md#when-permissions-cannot-be-read).
 - If the file was deleted, the failure is dropped. A `404` on the re-read is not enough on its own. See [A listed file that answers not found](#a-listed-file-that-answers-not-found).
 - If it fails again, its attempt count increases, unless the failure is outside the file.
 
@@ -411,6 +413,7 @@ Only a failure that belongs to the file uses one of its 5 attempts. A scheduled 
 | Downloaded body of the wrong length or range, or a file that keeps changing size | Yes |
 | Any other `4xx`, such as `400` or a `403` with an unrecognised code | Yes |
 | Malware quarantine, or a `403` with a protection code | Permanent at once, never retried |
+| File larger than 312.5 GiB, which one S3 multipart upload cannot hold | Permanent at once, never retried, reported as `PERMANENTLY SKIPPED by service policy, not retried` |
 | Storage failure while writing the file, at any size: a full disk or quota, an S3 `5xx` once the retries are spent, or an endpoint that never answers | No. The library fails instead and the file is not listed, see below |
 
 A file that has failed only for reasons outside it is reported as `will retry (no attempt counted yet)`, and the run stays UNHEALTHY with exit code `2`, so an outage stays visible. Such a file is retried on every run until it backs up. When a Microsoft Graph call spends its whole retry budget, the run also stops there and exits `3`, keeping the file listed with its attempts unchanged. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
@@ -458,13 +461,19 @@ For files of 64 MiB and larger, a run can refresh the link any number of times, 
 
 ### Version failures
 
-| Situation                                                        | Result                                                                    |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Unexpected failure: throttling, `403 accessDenied`, transient fault | Error. The run is UNHEALTHY.                                           |
-| Microsoft 365 reports the version gone (`404` or `410`, purged by the site's retention policy) | Counted as `unavailable`. Health is unaffected. |
-| Download delivers fewer or more bytes than listed                | Fails with `DownloadIntegrityError` before anything is stored. The run is UNHEALTHY. |
+| Situation | Result |
+| --- | --- |
+| Unexpected failure: throttling, `403 accessDenied`, transient fault | Error. The run is UNHEALTHY. |
+| `404` or `410`, and the version is no longer in the file's version list (purged by the site's retention policy) | Counted as `unavailable`. Health is unaffected. |
+| `404` or `410`, and the version is still listed | Error. The run is UNHEALTHY. Counted as `unavailable` once the answer repeats on 3 runs in a row spanning at least 24 hours |
+| Download delivers fewer or more bytes than listed | Fails with `DownloadIntegrityError` before anything is stored. The run is UNHEALTHY. |
+| Version larger than 312.5 GiB | Counted as `unavailable` without being downloaded, and never retried. Health is unaffected. |
 
-Only the HTTP status of the response decides between error and `unavailable`. An error whose message text happens to contain "404" or "Not Found" is an ordinary failure. A failed version is downloaded again by the next backup that picks up a change to the file.
+Only the HTTP status of the response decides between error and `unavailable`. An error whose message text happens to contain "404" or "Not Found" is an ordinary failure. A `404` is not proof the version is gone: Microsoft Graph returns one during incidents, and the run listed the version moments earlier. Atlas therefore reads the version list once more for that file before counting a version as purged, which costs one extra request per file and only when a `404` or `410` occurs.
+
+A failed version stops the file's [watermark](/operations/delta-sync#file-version-capture-onedrive-and-sharepoint), so it is downloaded again, along with every newer version, by the next backup that picks up the file. Newer versions already stored deduplicate.
+
+The same holds when a run stores a file's content and then stops before capturing its versions: the library or the file fails, the version listing fails, or Ctrl+C ends the run. The cursor records the file as owing versions, and the next run that sees it captures them even though the content is already stored. A file whose versions were all captured costs no version request when its content deduplicates, for example on a `--full` run.
 
 ### Files that change size
 
@@ -497,6 +506,7 @@ See [reliability](/operations/reliability) for retries and what is safe to rerun
 | Area                 | Limit                                                                                              |
 | -------------------- | -------------------------------------------------------------------------------------------------- |
 | Downloads            | Up to 4 MiB in one request; 4 to 64 MiB in 4 MiB ranges; 64 MiB and larger streamed through a staging upload |
+| File size            | 312.5 GiB per file or version, above Microsoft 365's 250 GB. See [object size limits](/self-hosting/storage#object-size-limits) |
 | Uploads on restore   | Up to 4 MiB in one request; larger files in a resumable upload session in 10 MiB chunks           |
 | Throttling           | Retried with backoff, see below                                                                    |
 | Path length          | A restore folder adds path depth. Files over SharePoint's path length limit are skipped and reported. |

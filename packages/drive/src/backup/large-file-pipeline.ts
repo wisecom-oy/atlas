@@ -1,5 +1,6 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { stream_to_content_addressed_storage } from '@wisecom/atlas-core/services/shared/stream-encrypt-upload';
+import { assert_listed_size_fits_part_limit } from '@wisecom/atlas-core/services/shared/multipart-part-plan';
 import type { StorageObjectLockPolicy, TenantContext } from '@wisecom/atlas-types';
 import type { DriveDeltaItem } from '@/drive-ports';
 import { size_checked_chunks } from '@/backup/download-integrity';
@@ -54,6 +55,8 @@ export async function process_large_drive_file(
   object_lock_policy?: StorageObjectLockPolicy,
   abort_signal?: AbortSignal,
 ): Promise<LargeFileResult> {
+  // A file too large to upload is refused before Graph is asked for anything (issue #925).
+  assert_listed_size_fits_part_limit(item.size_bytes);
   const download_url = await connector.resolve_download_url(item);
   if (!download_url) {
     throw new Error(`Could not resolve download URL for large file ${item.item_id}`);
@@ -82,6 +85,7 @@ export async function process_large_drive_file(
       staging_key,
       build_data_key: (content_name) => deps.keys.data_key(owner_id, content_name),
       data_scope: deps.keys.data_prefix_for(owner_id),
+      listed_bytes: item.size_bytes,
       ...(object_lock_policy && { object_lock_policy }),
     },
   );

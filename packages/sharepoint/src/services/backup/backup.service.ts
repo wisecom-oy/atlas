@@ -194,7 +194,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         delta_link_by_drive,
         tracking,
         scan.failed_items,
-        versions.watermarks,
+        versions,
         // The snapshot this run writes, or the one it leaves as the newest when nothing changed.
         await resolve_saved_cursor_binding(
           scan.entries.length > 0 ? snapshot_id : undefined,

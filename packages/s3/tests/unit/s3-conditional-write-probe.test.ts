@@ -1,12 +1,15 @@
 /**
- * Issue #623: the owner lease only excludes a second run when the backend refuses a create-only
- * write onto an existing key and a compare-and-swap with a stale ETag. `storage-check` probes both
- * with a throwaway object.
+ * Issues #623 and #915: the owner lease only excludes a second run when the backend refuses a
+ * create-only write onto an existing key and a compare-and-swap with a stale ETag, and accepts a
+ * compare-and-swap with the current ETag. The probe checks all three with a throwaway object.
  */
 import { describe, expect, it } from 'vitest';
 import type { ObjectStorage } from '@wisecom/atlas-types';
 import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
-import { probe_conditional_writes } from '@/adapters/s3-conditional-write-probe';
+import {
+  probe_conditional_writes,
+  run_conditional_write_probe,
+} from '@/adapters/s3-conditional-write-probe';
 
 /** An in-memory bucket that honours write conditions, with the version calls the cleanup makes. */
 function conditional_bucket(
@@ -23,7 +26,7 @@ function conditional_bucket(
   return { harness, storage };
 }
 
-describe('probe_conditional_writes (issue #623)', () => {
+describe('probe_conditional_writes (issues #623, #915)', () => {
   it('reports support when both conditional writes are refused, and leaves nothing behind', async () => {
     const { harness, storage } = conditional_bucket();
 
@@ -56,13 +59,15 @@ describe('probe_conditional_writes (issue #623)', () => {
 
     const result = await probe_conditional_writes(storage);
 
-    expect(result.support).toBe('ignored');
-    expect(result.detail).toContain('If-None-Match');
-    expect(result.detail).not.toContain('If-Match (');
+    expect(result).toEqual({
+      support: 'ignored',
+      detail: 'the backend accepted a create-only write (If-None-Match: *) onto an existing object',
+      violations: ['create_only'],
+    });
     expect(harness.keys()).toEqual([]);
   });
 
-  it('reports a backend that ignores If-Match', async () => {
+  it('reports a backend that ignores a stale If-Match', async () => {
     const { storage } = conditional_bucket((inner) => ({
       put: async (key, data, metadata, policy, _if_match, if_none_match) =>
         inner.put(key, data, metadata, policy, undefined, if_none_match),
@@ -70,23 +75,62 @@ describe('probe_conditional_writes (issue #623)', () => {
 
     const result = await probe_conditional_writes(storage);
 
-    expect(result.support).toBe('ignored');
-    expect(result.detail).toContain('If-Match (compare-and-swap)');
-    expect(result.detail).not.toContain('If-None-Match');
+    expect(result).toEqual({
+      support: 'ignored',
+      detail: 'the backend accepted a compare-and-swap (If-Match) with a stale ETag',
+      violations: ['stale_if_match'],
+    });
   });
 
-  it('reports a backend that ignores both conditions', async () => {
+  it('reports a backend that ignores both conditions, as Garage and CloudServer do', async () => {
     const { storage } = conditional_bucket((inner) => ({
       put: async (key, data) => inner.put(key, data),
     }));
 
     const result = await probe_conditional_writes(storage);
 
+    expect(result.support).toBe('ignored');
+    expect(result.violations).toEqual(['create_only', 'stale_if_match']);
+    expect(result.detail).toBe(
+      'the backend accepted a create-only write (If-None-Match: *) onto an existing object; ' +
+        'accepted a compare-and-swap (If-Match) with a stale ETag',
+    );
+  });
+
+  it('reports a backend that refuses If-Match with the current ETag, as Ceph RGW 18 does', async () => {
+    const refused = Object.assign(new Error('Precondition Failed'), { name: 'PreconditionFailed' });
+    const { harness, storage } = conditional_bucket((inner) => ({
+      put: async (key, data, metadata, policy, if_match, if_none_match) => {
+        if (if_match !== undefined) throw refused;
+        return inner.put(key, data, metadata, policy, undefined, if_none_match);
+      },
+    }));
+
+    const result = await probe_conditional_writes(storage);
+
     expect(result).toEqual({
       support: 'ignored',
-      detail:
-        'the backend accepted a write with If-None-Match: * (create-only) and If-Match (compare-and-swap)',
+      detail: 'the backend refused a compare-and-swap (If-Match) with the current ETag',
+      violations: ['current_if_match'],
     });
+    expect(harness.keys()).toEqual([]);
+  });
+
+  it('sends the current ETag last, after reading it back', async () => {
+    const etags: (string | undefined)[] = [];
+    const { storage } = conditional_bucket((inner) => ({
+      put: async (key, data, metadata, policy, if_match, if_none_match) => {
+        etags.push(if_match);
+        return inner.put(key, data, metadata, policy, if_match, if_none_match);
+      },
+    }));
+
+    await probe_conditional_writes(storage);
+
+    const [stale, current] = etags.filter((etag) => etag !== undefined);
+    expect(etags).toHaveLength(5);
+    expect(current).toBeDefined();
+    expect(current).not.toBe(stale);
   });
 
   it('does not probe a bucket that does not exist yet', async () => {
@@ -143,5 +187,57 @@ describe('probe_conditional_writes (issue #623)', () => {
     }));
 
     await expect(probe_conditional_writes(storage)).resolves.toEqual({ support: 'supported' });
+  });
+
+  describe('whether the answer may change within the process', () => {
+    it('is final for a verdict', async () => {
+      const { storage } = conditional_bucket((inner) => ({
+        put: async (key, data) => inner.put(key, data),
+      }));
+
+      await expect(run_conditional_write_probe(storage)).resolves.toMatchObject({
+        provisional: false,
+      });
+    });
+
+    it('is final when the credentials may not write', async () => {
+      const { storage } = conditional_bucket(() => ({
+        put: async () => {
+          throw Object.assign(new Error('Access Denied'), { name: 'AccessDenied' });
+        },
+      }));
+
+      await expect(run_conditional_write_probe(storage)).resolves.toMatchObject({
+        check: { support: 'not_probed' },
+        provisional: false,
+      });
+    });
+
+    it('is provisional while the bucket does not exist', async () => {
+      const { storage } = conditional_bucket(() => ({
+        put: async () => {
+          throw Object.assign(new Error('missing'), { name: 'NoSuchBucket' });
+        },
+      }));
+
+      await expect(run_conditional_write_probe(storage)).resolves.toMatchObject({
+        provisional: true,
+      });
+    });
+
+    it('is provisional when a request fails partway, and is not reported as ignored', async () => {
+      const { harness, storage } = conditional_bucket((inner) => ({
+        get_with_etag: async () => {
+          throw Object.assign(new Error('Service Unavailable'), { name: 'ServiceUnavailable' });
+        },
+        put: inner.put,
+      }));
+
+      await expect(run_conditional_write_probe(storage)).resolves.toEqual({
+        check: { support: 'not_probed', detail: 'the probe failed: Service Unavailable' },
+        provisional: true,
+      });
+      expect(harness.keys()).toEqual([]);
+    });
   });
 });

@@ -65,7 +65,7 @@ async function outcome_for(error: unknown) {
     empty_state(),
     { total_versions_stored: 0, total_versions_unavailable: 0, total_versions_failed: 0 },
     () => {},
-    { watermarks: {}, rows: new Map() } as never,
+    { watermarks: {}, pending: {}, rows: new Map() } as never,
   );
 }
 
@@ -101,7 +101,7 @@ describe('expired download URL and the failed-item ledger (issue #718)', () => {
       empty_state(),
       { total_versions_stored: 0, total_versions_unavailable: 0, total_versions_failed: 0 },
       () => {},
-      { watermarks: {}, rows: new Map() } as never,
+      { watermarks: {}, pending: {}, rows: new Map() } as never,
     );
     expect(failed.consumes_attempt).toBeUndefined();
     record_item_outcome_failure(result, new Set(), 'drive-1', ITEM, failed);

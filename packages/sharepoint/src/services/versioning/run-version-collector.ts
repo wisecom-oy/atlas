@@ -21,10 +21,12 @@ export async function load_run_version_collector(
   stored_cursor: SharePointDeltaCursor | undefined,
 ): Promise<RunVersionCollector> {
   const carried = stored_cursor?.version_watermark_by_file_id;
-  if (carried) return { watermarks: { ...carried }, rows: new Map() };
+  const pending = { ...(stored_cursor?.pending_versions_by_file_id ?? {}) };
+  if (carried) return { watermarks: { ...carried }, pending, rows: new Map() };
   logger.info(`Seeding version dedup watermarks for ${site_id} from the version index`);
   return {
     watermarks: await file_indexes.load_version_watermarks(ctx, site_id),
+    pending,
     rows: new Map(),
   };
 }

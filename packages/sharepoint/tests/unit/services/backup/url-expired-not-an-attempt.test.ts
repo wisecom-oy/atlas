@@ -65,7 +65,7 @@ async function process_item(library: LibraryProcessingState): Promise<void> {
     {} as never,
     empty_tracking(),
     library,
-    { watermarks: {}, rows: new Map() } as never,
+    { watermarks: {}, pending: {}, rows: new Map() } as never,
     { total_versions_stored: 0, total_versions_unavailable: 0, total_versions_failed: 0 },
   );
 }

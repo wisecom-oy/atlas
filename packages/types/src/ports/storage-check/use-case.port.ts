@@ -18,15 +18,30 @@ export interface StorageDefaultRetention {
 }
 
 /**
- * Whether the backend refuses a create-only write onto an existing key and a compare-and-swap
- * with a stale ETag. `ignored` means it accepted at least one of them, so the owner lease, the
- * data key bootstrap and the identity registry cannot exclude concurrent writers on this backend.
- * `not_probed` means the probe object could not be written: no bucket yet, or no write access.
+ * One conditional-write rule a backend broke during the probe.
+ *
+ * - `create_only`: it accepted `If-None-Match: *` onto an existing key, which must be refused.
+ * - `stale_if_match`: it accepted `If-Match` with an ETag the object no longer has, which must be
+ *   refused.
+ * - `current_if_match`: it refused `If-Match` with the ETag the object has, which must be
+ *   accepted. Ceph RGW 18 does this, so every compare-and-swap fails there.
+ */
+export type ConditionalWriteViolation = 'create_only' | 'stale_if_match' | 'current_if_match';
+
+/**
+ * Whether the backend enforces the conditional writes Atlas depends on: it refuses a create-only
+ * write onto an existing key and a compare-and-swap with a stale ETag, and accepts one with the
+ * current ETag. `ignored` means it broke at least one of these, so the owner lease, the data key
+ * bootstrap, create-only manifests and the identity registry cannot exclude concurrent writers on
+ * this backend, and Atlas refuses to write there. `not_probed` means the probe could not run: no
+ * bucket yet, no write access, or a storage failure.
  */
 export interface StorageConditionalWriteCheck {
   readonly support: 'supported' | 'ignored' | 'not_probed';
-  /** Which condition was ignored, or why the probe did not run. */
+  /** Which conditions were broken, or why the probe did not run. */
   readonly detail?: string | undefined;
+  /** The rules the backend broke, in probe order. Present only when `support` is `ignored`. */
+  readonly violations?: readonly ConditionalWriteViolation[] | undefined;
 }
 
 /** One Atlas lifecycle action the bucket's enabled rules lack. */

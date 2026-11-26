@@ -31,7 +31,7 @@ atlas calendar restore -m user@example.com -s cal-snap-1735689600000-a1b2c3 -T o
 | File attachments on events | Separate encrypted objects, named by keyed HMAC-SHA256 like other content  |
 | Calendar list              | Each calendar's ID, display name, and default flag                         |
 
-Each snapshot is complete. It lists every calendar and every event that existed at that run, so restoring one snapshot never needs an older one. An unchanged event is stored once however many snapshots include it. Events Microsoft 365 reports as removed drop out of the next snapshot.
+Each snapshot is complete. It lists every calendar and every event that existed at that run, so restoring one snapshot never needs an older one. An unchanged event is stored once however many snapshots include it. Events Microsoft 365 reports as removed drop out of the next snapshot. The calendar listing is checked against the count Microsoft Graph reports for it, so a listing that ends early stops the run with exit `2` before anything is written, rather than dropping the unlisted calendars from the snapshot. See [Unit listings that end early](/operations/reliability#unit-listings).
 
 Not backed up:
 
@@ -90,6 +90,10 @@ The mailbox must hold an Exchange Online license. Microsoft Graph does not serve
 | Unlicensed mailbox   | `MailboxNotLicensedError` (`ATLAS_MAILBOX_NOT_LICENSED`)       | `4`  |
 
 Both end a backup or restore at once, because no further request can succeed.
+
+A `404` or `400` on the calendar listing is read again, 3 reads in about 6 s, before the run ends on it. One that persists ends the run before anything is written: with `ATLAS_NOT_FOUND` (exit `7`) when the mailbox's user is gone from the directory too, and with `ATLAS_GRAPH_UNAVAILABLE` (exit `3`) otherwise. A `404` on one calendar after the listing fails only that calendar, exit `2`. See [The first read of a run](/operations/reliability#first-reads-of-a-run).
+
+A missing permission is a `403` whose Microsoft Graph code is `accessDenied`, `ErrorAccessDenied`, or `Authorization_RequestDenied`. A `403` with any other code fails only the item it answered, and the run exits `2`. See [Which `403` responses stop a run](/operations/reliability#forbidden-responses).
 
 ## Commands
 
@@ -243,7 +247,9 @@ A restore prints `Events restored`, `Events skipped (already present)`, and `Cal
 | ---- | ---------------------------------------------------------------------------------------- |
 | `0`  | Complete                                                                                 |
 | `2`  | Partial: an event failed, an attachment was not captured, or the run was interrupted     |
+| `3`  | Microsoft Graph kept failing, or the calendar listing kept answering `4xx` for a mailbox that exists. Nothing was written |
 | `4`  | Missing permission or unlicensed mailbox                                                 |
+| `7`  | The mailbox's user does not exist in the tenant                                          |
 | `9`  | A damaged snapshot manifest was found. Run the printed `atlas calendar quarantine` command |
 
 See [Exit codes](/reference/cli#exit-codes) for the full list.
