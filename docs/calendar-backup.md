@@ -264,6 +264,8 @@ See [Exit codes](/reference/cli#exit-codes) for the full list.
 | The run is interrupted (Ctrl+C, crash, process stop) | Writes neither a snapshot nor new sync checkpoints. The next run repeats the same changes; nothing is half-recorded    | Run the backup again              |
 | A newer snapshot manifest cannot be read          | Reads every calendar in full, writes a fresh snapshot, names the key, exits `9`                                          | Quarantine the key                |
 | A restore write fails for an event with attachments or recurrence | Reports the error. The event keeps its pending tag                                                        | Rerun the restore. It recreates the event in full |
+| A restore cannot list the events of a target calendar after retries | Reports each of that calendar's events as failed, naming the listing error, and does not list it again. Other calendars restore. Exits `2` | Rerun the restore once Exchange answers |
+| Ctrl+C during a restore                           | An event create, update, or delete already sent finishes and the event is counted. The run then stops and exits `2`. A second Ctrl+C exits `130` at once | Rerun the restore. Events already restored are skipped |
 | Missing permission or unlicensed mailbox          | Ends the backup or restore. Exits `4`                                                                                     | Fix consent or licensing          |
 
 ## Limits

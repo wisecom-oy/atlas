@@ -103,7 +103,9 @@ describe('drive deletion commands (issue #163)', () => {
   it('deletes every OneDrive backup for the resolved owner object id, not the raw email', async () => {
     await h.program.parseAsync(['onedrive', 'delete', '-o', OWNER_EMAIL, '-y'], { from: 'user' });
 
-    expect(h.resolve_user).toHaveBeenCalledWith(TENANT_ID, OWNER_EMAIL);
+    expect(h.resolve_user).toHaveBeenCalledWith(TENANT_ID, OWNER_EMAIL, {
+      purpose: 'microsoft_365',
+    });
     expect(h.onedrive.delete_owner_data).toHaveBeenCalledWith(TENANT_ID, OWNER_OBJECT_ID);
     expect(h.onedrive.delete_snapshot).not.toHaveBeenCalled();
   });

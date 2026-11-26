@@ -123,6 +123,8 @@ atlas onedrive restore -o user@example.com -s od-snap-123 \
 
 Restored files keep their original created and modified timestamps. Each file is decrypted and checked against its SHA-256 checksum before upload. A file whose stored object is missing, fails AES-GCM authentication, or does not match the snapshot is reported as a restore error with the reason and is not created. The rest of the snapshot is restored, and the run exits `2`. A wrong passphrase stops the run with exit `5` before anything is written.
 
+A refusal that every later write would meet stops the restore at once with exit `4`: an `AuthError` such as a revoked credential, or a `403 accessDenied` on a folder create or upload, reported as `MissingGraphPermissionsError` naming `Files.ReadWrite.All`. Files restored before it stay at the destination and are logged with their count. Any other failure, including a `403` with another code, fails only its own file.
+
 To stop a restore safely, see [stopping a run](#stopping-a-run).
 
 ### restore-version
@@ -452,14 +454,14 @@ Both conditions are needed for the second case. A run count alone would let a on
 
 ### Expired download links
 
-Microsoft 365 gives Atlas a time-limited download link for each file. On a long run a link can expire before Atlas reaches the file or while it is reading it. Atlas fetches a fresh link and continues, resuming large files where they stopped. If the file still cannot be read, it is recorded as not backed up and retried on the next run without using an attempt.
+Microsoft 365 gives Atlas a time-limited download link for each file. On a long run a link can expire before Atlas reaches the file or while it is reading it. Atlas fetches a fresh link and continues, resuming large files where they stopped. If the file still cannot be read, it is recorded as not backed up and retried on the next run without using an attempt, at any file size. A body of the wrong length or a `404` from the fallback after the fresh link still uses one, because it says something about the file.
 
 ::: details How expired links are handled, by file size
 A `401` or `403` from the download link means it expired.
 
 | File size                | Link at download start          | When the link expires mid-transfer                                                       |
 | ------------------------ | ------------------------------- | ---------------------------------------------------------------------------------------- |
-| Up to 4 MiB              | Link from the change listing    | Fetch a fresh link once, retry the whole file, then fall back to the Graph `/content` endpoint |
+| Up to 4 MiB              | Link from the change listing    | Fetch a fresh link once, retry the whole file, then fall back to the Graph `/content` endpoint. A download host that is down on the fresh link is retried instead, see below |
 | Over 4 MiB, under 64 MiB | Link from the change listing    | Fetch a fresh link once, restart from byte zero, then fall back to `/content`            |
 | 64 MiB and larger        | Fresh link, one Graph request   | Fetch a fresh link and resume at the 4 MiB range that failed                             |
 
@@ -523,7 +525,9 @@ When Microsoft 365 throttles requests or has a transient fault, Atlas waits and 
 
 ::: details Retry and throttling details
 - Graph `429`, transient `500`, `502`, `503` and `504` responses, and dropped connections are retried with backoff, up to 5 times per range for chunked downloads.
-- A file up to 4 MiB is read from its download link in one request. A `429` there is retried up to 3 times against the same link before Atlas falls back to the Graph `/content` endpoint.
+- A file up to 4 MiB is read from its download link in one request. A `429` there is retried up to 3 times against the same link.
+- A file under 64 MiB whose download host answers `429` or `5xx`, resets, or times out gets 3 attempts with backoff from 2 s, then is listed for the next run without using an attempt. It is not sent to the Graph `/content` endpoint, which redirects to the same host. [File transfers](/operations/reliability#file-transfers-onedrive-and-sharepoint) lists the longest wait per file during a host outage.
+- A timed-out `/content` request is aborted before the next attempt, and counts toward the same 3 attempts.
 - A `Retry-After` on a download is honoured in either form, seconds or an HTTP date, and capped at one hour.
 :::
 

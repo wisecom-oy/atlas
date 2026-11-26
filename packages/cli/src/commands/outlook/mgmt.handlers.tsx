@@ -27,7 +27,7 @@ import { Banner } from '@/ui/components/banner';
 import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { KeyValueList } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
-import { resolve_owner } from '@/commands/onedrive/command.handlers';
+import { resolve_owner, resolve_stored_owner } from '@/commands/shared/owner-resolution';
 import { print_mailbox_status } from '@/commands/outlook/status-presenter';
 
 /** Archive-enabled mailboxes named individually before the warning summarises. */
@@ -93,7 +93,7 @@ async function assert_snapshot_owned_by_mailbox(
 
   const snapshot_owner = normalize_owner_id(manifest.owner_id);
   if (normalize_owner_id(options.mailbox) === snapshot_owner) return;
-  const owner = await resolve_owner(container, tenant_id, options.mailbox);
+  const owner = await resolve_stored_owner(container, tenant_id, options.mailbox);
   if (normalize_owner_id(owner.object_id) === snapshot_owner) return;
   throw new NotFoundError(
     `Snapshot ${options.snapshot} does not belong to mailbox ${options.mailbox} ` +
