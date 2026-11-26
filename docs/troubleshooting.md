@@ -88,6 +88,7 @@ Microsoft Graph returns `429` when it throttles a request, and occasionally `500
 | Occasional `500` or `502` responses | Normal under load. Retried automatically | Nothing, if the run completes |
 | Persistent `500` or `502` that stops a backup with `ATLAS_GRAPH_UNAVAILABLE`, exit `3`, at the same folder, drive, or item | Retries ran out against a server-side fault, not throttling | Rerun the backup later. If it repeats, open a Microsoft support case with the time of the failure and the affected item |
 | `ATLAS_GRAPH_UNAVAILABLE`, exit `3` | Microsoft Graph kept failing a call through its retry budget, and the backup stopped. A restore or save fails only that item, with this message on its error line, and exits `2` | See [Microsoft Graph unavailable after retries](#microsoft-graph-unavailable-after-retries) |
+| `ATLAS_GRAPH_UNAVAILABLE`, exit `3`, naming a `404` or `400` | A run's first read kept answering it for an owner that exists | See [A run's first read kept answering 404 or 400](#first-read-kept-answering-4xx) |
 | `ATLAS_THROTTLED`, exit `3` | A `429`, or SharePoint's `509 Bandwidth Limit Exceeded`, outlasted the retry budget, or `Retry-After` exceeded 1 hour, and the backup stopped. A restore or save fails only that item and exits `2` | Schedule the run again later, or run fewer jobs at once for that mailbox or tenant |
 | `ATLAS_LISTING_INCOMPLETE`, exit `2` | A listing of calendars, contact folders, mail folders, or teams ended with fewer items than Microsoft Graph counted. Nothing was written | Rerun. If it repeats for the same mailbox or tenant, open an issue with the message, which names both counts. See [Unit listings that end early](/operations/reliability#unit-listings) |
 
@@ -121,6 +122,20 @@ In the SDK the error is `GraphUnavailableError`:
 
 A `429` that outlasts the budget is `ThrottledError` (`ATLAS_THROTTLED`) instead, with the same exit codes: `3` from a backup, `2` from a restore or save.
 
+### A run's first read kept answering 404 or 400 {#first-read-kept-answering-4xx}
+
+```text
+[x] Microsoft Graph kept answering HTTP 404 -- itemNotFound -- ... on 3 reads over 12 s, to a request it answers for an owner that exists. Run the command again later.
+[x]   Atlas code: ATLAS_GRAPH_UNAVAILABLE
+```
+
+The mailbox existence check, drive listing, calendar listing, or contact folder listing answered a `4xx` on 3 reads about 6 s apart, and the owner's directory record still exists. Nothing was written. The run exits `3`, so a scheduler tries again later. `status_code` and `graph_code` on the SDK error name the answer.
+
+1. Rerun later. A replica that lags behind usually catches up within minutes.
+2. If the same owner repeats this for hours, open an issue with the status and code from the message.
+
+When the directory record answers `404` too, the owner is gone and the run exits `7` with `does not exist in the tenant`. See [The first read of a run](/operations/reliability#first-reads-of-a-run).
+
 ### Restore writes are sent once
 
 A restore reports an item as failed after a `408`, `500`, `502`, `504`, `509`, a `503` without `Retry-After`, a dropped connection, or a timeout. The item may or may not exist in the target: Microsoft 365 can commit a create and still lose the response, so Atlas does not repeat it and risk two copies. The restore continues with the other items.
@@ -150,7 +165,9 @@ Atlas could not find the owner in the tenant.
 No OneDrive is provisioned for user@example.com.
 ```
 
-The account exists and permissions are fine, but the user has never opened OneDrive. Microsoft Graph returns `404` for such a user, which is normal for admin and service accounts, and gives the same response for an account that does not exist. Atlas reports it as `ATLAS_NOT_FOUND` (exit `7`).
+The account exists and permissions are fine, but the user has never opened OneDrive. Microsoft Graph returns `404` with the code `ResourceNotFound` ("User's mysite not found.") for such a user, which is normal for admin and service accounts, and gives the same response for an account that does not exist. Atlas reports it as `ATLAS_NOT_FOUND` (exit `7`) on the first answer.
+
+Any other `404` on the drive listing, such as `itemNotFound`, is not this answer. Atlas reads it again, and one that persists for an owner who exists ends with `ATLAS_GRAPH_UNAVAILABLE` (exit `3`). See [A run's first read kept answering 404 or 400](#first-read-kept-answering-4xx).
 
 1. Sign in to OneDrive once as that user to provision the drive, or leave the account out of the run. A script that iterates over a tenant can skip the owner on exit `7` and continue.
 2. Do not re-check consent for this case. A missing permission is a `403`, reported separately as `ATLAS_AUTH_DENIED` (exit `4`).

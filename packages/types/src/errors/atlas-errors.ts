@@ -404,6 +404,10 @@ export class GraphAccessRefusedError extends AtlasError {
  * Graph kept failing a request with a transient answer (500, 502, 503, 504, a network error or a
  * timeout) until the retry budget ran out (issue #773). The service, not the request, is at fault,
  * so a later attempt can succeed. An exhausted 429 is `ThrottledError` instead.
+ *
+ * Also raised when a run's first read, such as a mailbox existence check or a unit listing, kept
+ * answering a 404, 400 or other 4xx through its confirming reads for an owner that exists
+ * (issues #862, #863 and #864).
  */
 export class GraphUnavailableError extends AtlasError {
   /** HTTP status of the last attempt, or undefined when it got no response at all. */

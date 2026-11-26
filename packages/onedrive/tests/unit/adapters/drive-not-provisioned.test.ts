@@ -1,7 +1,7 @@
 /**
  * A user who has never opened OneDrive.
  *
- * Graph answers both drive lookups with 404 "User's mysite not found.". `list_drives` rethrew that
+ * Graph answers both drive lookups with 404 `ResourceNotFound` "User's mysite not found.". `list_drives` rethrew that
  * untouched, so consumers got a bare Graph error with no class and no code and retried a permanent
  * answer (issue #403), and `fallback_default_drive` reported it as a missing Graph grant, which
  * sent operators to Entra to grant permissions they already held (issue #404).
@@ -16,9 +16,18 @@ import { GRAPH_CLIENT_TOKEN, MissingGraphPermissionsError } from '@wisecom/atlas
 import { NotFoundError } from '@wisecom/atlas-types';
 import { GraphOneDriveConnector } from '@/adapters/graph-onedrive-connector.adapter';
 
-/** Graph rejections carry the status on the error object, which is what the mappers read. */
-function graph_error(status: number, message: string): Error & { statusCode: number } {
-  return Object.assign(new Error(message), { statusCode: status });
+/** Graph rejections carry the status and Graph's code on the error object, which the mappers read. */
+function graph_error(
+  status: number,
+  message: string,
+  code?: string,
+): Error & { statusCode: number } {
+  return Object.assign(new Error(message), { statusCode: status, ...(code ? { code } : {}) });
+}
+
+/** What Graph answers a drive lookup for a user who has never opened OneDrive. */
+function no_onedrive_answer(): Error {
+  return graph_error(404, "User's mysite not found.", 'ResourceNotFound');
 }
 
 function make_connector(responses: Record<string, () => Promise<unknown>>): GraphOneDriveConnector {
@@ -42,7 +51,7 @@ const DEFAULT_DRIVE_PATH = '/users/owner-1/drive?$select=id,name';
 describe('GraphOneDriveConnector.list_drives for an unprovisioned drive', () => {
   it('types a 404 from the drives collection as NotFoundError', async () => {
     const connector = make_connector({
-      [DRIVES_PATH]: () => Promise.reject(graph_error(404, "User's mysite not found.")),
+      [DRIVES_PATH]: () => Promise.reject(no_onedrive_answer()),
     });
 
     await expect(connector.list_drives('tenant-1', 'owner-1')).rejects.toBeInstanceOf(
@@ -52,7 +61,7 @@ describe('GraphOneDriveConnector.list_drives for an unprovisioned drive', () => 
 
   it('carries the permanent Atlas code and says it is not a permissions problem', async () => {
     const connector = make_connector({
-      [DRIVES_PATH]: () => Promise.reject(graph_error(404, "User's mysite not found.")),
+      [DRIVES_PATH]: () => Promise.reject(no_onedrive_answer()),
     });
 
     const err = await connector.list_drives('tenant-1', 'owner-1').catch((e: unknown) => e);
@@ -66,7 +75,7 @@ describe('GraphOneDriveConnector.list_drives for an unprovisioned drive', () => 
   it('types a 404 from the default-drive fallback as NotFoundError, not a missing grant', async () => {
     const connector = make_connector({
       [DRIVES_PATH]: () => Promise.resolve({ value: [] }),
-      [DEFAULT_DRIVE_PATH]: () => Promise.reject(graph_error(404, "User's mysite not found.")),
+      [DEFAULT_DRIVE_PATH]: () => Promise.reject(no_onedrive_answer()),
     });
 
     await expect(connector.list_drives('tenant-1', 'owner-1')).rejects.toBeInstanceOf(
@@ -87,8 +96,7 @@ describe('GraphOneDriveConnector.list_drives for an unprovisioned drive', () => 
 
   it('still reports a 403 as a missing Graph grant', async () => {
     const connector = make_connector({
-      [DRIVES_PATH]: () =>
-        Promise.reject(Object.assign(graph_error(403, 'Access denied'), { code: 'accessDenied' })),
+      [DRIVES_PATH]: () => Promise.reject(graph_error(403, 'Access denied', 'accessDenied')),
     });
 
     await expect(connector.list_drives('tenant-1', 'owner-1')).rejects.toBeInstanceOf(

@@ -17,6 +17,7 @@ import {
   describe_graph_error,
   GRAPH_CLIENT_TOKEN,
   is_invalid_delta_error,
+  read_user_exists,
   rethrow_if_access_denied,
   rethrow_if_mailbox_not_licensed,
   rethrow_if_retry_exhausted,
@@ -58,13 +59,14 @@ export class GraphMailboxConnector implements MailboxConnector {
     }
   }
 
-  /** Checks whether a mailbox exists in the tenant via GET /users/{id}. */
+  /**
+   * Checks whether a mailbox exists in the tenant via GET /users/{id}. A 404 is read again before
+   * it is believed, since Graph answers one for a user whose directory replica lags (issue #862).
+   */
   async mailbox_exists(_tenant_id: string, owner_id: string): Promise<boolean> {
     try {
-      await with_graph_retry(() => this._client.api(`/users/${owner_id}?$select=id`).get());
-      return true;
+      return await read_user_exists(this._client, owner_id);
     } catch (err) {
-      if ((err as Record<string, unknown>).statusCode === 404) return false;
       rethrow_if_access_denied(err);
       throw err;
     }
