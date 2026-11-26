@@ -7,6 +7,7 @@ import {
   is_listed_size_part_limit_refusal,
   max_streamed_object_bytes,
 } from '@wisecom/atlas-core/services/shared/multipart-part-plan';
+import type * as stream_upload from '@wisecom/atlas-core/services/shared/stream-encrypt-upload';
 import { stream_to_content_addressed_storage } from '@wisecom/atlas-core/services/shared/stream-encrypt-upload';
 import type { DriveContentConnector, DriveDeltaItem } from '@/drive-ports';
 import { process_drive_backup_file } from '@/backup/file-processor';
@@ -22,10 +23,7 @@ vi.mock('@wisecom/atlas-core/utils/logger', () => ({
 }));
 
 vi.mock('@wisecom/atlas-core/services/shared/stream-encrypt-upload', async (import_original) => {
-  const actual =
-    await import_original<
-      typeof import('@wisecom/atlas-core/services/shared/stream-encrypt-upload')
-    >();
+  const actual = await import_original<typeof stream_upload>();
   return {
     ...actual,
     stream_to_content_addressed_storage: vi.fn(actual.stream_to_content_addressed_storage),

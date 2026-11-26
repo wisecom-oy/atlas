@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { TenantContext } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
+import type * as part_plan from '@/services/shared/multipart-part-plan';
 import { MultipartPartLimitError, PartLimitBreach } from '@/services/shared/multipart-part-plan';
 import {
   stream_encrypt_to_multipart,
@@ -15,7 +16,7 @@ import {
 const TEST_PART_LIMIT = 3;
 
 vi.mock('@/services/shared/multipart-part-plan', async (import_original) => {
-  const actual = await import_original<typeof import('@/services/shared/multipart-part-plan')>();
+  const actual = await import_original<typeof part_plan>();
   return {
     ...actual,
     plan_multipart_part_size: (listed_bytes: number) =>
