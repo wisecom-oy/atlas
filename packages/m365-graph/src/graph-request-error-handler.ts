@@ -38,6 +38,7 @@ import {
   token_request_retry_after_ms,
 } from '@/graph-token-failure';
 import { NewTokenRepeat, is_graph_unauthorized } from '@/graph-unauthorized-retry';
+import { get_active_graph_attempt, rethrow_if_stopped_before_send } from '@/graph-attempt';
 import { GraphUnavailableError, ThrottledError } from '@wisecom/atlas-types';
 
 const MAX_RETRIES = 12;
@@ -182,32 +183,45 @@ export async function with_graph_retry<T>(
   fn: (attempt_signal: AbortSignal) => Promise<T>,
   options: GraphRetryOptions = {},
 ): Promise<T> {
-  const stop = link_signals(get_active_abort_signal(), get_active_graph_outage_signal());
+  // A call made inside another call's attempt is abandoned with that attempt (issue #888).
+  const cancel = link_signals(get_active_abort_signal(), get_active_graph_attempt()?.signal);
+  const stop = link_signals(cancel.signal, get_active_graph_outage_signal());
   try {
-    return await retry_until_settled(fn, options, stop.signal);
+    return await retry_until_settled(fn, options, { cancel: cancel.signal, stop: stop.signal });
   } catch (err) {
     record_graph_outage(err);
     throw err;
   } finally {
     stop.release();
+    cancel.release();
   }
 }
 
 /**
+ * What ends a call early: `cancel` when the run is cancelled or the attempt that made this call was
+ * abandoned, `stop` on either of those or an outage of the run.
+ */
+interface CallStopSignals {
+  readonly cancel: AbortSignal | undefined;
+  readonly stop: AbortSignal | undefined;
+}
+
+/**
  * The retry loop of `with_graph_retry`. Every wait, and the start of every attempt, ends as soon as
- * `stop_signal` fires: the run was cancelled, or another call of the run spent its budget. A
- * request already sent is cut off only by cancellation, so a read in flight still completes.
+ * `signals.stop` fires: the run was cancelled, or another call of the run spent its budget. A
+ * request already sent is cut off only by cancellation, so a read in flight still completes, and a
+ * request still waiting for its token is not sent.
  */
 async function retry_until_settled<T>(
   fn: (attempt_signal: AbortSignal) => Promise<T>,
   options: GraphRetryOptions,
-  stop_signal: AbortSignal | undefined,
+  signals: CallStopSignals,
 ): Promise<T> {
   const timeout_ms = options.timeout_ms ?? REQUEST_TIMEOUT_MS;
   const idempotent = options.idempotent ?? true;
-  const abort_signal = get_active_abort_signal();
+  const { cancel: cancel_signal, stop: stop_signal } = signals;
   // What may cut off a request already sent; waits before a send honour `stop_signal`.
-  const in_flight_signal = options.complete_in_flight === true ? undefined : abort_signal;
+  const in_flight_signal = options.complete_in_flight === true ? undefined : cancel_signal;
   let waited_ms = take_uncharged_wait_ms();
   const new_token_repeat = new NewTokenRepeat();
   const started_at = Date.now();
@@ -224,9 +238,13 @@ async function retry_until_settled<T>(
       waited_ms += await wait_out_throttle(cooldown_wait_bound_ms(waited_ms), stop_signal);
     }
     try {
-      return await run_attempt(fn, timeout_ms, in_flight_signal);
+      return await run_attempt(fn, timeout_ms, {
+        in_flight: in_flight_signal,
+        before_send: stop_signal,
+      });
     } catch (err) {
-      throw_if_cancelled(abort_signal);
+      throw_if_cancelled(cancel_signal);
+      rethrow_if_stopped_before_send(err);
       if (!claim_retry(err, idempotent, new_token_repeat)) throw as_final_failure(err);
 
       const retry_after = requested_wait_ms(err);

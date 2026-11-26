@@ -40,7 +40,8 @@ function batch_client(answer: (message_id: string, pass: number) => SubResponse)
       }),
     };
   });
-  const api = vi.fn(() => ({ post }));
+  const request = { post, option: () => request };
+  const api = vi.fn(() => request);
   return { client: { api } as unknown as Client, api, sent };
 }
 

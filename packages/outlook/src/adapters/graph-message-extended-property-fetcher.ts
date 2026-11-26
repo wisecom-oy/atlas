@@ -71,6 +71,10 @@ export async function fetch_message_extended_properties(
 /**
  * Sends one chunk until every message is read or has failed for good. Each pass resends only the
  * messages still pending, so a retry after a throttle never re-reads a settled one.
+ *
+ * Each POST carries the attempt's signal, and a pass whose attempt has ended records nothing and
+ * sends no further POST. An attempt that timed out or was cancelled therefore stops at once, and
+ * cannot change `found` or `pending` while the next attempt, or the caller, has moved on (#888).
  */
 async function read_chunk(
   client: Client,
@@ -80,9 +84,13 @@ async function read_chunk(
   found: Map<string, MessageExtendedProperties>,
 ): Promise<void> {
   let pending = [...chunk];
-  await with_graph_retry(async () => {
+  await with_graph_retry(async (signal) => {
     while (pending.length > 0) {
-      const responses = await post_sequential_batch(client, owner_id, pending, immutable_id_prefer);
+      const responses = await post_sequential_batch(client, owner_id, pending, {
+        immutable_id_prefer,
+        signal,
+      });
+      signal.throwIfAborted();
       const settled = settle_responses(pending, responses, found);
       const made_progress = settled.still_pending.length < pending.length;
       pending = settled.still_pending;
@@ -101,8 +109,9 @@ async function post_sequential_batch(
   client: Client,
   owner_id: string,
   message_ids: readonly string[],
-  immutable_id_prefer: string,
+  request: { readonly immutable_id_prefer: string; readonly signal: AbortSignal },
 ): Promise<BatchResponse[]> {
+  const { immutable_id_prefer, signal } = request;
   const query = `$select=id&$expand=${encodeURIComponent(EXTENDED_PROPERTY_EXPAND)}`;
   const requests = message_ids.map((message_id, index) => ({
     id: String(index),
@@ -111,7 +120,7 @@ async function post_sequential_batch(
     headers: { Prefer: immutable_id_prefer },
     ...(index > 0 ? { dependsOn: [String(index - 1)] } : {}),
   }));
-  const response = (await client.api('/$batch').post({ requests })) as {
+  const response = (await client.api('/$batch').option('signal', signal).post({ requests })) as {
     responses?: BatchResponse[];
   };
   return response.responses ?? [];

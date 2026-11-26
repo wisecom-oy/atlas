@@ -93,9 +93,10 @@ async function read_chunk<T>(
   outcome: BatchReadOutcome<T>,
 ): Promise<void> {
   let pending = [...chunk];
-  await with_graph_retry(async () => {
+  await with_graph_retry(async (signal) => {
     while (pending.length > 0) {
-      const responses = await post_batch(client, pending);
+      const responses = await post_batch(client, pending, signal);
+      signal.throwIfAborted();
       const settled = await settle_responses(pending, responses, spec, outcome);
       const made_progress = settled.still_pending.length < pending.length;
       pending = settled.still_pending;
@@ -106,16 +107,21 @@ async function read_chunk<T>(
   });
 }
 
+/**
+ * Posts one `$batch` with the attempt's signal. A `$batch` of reads is a POST, which would
+ * otherwise carry the write signal and stay open on Ctrl+C.
+ */
 async function post_batch(
   client: GraphApiClient,
   pending: readonly BatchReadRequest[],
+  signal: AbortSignal,
 ): Promise<BatchResponse[]> {
   const requests = pending.map((request, index) => ({
     id: String(index),
     method: 'GET',
     url: request.url,
   }));
-  const response = (await client.api('/$batch').post({ requests })) as {
+  const response = (await client.api('/$batch').option('signal', signal).post({ requests })) as {
     responses?: BatchResponse[];
   };
   return response.responses ?? [];

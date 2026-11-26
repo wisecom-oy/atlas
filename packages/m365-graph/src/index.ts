@@ -5,6 +5,7 @@ export {
 } from '@/graph-client.factory';
 export { parse_retry_after_ms } from './graph-retry-after';
 export { sleep as cancellable_sleep } from './graph-attempt-cancellation';
+export { get_active_attempt_signal } from '@/graph-attempt';
 export {
   is_invalid_delta_error,
   is_transient_error,

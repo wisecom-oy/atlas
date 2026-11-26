@@ -13,6 +13,8 @@ import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-grap
 import { GraphCostMiddleware } from '@/graph-cost-middleware';
 import { TypedTokenAuthProvider } from '@/graph-token-auth-provider';
 import { GraphTokenRejectionMiddleware } from '@/graph-token-rejection-middleware';
+import { GraphAttemptSignalMiddleware } from '@/graph-attempt-signal-middleware';
+import { token_request_policies } from '@/graph-token-request-policies';
 import type { GraphConfig } from '@wisecom/atlas-core/utils/config';
 
 export const GRAPH_CLIENT_TOKEN = Symbol.for('GraphClient');
@@ -62,11 +64,15 @@ export function create_graph_client(auth_provider: AuthenticationProvider): Clie
  * telemetry to be the handler immediately before the transport, so its usage
  * flags cover the real request.
  *
+ * An attempt-signal middleware goes first, so a request sent inside a `with_graph_retry` attempt
+ * carries the attempt's abort signal to fetch and closes with the attempt (issue #888).
+ *
  * With Atlas's own provider, a token-rejection middleware sits below RedirectHandler too, so a
  * Graph `401` discards the token that hop actually carried and the retry gets a new one.
  */
 function build_middleware_chain(auth_provider: AuthenticationProvider): Middleware {
   const chain: Middleware[] = [
+    new GraphAttemptSignalMiddleware(),
     new AuthenticationHandler(auth_provider),
     new RedirectHandler(new RedirectHandlerOptions()),
     ...(auth_provider instanceof TypedTokenAuthProvider
@@ -102,12 +108,16 @@ export function create_graph_auth_provider(config: GraphConfig): AuthenticationP
   return new TypedTokenAuthProvider(() => create_credential_provider(config));
 }
 
-/** A client-credentials provider with its own, empty MSAL token cache. */
+/**
+ * A client-credentials provider with its own, empty MSAL token cache. Its token requests are
+ * aborted once no Graph request waits for them (issues #875, #889).
+ */
 function create_credential_provider(config: GraphConfig): AuthenticationProvider {
   const credential = new ClientSecretCredential(
     config.tenant_id,
     config.client_id,
     config.client_secret,
+    { additionalPolicies: token_request_policies() },
   );
   return new TokenCredentialAuthenticationProvider(credential, {
     scopes: ['https://graph.microsoft.com/.default'],

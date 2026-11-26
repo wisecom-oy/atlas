@@ -4,8 +4,8 @@
  * Gaps are measured from the end of the failed exchange as the relay saw it (arrival plus
  * delivered time) to the arrival of the next attempt, which is the wait the client chose. A
  * negative gap means the client re-sent before the relay had finished the previous exchange, the
- * signature of a timeout implemented by racing a promise; those are reported apart and excluded
- * from backoff statistics.
+ * signature of a timeout that raced the request instead of closing it; those are reported apart and
+ * excluded from backoff statistics.
  */
 import { bump, median, ranked_counts, summarise_list } from './number-summary.mjs';
 import { fault_category } from './fault-knowledge.mjs';
