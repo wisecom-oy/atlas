@@ -13,6 +13,8 @@ export {
   is_content_gone_error,
   with_graph_retry,
 } from './graph-request-error-handler';
+export { read_owner_listing, read_user_exists } from '@/graph-owner-listing';
+export type { OwnerListing } from '@/graph-owner-listing';
 export { is_network_error } from './graph-network-error';
 export { is_permanent_item_error } from '@/graph-permanent-item-errors';
 export { is_exhausted_retry, rethrow_if_retry_exhausted } from './graph-exhausted-retry';
