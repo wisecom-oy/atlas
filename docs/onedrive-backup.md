@@ -374,6 +374,7 @@ One file that cannot be read never stops the rest of the drive. Atlas keeps the 
 | Any other `403`, including one with no code | Fails that file for this run and retries it next run, up to 5 attempts | Check the Graph error code in the run output |
 | File changes size during the download       | Reads the file again at its current size                             | Nothing, unless it keeps changing |
 | Earlier version cannot be downloaded        | Marks the run UNHEALTHY, or counts the version as `unavailable`      | See [version failures](#version-failures) |
+| File larger than 312.5 GiB                  | Refuses it before downloading or uploading anything, and records a permanent failure that names S3's 10,000-part limit | Nothing. Microsoft 365 caps a file at 250 GB, so this needs a larger file than the service allows. See [object size limits](/self-hosting/storage#object-size-limits) |
 
 A `403` is permanent on the first occurrence only for these Graph error codes:
 
@@ -406,6 +407,7 @@ Only a failure that belongs to the file uses one of its 5 attempts. A scheduled 
 | Downloaded body of the wrong length or range, or a file that keeps changing size | Yes |
 | Any other `4xx`, such as `400` or a `403` with an unrecognised code | Yes |
 | Malware quarantine, or a `403` with a protection code | Permanent at once, never retried |
+| File larger than 312.5 GiB, which one S3 multipart upload cannot hold | Permanent at once, never retried, reported as `PERMANENTLY SKIPPED by service policy, not retried` |
 | Storage failure while writing the file, at any size: a full disk or quota, an S3 `5xx` once the retries are spent, or an endpoint that never answers | No. The drive fails instead and the file is not listed, see below |
 
 A file that has failed only for reasons outside it is reported as `will retry (no attempt counted yet)`, and the run stays UNHEALTHY with exit code `2`, so an outage stays visible. Such a file is retried on every run until it backs up. When a Microsoft Graph call spends its whole retry budget, the run also stops there and exits `3`, keeping the file listed with its attempts unchanged. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
@@ -459,6 +461,7 @@ For files of 64 MiB and larger, a run can refresh the link any number of times, 
 | `404` or `410`, and the version is no longer in the file's version list (purged by retention policy) | Counted as `unavailable`. Health is unaffected. |
 | `404` or `410`, and the version is still listed | Error. The run is UNHEALTHY. Counted as `unavailable` once the answer repeats on 3 runs in a row spanning at least 24 hours |
 | Download delivers fewer or more bytes than listed | Fails with `DownloadIntegrityError` before anything is stored. The run is UNHEALTHY. |
+| Version larger than 312.5 GiB | Counted as `unavailable` without being downloaded, and never retried. Health is unaffected. |
 
 Only the HTTP status of the response decides between error and `unavailable`. An error whose message text happens to contain "404" or "Not Found" is an ordinary failure. A `404` is not proof the version is gone: Microsoft Graph returns one during incidents, and the run listed the version moments earlier. Atlas therefore reads the version list once more for that file before counting a version as purged, which costs one extra request per file and only when a `404` or `410` occurs.
 
@@ -497,6 +500,7 @@ See [reliability](/operations/reliability) for retries and what is safe to rerun
 | Area                 | Limit                                                                                              |
 | -------------------- | -------------------------------------------------------------------------------------------------- |
 | Downloads            | Up to 4 MiB in one request; 4 to 64 MiB in 4 MiB ranges; 64 MiB and larger streamed through a staging upload |
+| File size            | 312.5 GiB per file or version, above Microsoft 365's 250 GB. See [object size limits](/self-hosting/storage#object-size-limits) |
 | Uploads on restore   | Up to 4 MiB in one request; larger files in a resumable upload session in 10 MiB chunks           |
 | Throttling           | Retried with backoff, see below                                                                    |
 | Path length          | A restore folder adds path depth. Files over OneDrive's path length limit are skipped and reported. |
