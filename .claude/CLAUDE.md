@@ -55,7 +55,9 @@ delegated agents: pass the rule on in their instructions.
 
 `.claude/settings.json` sets `attribution.commit` and `attribution.pr` to empty
 strings, so Claude Code does not ask for the lines in the first place. Keep
-both empty.
+both empty. The `.husky/commit-msg` hook removes an assistant `Co-Authored-By`
+trailer or "Generated with" line from every commit message that slips through.
+Never bypass it with `--no-verify`.
 
 ## Package Manager
 
