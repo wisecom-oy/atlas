@@ -62,3 +62,5 @@ export {
   reported_collection_count,
   with_collection_count,
 } from '@/graph-counted-listing';
+export { create_repeated_listing_filter, drop_repeated_listings } from '@/graph-listing-repeats';
+export type { ListedItemId, RepeatedListingFilter } from '@/graph-listing-repeats';
