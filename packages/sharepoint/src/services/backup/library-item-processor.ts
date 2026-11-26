@@ -39,8 +39,8 @@ import {
   type DriveItemMetadataCapture,
 } from '@wisecom/atlas-drive/backup/item-metadata-capture';
 import {
-  collect_run_versions,
-  sync_file_versions,
+  capture_owed_file_versions,
+  forget_pending_versions,
   type RunVersionCollector,
 } from '@/services/versioning/version-sync';
 
@@ -111,6 +111,7 @@ export async function process_delta_item(
   );
 
   if (item.deleted) {
+    forget_pending_versions(versions, item.item_id);
     if (!classified) return;
     delete permission_digests(tracking)[item.item_id];
     // Graph omits `name` for a removed item, so the last name we saw is the
@@ -159,17 +160,18 @@ export async function process_delta_item(
   if (result.deduplicated) library_state.library_files_deduplicated++;
   if (result.stored) library_state.library_files_stored++;
 
-  if (!result.deduplicated) {
-    const version_result = await sync_file_versions(
-      connector,
-      item,
-      site_id,
-      snapshot_id,
-      ctx,
-      versions.watermarks[item.item_id],
-      abort_signal,
-    );
-    collect_run_versions(versions, item.item_id, version_result);
+  // Deduplicated content still owes versions when an earlier run stopped before capturing them.
+  const version_result = await capture_owed_file_versions(
+    connector,
+    item,
+    site_id,
+    snapshot_id,
+    ctx,
+    versions,
+    result.deduplicated,
+    abort_signal,
+  );
+  if (version_result) {
     accumulate_version_stats(version_result, version_stats, (s, u, f) => {
       version_stats.total_versions_stored = s;
       version_stats.total_versions_unavailable = u;

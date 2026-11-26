@@ -231,6 +231,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         delta_link_by_drive,
         ...tracking_state,
         version_watermark_by_file_id: versions.watermarks,
+        pending_versions_by_file_id: versions.pending,
         failed_items: scan_result.failed_items,
         ...(folder_scope !== undefined ? { folder_scope } : {}),
         updated_at: new Date().toISOString(),

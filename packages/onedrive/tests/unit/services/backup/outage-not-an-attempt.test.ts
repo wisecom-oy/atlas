@@ -73,7 +73,7 @@ async function run_once(
     tracking,
     { total_versions_stored: 0, total_versions_unavailable: 0, total_versions_failed: 0 },
     () => {},
-    { watermarks: {}, rows: new Map() } as never,
+    { watermarks: {}, pending: {}, rows: new Map() } as never,
   );
   record_item_outcome_failure(result, new Set(), 'drive-1', ITEM, outcome);
 }

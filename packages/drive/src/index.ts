@@ -82,11 +82,10 @@ export {
 } from '@/restore/version-restore';
 export {
   sync_file_versions,
-  collect_run_versions,
-  type RunVersionCollector,
   type VersionSyncOutcome,
   type VersionSyncResult,
 } from '@/versioning/version-sync';
+export { collect_run_versions, type RunVersionCollector } from '@/versioning/run-version-collector';
 export {
   store_version_content,
   VersionDownloadError,

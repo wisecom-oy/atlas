@@ -19,12 +19,12 @@ import { process_backup_file } from '@/services/backup/backup-file-processor';
 
 vi.mock('@/services/backup/backup-file-processor', () => ({ process_backup_file: vi.fn() }));
 vi.mock('@/services/versioning/version-sync', () => ({
-  sync_file_versions: vi.fn(async () => ({
+  capture_owed_file_versions: vi.fn(async () => ({
     new_versions_stored: 0,
     versions_unavailable: 0,
     versions_failed: 0,
   })),
-  collect_run_versions: vi.fn(),
+  forget_pending_versions: vi.fn(),
 }));
 
 const GRANT: DrivePermission = { roles: ['write'], granted_to: { type: 'user', id: 'jane-id' } };
@@ -92,7 +92,7 @@ async function process(
     state,
     { total_versions_stored: 0, total_versions_unavailable: 0, total_versions_failed: 0 },
     () => {},
-    { watermarks: {}, rows: new Map() },
+    { watermarks: {}, pending: {}, rows: new Map() },
     undefined,
     capture,
   );

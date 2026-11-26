@@ -25,7 +25,9 @@ const FILE: OneDriveDeltaItem = {
   download_url: 'https://example.invalid/f1',
 };
 
-function run_backup(version_error: unknown): Promise<OneDriveBackupResult> {
+const LISTED = [{ version_id: '1.0', last_modified_at: '2026-01-01', size_bytes: 10 }];
+
+function run_backup(version_error: unknown, relisted = LISTED): Promise<OneDriveBackupResult> {
   const context = {
     tenant_id: 't',
     storage: {
@@ -53,9 +55,7 @@ function run_backup(version_error: unknown): Promise<OneDriveBackupResult> {
       reset_detected: false,
     }),
     download_file_content: vi.fn().mockResolvedValue(Buffer.from('content')),
-    list_file_versions: vi
-      .fn()
-      .mockResolvedValue([{ version_id: '1.0', last_modified_at: '2026-01-01', size_bytes: 10 }]),
+    list_file_versions: vi.fn().mockResolvedValueOnce(LISTED).mockResolvedValue(relisted),
     download_file_version: vi.fn().mockRejectedValue(version_error),
   };
 
@@ -90,10 +90,19 @@ describe('OneDrive backup — version download failures (issue #92)', () => {
   });
 
   it('keeps an expired version (410) out of the error bucket and stays healthy', async () => {
-    const result = await run_backup({ statusCode: 410 });
+    // Expired: the version has left the list by the time the run reads it again (issue #855).
+    const result = await run_backup({ statusCode: 410 }, []);
 
     expect(result.summary.errors).toEqual([]);
     expect(result.summary.versions_unavailable).toBe(1);
     expect(result.summary.healthy).toBe(true);
+  });
+
+  it('reports a 404 on a version that is still listed as an error (issue #855)', async () => {
+    const result = await run_backup({ statusCode: 404 });
+
+    expect(result.summary.errors[0]).toContain('1 version download(s) failed unexpectedly');
+    expect(result.summary.versions_unavailable).toBe(0);
+    expect(result.summary.healthy).toBe(false);
   });
 });

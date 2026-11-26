@@ -6,8 +6,13 @@ import type { DriveTrackingState } from '@/services/backup/delta-item-processor'
 
 vi.mock('@/services/backup/backup-file-processor', () => ({ process_backup_file: vi.fn() }));
 vi.mock('@/services/versioning/version-sync', () => ({
-  sync_file_versions: vi.fn(async () => ({ stored: 0, unavailable: 0, failed: 0, rows: [] })),
-  collect_run_versions: vi.fn(),
+  capture_owed_file_versions: vi.fn(async () => ({
+    stored: 0,
+    unavailable: 0,
+    failed: 0,
+    rows: [],
+  })),
+  forget_pending_versions: vi.fn(),
 }));
 
 /**
@@ -53,7 +58,7 @@ async function run(tracking_state: DriveTrackingState) {
     links,
     { delta_link_by_drive: {} },
     false,
-    { watermarks: {}, rows: new Map() },
+    { watermarks: {}, pending: {}, rows: new Map() },
     { total_versions_stored: 0, total_versions_unavailable: 0, total_versions_failed: 0 },
     () => {},
   );

@@ -18,7 +18,7 @@ import type {
   TenantContext,
 } from '@wisecom/atlas-types';
 import type { PackageReport } from '@wisecom/atlas-core/services/shared/package-item-reporter';
-import type { VersionSyncResult } from '@/services/versioning/version-sync';
+import type { RunVersionCollector, VersionSyncResult } from '@/services/versioning/version-sync';
 import { count_file_entries, records_file_content } from '@wisecom/atlas-drive/shared/entry-kind';
 
 /**
@@ -131,14 +131,15 @@ export function build_delta_cursor(
   delta_link_by_drive: Record<string, string>,
   tracking: CursorTracking,
   failed_items: NonNullable<SharePointDeltaCursor['failed_items']>,
-  version_watermark_by_file_id: NonNullable<SharePointDeltaCursor['version_watermark_by_file_id']>,
+  versions: Pick<RunVersionCollector, 'watermarks' | 'pending'>,
   snapshot_id: string | null,
 ): SharePointDeltaCursor {
   return {
     site_id,
     delta_link_by_drive,
     ...tracking,
-    version_watermark_by_file_id,
+    version_watermark_by_file_id: versions.watermarks,
+    pending_versions_by_file_id: versions.pending,
     failed_items,
     updated_at: new Date().toISOString(),
     snapshot_id,

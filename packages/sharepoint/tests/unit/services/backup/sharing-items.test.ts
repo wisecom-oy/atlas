@@ -74,7 +74,7 @@ async function process(item: SharePointDeltaItem, state: LibraryProcessingState)
     {} as TenantContext,
     tracking(),
     state,
-    { watermarks: {}, rows: new Map() },
+    { watermarks: {}, pending: {}, rows: new Map() },
     { total_versions_stored: 0, total_versions_unavailable: 0, total_versions_failed: 0 },
     undefined,
     capture,

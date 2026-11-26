@@ -76,7 +76,7 @@ async function scan_pre_sharing_cursor() {
     {},
     { delta_link_by_drive: { d1: 'old-link-without-sharing' } },
     false,
-    { watermarks: {}, rows: new Map() },
+    { watermarks: {}, pending: {}, rows: new Map() },
     { total_versions_stored: 0, total_versions_unavailable: 0, total_versions_failed: 0 },
     () => {},
   );

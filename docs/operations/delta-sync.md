@@ -146,15 +146,18 @@ A run covering several drives or libraries commits all their checkpoints togethe
 
 ## File version capture (OneDrive and SharePoint)
 
-OneDrive and SharePoint backups keep earlier versions of each file as well as the current copy. For every file reported as changed, Atlas lists its versions with `GET /drives/{drive-id}/items/{item-id}/versions` and stores each version it has not captured yet. The current version is skipped, because the snapshot entry already holds it.
+OneDrive and SharePoint backups keep earlier versions of each file as well as the current copy. For every file reported as changed whose content was not already stored, and for every file whose earlier version capture did not finish, Atlas lists its versions with `GET /drives/{drive-id}/items/{item-id}/versions` and stores each version it has not captured yet. The current version is skipped, because the snapshot entry already holds it.
 
 Atlas keeps a watermark per file in the cursor, so it knows which versions it already holds without downloading them. Versions are processed oldest first, and the watermark stops at the first version the run could not capture:
 
 | Outcome for a version | Watermark | Next run |
 | --- | --- | --- |
 | Stored, or already stored as a deduplicated object | Advances past it | Skips it |
-| `404` or `410` from Microsoft Graph | Advances past it | Skips it. The library's version policy removed it and it can never be retrieved |
+| `404` or `410`, and the version has left the file's version list | Advances past it | Skips it. The library's version policy removed it and it can never be retrieved |
+| `404` or `410`, and the version is still listed | Stops before it, until the answer repeats on 3 runs in a row spanning at least 24 hours | Retries it and every newer version |
 | Any other error, such as `403` or `500` | Stops before it | Retries it and every newer version |
+
+A file with a failed version, or whose capture was cut short after its content was stored, is kept in the cursor's `pending_versions_by_file_id` map, with the `404` streak of each still-listed version. Content that is already stored does not mean the change was fully processed, so the next run that sees a pending file lists its versions again even when the content deduplicates. A file leaves the map when a capture finishes with no failed version, or when it is deleted.
 
 Nothing is dropped silently. A version with a missing or unparseable `lastModifiedDateTime` is never treated as captured: Atlas fetches it again when the file changes, and deduplication prevents a second stored copy.
 

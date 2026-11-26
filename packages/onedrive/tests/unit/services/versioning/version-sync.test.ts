@@ -61,7 +61,7 @@ describe('sync_file_versions', () => {
 
   it('returns empty result when no versions exist', async () => {
     connector = make_connector({ list_file_versions: vi.fn().mockResolvedValue([]) });
-    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, undefined);
+    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, {});
     expect(result).toEqual({
       new_versions_stored: 0,
       versions_deduplicated: 0,
@@ -81,7 +81,7 @@ describe('sync_file_versions', () => {
       download_file_version: vi.fn().mockImplementation(stub_drive_version_download('content')),
     });
 
-    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, undefined);
+    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, {});
 
     expect(result.new_versions_stored).toBe(2);
     expect(result.versions_deduplicated).toBe(0);
@@ -109,8 +109,10 @@ describe('sync_file_versions', () => {
     });
 
     const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, {
-      last_modified_at: '2024-01-01T00:00:00Z',
-      version_ids: ['v2.0'],
+      watermark: {
+        last_modified_at: '2024-01-01T00:00:00Z',
+        version_ids: ['v2.0'],
+      },
     });
 
     expect(connector.download_file_version).toHaveBeenCalledTimes(1);
@@ -132,8 +134,10 @@ describe('sync_file_versions', () => {
     });
 
     const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, {
-      last_modified_at: '2024-01-01T00:00:00Z',
-      version_ids: ['v2.0'],
+      watermark: {
+        last_modified_at: '2024-01-01T00:00:00Z',
+        version_ids: ['v2.0'],
+      },
     });
 
     expect(connector.download_file_version).toHaveBeenCalledTimes(1);
@@ -159,14 +163,9 @@ describe('sync_file_versions', () => {
       download_file_version: vi.fn().mockImplementation(stub_drive_version_download('content')),
     });
 
-    const result = await sync_file_versions(
-      connector,
-      item,
-      owner_id,
-      snapshot_id,
-      ctx,
-      '2024-01-01T00:00:00Z',
-    );
+    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, {
+      watermark: '2024-01-01T00:00:00Z',
+    });
 
     expect(connector.download_file_version).toHaveBeenCalledTimes(2);
     expect(result.next_watermark).toEqual({
@@ -183,7 +182,7 @@ describe('sync_file_versions', () => {
     });
     (ctx.storage.exists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
 
-    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, undefined);
+    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, {});
 
     expect(result.versions_deduplicated).toBe(1);
     expect(result.new_versions_stored).toBe(0);
@@ -192,7 +191,7 @@ describe('sync_file_versions', () => {
     expect(result.records.length).toBe(1);
   });
 
-  it('classifies 404 errors as unavailable (not failed)', async () => {
+  it('counts a 404 on a version that is still listed as failed (issue #855)', async () => {
     const versions = [{ version_id: 'v2.0', last_modified_at: '2024-01-01', size_bytes: 500 }];
     const error_404 = Object.assign(new Error('Not Found'), { statusCode: 404 });
     connector = make_connector({
@@ -200,26 +199,33 @@ describe('sync_file_versions', () => {
       download_file_version: vi.fn().mockRejectedValue(error_404),
     });
 
-    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, undefined);
+    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, {});
 
-    expect(result.versions_unavailable).toBe(1);
-    expect(result.versions_failed).toBe(0);
+    expect(result.versions_unavailable).toBe(0);
+    expect(result.versions_failed).toBe(1);
     expect(result.records).toEqual([]);
+    expect(result.next_watermark).toBeUndefined();
+    expect(result.not_found?.['v2.0']?.reads).toBe(1);
   });
 
-  it('classifies 410 errors as unavailable', async () => {
-    const versions = [{ version_id: 'v2.0', last_modified_at: '2024-01-01', size_bytes: 500 }];
-    const error_410 = Object.assign(new Error('Gone'), { status: 410 });
-    connector = make_connector({
-      list_file_versions: vi.fn().mockResolvedValue(versions),
-      download_file_version: vi.fn().mockRejectedValue(error_410),
-    });
+  it.each([404, 410])(
+    'classifies a %i as unavailable once the version has left the list',
+    async (status) => {
+      const versions = [{ version_id: 'v2.0', last_modified_at: '2024-01-01', size_bytes: 500 }];
+      connector = make_connector({
+        list_file_versions: vi.fn().mockResolvedValueOnce(versions).mockResolvedValue([]),
+        download_file_version: vi
+          .fn()
+          .mockRejectedValue(Object.assign(new Error('Gone'), { statusCode: status })),
+      });
 
-    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, undefined);
+      const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, {});
 
-    expect(result.versions_unavailable).toBe(1);
-    expect(result.versions_failed).toBe(0);
-  });
+      expect(result.versions_unavailable).toBe(1);
+      expect(result.versions_failed).toBe(0);
+      expect(result.not_found).toBeUndefined();
+    },
+  );
 
   it('classifies 403 errors as failed', async () => {
     const versions = [{ version_id: 'v2.0', last_modified_at: '2024-01-01', size_bytes: 500 }];
@@ -229,7 +235,7 @@ describe('sync_file_versions', () => {
       download_file_version: vi.fn().mockRejectedValue(error_403),
     });
 
-    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, undefined);
+    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, {});
 
     expect(result.versions_failed).toBe(1);
     expect(result.versions_unavailable).toBe(0);
@@ -242,7 +248,7 @@ describe('sync_file_versions', () => {
       download_file_version: vi.fn().mockRejectedValue(new Error('Internal Server Error')),
     });
 
-    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, undefined);
+    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, {});
 
     expect(result.versions_failed).toBe(1);
     expect(result.versions_unavailable).toBe(0);
@@ -258,7 +264,10 @@ describe('sync_file_versions', () => {
     const error_500 = Object.assign(new Error('Server Error'), { statusCode: 500 });
 
     connector = make_connector({
-      list_file_versions: vi.fn().mockResolvedValue(versions),
+      list_file_versions: vi
+        .fn()
+        .mockResolvedValueOnce(versions)
+        .mockResolvedValue([versions[0], versions[2]]),
       download_file_version: vi
         .fn()
         .mockImplementationOnce(stub_drive_version_download('v2-content'))
@@ -266,13 +275,13 @@ describe('sync_file_versions', () => {
         .mockRejectedValueOnce(error_500),
     });
 
-    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, undefined);
+    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, {});
 
     expect(result.new_versions_stored).toBe(1);
     expect(result.versions_unavailable).toBe(1);
     expect(result.versions_failed).toBe(1);
     expect(result.records.length).toBe(1);
-    // v2 captured, v3 permanently gone, v4 failed: the mark stops at v3 so the
+    // v2 captured, v3 gone from the list, v4 failed: the mark stops at v3 so the
     // next run retries v4 rather than skipping past it.
     expect(result.next_watermark).toEqual({
       last_modified_at: '2024-02-01',
@@ -291,7 +300,7 @@ describe('sync_file_versions', () => {
       download_file_version: vi.fn().mockImplementation(stub_drive_version_download('content')),
     });
 
-    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, undefined);
+    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, {});
 
     expect(result.records.map((r) => r.version_id)).toEqual(['v2.0', 'v3.0', 'v4.0']);
     expect(result.next_watermark).toEqual({
@@ -313,7 +322,7 @@ describe('sync_file_versions', () => {
         .mockImplementationOnce(stub_drive_version_download('v3-content')),
     });
 
-    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, undefined);
+    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, {});
 
     // v3 is captured, but the mark must not jump the failed v2 or its retry is lost.
     expect(result.records.map((r) => r.version_id)).toEqual(['v3.0']);
@@ -327,14 +336,9 @@ describe('sync_file_versions', () => {
       download_file_version: vi.fn().mockImplementation(stub_drive_version_download('content')),
     });
 
-    const result = await sync_file_versions(
-      connector,
-      item,
-      owner_id,
-      snapshot_id,
-      ctx,
-      '2030-01-01T00:00:00Z',
-    );
+    const result = await sync_file_versions(connector, item, owner_id, snapshot_id, ctx, {
+      watermark: '2030-01-01T00:00:00Z',
+    });
 
     expect(connector.download_file_version).toHaveBeenCalledTimes(1);
     expect(result.next_watermark).toBeUndefined();
