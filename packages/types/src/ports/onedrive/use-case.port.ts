@@ -3,6 +3,7 @@ import type {
   OneDriveSnapshotManifest,
 } from '../../domain/onedrive/manifest';
 import type { OneDriveSnapshotSummary } from '@/domain/shared/snapshot-summary';
+import type { ManifestObjectLockPolicy } from '@/domain/outlook/manifest';
 import type {
   BackupProgressReporter,
   NoSnapshotReason,
@@ -45,6 +46,13 @@ export interface OneDriveBackupSummary {
 export interface OneDriveBackupResult {
   readonly owner_id: string;
   readonly snapshot: OneDriveSnapshotManifest | undefined;
+  /**
+   * The Object Lock retention the run stamped on the backup objects it wrote: the mode and days it
+   * requested, and the mode and retain-until instant it applied. Set whenever the run requested
+   * retention, also when it created no snapshot; `snapshot.object_lock` holds the same when it did.
+   * Absent when the run requested none, and when it was cancelled before its scan started (#975).
+   */
+  readonly object_lock?: ManifestObjectLockPolicy | undefined;
   readonly interrupted: boolean;
   readonly summary: OneDriveBackupSummary;
 }
@@ -68,7 +76,8 @@ export interface OneDriveBackupOptions extends OperationControlOptions {
    *
    * The run writes its delta cursor, snapshot summary index and owner lease, and the staging
    * uploads of files of 64 MiB and larger, without the lock (#919). The bucket must be versioned
-   * with Object Lock enabled, or the run fails before it stores any backup data.
+   * with Object Lock enabled, or the run fails before it stores any backup data. The result's
+   * `object_lock` reports the policy the run applied.
    */
   readonly object_lock_request?: ObjectLockRequest | undefined;
   /**

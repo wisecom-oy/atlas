@@ -67,6 +67,11 @@ export interface OneDriveSnapshotSummary extends SnapshotSummary {
   readonly owner_email?: string | undefined;
   readonly owner_display_name?: string | undefined;
   readonly total_files: number;
+  /**
+   * The Object Lock retention the manifest was written with, when it had one. Absent on rows of
+   * manifests written without retention or before 7.3.0 (#975).
+   */
+  readonly object_lock?: ManifestObjectLockEffectivePolicy | undefined;
 }
 
 /** A SharePoint snapshot as the site's summary index records it. */
@@ -75,6 +80,11 @@ export interface SharePointSnapshotSummary extends SnapshotSummary {
   readonly site_url?: string | undefined;
   readonly site_display_name?: string | undefined;
   readonly total_files: number;
+  /**
+   * The Object Lock retention the manifest was written with, when it had one. Absent on rows of
+   * manifests written without retention or before 7.3.0 (#975).
+   */
+  readonly object_lock?: ManifestObjectLockEffectivePolicy | undefined;
 }
 
 /** A contacts snapshot as the mailbox summary index records it (#727). */

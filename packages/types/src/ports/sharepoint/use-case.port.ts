@@ -4,6 +4,7 @@ import type {
   SharePointSnapshotManifest,
 } from '../../domain/sharepoint/manifest';
 import type { SharePointSnapshotSummary } from '@/domain/shared/snapshot-summary';
+import type { ManifestObjectLockPolicy } from '@/domain/outlook/manifest';
 import type { NoSnapshotReason, ObjectLockRequest } from '../backup/use-case.port';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';
@@ -41,6 +42,13 @@ export interface SharePointBackupSummary {
 export interface SharePointBackupResult {
   readonly site_id: string;
   readonly snapshot: SharePointSnapshotManifest | undefined;
+  /**
+   * The Object Lock retention the run stamped on the backup objects it wrote: the mode and days it
+   * requested, and the mode and retain-until instant it applied. Set whenever the run requested
+   * retention, also when it created no snapshot; `snapshot.object_lock` holds the same when it did.
+   * Absent when the run requested none, and when it was cancelled before its scan started (#975).
+   */
+  readonly object_lock?: ManifestObjectLockPolicy | undefined;
   readonly interrupted: boolean;
   readonly summary: SharePointBackupSummary;
 }
@@ -57,7 +65,8 @@ export interface SharePointBackupOptions extends OperationControlOptions {
    *
    * The run writes its delta cursor, snapshot summary index and owner lease, and the staging
    * uploads of files of 64 MiB and larger, without the lock (#919). The bucket must be versioned
-   * with Object Lock enabled, or the run fails before it stores any backup data.
+   * with Object Lock enabled, or the run fails before it stores any backup data. The result's
+   * `object_lock` reports the policy the run applied.
    */
   readonly object_lock_request?: ObjectLockRequest | undefined;
   /**

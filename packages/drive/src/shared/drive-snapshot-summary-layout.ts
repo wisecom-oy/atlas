@@ -1,4 +1,12 @@
-import type { SnapshotSummary } from '@wisecom/atlas-types';
+import type {
+  ManifestObjectLockEffectivePolicy,
+  ManifestObjectLockPolicy,
+  SnapshotSummary,
+} from '@wisecom/atlas-types';
+import {
+  parse_stored_object_lock,
+  summarize_manifest_object_lock,
+} from '@wisecom/atlas-core/services/shared/manifest-object-lock';
 import {
   optional_string,
   stored_count,
@@ -15,10 +23,17 @@ export interface DriveSummarizableManifest extends DriveStoredManifest {
   readonly total_files: number;
   readonly total_size_bytes: number;
   readonly entries: readonly unknown[];
+  readonly object_lock?: ManifestObjectLockPolicy | undefined;
 }
 
-/** The common row plus the provider's owning segment, its two display labels, and file count. */
-export type DriveSnapshotSummaryRow = SnapshotSummary & { readonly total_files: number };
+/**
+ * The common row plus the provider's owning segment, its two display labels, file count, and the
+ * Object Lock retention the manifest was written with.
+ */
+export type DriveSnapshotSummaryRow = SnapshotSummary & {
+  readonly total_files: number;
+  readonly object_lock?: ManifestObjectLockEffectivePolicy | undefined;
+};
 
 /**
  * Builds a drive provider's summary index layout (#625). The providers differ only in the field
@@ -55,13 +70,18 @@ export function build_drive_summary_layout<
         [owner_field]: fields[owner_field],
       };
       for (const field of label_fields) row[field] = fields[field];
+      const object_lock = summarize_manifest_object_lock(manifest.object_lock);
+      if (object_lock) row.object_lock = object_lock;
       return row as unknown as TSummary;
     },
     parse_details: (row, common): TSummary | undefined => {
       const owner = optional_string(row, owner_field);
       const total_files = stored_count(row, 'total_files');
+      const object_lock = parse_stored_object_lock(row.object_lock);
       if (typeof owner !== 'string' || total_files === undefined) return undefined;
+      if (object_lock === null) return undefined;
       const parsed: Record<string, unknown> = { ...common, total_files, [owner_field]: owner };
+      if (object_lock) parsed.object_lock = object_lock;
       for (const field of label_fields) {
         const label = optional_string(row, field);
         if (label === null) return undefined;
