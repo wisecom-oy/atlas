@@ -5,6 +5,7 @@ import { GRAPH_CLIENT_TOKEN } from '@/graph-client.factory';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { describe_graph_error, with_graph_retry } from '@/graph-request-error-handler';
 import { parse_user_page } from '@/graph-user-page';
+import { graph_status_of, read_confirming_not_found } from '@/graph-not-found-confirmation';
 
 const USER_FIELDS = 'id,displayName,mail,userPrincipalName';
 
@@ -49,16 +50,19 @@ export class GraphUserIdentityResolver implements UserIdentityResolver {
    * Resolves an email to the Entra ID object. `/users/{key}` accepts a UPN, and a mailbox's
    * primary SMTP address can differ from it, so a 404 there retries as a `mail` filter before
    * reporting the user missing.
+   *
+   * The lookup is the first read of the command that asked for it, so a `404` is read again under
+   * the first-read confirmation rule before it is believed: Graph answers `404` for a user that
+   * exists while a directory replica lags, and one answer used to end a first backup with exit `7`.
+   * Any other answer is passed on from its first read, as before.
    */
   async resolve_user(tenant_id: string, email: string): Promise<ResolvedUserIdentity> {
     void tenant_id;
     const normalized_email = email.toLowerCase().trim();
-    const response = await this.get_user_by_upn(normalized_email).catch(async (err: unknown) => {
-      if ((err as Record<string, unknown>).statusCode !== 404) throw err;
-      const by_mail = await this.find_user_by_mail(normalized_email);
-      if (!by_mail) throw err;
-      return by_mail;
-    });
+    const response = await read_confirming_not_found(
+      () => this.find_user(normalized_email),
+      (err) => graph_status_of(err) !== 404,
+    );
 
     return {
       object_id: response.id,
@@ -67,15 +71,27 @@ export class GraphUserIdentityResolver implements UserIdentityResolver {
     };
   }
 
+  /** Reads the user by UPN, then by primary SMTP address after a `404`. */
+  private async find_user(normalized_email: string): Promise<GraphUserRecord> {
+    return this.get_user_by_upn(normalized_email).catch(async (err: unknown) => {
+      if ((err as Record<string, unknown>).statusCode !== 404) throw err;
+      const by_mail = await this.find_user_by_mail(normalized_email);
+      if (!by_mail) throw err;
+      return by_mail;
+    });
+  }
+
   // Every lookup goes through with_graph_retry: it is the one layer that retries a 429 or 5xx and
   // reports each 429 to the ambient throttle coordinator. These calls used to bypass it, so a
   // throttled lookup failed the whole operation and no other request ever heard about it (#551).
   // A 404 or 403 is not retryable and comes back unchanged, so the callers' branching still holds.
+  // Each attempt passes its signal, so a Ctrl+C or a bounded lookup closes the request it ends.
 
   private async get_user_by_upn(upn: string): Promise<GraphUserRecord> {
-    const raw: unknown = await with_graph_retry(() =>
+    const raw: unknown = await with_graph_retry((signal) =>
       this._client
         .api(`/users/${encodeURIComponent(upn)}`)
+        .option('signal', signal)
         .select(USER_FIELDS)
         .get(),
     );
@@ -83,9 +99,10 @@ export class GraphUserIdentityResolver implements UserIdentityResolver {
   }
 
   private async find_user_by_mail(mail: string): Promise<GraphUserRecord | undefined> {
-    const raw: unknown = await with_graph_retry(() =>
+    const raw: unknown = await with_graph_retry((signal) =>
       this._client
         .api('/users')
+        .option('signal', signal)
         .filter(`mail eq '${mail.replaceAll("'", "''")}'`)
         .select(USER_FIELDS)
         .get(),
