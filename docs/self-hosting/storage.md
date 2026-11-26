@@ -533,19 +533,41 @@ On a backend that ignores `If-Match`, the last writer would win and concurrent r
 
 ## Object size limits
 
-Large files upload as a multipart stream to a staging object, then move to their final path with a server-side copy. S3 limits bound this:
+Large files upload as an encrypted multipart stream to a staging object, then move to their final path with a server-side copy. S3 limits bound this:
 
 | Limit | Value | How Atlas stays within it |
 | --- | --- | --- |
+| Parts per multipart upload | 10,000 | Upload parts are sized from the file's listed size, see below. Copy parts are 1 GiB, so 10,000 of them cover 9.8 TiB |
 | Single `CopyObject` source | 5 GB | Larger sources are promoted with ranged `UploadPartCopy` requests |
-| Object size | 5 TB | Not enforced by Atlas. Larger files cannot be stored in S3 |
-| Parts per multipart upload | 10,000 | 1 GiB copy parts: 10,000 parts cover 9.8 TiB, above the 5 TB limit |
+| Object size | 5 TB | Never reached: Atlas refuses a file above 312.5 GiB |
 
-The copy happens inside the backend, so no file data returns through Atlas. Ciphertext, checksum, metadata, and Object Lock retention are the same whichever request is used. Retention on a ranged copy is set when the multipart upload starts.
+### Upload part size
+
+Each upload uses the smallest multiple of 8 MiB that keeps the file within 10,000 parts:
+
+| Listed file size | Part size |
+| --- | --- |
+| Up to 78.1 GiB | 8 MiB |
+| 78.1 to 156.3 GiB | 16 MiB |
+| 156.3 to 234.4 GiB | 24 MiB |
+| 234.4 to 312.5 GiB | 32 MiB |
+| Above 312.5 GiB | Refused |
+
+A 250 GB file (232.8 GiB), Microsoft 365's largest, uploads in 9,935 parts of 24 MiB.
+
+Part size bounds memory. Part 1 carries the IV and the GCM authentication tag, which exist only after the last byte is encrypted, so it is held back until the end while the next part is assembled and uploaded. One stream therefore holds about two parts: 16 MiB for most files and at most about 64 MiB. A drive or library backup stores its files and versions one at a time, so it holds one such stream. The 32 MiB cap covers Microsoft 365's 250 GB file limit whether it is read in decimal or binary units.
+
+A file above 312.5 GiB is refused before Atlas downloads or uploads any of it. The refusal names the 10,000-part limit and is recorded against the file as permanent, so it is not retried until the file changes. A file whose download runs past the size it was listed with is stopped before the part past the limit goes up. It is recorded as a failed file and retried on the next run at its new size.
+
+The part size is a transport detail. The stored object is one contiguous ciphertext, and restore and verification read it without knowing how it was uploaded, so objects written with any part size restore with any Atlas 7 release.
+
+::: warning Backends with fewer than 10,000 parts
+Atlas assumes S3's 10,000 parts per multipart upload and does not read a lower limit from the backend. On a provider that allows fewer, such as Scaleway with 1,000, a file needing more parts than the provider allows fails at the backend when that part is uploaded. With 1,000 parts that is any file above 7.8 GiB. The failure is the storage backend's, so it fails the drive or library rather than the file. Check your provider's part limit against the largest files you back up.
+:::
 
 While the copy runs, the file is stored twice, so peak usage during a backup exceeds the stored size by the large files being copied at that moment. Atlas then deletes the staging object by its version ID. A delete by key would only add a delete marker in a versioned bucket and keep the whole file as a noncurrent version for 30 days. See [What the staging prefix costs](/operations/storage-usage#what-the-staging-prefix-costs) for the cases where a staging copy stays.
 
-The practical ceiling is S3's 5 TB per object. Microsoft 365 caps a single OneDrive or SharePoint file at 250 GB, so that limit is never reached.
+The copy happens inside the backend, so no file data returns through Atlas. Ciphertext, checksum, metadata, and Object Lock retention are the same whichever request is used. Retention on a ranged copy is set when the multipart upload starts.
 
 ## S3 timeouts and retries
 
@@ -564,7 +586,7 @@ A backend that accepts a connection and never answers would otherwise hold a run
 | Idle timeout | `ATLAS_S3_IDLE_TIMEOUT_MS` / `s3IdleTimeoutMs` | 5 min | Time the request's socket may stay silent, no byte sent and none received. Restarts with every byte |
 | Attempts | `ATLAS_S3_MAX_ATTEMPTS` / `s3MaxAttempts` | 3 | Attempts per request, the first one included |
 
-The idle timeout is not a limit on how long a request takes. An 8 MiB part upload or a large download on a slow link keeps moving bytes and never reaches it, however long it runs. It ends only an attempt where nothing crosses the socket for the whole interval: a backend that stopped answering, or a server-side operation that sends nothing until it finishes. The 5-minute default lets a 5 GB `CopyObject` complete at 17 MB/s on a backend that sends no progress bytes while it copies. AWS S3 sends keep-alive whitespace during long copies and multipart completions, so it never sits silent that long. Raise the timeout for a slower backend that does not.
+The idle timeout is not a limit on how long a request takes. A part upload or a large download on a slow link keeps moving bytes and never reaches it, however long it runs. It ends only an attempt where nothing crosses the socket for the whole interval: a backend that stopped answering, or a server-side operation that sends nothing until it finishes. The 5-minute default lets a 5 GB `CopyObject` complete at 17 MB/s on a backend that sends no progress bytes while it copies. AWS S3 sends keep-alive whitespace during long copies and multipart completions, so it never sits silent that long. Raise the timeout for a slower backend that does not.
 
 Atlas sets no wall-clock request timeout. The AWS SDK's `requestTimeout` runs from the start of the request until the response headers arrive, which includes sending the whole body, so it would fail a part upload on a slow link.
 
