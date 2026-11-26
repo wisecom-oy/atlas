@@ -487,6 +487,7 @@ interface RestoredMessageReport {
   ```
 
 - A message whose creation failed has no report. Its failure is in `errors`.
+- **A refusal for the whole mailbox rejects.** An `AuthError` (including `MissingGraphPermissionsError`) or `MailboxNotLicensedError` during the restore rejects the call with that error, and no further folder, message, or attachment is sent. Messages created before it stay in the mailbox; the count is logged, not returned. Before 7.2.2 the call resolved with one entry in `errors` for each remaining message.
 
 ### outlook.save and saveMailbox
 
@@ -715,6 +716,7 @@ The result has `snapshotId`, `filesRestored`, `foldersCreated`, `filesSkipped`, 
 - By default nothing existing is overwritten: files go under a new root with `'rename'` on conflict.
 - `restore` and `save` require an options object with `snapshotId`. TypeScript enforces it. A JavaScript caller that omits it gets a `TypeError` naming the method. `verify` takes its options optionally.
 - When some `fileFilter` values match, the run goes ahead and lists each unmatched value in `unmatchedFileFilters`. When none match, the call rejects with `NotFoundError`.
+- **A refusal for the whole drive or site rejects.** An `AuthError`, or a `403 accessDenied` on a folder create or upload, rejects the call, and no further file is sent. The `403` arrives as `MissingGraphPermissionsError` whose `permissions` name `Files.ReadWrite.All` (OneDrive) or `Sites.ReadWrite.All` (SharePoint). Files restored before it stay in the target. Any other failure, including a `403` with another code, fails only its file and lands in `errors`. Before 7.2.2 the call resolved with one entry in `errors` for each remaining file.
 
 ### Sharing
 
@@ -931,6 +933,7 @@ await atlas.contacts.restore('user@example.com', { snapshotId: run.snapshot!.sna
 
 - `backup` options: `forceFull`, `objectLockRequest`, `onProgress`, `signal`. The summary has `foldersScanned`, `contactsChanged`, `contactsRemoved`, `objectsStored`, `snapshotCreated`, `noSnapshotReason`, `errors`, `healthy`, and `unreadableKeys`.
 - `restore` options: `snapshotId` (required), `targetMailboxId` to restore into another mailbox, `targetTenant`, `onProgress`, `signal`. The result has `snapshotId`, `contactsRestored`, `contactsSkipped`, `foldersCreated`, `errors`, and `interrupted`. A contact the target already holds is skipped.
+- A target folder whose contacts cannot be listed after retries fails each of its entries with one `errors` line naming the listing failure, and is not listed again in the call. `AuthError` and `MailboxNotLicensedError` reject the call.
 - `verify` takes `fast` and returns the same fields as [`outlook.verify`](#outlook-verify).
 
 See [Contacts backup](/contacts-backup) for the storage layout and restore behaviour.
@@ -958,6 +961,7 @@ if (!run.summary.healthy) console.warn(run.summary.warnings);
 - `backup` options: `forceFull`, `objectLockRequest`, `onProgress`, `signal`.
 - The backup `summary` has `calendarsScanned`, `calendarsSkipped` (read-only calendars such as Birthdays), `eventsChanged`, `eventsRemoved`, `objectsStored`, `snapshotCreated`, `noSnapshotReason` when no snapshot was written, `warnings` (for example item and reference attachments that are not captured), `attachmentsSkipped` (attachments the stored events carry but the backup does not capture), `errors`, `healthy`, and `unreadableKeys`. `healthy` is `false` when any event failed or `attachmentsSkipped` is above zero.
 - `restore` options: `snapshotId` (required), `targetMailboxId`, `targetTenant`, `onProgress`, `signal`. The result has `snapshotId`, `eventsRestored`, `eventsSkipped`, `calendarsCreated`, `errors`, and `interrupted`. An event the target already holds is skipped.
+- A target calendar whose events cannot be listed after retries fails each of its entries with one `errors` line naming the listing failure, and is not listed again in the call. `AuthError` and `MailboxNotLicensedError` reject the call.
 - Restore never sends meeting invitations: restored events carry no attendees, and the attendee list is written into the event body. See [why attendees are not re-invited](/calendar-backup#why-attendees-are-not-re-invited).
 
 See [Calendar backup](/calendar-backup) for the storage layout and restore behaviour.
@@ -1235,14 +1239,14 @@ Cancellation does not throw. The call resolves normally with `interrupted: true`
 | What was running         | Result                                                                                                                                         |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | A backup                 | Completed folders, drives, and libraries stay committed. The one in progress keeps its previous sync checkpoint, so the next run reads it again |
-| A restore                | Reports what it wrote before the stop. The item in flight is neither counted nor listed in `errors`                                            |
+| A restore                | Reports what it wrote before the stop. A write already sent finishes and counts if accepted. An item stopped before its write is neither counted nor listed in `errors` |
 | A save                   | Partial counts. A file export still finalizes a valid zip of the entries it completed. A [stream export](#streaming-exports) is destroyed instead |
 | An already-aborted signal | No `discovering` event. The stream is `finalizing`, then `interrupted`                                                                        |
 | The first listings, before any item | Resolves with `interrupted: true` and writes no snapshot or checkpoint                                                              |
 
 - **Waits end at once.** In every backup, every restore and version restore, and `outlook.save()`, the signal reaches every Microsoft Graph call of the run. It ends the request in flight and any retry backoff or throttle wait, including a `Retry-After` of up to an hour, so the call resolves within moments.
-- **Accepted requests still complete.** Microsoft Graph has no cancel, so a request it already accepted completes on its side and Atlas drops the answer. A Calendar or Contacts restore whose create landed anyway recognises the item by its source tag on the next run.
-- **Restore writes already sent finish first,** because Microsoft 365 may have committed them: a message or attachment create, a OneDrive or SharePoint upload of up to 4 MiB, and the final chunk of a larger upload. They are counted if accepted. A larger file stopped before its final chunk is not created, and its upload session is deleted. See [Writes that are sent once](/operations/reliability#writes-that-are-sent-once).
+- **Accepted requests still complete.** Microsoft Graph has no cancel, so a request it already accepted completes on its side and Atlas drops the answer.
+- **Restore writes already sent finish first,** because Microsoft 365 may have committed them: a message, event, contact, calendar, folder, or attachment create, a Calendar event update or delete, a contact photo upload, a OneDrive or SharePoint upload of up to 4 MiB, and the final chunk of a larger upload. They are counted if accepted, and a Calendar or Contacts rerun recognises such an item by its source tag. A larger file stopped before its final chunk is not created, and its upload session is deleted. See [Writes that are sent once](/operations/reliability#writes-that-are-sent-once).
 - **Outlook messages short of attachments.** A message created before the stop whose attachments were not all uploaded is listed in `errors` once, as `<message-id>: N attachment(s) not uploaded: the run was interrupted`.
 - **OneDrive and SharePoint downloads.** The signal aborts the download in flight, skips retry backoff and any `Retry-After` wait, and closes a historical version's stream, for files of every size. The interrupted file is not recorded as failed, so it keeps its retry budget. Listing, download URL lookups, the `/content` fallback, and version listing stop too. The CLI passes Ctrl+C to every backup as this signal.
 - **Teams.** `backup` stops waiting on the request in flight as soon as the signal fires and resolves with `interrupted: true`. The root that request belonged to is not recorded as a failed attempt. Only the channel loop checks the signal, so a signal fired during the team or channel lookups takes effect when the loop starts.

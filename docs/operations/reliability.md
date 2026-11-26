@@ -150,7 +150,9 @@ One outage therefore holds a backup for about one budget: 1,411 s of backoff for
 
 The scope is one run, meaning one owner under one lease. A host that backs up many owners at once lets each one spend its own budget, because one mailbox's exhausted calls can come from its own Exchange server rather than from all of Microsoft 365, and the shared [cooldowns](#cooldowns-shared-across-requests) already spread a `429` across owners. Within a run the stop covers every pool: a run that cannot read one pool is incomplete and is rerun either way. A command that loops over owners stops at the first one that ends on an outage: `atlas teams backup --all` does not start the next team, and `atlas sharepoint backup --include-subsites` does not start the next subsite.
 
-A call that is not retried to exhaustion stays the item's own failure and the run continues, as described in [Partial runs](#partial-runs). See [Microsoft Graph unavailable after retries](/troubleshooting#microsoft-graph-unavailable-after-retries) for the message and what to do.
+A call that is not retried to exhaustion stays the item's own failure and the run continues, as described in [Partial runs](#partial-runs).
+
+A Calendar or Contacts restore lists what each target calendar or contact folder already holds once, before its first entry, to skip what an earlier restore created. When that listing spends its budget, every entry of that calendar or folder fails with the listing error, and the calendar or folder is not listed again in the run. The other calendars and folders still restore, and the command exits `2`. A failed listing is never read as an empty target, so it cannot cause duplicates. See [Microsoft Graph unavailable after retries](/troubleshooting#microsoft-graph-unavailable-after-retries) for the message and what to do.
 
 ### Owner lookup {#owner-lookup}
 
@@ -173,7 +175,7 @@ A restore request that creates something (a message, attachment, event, contact,
 
 A `408`, `500`, `502`, `504`, `509`, timeout, or dropped connection after a create may arrive after Microsoft 365 committed it, so repeating the request could leave a duplicate. So may a `2xx` whose body did not parse, which means the create succeeded. The item is reported as failed and the restore continues. See [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) for what to check before restoring it again.
 
-Once a restore write is on the wire, Ctrl+C lets it finish, up to its timeout, instead of aborting it. An aborted write might exist in the target while Atlas reports it as not written.
+Once a restore write is on the wire, Ctrl+C lets it finish, up to its timeout, instead of aborting it, and an item it created is counted as restored. An aborted write might exist in the target while Atlas reports it as not written. This holds for every workload's restore, including Calendar event updates and deletes and contact photos. Only the waits before a send (backoff, `Retry-After`, cooldowns) end on the first Ctrl+C.
 
 ### File transfers (OneDrive and SharePoint)
 
@@ -315,6 +317,8 @@ Some failures are not the item's fault. Atlas stops the larger unit instead of f
 | Failure | What stops |
 | --- | --- |
 | `AuthError` (`ATLAS_AUTH_DENIED`) or `MailboxNotLicensedError` in Calendar or Contacts | The command, with exit `4` |
+| `AuthError` or `MailboxNotLicensedError` during an Outlook, OneDrive, or SharePoint restore | The command, with exit `4`. No further item is sent. Items restored before it stay in the target and are logged, with the count, before the error. The SDK call rejects with the error |
+| A Calendar or Contacts restore cannot list a target calendar or contact folder, after retries | That calendar or folder: each of its entries is reported failed with the listing error, without another listing. Other calendars and folders run and the command exits `2` |
 | `AuthError` in a Teams channel | Sibling channels are cancelled and the command exits `4`. With `--all`, the remaining teams are not started |
 | `AuthError` or a missing permission inside a OneDrive drive or SharePoint library | That drive or library, recorded as its error. Other drives still run and the command exits `2` |
 | Storage failure while writing a OneDrive or SharePoint file, such as a full disk, a quota, or an S3 `5xx` | That drive or library, recorded as its error with its sync checkpoint kept. Other drives still run and the command exits `2`, or with the storage error's code when the commit then fails too |
@@ -333,7 +337,7 @@ Microsoft Graph answers `403 Forbidden` for a missing permission and for other r
 | `Forbidden` on a Teams call | The same | The same. Teams uses this code for a missing role permission and for a protected API Microsoft has not approved |
 | Any other code, or no code | A failure of that request, naming the code Graph sent | Fails the item, channel, folder, or team that request belonged to. The rest of the run continues and the command exits `2` |
 
-The codes are compared without regard to case. A `403` with no code, such as one from a proxy with no JSON body, does not name a missing permission and is treated as a failure of the request. A `403` that reaches the command before any item is read still exits `4`, whatever its code, since an unwrapped `403` maps to `ATLAS_AUTH_DENIED`; the message then names the code. OneDrive and SharePoint classify their own `403` responses, described in [Failed files](/onedrive-backup#failed-files).
+The codes are compared without regard to case. A `403` with no code, such as one from a proxy with no JSON body, does not name a missing permission and is treated as a failure of the request. A `403` that reaches the command before any item is read still exits `4`, whatever its code, since an unwrapped `403` maps to `ATLAS_AUTH_DENIED`; the message then names the code. OneDrive and SharePoint classify their own `403` responses, described in [Failed files](/onedrive-backup#failed-files). A OneDrive or SharePoint restore write follows the table above: a `403 accessDenied` on a folder create or upload ends the restore with `MissingGraphPermissionsError`, naming `Files.ReadWrite.All` or `Sites.ReadWrite.All`, and any other `403` fails that file.
 
 ### Unit listings that end early {#unit-listings}
 
