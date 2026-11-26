@@ -82,6 +82,7 @@ export async function process_large_drive_file(
       staging_key,
       build_data_key: (content_name) => deps.keys.data_key(owner_id, content_name),
       data_scope: deps.keys.data_prefix_for(owner_id),
+      listed_bytes: item.size_bytes,
       ...(object_lock_policy && { object_lock_policy }),
     },
   );

@@ -21,6 +21,7 @@ import {
 } from '@/services/backup/backup-builders';
 import { process_backup_file } from '@/services/backup/backup-file-processor';
 import { is_download_refused } from '@wisecom/atlas-m365-graph';
+import { is_listed_size_part_limit_refusal } from '@wisecom/atlas-core/services/shared/multipart-part-plan';
 import { resolve_backed_up_kind } from '@wisecom/atlas-drive';
 import { spares_failed_item_attempt } from '@wisecom/atlas-drive/backup/transient-download-failure';
 import { is_storage_failure } from '@wisecom/atlas-drive/backup/storage-failure';
@@ -275,7 +276,8 @@ async function sharing_only_change(
  *
  * A refusal is permanent for this item but not for the run, so it is recorded the
  * way a quarantined item is. A missing grant is deliberately not caught: it applies
- * to every item and must stop the run (issue #246). Mirrors the OneDrive twin.
+ * to every item and must stop the run (issue #246). A file too large for the
+ * multipart part limit is recorded as permanent too (issue #925). Mirrors the OneDrive twin.
  */
 async function download_or_record_refusal(
   connector: SharePointSiteConnector,
@@ -307,7 +309,7 @@ async function download_or_record_refusal(
   } catch (err) {
     // An expired URL or a failure outside the file costs no attempt (issues #718, #857).
     if (spares_failed_item_attempt(err)) return record(err.message, { consumes_attempt: false });
-    if (!is_download_refused(err)) throw err;
+    if (!is_download_refused(err) && !is_listed_size_part_limit_refusal(err)) throw err;
     return record(err.message, { permanent: true });
   }
 }
