@@ -85,6 +85,19 @@ export function plan_multipart_part_size(
 }
 
 /**
+ * Refuses a file too large for any part size Atlas uses, so a caller can stop before it opens a
+ * download it would never finish.
+ *
+ * @throws MultipartPartLimitError as {@link plan_multipart_part_size} does.
+ */
+export function assert_listed_size_fits_part_limit(
+  listed_bytes: number,
+  part_limit: number = MAX_MULTIPART_PARTS,
+): void {
+  plan_multipart_part_size(listed_bytes, part_limit);
+}
+
+/**
  * Fails a stream that has delivered more bytes than `part_limit` parts of `part_size_bytes` hold.
  *
  * Called as the bytes arrive, so a file that grew past its listed size is stopped before the part

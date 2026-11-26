@@ -2,6 +2,7 @@ import type { TenantContext } from '@wisecom/atlas-types';
 import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
 import { stream_to_content_addressed_storage } from '@wisecom/atlas-core/services/shared/stream-encrypt-upload';
 import {
+  assert_listed_size_fits_part_limit,
   MultipartPartLimitError,
   PartLimitBreach,
 } from '@wisecom/atlas-core/services/shared/multipart-part-plan';
@@ -71,6 +72,8 @@ async function store_streamed(
   version: DriveFileVersion,
   abort_signal?: AbortSignal,
 ): Promise<StoredVersionContent> {
+  // Before the download opens: a stream refused before its first read is never closed (#925).
+  assert_listed_size_fits_part_limit(version.size_bytes);
   const chunks = await open_version_stream(connector, item, version);
 
   let result: Awaited<ReturnType<typeof stream_to_content_addressed_storage>>;
