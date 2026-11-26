@@ -10,7 +10,11 @@ import {
   is_acceptable_passphrase,
   MIN_PASSPHRASE_BYTES,
 } from '@wisecom/atlas-core/services/keys/passphrase-floor';
-import type { AtlasInstanceConfig, ThrottleCoordinator } from '@wisecom/atlas-types';
+import type {
+  AtlasInstanceConfig,
+  OwnerExclusion,
+  ThrottleCoordinator,
+} from '@wisecom/atlas-types';
 
 /** Validates explicit instance configuration without I/O and maps it to the internal config. */
 export function normalize_config(config: AtlasInstanceConfig): AtlasConfig {
@@ -34,6 +38,7 @@ export function normalize_config(config: AtlasInstanceConfig): AtlasConfig {
     throw new ConfigError('onStorageRequest must be a function.');
   }
   assert_throttle_coordinator(config.throttleCoordinator);
+  assert_owner_exclusion(config.ownerExclusion);
   assert_teams_pacing_share(config.teamsPacingShare);
   const s3_bucket = bind_bucket_override(config.s3Bucket, config.tenantId);
   const s3_transport = build_s3_transport(
@@ -56,6 +61,7 @@ export function normalize_config(config: AtlasInstanceConfig): AtlasConfig {
     encryption_passphrase: config.encryptionPassphrase,
     ...(s3_bucket !== undefined ? { s3_bucket } : {}),
     ...(s3_transport !== undefined ? { s3_transport } : {}),
+    ...(config.ownerExclusion !== undefined ? { writer_exclusion: 'host_exclusion' as const } : {}),
   };
 }
 
@@ -97,6 +103,14 @@ function assert_throttle_coordinator(
     throw new ConfigError(
       'throttleCoordinator must provide wait(pool) and raise(pool, retry_after_ms) functions.',
     );
+  }
+}
+
+/** Rejects an owner exclusion that does not provide `acquire`. */
+function assert_owner_exclusion(exclusion: Partial<OwnerExclusion> | null | undefined): void {
+  if (exclusion === undefined) return;
+  if (typeof exclusion?.acquire !== 'function') {
+    throw new ConfigError('ownerExclusion must provide an acquire(request) function.');
   }
 }
 

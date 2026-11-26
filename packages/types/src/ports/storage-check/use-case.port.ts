@@ -44,6 +44,20 @@ export interface StorageConditionalWriteCheck {
   readonly violations?: readonly ConditionalWriteViolation[] | undefined;
 }
 
+/**
+ * What keeps two writers off one owner, and who checks write conditions (issue #974).
+ *
+ * - `storage_lease`: the default. Lease objects in the bucket, taken with conditional writes the
+ *   backend must enforce; Atlas refuses a backend that does not.
+ * - `host_exclusion`: an SDK host supplied `ownerExclusion`. No lease object is written.
+ * - `single_writer`: the CLI runs with `ATLAS_SINGLE_WRITER`, and the operator guarantees one Atlas
+ *   process per tenant. Operations in that process still exclude each other.
+ *
+ * In both opt-in modes no conditional header reaches the backend: Atlas checks each create-only and
+ * compare-and-swap write itself, then confirms the object it wrote is still the one stored.
+ */
+export type WriterExclusionMode = 'storage_lease' | 'host_exclusion' | 'single_writer';
+
 /** One Atlas lifecycle action the bucket's enabled rules lack. */
 export interface StorageLifecycleMissingAction {
   readonly rule_id: string;
@@ -88,6 +102,12 @@ export interface StorageCheckResult {
   readonly default_retention?: StorageDefaultRetention | undefined;
   /** Result of the conditional-write probe, which writes and removes one throwaway object. */
   readonly conditional_writes: StorageConditionalWriteCheck;
+  /**
+   * The writer-exclusion mode this instance or process runs in. Outside `storage_lease`, an
+   * `ignored` or `not_probed` probe result does not stop a write. Always set by Atlas 7.3.0 and
+   * later; optional in the type only so a result built by hand keeps compiling.
+   */
+  readonly writer_exclusion?: WriterExclusionMode | undefined;
   /** Read-only check of Atlas bucket lifecycle actions. */
   readonly lifecycle: StorageLifecycleCheck;
   /** Present when the request asked to apply the lifecycle rules. */

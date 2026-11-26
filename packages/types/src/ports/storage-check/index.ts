@@ -8,4 +8,5 @@ export type {
   StorageLifecycleCheck,
   StorageLifecycleMissingAction,
   StorageLifecycleUpdate,
+  WriterExclusionMode,
 } from './use-case.port';

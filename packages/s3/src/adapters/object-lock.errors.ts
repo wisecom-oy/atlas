@@ -32,11 +32,15 @@ export class ObjectLockModeRejectedError extends ConfigError {
   }
 }
 
-/** Thrown when a conditional put fails (ETag mismatch or create-only key already exists). */
+/**
+ * Thrown when a conditional put fails (ETag mismatch or create-only key already exists). `detail`
+ * replaces the default explanation, for a condition Atlas checked itself (issue #974).
+ */
 export class PreconditionFailedError extends StorageError {
-  constructor(key: string) {
+  constructor(key: string, detail?: string) {
     super(
-      `Conditional write failed for key ${key} — precondition not met (412 Precondition Failed)`,
+      `Conditional write failed for key ${key}: ` +
+        (detail ?? 'precondition not met (412 Precondition Failed)'),
     );
   }
 }

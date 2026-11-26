@@ -33,6 +33,11 @@ import { list_object_versions } from '@/adapters/s3-object-version-listing';
 import { is_conditional_put, send_put_object } from '@/adapters/s3-object-put';
 import { require_conditional_writes } from '@/adapters/conditional-write-guard';
 import {
+  STORAGE_LEASE_POLICY,
+  type ConditionalWritePolicy,
+} from '@/adapters/conditional-write-policy';
+import { put_with_checked_condition } from '@/adapters/emulated-conditional-put';
+import {
   probe_conditional_writes,
   run_conditional_write_probe,
   type ConditionalWriteProbeTarget,
@@ -47,13 +52,17 @@ export class S3ObjectStorage implements ObjectStorage {
     private readonly _client: S3Client,
     private readonly _bucket: string,
     private readonly _buckets: BucketCache,
+    private readonly _policy: ConditionalWritePolicy = STORAGE_LEASE_POLICY,
   ) {}
 
   /**
-   * Uploads data with a Content-MD5 header for transport integrity verification. A conditional
-   * write first confirms, once per bucket and process, that the backend enforces conditions.
+   * Uploads data with a Content-MD5 header for transport integrity verification. By default a
+   * conditional write first confirms, once per bucket and process, that the backend enforces
+   * conditions. In an opt-in writer-exclusion mode Atlas checks the condition itself and sends
+   * none (issue #974), so every create-only and compare-and-swap write takes the same path.
    *
    * @throws ConditionalWritesNotEnforcedError on a conditional write to a backend that ignores it.
+   * @throws PreconditionFailedError when the condition fails.
    */
   async put(
     key: string,
@@ -65,6 +74,15 @@ export class S3ObjectStorage implements ObjectStorage {
   ): Promise<void> {
     await this.validate_object_lock_policy(object_lock_policy);
     const request = { key, data, metadata, object_lock_policy, if_match, if_none_match };
+    if (is_conditional_put(request) && this._policy.emulates_conditions()) {
+      await put_with_checked_condition(
+        this._client,
+        this._bucket,
+        request,
+        this._policy.key_serializer,
+      );
+      return;
+    }
     if (is_conditional_put(request)) {
       await require_conditional_writes(this._bucket, this._buckets, () =>
         run_conditional_write_probe(this.unguarded_probe_target()),
@@ -300,15 +318,16 @@ export class S3ObjectStorage implements ObjectStorage {
   /** This bucket's storage calls with puts that skip the guard, which would await the probe. */
   private unguarded_probe_target(): ConditionalWriteProbeTarget {
     return {
-      put: (key, data, metadata, object_lock_policy, if_match, if_none_match) =>
-        send_put_object(this._client, this._bucket, {
+      put: async (key, data, metadata, object_lock_policy, if_match, if_none_match) => {
+        await send_put_object(this._client, this._bucket, {
           key,
           data,
           metadata,
           object_lock_policy,
           if_match,
           if_none_match,
-        }),
+        });
+      },
       get_with_etag: (key) => this.get_with_etag(key),
       delete: (key) => this.delete(key),
       list_versions: (prefix) => this.list_versions(prefix),

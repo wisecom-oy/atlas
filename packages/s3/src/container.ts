@@ -24,6 +24,7 @@ import { S3IdentityRegistryRepository } from '@/adapters/s3-identity-registry-re
 import { DefaultTenantContextFactory } from '@/adapters/tenant-context.factory';
 import { StorageCheckService } from '@/services/storage-check.service';
 import { BucketCache } from '@/adapters/bucket-cache';
+import { ConditionalWritePolicy } from '@/adapters/conditional-write-policy';
 
 /** Binds the S3 client, the bucket-name resolver and every S3-backed adapter and service. */
 export function bind_s3_storage(container: Container, config: S3Config & CryptoConfig): void {
@@ -32,6 +33,11 @@ export function bind_s3_storage(container: Container, config: S3Config & CryptoC
   // One per container, so two instances cannot answer each other's questions
   // about a same-named bucket at a different endpoint (issue #42).
   container.bind(BucketCache).toSelf().inSingletonScope();
+  // One per container: the writer-exclusion mode, and the serializer that makes a checked
+  // conditional write atomic within this process when the backend is not asked to (issue #974).
+  container
+    .bind(ConditionalWritePolicy)
+    .toConstantValue(new ConditionalWritePolicy(config.writer_exclusion ?? 'storage_lease'));
   // Every S3 path names its bucket through this one resolver (issue #768).
   const bucket_names = new ConfiguredBucketNameResolver(config.s3_bucket);
   container.bind<BucketNameResolver>(BUCKET_NAME_RESOLVER_TOKEN).toConstantValue(bucket_names);
