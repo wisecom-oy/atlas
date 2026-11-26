@@ -894,6 +894,7 @@ atlas onedrive backup -o user@example.com --retention-days 30 --lock-mode govern
 - Versions before 6.1.0 set a bucket default retention instead. A default left by them stays in force until you remove it; see [Removing a bucket default retention](/self-hosting/storage#removing-a-bucket-default-retention). An explicit per-object date always takes precedence.
 - The bucket must be created with Object Lock (see `atlas storage-check`). Otherwise the backup fails before it contacts Microsoft Graph: `ObjectLockVersioningDisabledError` when versioning is off, `ObjectLockUnsupportedError` when Object Lock is not enabled, or `ObjectLockModeRejectedError` when the backend refuses the mode.
 - The delta cursor and the snapshot summary index are replaced by every run, so they are written without a lock and their old versions expire under the noncurrent-version rule. See [What Object Lock covers](/operations/immutability#what-object-lock-covers).
+- From 7.3.0 each snapshot manifest records the policy as `object_lock`, with the requested mode and days and the applied mode and retain-until date, and the snapshot summary index repeats the applied half. With `--include-subsites`, every site's snapshot records it. A manifest written before 7.3.0 has no `object_lock`, which means the policy was not recorded, not that the run was unlocked.
 
 See [Erasure](/security#erasure) and [Immutability and Object Lock](/operations/immutability).
 :::

@@ -103,8 +103,8 @@ Lists every site the tenant's site search returns, with its ID, name, kind, and 
 | `--site <url-or-id>`   | Site URL or Graph site ID                                      | Required       |
 | `--full`               | Ignore the saved sync checkpoint and read every library        | `false`        |
 | `--include-subsites`   | Also back up every subsite beneath the site, one snapshot each | `false`        |
-| `--retention-days <n>` | Apply Object Lock retention to stored objects                  | Off            |
-| `--lock-mode <mode>`   | `governance` or `compliance`; requires `--retention-days`      | Not set        |
+| `--retention-days <n>` | Lock the backup data this run writes for `n` days              | Off            |
+| `--lock-mode <mode>`   | `governance` or `compliance`; requires `--retention-days`      | `governance`   |
 | `-t, --tenant <id>`    | Tenant identifier                                              | Config default |
 
 ```bash

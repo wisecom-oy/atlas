@@ -72,8 +72,8 @@ Every command takes `-o, --owner <id>` (required) and `-t, --tenant <id>` (defau
 | `-o, --owner <id>`     | User email or Entra object ID                             | Required       |
 | `--full`               | Ignore the saved sync checkpoint and read the whole drive | `false`        |
 | `--folder <path>`      | Back up only this folder and its subfolders               | Whole drive    |
-| `--retention-days <n>` | Apply Object Lock retention to stored objects             | Off            |
-| `--lock-mode <mode>`   | `governance` or `compliance`; requires `--retention-days` | Not set        |
+| `--retention-days <n>` | Lock the backup data this run writes for `n` days         | Off            |
+| `--lock-mode <mode>`   | `governance` or `compliance`; requires `--retention-days` | `governance`   |
 | `-t, --tenant <id>`    | Tenant identifier                                         | Config default |
 
 ```bash

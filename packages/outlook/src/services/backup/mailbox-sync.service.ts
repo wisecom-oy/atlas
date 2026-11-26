@@ -1,3 +1,4 @@
+import { build_manifest_object_lock_policy } from '@wisecom/atlas-core/services/shared/manifest-object-lock';
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { run_cancellable_backup } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { inject, injectable } from 'inversify';
@@ -20,7 +21,6 @@ import { resolve_backup_folders } from '@/services/shared/folder-selector';
 import { resolve_progress_reporter } from '@/services/shared/backup-progress-resolver';
 import {
   build_manifest,
-  build_manifest_object_lock_policy,
   count_folders_to_finish,
   create_pending_snapshot,
   mark_snapshot_completed,
@@ -241,7 +241,10 @@ export class MailboxSyncService implements BackupUseCase {
       };
       const manifest = build_manifest(owner_id, snapshot.id, all_entries, merged_links, {
         previous_total_objects: previous_entry_count,
-        object_lock: build_manifest_object_lock_policy(options),
+        object_lock: build_manifest_object_lock_policy(
+          options.object_lock_request,
+          options.object_lock_policy,
+        ),
         mailbox_purpose,
         excluded_folders,
         folders,

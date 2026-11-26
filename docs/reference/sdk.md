@@ -352,7 +352,7 @@ for (const folder of result.summary.excludedFolders) {
 | `includeRecoverableItems` | `boolean`     | Also capture the Recoverable Items folders. Off by default. See [Recoverable Items](#recoverable-items)                        |
 | `pageSize`                | `number`      | Messages per incremental page requested from Microsoft Graph, 1 to 100. The CLI passes 10                                     |
 | `ownerEmail`, `ownerDisplayName` | `string` | Owner labels recorded in the snapshot. Default: the values looked up for an email argument                                  |
-| `objectLockRequest`       | `ObjectLockRequest` | Retention for every object written. See [Object Lock](#object-lock)                                                    |
+| `objectLockRequest`       | `ObjectLockRequest` | Retention for the backup data this run writes. See [Object Lock](#object-lock)                                         |
 | `hardStopSignal`          | `AbortSignal` | Faster stop than `signal`. See [Outlook escalation](#outlook-escalation)                                                      |
 | `onProgress`, `signal`    |               | See [Progress and cancellation](#progress-and-cancellation)                                                                   |
 
@@ -667,6 +667,7 @@ OneDrive returns one result; SharePoint returns an array with one result per sit
 | ------------------------------------ | ------------------------------------------------------------------------------------------------- |
 | `ownerId` / `siteId`                 | The owner or site backed up                                                                       |
 | `snapshot`                           | The snapshot manifest, or `undefined` when none was written                                       |
+| `objectLock`                         | The Object Lock policy the run applied, `{ requested, effective }`. Absent without `objectLockRequest` |
 | `interrupted`                        | Whether the run was cancelled                                                                     |
 | `summary.drivesScanned` / `librariesScanned` | Drives or libraries read                                                                  |
 | `summary.filesChanged`, `filesStored`, `filesDeduplicated`, `deletedItems` | File counters                                               |
@@ -679,6 +680,7 @@ OneDrive returns one result; SharePoint returns an array with one result per sit
 - **`noSnapshotReason`** is set only when a completed run created no snapshot: `'no_changes'` when content exists and nothing changed, `'no_content'` when the drive or site holds nothing to protect. It is absent when a snapshot was created. Interrupted or unhealthy runs report `interrupted` and `errors` instead.
 - **`cursorUpdated`** is `true` when the run saved its sync checkpoint, the position the next run resumes from. A completed run saves it whether or not it created a snapshot, and so does a run that recorded failed files or was cancelled after its scan started; in that case only the drives and libraries it finished advance. It is `false` when the run was cancelled before its scan started, for example with an already-aborted signal or while the drive, library, or subsite list was loading, including a throttle wait on that list. Nothing was read or stored, and the next run resumes from the previous checkpoint.
 - **A deleted or quarantined snapshot.** A backup whose saved checkpoint names a snapshot that no longer exists reads in full and says why in `summary.warnings`. Until that run, `checkStatus` reports `isUpToDate: false`.
+- **`objectLock`** holds the `mode` and `retentionDays` the run requested and the `mode` and `retainUntil` it stamped on each object. It is set whenever the run requested retention, also when it created no snapshot, and `snapshot.objectLock` holds the same when it did. A run cancelled before its scan started reports none. With `includeSubsites: true`, every site's result and snapshot carries it. See [Object Lock](#object-lock).
 - **Subsites.** With `includeSubsites: true`, a subsite listing that fails after retries adds its error to the root result's `summary.errors` and sets its `healthy` to `false`. A busy subsite is handled as described in [Concurrent operations](#concurrent-operations).
 
 ### Drive verify
@@ -1139,21 +1141,21 @@ const newest = snapshots[0]; // { snapshotId, createdAt, manifestKey, entryCount
 
 `listSnapshotSummaries` on `atlas.outlook`, `atlas.onedrive`, `atlas.sharepoint`, `atlas.contacts`, and `atlas.calendar` returns an owner's snapshots newest first from its [snapshot summary index](/operations/storage-layout#snapshot-summary-index): one storage listing and one small read, whatever the number of snapshots. `listSnapshots` returns whole manifests and decrypts every one, so use it only when you need the entries.
 
-| Field                            | On                   | Meaning                                                           |
-| -------------------------------- | -------------------- | ----------------------------------------------------------------- |
-| `snapshotId`, `createdAt`        | all                  | Snapshot identity and time                                        |
-| `manifestKey`                    | all                  | Object path of the snapshot's manifest                            |
-| `entryCount`                     | all                  | Entries in this snapshot's own manifest, which holds one run's changes |
-| `totalSizeBytes`                 | all                  | The manifest's `totalSizeBytes`                                   |
-| `ownerId` / `siteId` / `mailboxId` | all                | The owner                                                         |
-| `objectCount`                    | Outlook              | Messages in the snapshot's chain, after recorded removals         |
-| `totalObjects`, `removedCount`   | Outlook              | Message high-water mark, and message IDs the run recorded removed |
-| `objectLock`                     | Outlook              | Effective Object Lock mode and `retainUntil`, when set            |
-| `mailboxPurpose`, `aggregates`   | Outlook              | Mailbox purpose, and per-folder totals when recorded              |
-| `totalFiles`                     | OneDrive, SharePoint | The manifest's `totalFiles`                                       |
-| `totalContacts` / `totalEvents`  | Contacts / Calendar  | Items in the snapshot                                             |
-| `ownerEmail`, `ownerDisplayName` | Outlook, OneDrive    | Owner labels recorded at backup time                              |
-| `siteUrl`, `siteDisplayName`     | SharePoint           | Site labels recorded at backup time                               |
+| Field                              | On                            | Meaning                                                                |
+| ---------------------------------- | ----------------------------- | ---------------------------------------------------------------------- |
+| `snapshotId`, `createdAt`          | all                           | Snapshot identity and time                                             |
+| `manifestKey`                      | all                           | Object path of the snapshot's manifest                                 |
+| `entryCount`                       | all                           | Entries in this snapshot's own manifest, which holds one run's changes |
+| `totalSizeBytes`                   | all                           | The manifest's `totalSizeBytes`                                        |
+| `ownerId` / `siteId` / `mailboxId` | all                           | The owner                                                              |
+| `objectCount`                      | Outlook                       | Messages in the snapshot's chain, after recorded removals              |
+| `totalObjects`, `removedCount`     | Outlook                       | Message high-water mark, and message IDs the run recorded removed      |
+| `objectLock`                       | Outlook, OneDrive, SharePoint | Effective Object Lock mode and `retainUntil`, when set                 |
+| `mailboxPurpose`, `aggregates`     | Outlook                       | Mailbox purpose, and per-folder totals when recorded                   |
+| `totalFiles`                       | OneDrive, SharePoint          | The manifest's `totalFiles`                                            |
+| `totalContacts` / `totalEvents`    | Contacts / Calendar           | Items in the snapshot                                                  |
+| `ownerEmail`, `ownerDisplayName`   | Outlook, OneDrive             | Owner labels recorded at backup time                                   |
+| `siteUrl`, `siteDisplayName`       | SharePoint                    | Site labels recorded at backup time                                    |
 
 A summary row stands in for its manifest without decrypting it, so a manifest damaged after its row was written is still listed. A manifest with no row that cannot be decrypted is reported through the partial result described in [Damaged stored objects](#damaged-stored-objects). Run `verify` to check manifests at rest.
 
@@ -1337,7 +1339,7 @@ Handle the rejection on the server even though nobody may be listening on the cl
 
 ## Object Lock
 
-Pass `objectLockRequest` to any backup to apply WORM (write once, read many) retention to every object the call writes. The SDK and CLI produce the same policy for the same settings.
+Pass `objectLockRequest` to any backup to apply WORM (write once, read many) retention to the backup data the call writes. The SDK and CLI produce the same policy for the same settings.
 
 ```ts
 await atlas.outlook.backup('user@example.com', {
@@ -1354,7 +1356,9 @@ await atlas.onedrive.backup('owner-id', {
 | `mode`          | `GOVERNANCE` (privileged users can shorten retention) or `COMPLIANCE` (nobody can, including root). Default `GOVERNANCE` |
 | `retentionDays` | Converted to an absolute `retainUntil` timestamp in UTC when the run starts                                              |
 
-- The policy applies to each object the call writes. The bucket's own Object Lock configuration is never changed, so concurrent calls with different policies each lock exactly what they wrote.
+- The policy is stamped on each backup object the call writes and applies to that call only. It is not a bucket setting: the bucket's default retention is never set or changed, so the request does not affect other calls, other owners, or other workloads, and concurrent calls with different policies each lock exactly what they wrote.
+- Run state is written without the lock, because every run replaces it: delta cursors, Teams read checkpoints, snapshot summary indexes, Outlook `latest.json` and snapshot pointers, owner leases, and the staging uploads of large drive files. See [What Object Lock covers](/operations/immutability#what-object-lock-covers).
+- Outlook, OneDrive, and SharePoint record the policy as `objectLock: { requested, effective }` on each snapshot manifest, and the effective half as `objectLock` on each [snapshot summary](#snapshot-summaries). The backup result carries it as `manifest.objectLock` for Outlook, and as `objectLock` for OneDrive and SharePoint. A snapshot without the field was written without retention, or by a release that did not record it: OneDrive and SharePoint before 7.3.0. The record is for display and audit. The storage backend enforces the lock.
 - If a policy is requested and the bucket has versioning or Object Lock disabled, or does not support the mode, the write throws (`ObjectLockVersioningDisabledError`, `ObjectLockUnsupportedError`, `ObjectLockModeRejectedError`) instead of storing unprotected data.
 
 ::: danger

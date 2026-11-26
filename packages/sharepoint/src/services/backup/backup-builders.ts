@@ -3,6 +3,7 @@
 // entry, so the shared version would be generic over almost every line.
 import type {
   HeldOwnerLease,
+  ManifestObjectLockPolicy,
   NoSnapshotReason,
   SharePointBackupResult,
   SharePointChangeType,
@@ -18,6 +19,7 @@ import type {
   TenantContext,
 } from '@wisecom/atlas-types';
 import type { PackageReport } from '@wisecom/atlas-core/services/shared/package-item-reporter';
+import type { SharePointLibraryScanResult } from '@/services/backup/backup-library-scan';
 import type { RunVersionCollector, VersionSyncResult } from '@/services/versioning/version-sync';
 import { count_file_entries, records_file_content } from '@wisecom/atlas-drive/shared/entry-kind';
 
@@ -96,6 +98,7 @@ export function build_snapshot_manifest(
   created_at: Date,
   site_url?: string,
   site_display_name?: string,
+  object_lock?: ManifestObjectLockPolicy,
 ): SharePointSnapshotManifest {
   return {
     id: `${site_id}-${snapshot_id}`,
@@ -107,7 +110,50 @@ export function build_snapshot_manifest(
     created_at,
     total_files: count_file_entries(entries),
     total_size_bytes: entries.reduce((sum, entry) => sum + entry.size_bytes, 0),
+    ...(object_lock !== undefined && { object_lock }),
     entries,
+  };
+}
+
+/** The scan figures a run that created a snapshot reports. */
+type SnapshotScanFigures = Pick<
+  SharePointLibraryScanResult,
+  | 'entries'
+  | 'files_stored'
+  | 'files_deduplicated'
+  | 'deleted_items'
+  | 'version_stats'
+  | 'interrupted'
+>;
+
+/** Builds the result of a run that created and persisted a snapshot. */
+export function build_success_result(
+  site_id: string,
+  snapshot: SharePointSnapshotManifest,
+  scan: SnapshotScanFigures,
+  libraries_scanned: number,
+  errors: string[],
+  warnings: string[],
+  healthy: boolean,
+): SharePointBackupResult {
+  return {
+    site_id,
+    snapshot,
+    interrupted: scan.interrupted,
+    summary: {
+      libraries_scanned,
+      files_changed: scan.entries.length,
+      files_stored: scan.files_stored,
+      files_deduplicated: scan.files_deduplicated,
+      deleted_items: scan.deleted_items,
+      cursor_updated: true,
+      snapshot_created: true,
+      versions_stored: scan.version_stats.total_versions_stored,
+      versions_unavailable: scan.version_stats.total_versions_unavailable,
+      errors,
+      warnings,
+      healthy,
+    },
   };
 }
 

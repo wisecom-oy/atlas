@@ -1,11 +1,13 @@
 import type {
   MailboxPurpose,
   Manifest,
-  ManifestObjectLockEffectivePolicy,
   OutlookSnapshotSummary,
   SnapshotSummary,
 } from '@wisecom/atlas-types';
-import { is_json_record } from '@wisecom/atlas-core/services/shared/stored-json-reader';
+import {
+  parse_stored_object_lock,
+  summarize_manifest_object_lock,
+} from '@wisecom/atlas-core/services/shared/manifest-object-lock';
 import {
   optional_string,
   stored_count,
@@ -56,7 +58,7 @@ export function summarize_outlook_manifest(
   manifest: Manifest,
   manifest_key: string,
 ): OutlookSnapshotSummary {
-  const object_lock = manifest.object_lock?.effective;
+  const object_lock = summarize_manifest_object_lock(manifest.object_lock);
   return {
     snapshot_id: manifest.snapshot_id,
     created_at: manifest.created_at,
@@ -69,7 +71,7 @@ export function summarize_outlook_manifest(
     mailbox_purpose: manifest.mailbox_purpose,
     total_objects: manifest.total_objects,
     removed_count: manifest.removed_object_ids?.length ?? 0,
-    ...(object_lock?.retain_until ? { object_lock } : {}),
+    ...(object_lock ? { object_lock } : {}),
     aggregates: build_outlook_aggregates(manifest),
   };
 }
@@ -85,7 +87,7 @@ function parse_outlook_summary(
   const purpose = optional_string(row, 'mailbox_purpose');
   const total_objects = stored_count(row, 'total_objects');
   const removed_count = stored_count(row, 'removed_count');
-  const object_lock = parse_object_lock(row.object_lock);
+  const object_lock = parse_stored_object_lock(row.object_lock);
   const aggregates = parse_outlook_aggregates(row.aggregates);
   if (typeof owner_id !== 'string' || owner_email === null || owner_display_name === null) {
     return undefined;
@@ -110,14 +112,4 @@ function parse_outlook_summary(
 
 function is_mailbox_purpose(value: string): value is MailboxPurpose {
   return (MAILBOX_PURPOSES as readonly string[]).includes(value);
-}
-
-/** Reads a stored lock policy; undefined when absent, null when malformed. */
-function parse_object_lock(value: unknown): ManifestObjectLockEffectivePolicy | undefined | null {
-  if (value === undefined) return undefined;
-  if (!is_json_record(value)) return null;
-  const { mode, retain_until } = value;
-  if (mode !== undefined && mode !== 'GOVERNANCE' && mode !== 'COMPLIANCE') return null;
-  if (retain_until !== undefined && typeof retain_until !== 'string') return null;
-  return { mode, retain_until };
 }

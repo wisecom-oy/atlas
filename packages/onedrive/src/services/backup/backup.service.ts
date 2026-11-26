@@ -4,7 +4,8 @@
 // them means a parameter per branch, which is the shape that made the copies hard to change.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { with_summary_unreadable_keys } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
-import { attach_run_retention } from '@wisecom/atlas-core/services/shared/run-object-lock';
+import { apply_run_retention } from '@wisecom/atlas-core/services/shared/run-object-lock';
+import { with_run_object_lock } from '@wisecom/atlas-core/services/shared/manifest-object-lock';
 import { run_cancellable_backup } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { randomBytes } from 'node:crypto';
 import {
@@ -20,7 +21,6 @@ import type {
   OneDriveBackupResult,
   OneDriveBackupUseCase,
   OneDriveConnector,
-  OneDriveDeltaCursor,
   OneDriveDeltaCursorRepository,
   OneDriveFileVersionIndexRepository,
   OneDriveManifestRepository,
@@ -36,6 +36,7 @@ import {
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import {
+  build_delta_cursor,
   build_empty_result,
   build_run_version_indexes,
   build_snapshot_manifest,
@@ -126,7 +127,8 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       });
       // Per-object retention carried by this run's context, not the bucket default: concurrent
       // runs on one tenant would overwrite each other's bucket setting (#551).
-      const ctx = await attach_run_retention(tenant_ctx, options.object_lock_request);
+      const retention = await apply_run_retention(tenant_ctx, options.object_lock_request);
+      const ctx = retention.ctx;
       const stored_cursor = await this._cursors.load(ctx, owner_id);
       // Read before this run saves a manifest, which would become the head and hide a damaged one.
       const head = await this._manifests.find_latest_readable(ctx, owner_id);
@@ -226,22 +228,20 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       });
       scan_result.interrupted ||= options.should_interrupt?.() === true;
 
-      const cursor: OneDriveDeltaCursor = {
+      const cursor = build_delta_cursor(
         owner_id,
         delta_link_by_drive,
-        ...tracking_state,
-        version_watermark_by_file_id: versions.watermarks,
-        pending_versions_by_file_id: versions.pending,
-        failed_items: scan_result.failed_items,
-        ...(folder_scope !== undefined ? { folder_scope } : {}),
-        updated_at: new Date().toISOString(),
+        tracking_state,
+        scan_result.failed_items,
+        versions,
+        folder_scope,
         // The snapshot this run writes, or the one it leaves as the newest when nothing changed.
-        snapshot_id: await resolve_saved_cursor_binding(
+        await resolve_saved_cursor_binding(
           scan_result.entries.length > 0 ? snapshot_id : undefined,
           previous_cursor,
           async () => head,
         ),
-      };
+      );
 
       // Version downloads that failed for an unexpected reason leave history out
       // of the snapshot: an error, not a warning, so the run exits EXIT_PARTIAL
@@ -304,6 +304,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
           manifest_created_at,
           options.owner_email,
           options.owner_display_name,
+          retention.object_lock,
         );
         await persist_snapshot_backup(
           this._manifests,
@@ -339,10 +340,9 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         phase: scan_result.interrupted ? 'interrupted' : 'completed',
         processed,
       });
-      return with_summary_unreadable_keys(
-        result,
-        merge_damaged_manifest_keys(head.unreadable_keys, skipped_manifests),
-      );
+      const unreadable_keys = merge_damaged_manifest_keys(head.unreadable_keys, skipped_manifests);
+      const reported = with_summary_unreadable_keys(result, unreadable_keys);
+      return with_run_object_lock(reported, retention.object_lock);
     } finally {
       progress?.finish();
       await lease?.release();

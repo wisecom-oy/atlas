@@ -41,4 +41,15 @@ export {
   parse_object_lock_mode,
 } from '@/services/shared/object-lock-policy';
 export type { ObjectLockSettings } from '@/services/shared/object-lock-policy';
-export { attach_run_retention, ObjectLockingStorage } from '@/services/shared/run-object-lock';
+export {
+  apply_run_retention,
+  attach_run_retention,
+  ObjectLockingStorage,
+} from '@/services/shared/run-object-lock';
+export type { RunRetention } from '@/services/shared/run-object-lock';
+export {
+  build_manifest_object_lock_policy,
+  parse_stored_object_lock,
+  summarize_manifest_object_lock,
+  with_run_object_lock,
+} from '@/services/shared/manifest-object-lock';
