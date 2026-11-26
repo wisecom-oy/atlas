@@ -119,12 +119,15 @@ File content comes from pre-authenticated download URLs rather than through the 
 | Range timeout | `max(30 s, size in bytes / 256)`, about 33 s for a 4 MiB range |
 | Range retries | Up to 5 per range, backoff from 1 s plus up to 1 s of jitter, capped at 30 s. `Retry-After` honoured on `429` |
 | Streaming threshold | 64 MiB and above: streamed to storage through a multipart upload |
+| Upload part size | Smallest multiple of 8 MiB that fits the file in 10,000 parts, at most 32 MiB. A file or version above 312.5 GiB is refused before its download starts, see [object size limits](/self-hosting/storage#object-size-limits) |
 | Expired URL (`401` or `403` from the CDN) | Looked up again. Files of 64 MiB and more resume at the failed range, until 3 refreshed URLs in a row deliver nothing |
 | Truncation check | Each range's length and `Content-Range`, and the total size, must match what Microsoft Graph listed |
 
 A file that still fails is added to the drive's list of failed files, and the drive's sync checkpoint moves on. Each later run fetches the listed files again before processing new changes, up to 5 attempts per file. Failures outside the file do not use an attempt: throttling, a Microsoft Graph `5xx`, a reset or timed-out connection, or a download host that is down, once the retries above are spent, and an expired URL. The same holds for the re-read of a listed file at the start of a run. A `404` on that re-read uses no attempt and keeps the file listed: Atlas drops it as deleted only when the change listing reports the deletion, or when the `404` repeats on 3 runs in a row spanning at least 24 hours. A body of the wrong length or range, and any other `4xx`, use one. [Failed files](/onedrive-backup#failed-files) lists each case and how to fetch a permanently skipped file again. A missing Microsoft Graph permission (`403 accessDenied`) stops the drive instead of costing one file per item. [Snapshot health](/onedrive-backup#snapshot-health) describes the list and the `403` cases.
 
 A failure to write the file to storage is not the file's either, whatever its size: a full disk or quota, an S3 `5xx` after the [storage retries](#storage), or an endpoint that never answers. It fails the drive or library, which keeps its sync checkpoint, so the file is read again by the next run without entering the list. A file of 64 MiB or more is streamed from the download into the multipart upload, and a failure on the storage side of that stream is told apart from a download failure by its type and status, never by its message.
+
+A file too large for S3's 10,000 parts per multipart upload, above 312.5 GiB, is recorded as permanent at once and not retried, because every run would refuse it the same way until the file changes. Microsoft 365 caps a file at 250 GB, so this needs a file larger than the service allows. A historical version of that size is counted as unavailable.
 
 A `404` or `410` on the content of a file version is not taken at its word, because the run listed that version moments earlier and Microsoft Graph returns a `404` during incidents too. Atlas lists the file's versions again: a version that has left the list was purged by retention and is counted as unavailable, not as an error. A version still listed counts as a failed version until the answer repeats on 3 runs in a row spanning at least 24 hours, the rule a failed file's re-read follows. Only the numeric status decides this. [Version failures](/onedrive-backup#version-failures) describes what the run reports.
 
@@ -205,6 +208,7 @@ What an interrupted run leaves behind:
 | A drive or library's delta listing ends without `@odata.deltaLink` | The listing stopped early, so the drive fails, keeps its previous checkpoint, and records no deletions. See [Deletions found by a full read](/operations/delta-sync#drive-full-read-deletions) |
 | The listing of calendars, contact folders, mail folders, or teams holds fewer items than Microsoft Graph counted | Nothing moves. The run stops before reading any unit and exits `2`. See [Unit listings that end early](#unit-listings) |
 | An Outlook folder's delta read ends without `@odata.deltaLink` | The read stopped early, so the folder fails and keeps its previous checkpoint. The run records no removals. See [Retry and error handling](/operations/delta-sync#retry-and-error-handling) |
+| A contact's photo request answers `404` | The contact folder's checkpoint moves on. The photo is requested again on each later run, and the contact keeps its previous photo, until the `404` repeats on 3 runs in a row spanning at least 24 hours. See [What is backed up](/contacts-backup#what-is-backed-up) |
 | Microsoft Graph rejects the checkpoint (`syncStateNotFound`, `resyncRequired`, `syncStateInvalid`) | Reads the folder, drive, or calendar in full |
 | Stale-delta safeguard (Outlook) | A saved checkpoint returns nothing while the previous manifest stored nothing: the checkpoint is discarded and the folder read in full |
 | The cursor's snapshot was deleted or quarantined | The checkpoints would skip what that snapshot held, so they are ignored and the owner is read in full |
@@ -228,7 +232,7 @@ A failure that belongs to one item is recorded against that item and the run con
 
 An exhausted retry budget is never one of these. It stops the backup, see [When retries run out](#when-retries-run-out-on-a-throttle).
 
-Some failures are not the item's fault. Atlas stops the larger unit instead of failing every remaining item the same way:
+Some failures are not the item's fault. Atlas stops the larger unit instead of failing every remaining item the same way. A `403` counts as an `AuthError` here only when its code means a missing permission, see [Which `403` responses stop a run](#forbidden-responses):
 
 | Failure | What stops |
 | --- | --- |
@@ -240,6 +244,18 @@ Some failures are not the item's fault. Atlas stops the larger unit instead of f
 | `AuthError` before any item is read, such as resolving the owner | The command, with exit `4` |
 | Wrong passphrase, unreadable cursor, storage failure while committing | The command, before anything is written past the last commit |
 | A unit listing that ends short of Microsoft Graph's count | The command, before any unit is read, with exit `2`. See [Unit listings that end early](#unit-listings) |
+
+### Which `403` responses stop a run {#forbidden-responses}
+
+Microsoft Graph answers `403 Forbidden` for a missing permission and for other refusals, and only the error code tells them apart. For Outlook, Calendar, Contacts, and Teams, Atlas reads that code:
+
+| Graph error code on the `403` | Reported as | Effect |
+| --- | --- | --- |
+| `accessDenied`, `ErrorAccessDenied`, `Authorization_RequestDenied` | `MissingGraphPermissionsError` (`ATLAS_AUTH_DENIED`), naming the code and the permissions to grant | Stops as an `AuthError` in the table above, exit `4` |
+| `Forbidden` on a Teams call | The same | The same. Teams uses this code for a missing role permission and for a protected API Microsoft has not approved |
+| Any other code, or no code | A failure of that request, naming the code Graph sent | Fails the item, channel, folder, or team that request belonged to. The rest of the run continues and the command exits `2` |
+
+The codes are compared without regard to case. A `403` with no code, such as one from a proxy with no JSON body, does not name a missing permission and is treated as a failure of the request. A `403` that reaches the command before any item is read still exits `4`, whatever its code, since an unwrapped `403` maps to `ATLAS_AUTH_DENIED`; the message then names the code. OneDrive and SharePoint classify their own `403` responses, described in [Failed files](/onedrive-backup#failed-files).
 
 ### Unit listings that end early {#unit-listings}
 

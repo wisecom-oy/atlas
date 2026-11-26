@@ -42,7 +42,10 @@ export interface ContactsConnector {
     folder_id: string,
   ): Promise<ReadonlySet<string>>;
 
-  /** Returns the contact's photo bytes, or `undefined` when the contact has none. */
+  /**
+   * Returns the contact's photo bytes, or `undefined` when Graph answers `404`. That answer is not
+   * proof the contact has no photo: Graph also returns it during incidents, so the caller decides.
+   */
   fetch_contact_photo(
     tenant_id: string,
     mailbox_id: string,

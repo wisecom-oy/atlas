@@ -122,4 +122,17 @@ describe('fetch_message_extended_properties', () => {
       fetch_message_extended_properties(client, 'owner-1', ids(2), PREFER),
     ).rejects.toBeInstanceOf(AuthError);
   });
+
+  // Issue #865: a 403 whose code is not a missing grant loses that message's reactions only.
+  it('drops one message refused with a non-permission 403 and keeps the rest', async () => {
+    const { client } = batch_client((message_id) =>
+      message_id === 'msg-1'
+        ? { status: 403, body: { error: { code: 'UnknownError', message: 'Refused' } } }
+        : ok(),
+    );
+
+    const found = await fetch_message_extended_properties(client, 'owner-1', ids(3), PREFER);
+
+    expect([...found.keys()]).toEqual(['msg-0', 'msg-2']);
+  });
 });

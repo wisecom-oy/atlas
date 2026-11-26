@@ -82,7 +82,10 @@ export async function list_contact_ids_with_attachments(
   return ids;
 }
 
-/** Reads a contact's photo bytes; a 404 means the contact has no photo. */
+/**
+ * Reads a contact's photo bytes, or `undefined` on a 404. A contact whose attachment is not a photo
+ * answers 404, and so can one with a photo during an incident, so the backup judges the answer.
+ */
 export async function fetch_contact_photo(
   client: Client,
   mailbox_id: string,

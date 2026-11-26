@@ -14,6 +14,7 @@ import {
 } from '@/services/backup/backup-builders';
 import { process_backup_file } from '@/services/backup/backup-file-processor';
 import { is_download_refused } from '@wisecom/atlas-m365-graph';
+import { is_listed_size_part_limit_refusal } from '@wisecom/atlas-core/services/shared/multipart-part-plan';
 import { resolve_backed_up_kind } from '@wisecom/atlas-drive';
 import { spares_failed_item_attempt } from '@wisecom/atlas-drive/backup/transient-download-failure';
 import { classify_change_type } from '@/services/backup/change-classifier';
@@ -242,7 +243,9 @@ async function sharing_only_change(
  * A refusal is permanent for this item but not for the run, so it is recorded the
  * way a quarantined item is. A missing grant is deliberately not caught: it applies
  * to every item and must stop the run (issue #246). A failure outside the file is
- * recorded without spending an attempt (issues #718, #857).
+ * recorded without spending an attempt (issues #718, #857). A file too large for the
+ * multipart part limit is recorded as permanent too, since nothing was uploaded and
+ * every retry would be refused the same way (issue #925).
  */
 async function download_or_record_refusal(
   connector: OneDriveConnector,
@@ -265,7 +268,7 @@ async function download_or_record_refusal(
     if (spares_failed_item_attempt(err)) {
       return { outcome: { ...empty, error: err.message, consumes_attempt: false } };
     }
-    if (!is_download_refused(err)) throw err;
+    if (!is_download_refused(err) && !is_listed_size_part_limit_refusal(err)) throw err;
     return { outcome: { ...empty, error: err.message, permanent: true } };
   }
 }

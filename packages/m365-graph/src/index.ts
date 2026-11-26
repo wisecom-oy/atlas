@@ -23,6 +23,7 @@ export {
 } from '@/graph-binary-download';
 export type { GraphRetryOptions } from './graph-request-error-handler';
 export {
+  is_missing_grant_refusal,
   no_onedrive_message,
   rethrow_if_access_denied,
   rethrow_if_teams_access_denied,

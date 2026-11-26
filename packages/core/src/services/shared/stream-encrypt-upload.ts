@@ -7,15 +7,12 @@ import type {
   TenantContext,
 } from '@wisecom/atlas-types';
 import { ByteQueue } from '@/services/shared/byte-queue';
+import {
+  assert_stream_within_part_limit,
+  plan_multipart_part_size,
+} from '@/services/shared/multipart-part-plan';
 import { UNLOCKED_STAGING_UPLOAD } from '@/services/shared/run-object-lock';
 import { logger } from '@/utils/logger';
-
-/**
- * Multipart part size. Also the ceiling on retained memory: one part is held
- * back as `first_part_data` so the IV and auth tag can be prepended once the
- * cipher is finalised, and at most one more part accumulates in `pending`.
- */
-const PART_SIZE = 8 * 1024 * 1024;
 
 export interface CompletedPart {
   ETag: string;
@@ -50,6 +47,11 @@ export interface ContentAddressedStreamTarget {
    */
   readonly data_scope: string;
   readonly object_lock_policy?: StorageObjectLockPolicy;
+  /**
+   * The size the source was listed with, which sets the part size (issue #925). Omitted or zero,
+   * the stream uses the smallest part size.
+   */
+  readonly listed_bytes?: number;
 }
 
 /**
@@ -71,6 +73,7 @@ export async function stream_to_content_addressed_storage(
     target.staging_key,
     chunks,
     target.data_scope,
+    target.listed_bytes,
   );
 
   const canonical_key = target.build_data_key(content_name);
@@ -145,6 +148,8 @@ async function remove_staging_object(
 }
 
 interface PendingPartState {
+  readonly part_size: number;
+  streamed_bytes: number;
   pending: ByteQueue;
   first_part_data: Buffer | null;
   part_number: number;
@@ -155,15 +160,24 @@ interface PendingPartState {
  * Encrypts an arbitrary byte stream straight into a multipart upload, never
  * holding the whole object.
  *
- * Peak retained memory is bounded by {@link PART_SIZE} regardless of object
- * size, which is the whole point: the plaintext arrives in chunks, each is
- * hashed and enciphered on the way past, and only assembled parts are kept.
+ * Peak retained memory is about two parts regardless of object size, which is
+ * the whole point: the plaintext arrives in chunks, each is hashed and
+ * enciphered on the way past, and only assembled parts are kept. One part is
+ * held back as `first_part_data`, and one more is assembled or in flight.
+ *
+ * The part size is planned from `listed_bytes` so the upload fits S3's 10,000
+ * parts (issue #925). A file too large for the largest part size is refused
+ * before the upload starts, and a stream that outgrows its plan is stopped
+ * before the part past the limit goes up. Neither reaches the backend's own
+ * part-number refusal.
  *
  * Part 1 is written last. AES-256-GCM only yields its auth tag after
  * `final()`, and the stored layout is `iv || auth_tag || ciphertext`, so the
  * first part cannot be uploaded until the last byte has been read. Every
- * intermediate part is exactly `PART_SIZE`, satisfying S3's 5 MB minimum for
- * non-final parts; only the highest-numbered part may be smaller.
+ * intermediate part is exactly the planned part size, at least 8 MiB, satisfying
+ * S3's 5 MB minimum for non-final parts; only the highest-numbered part may be
+ * smaller. Part boundaries are a transport detail: the stored object is one
+ * contiguous ciphertext, so reading it back does not depend on the part size.
  *
  * The staging upload is never locked, even on a run that locks its writes: it is copied to its
  * canonical key, which carries the lock, and then deleted (#556).
@@ -174,13 +188,18 @@ interface PendingPartState {
  *
  * @param chunks Plaintext source. Any async iterable of buffers: a ranged
  *   chunk fetcher, or a Graph response stream.
+ * @param listed_bytes The source's listed size; zero or omitted when unknown.
+ * @throws MultipartPartLimitError when the file cannot fit the part limit.
  */
 export async function stream_encrypt_to_multipart(
   ctx: TenantContext,
   staging_key: string,
   chunks: AsyncIterable<Buffer>,
   scope_key: string = staging_key,
+  listed_bytes = 0,
 ): Promise<StreamEncryptUploadResult> {
+  // Before the upload exists, so a file that cannot fit leaves nothing behind in the bucket.
+  const part_size = plan_multipart_part_size(listed_bytes);
   const { cipher, iv, header } = ctx.create_cipher(scope_key);
   const hash = createHash('sha256');
   const content_name = ctx.create_content_hmac();
@@ -192,6 +211,8 @@ export async function stream_encrypt_to_multipart(
 
   try {
     const state: PendingPartState = {
+      part_size,
+      streamed_bytes: 0,
       pending: new ByteQueue(),
       first_part_data: null,
       part_number: 2,
@@ -199,11 +220,13 @@ export async function stream_encrypt_to_multipart(
     };
 
     for await (const chunk of chunks) {
+      state.streamed_bytes += chunk.length;
+      assert_stream_within_part_limit(state.streamed_bytes, state.part_size);
       hash.update(chunk);
       content_name.update(chunk);
       state.pending.push(cipher.update(chunk));
 
-      while (state.pending.bytes >= PART_SIZE) {
+      while (state.pending.bytes >= state.part_size) {
         await flush_pending_parts(handle, state);
       }
     }
@@ -244,7 +267,7 @@ async function flush_pending_parts(
   handle: MultipartUploadHandle,
   state: PendingPartState,
 ): Promise<void> {
-  const part_data = state.pending.take(PART_SIZE);
+  const part_data = state.pending.take(state.part_size);
 
   if (!state.first_part_data) {
     state.first_part_data = part_data;

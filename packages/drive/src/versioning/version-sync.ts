@@ -1,6 +1,7 @@
 import type { NotFoundStreak, TenantContext } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { describe_graph_error, is_content_gone_error } from '@wisecom/atlas-m365-graph';
+import { is_listed_size_part_limit_refusal } from '@wisecom/atlas-core/services/shared/multipart-part-plan';
 import type {
   DriveContentConnector,
   DriveDeltaItem,
@@ -222,12 +223,14 @@ type VersionCapture =
   | { kind: 'failed' };
 
 /** One download attempt, before a "not found" answer has been judged. */
-type VersionAttempt = Exclude<VersionCapture, { kind: 'gone' }> | { kind: 'not_found' };
+type VersionAttempt = VersionCapture | { kind: 'not_found' };
 
 /**
  * Downloads one historical version, stores it content-addressed, and builds its index row.
  * `not_found` means the content read answered 404 or 410, which the caller still has to judge;
  * `failed` means the version may still be retrievable and the run should come back for it.
+ * `gone` here means the version is too large to store at all, which no later run can change
+ * (issue #925), so it is counted unavailable and the watermark moves past it.
  */
 async function capture_version(
   keys: DriveStorageKeys,
@@ -254,6 +257,10 @@ async function capture_version(
     // A cancelled run is not a version that failed to download: recording it as failed would block
     // the watermark and re-fetch it next run for no reason (issue #344).
     if (abort_signal?.aborted === true) throw err;
+    if (is_listed_size_part_limit_refusal(err)) {
+      logger.warn(`Version ${version.version_id} of ${item.file_name} not stored: ${err.message}`);
+      return { kind: 'gone' };
+    }
     if (!(err instanceof VersionDownloadError)) throw err;
     if (is_content_gone_error(err.source)) return { kind: 'not_found' };
     logger.warn(
