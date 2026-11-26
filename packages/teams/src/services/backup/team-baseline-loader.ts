@@ -10,6 +10,7 @@ import {
   type TenantContext,
 } from '@wisecom/atlas-types';
 import type { HostedRecheck } from '@/services/backup/hosted-recheck';
+import { reopen_refused_roots } from '@/services/backup/refused-root-reopen';
 
 /** The ports a run reads its starting state through. */
 export interface BaselinePorts {
@@ -23,7 +24,10 @@ export interface ChannelBaseline {
   readonly previous_entry: TeamsChannelIndexEntry | undefined;
   /** The stored delta link, only when its cursor was bound to `previous_entry`'s shard. */
   readonly delta_link: string | undefined;
-  /** Failed roots from the channel's cursor. Kept even when the link is not usable. */
+  /**
+   * Failed roots from the channel's cursor, kept even when the link is not usable. A root an older
+   * Atlas skipped permanently on one 400 is retryable again (issue #896).
+   */
   readonly failed_roots: FailedItemLedger;
   /** Hosted-content recheck attempts from the channel's cursor. */
   readonly hosted_recheck: HostedRecheck;
@@ -73,7 +77,7 @@ export async function load_team_baseline(
     channels.set(channel_id, {
       previous_entry,
       delta_link: usable_delta_link(cursor, previous_entry, channel_id, warnings),
-      failed_roots: cursor?.failed_roots ?? {},
+      failed_roots: reopen_refused_roots(cursor?.failed_roots ?? {}),
       hosted_recheck: cursor?.hosted_recheck ?? {},
     });
   }
