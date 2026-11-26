@@ -365,6 +365,8 @@ Atlas 7.2.0 and earlier gave up on a thread after a single `400` and reported it
 
 While any thread remains on the list, including a `PERMANENTLY SKIPPED` one, the run reports `Status: UNHEALTHY` and exits `2`, even when that run had no channel error. To clear it, see [Permanently skipped threads](#permanently-skipped-roots).
 
+An inline image download that stalls or is cut off mid-transfer is retried within the run like any other Microsoft Graph read, and ends at once on Ctrl+C. A download that receives nothing for 60 s is closed and retried; one that keeps receiving data has 30 min per attempt, so a large image on a slow link still completes. Only after the retry budget is spent does it stop the backup, with exit `3`, as described in [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
+
 Missing inline images are handled more gently. A thread whose inline image Microsoft Graph did not return, or returned with `404` or `403`, is rechecked on later runs with the warning `hosted content still missing (attempt N of 5); re-checking next run`. After the fifth attempt Atlas warns once that it gave up, and incremental runs stop rechecking that thread. A full read still lists it and applies it again. These are warnings only: a run with nothing else wrong still prints `Status: HEALTHY`.
 
 ## Recovery

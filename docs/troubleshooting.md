@@ -72,8 +72,8 @@ Microsoft Graph returns `429` when it throttles a request, and occasionally `500
 ::: details Retry behaviour in brief
 - `Retry-After` is honoured up to one hour, followed by a random delay of up to a tenth of the wait, kept between 1 and 5 seconds, so no request goes out before Microsoft Graph asked. A value under one second is raised to one second. Without the header, a `429` applies a 30-second cooldown.
 - A `Retry-After` longer than one hour fails the call at once with a `ThrottledError` naming the value.
-- Backoff is exponential with jitter, capped at 5 minutes per wait. Once a call has spent 24 minutes waiting, counting backoff, `Retry-After` waits, and cooldowns, including the cooldown an Outlook call waits out before it is sent, it starts no new wait. A wait already started runs in full, so one call waits at most about 24 minutes plus one cooldown. Time spent inside each request does not count.
-- Each attempt times out after 60 seconds and is aborted before the next one is sent.
+- Backoff is exponential with jitter, capped at 5 minutes per wait. Once a call has spent 24 minutes waiting, counting backoff, `Retry-After` waits, and cooldowns, including the cooldown an Outlook call waits out before it is sent, it starts no new wait. A wait already started runs in full, so one call waits at most about 24 minutes plus one cooldown. Time spent inside each request comes on top of that, so this is not a limit on how long a call takes. [Retries and fail-safes](/operations/reliability#microsoft-graph-requests) gives the wall-clock worst case.
+- Each attempt times out after 60 seconds, or 30 minutes for an Outlook MIME or attachment download, and is aborted before the next one is sent. A download that receives nothing for 60 seconds is closed and retried without waiting for its attempt timeout.
 - Atlas decides whether to retry from the HTTP status and from Node and undici error codes such as `ECONNRESET` or `UND_ERR_SOCKET`, never from the error message.
 - When a call spends its retry budget, a backup stops, commits what it finished, and exits `3`, whichever folder, drive, or channel it was reading. A restore or save fails only that item, continues, and exits `2`. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
 :::
@@ -105,7 +105,7 @@ Throttling caps throughput even with unlimited bandwidth. For a first full tenan
 Microsoft Graph answered `408`, `500`, `502`, `503`, or `504`, answered `200` with a JSON body that was empty or cut short, or the connection failed or timed out, on every attempt until the retry budget ran out. This is a service incident at Microsoft or a network problem between the host and Microsoft 365, not a fault in the backup. A backup exits `3`. A restore or save reports the same message on the error line of each item it hit and exits `2`, so a `2` from a restore or save can also be a Microsoft 365 incident. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
 
 1. Check the [Microsoft 365 service health](https://admin.microsoft.com/#/servicehealth) page.
-2. Schedule the run again once the incident clears. Back off at the run level rather than retrying immediately: each attempt spends up to one retry budget, about 24 minutes, before it gives up.
+2. Schedule the run again once the incident clears. Back off at the run level rather than retrying immediately: each run spends one retry budget before it gives up. That is about 24 minutes of waiting, plus at most one more cooldown, plus the time spent inside its 13 attempts.
 
 The message always names the HTTP status and the Microsoft Graph error code when the last attempt got a response, even one with an empty body. When no response arrived, it names the transport error instead, for example `no HTTP response (TypeError: fetch failed)` for a reset connection.
 

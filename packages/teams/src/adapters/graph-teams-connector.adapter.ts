@@ -2,6 +2,7 @@ import { inject, injectable } from 'inversify';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import {
   assert_listing_complete,
+  drop_repeated_listings,
   GRAPH_CLIENT_TOKEN,
   with_collection_count,
   with_graph_retry,
@@ -43,7 +44,8 @@ export class GraphTeamsConnector implements TeamsConnector {
   constructor(@inject(GRAPH_CLIENT_TOKEN) private readonly _client: Client) {}
 
   /**
-   * Lists every team in the tenant. The tenant is implicit in the app-only Graph client.
+   * Lists every team in the tenant. The tenant is implicit in the app-only Graph client. A team
+   * Graph lists twice is returned once, at its first copy, so `--all` backs it up once (#964).
    *
    * @throws ListingIncompleteError when the pages hold fewer teams than Graph counted.
    */
@@ -54,7 +56,7 @@ export class GraphTeamsConnector implements TeamsConnector {
       with_collection_count('/teams?$select=id,displayName'),
     );
     assert_listing_complete('teams', items.length, reported_count);
-    return items;
+    return drop_repeated_listings(items, (team) => team.id);
   }
 
   /**
@@ -99,7 +101,8 @@ export class GraphTeamsConnector implements TeamsConnector {
 
   /**
    * Lists the team's channels. A channel Graph returns without an id is skipped with a warning:
-   * its shard, cursor and index row are all keyed by that id.
+   * its shard, cursor and index row are all keyed by that id. A channel Graph lists twice is
+   * returned once, at its first copy, so one worker reads it and it gets one index entry (#964).
    */
   async list_channels(_tenant_id: string, team_id: string): Promise<TeamsGraphResource[]> {
     const { items } = await read_all_pages<TeamsGraphResource>(
@@ -112,7 +115,7 @@ export class GraphTeamsConnector implements TeamsConnector {
         `Skipped ${items.length - channels.length} channel(s) that Graph returned without an id`,
       );
     }
-    return channels;
+    return drop_repeated_listings(channels, (channel) => channel.id);
   }
 
   /** Lists a channel's members. */

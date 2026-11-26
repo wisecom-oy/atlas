@@ -26,7 +26,15 @@ function make_client(graph_item: Record<string, unknown>, body = CONTENT_BODY): 
   const get = vi.fn().mockResolvedValue(graph_item);
   const get_stream = vi.fn(() => Promise.resolve(binary_graph_response(body)));
   const select = vi.fn(() => ({ get }));
-  const api = vi.fn(() => ({ select, get, responseType: () => ({ get: get_stream }) }));
+  const api = vi.fn(() => ({
+    select,
+    get,
+    responseType: () => ({ get: get_stream }),
+    // The /content request is handed its abort signal before it is sent (issue #890).
+    option() {
+      return this;
+    },
+  }));
   return { client: { api } as unknown as DriveGraphClient, api, select };
 }
 

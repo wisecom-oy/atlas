@@ -29,6 +29,7 @@ The [exit code table](#exit-codes-and-whether-to-retry) says which codes a rerun
 | A `404` or other `4xx` on a run's first existence check or listing | Reads it twice more, 2 s and 4 s later, before it decides the owner is gone | [The first read of a run](#first-reads-of-a-run) |
 | Microsoft Graph outage outlasts the retry budget during a backup | Stops the run after one budget, commits what finished, exits `3` | [When retries run out](#when-retries-run-out-on-a-throttle) |
 | A large file transfer stalls or its URL expires | Retries the range, refreshes the URL, resumes at the failed range | [File transfers](#file-transfers-onedrive-and-sharepoint) |
+| The file download hosts are down while Microsoft Graph is up | Gives each file 3 attempts within a bounded wait, lists it for the next run without using an attempt, and moves to the next file | [File transfers](#file-transfers-onedrive-and-sharepoint) |
 | S3 request fails or the backend stops answering | Retries each request up to 3 times, cuts off a connect after 10 s and a silent socket after 5 min, then exits `3`. Writes that must not collide are conditional | [Storage](#storage) |
 | You press Ctrl+C | Commits what finished, exits `2` | [Ctrl+C and signals](#ctrl-c-and-signals) |
 | Process killed mid-run | Storage only references what was fully written. The next run resumes from the last saved cursor | [Crash safety and resume](#crash-safety-and-resume) |
@@ -57,7 +58,8 @@ Every Microsoft Graph call goes through one retry loop. The Graph SDK's own retr
 | `Retry-After` above 1 hour | The call fails at once with `ThrottledError` naming the value. The pool or mailbox still cools down for the hour, for the rest of the run |
 | `429` or `509` without `Retry-After` | 30 s cooldown for the pool |
 | Waiting budget per call | 24 minutes of backoff, `Retry-After`, and cooldown waits, including the cooldown an Outlook call waits out before it is sent. A wait already started runs in full |
-| Per-attempt timeout | 60 s by default. A timed-out request is aborted before the next attempt is sent |
+| Per-attempt timeout | 60 s by default. 30 min for an Outlook MIME download (`/messages/{id}/$value`), an attachment download (`/attachments/{id}/$value`), and a Teams hosted-content download (`/hostedContents/{id}/$value`), so a large body on a slow link completes. A timed-out request is aborted before the next attempt is sent |
+| Idle timeout on a download | 60 s on an Outlook MIME or attachment download and a Teams hosted-content download. When neither the response headers nor any body bytes arrive for 60 s, the request is closed and the attempt is retried as a timed-out transfer |
 
 `500` and `502` are retried because Microsoft Graph returns them for load and gateway faults that clear on their own. `408 Request Timeout` is retried like a `504`, as it already is for a token request. `509 Bandwidth Limit Exceeded` is SharePoint's throttle for a tenant or app over its bandwidth limit, so it is retried and pauses the pool like a `429`.
 
@@ -69,7 +71,19 @@ A JSON read that answers `2xx` with a body that does not parse, empty or cut sho
 
 A token request that Microsoft Entra ID answers with a `429` or `5xx` is held back for at least 60 s by MSAL, the Microsoft library that requests the token, or for as long as Entra's `Retry-After` asks. A repeat inside that window never reaches Entra ID, so Atlas waits at least 60 s between token attempts. An Entra ID outage is retried through the whole budget and ends in `ATLAS_GRAPH_UNAVAILABLE`, exit `3`. A refusal of the credentials (`invalid_client`, an unknown client ID or tenant, an expired secret) is never retried and exits `4`.
 
-The 24-minute budget sits just above the full exponential schedule (1 + 2 + 4 + ... capped at 5 minutes comes to about 23.5 minutes), so backoff alone always gets all 12 retries. Time spent inside a request does not count, so a slow download keeps its retries. One call therefore waits at most about 24 minutes plus one cooldown, and so does a whole backup run: see [When retries run out](#when-retries-run-out-on-a-throttle).
+The 24-minute budget sits just above the full exponential schedule (1 + 2 + 4 + ... capped at 5 minutes comes to about 23.5 minutes), so backoff alone always gets all 12 retries. Time spent inside a request does not count, so a slow download keeps its retries. One call therefore waits at most about 24 minutes plus one wait of up to 1 hour and 5 s, and so does a whole backup run: see [When retries run out](#when-retries-run-out-on-a-throttle).
+
+That bounds the waiting, not the wall-clock time of a call. The time inside its 13 attempts comes on top:
+
+| Call | Attempts | Waits | Worst case |
+| --- | ---: | ---: | ---: |
+| Any Graph request with the 60 s timeout | 13 × 60 s = 13 min | 24 min + 1 h 0 min 5 s | about 1 h 37 min |
+| Outlook MIME, attachment, or Teams hosted-content download whose body keeps trickling in | 13 × 30 min = 6 h 30 min | 24 min + 1 h 0 min 5 s | about 7 h 55 min |
+| Outlook MIME, attachment, or Teams hosted-content download that stalls on every attempt | 13 × 60 s idle = 13 min | about 23.5 min of backoff | about 37 min |
+
+The 7 h 55 min case needs every attempt to receive at least one byte a minute for its full 30 minutes, and Graph to answer the last wait with a 1-hour `Retry-After`. A download that stops sending loses its attempt after 60 s instead, so a stalled server costs the stall row. Each message and attachment has its own call. An empty MIME body starts a new call, up to 3 per message, as described above.
+
+Downloads read their whole body inside the attempt, so the attempt timeout, the idle timeout, the retry on a body cut off mid-transfer, and Ctrl+C cover the body as well as the headers.
 
 An Outlook call waits out its mailbox's cooldown before it takes a [pacing](#pacing) slot, and that wait counts against the same budget. Under a persistent 1-hour throttle the call is sent once the cooldown ends, and the next `429` ends it with `ThrottledError` instead of starting a second hour. A short cooldown, such as the 30 s after a `429` without `Retry-After`, leaves almost the whole budget for the retries after it. The wait before the send is itself capped at one cooldown wait (1 hour plus the release delay): if other requests keep raising the cooldown past that, the call fails with `ThrottledError` without sending anything.
 
@@ -174,14 +188,25 @@ File content comes from pre-authenticated download URLs rather than through the 
 | --- | --- |
 | File-level attempts | 3, with backoff from 2 s capped at 30 s |
 | Ranged download | Files over 4 MiB are read in 4 MiB ranges |
-| Range timeout | `max(30 s, size in bytes / 256)`, about 33 s for a 4 MiB range |
+| Range timeout | `max(30 s, size in bytes / 256 ms)`, so 30 s for a 4 MiB range |
 | Range retries | Up to 5 per range, backoff from 1 s plus up to 1 s of jitter, capped at 30 s. `Retry-After` honoured on `429` |
 | Streaming threshold | 64 MiB and above: streamed to storage through a multipart upload |
 | Upload part size | Smallest multiple of 8 MiB that fits the file in 10,000 parts, at most 32 MiB. A file or version above 312.5 GiB is refused before its download starts, see [object size limits](/self-hosting/storage#object-size-limits) |
-| Expired URL (`401` or `403` from the CDN) | Looked up again. Files of 64 MiB and more resume at the failed range, until 3 refreshed URLs in a row deliver nothing |
+| Expired URL (`401` or `403` from the CDN) | Looked up again. Files of 64 MiB and more resume at the failed range, until 3 refreshed URLs in a row deliver nothing. Smaller files retry once on the fresh URL, then fall back to `/content` |
+| Graph `/content` fallback | Files under 64 MiB only. Used when no URL resolves, after an expired URL's one refresh, or after a host answer that is not transient, such as a `404` or a body of the wrong length. Never after a `429`, `5xx`, reset, or timeout from the download host |
+| `/content` retries | The [Graph retry rules](#microsoft-graph-requests): up to 12 retries and 24 minutes of waiting, `Retry-After` honoured. The request times out after `max(30 s, size in bytes / 256 ms)` and the body after twice that. A timeout aborts the request and goes to the file-level attempts, not to Graph's retries |
 | Truncation check | Each range's length and `Content-Range`, and the total size, must match what Microsoft Graph listed |
 
-A file that still fails is added to the drive's list of failed files, and the drive's sync checkpoint moves on. Each later run fetches the listed files again before processing new changes, up to 5 attempts per file. Failures outside the file do not use an attempt: throttling, a Microsoft Graph `5xx`, a reset or timed-out connection, or a download host that is down, once the retries above are spent, and an expired URL. The same holds for the re-read of a listed file at the start of a run. A `404` on that re-read uses no attempt and keeps the file listed: Atlas drops it as deleted only when the change listing reports the deletion, or when the `404` repeats on 3 runs in a row spanning at least 24 hours. A body of the wrong length or range, and any other `4xx`, use one. [Failed files](/onedrive-backup#failed-files) lists each case and how to fetch a permanently skipped file again. A missing Microsoft Graph permission (`403 accessDenied`) stops the drive instead of costing one file per item. [Snapshot health](/onedrive-backup#snapshot-health) describes the list and the `403` cases.
+`/content` answers with a redirect to the same download hosts, so a failure of the host itself goes to the file-level attempts instead. Falling back would send each file into the same outage under Graph's 24-minute budget. While the hosts fail every request, a file below 64 MiB is given up within these bounds, then listed and the run moves to the next file:
+
+| Host behaviour | File up to 4 MiB | File over 4 MiB, under 64 MiB |
+| --- | --- | --- |
+| Answers `5xx` at once | About 10 s: 3 requests and the file backoff | About 2 minutes: 3 attempts of 6 range requests with their backoff |
+| Never answers | About 100 s: 3 request timeouts of 30 s | About 11 minutes: 3 attempts of 6 range timeouts of 30 s |
+
+Each file given up this way is logged as `Skipping drive file ... after 3 attempt(s)` with the host's answer, and listed as `will retry (no attempt counted yet)`. A failure that already spent the Graph retry budget is not repeated at file level, and stops the run with exit `3` as described in [When retries run out](#when-retries-run-out-on-a-throttle).
+
+A file that still fails is added to the drive's list of failed files, and the drive's sync checkpoint moves on. Each later run fetches the listed files again before processing new changes, up to 5 attempts per file. Failures outside the file do not use an attempt: throttling, a Microsoft Graph `5xx`, a reset or timed-out connection or `/content` request, or a download host that is down, once the retries above are spent, and an expired URL at any file size, even when the fresh URL and `/content` fail too. The same holds for the re-read of a listed file at the start of a run. A `404` on that re-read uses no attempt and keeps the file listed: Atlas drops it as deleted only when the change listing reports the deletion, or when the `404` repeats on 3 runs in a row spanning at least 24 hours. A body of the wrong length or range, and any other `4xx`, use one. [Failed files](/onedrive-backup#failed-files) lists each case and how to fetch a permanently skipped file again. A missing Microsoft Graph permission (`403 accessDenied`) stops the drive instead of costing one file per item. [Snapshot health](/onedrive-backup#snapshot-health) describes the list and the `403` cases.
 
 A failure to write the file to storage is not the file's either, whatever its size: a full disk or quota, an S3 `5xx` after the [storage retries](#storage), or an endpoint that never answers. It fails the drive or library, which keeps its sync checkpoint, so the file is read again by the next run without entering the list. A file of 64 MiB or more is streamed from the download into the multipart upload, and a failure on the storage side of that stream is told apart from a download failure by its type and status, never by its message.
 
@@ -227,7 +252,7 @@ Object Lock retention is set per object at write time, and a delete it refuses e
 
 | Signal | Result |
 | --- | --- |
-| First Ctrl+C (`SIGINT`) | Soft stop. Microsoft Graph requests, retries, and cooldown waits end at once, including an Outlook call still waiting for its mailbox's cooldown, request window, or concurrency slot. Restore writes already sent finish. Completed work is committed, the lease is released, and the command exits `2` |
+| First Ctrl+C (`SIGINT`) | Soft stop. Microsoft Graph requests, download bodies being read, retries, and cooldown waits end at once, including an Outlook call still waiting for its mailbox's cooldown, request window, or concurrency slot; restore writes already sent finish. Completed work is committed, the lease is released, and the command exits `2` |
 | Second Ctrl+C | Exits at once with `130`. Nothing more is committed and the lease is left to expire, so a run on the same owner within 10 minutes exits `12` |
 | `SIGTERM` | Atlas installs no handler, so Node ends the process at once, as with a second Ctrl+C. The shell reports `143` |
 
@@ -326,7 +351,16 @@ Every backup first lists the units it will read: calendars, contact folders, mai
 
 The count costs no extra request. The channel check costs one request for each channel that disappears, once: a channel already marked deleted is not read again. More items than counted is accepted, since a unit created while the listing paged is still a real unit. A unit deleted while the listing paged can leave one fewer than counted, which fails that run; the next run lists again.
 
-A mail folder listed more than once, on one page, across pages, or under two parents, is backed up once, at the place it was first listed, and its subfolders are listed once. Every copy still counts toward the `@odata.count` check, because Microsoft Graph counted it that way.
+A unit listed more than once, on one page or across pages, is backed up once per run, from the first copy listed:
+
+| Unit listed twice | Result |
+| --- | --- |
+| Mail folder or contact folder, including under two parents | Backed up once, at the place it was first listed. Its subfolders are listed once |
+| Calendar | Read once. Each of its events has one manifest entry |
+| Team, with `atlas teams backup --all` | Backed up once |
+| Teams channel | Read by one worker, with one index entry. Its errors are reported once |
+
+In the listings checked with `$count=true`, every copy still counts toward the `@odata.count` check, because Microsoft Graph counted it that way.
 
 ## Concurrency guards
 

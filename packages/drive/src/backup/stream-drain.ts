@@ -78,20 +78,28 @@ export async function stream_to_buffer(
 
 /**
  * Settles with `promise` when it settles before `timeout_ms`, otherwise rejects with a
- * `TransferTimeoutError` carrying `message`.
- * The timer is cleared however the race ends.
+ * `TransferTimeoutError` carrying `message` and then calls `on_timeout`.
+ *
+ * Racing alone only stops waiting: `on_timeout` is where the caller aborts the request, so a timed
+ * out request is closed rather than left open beside the next attempt (issue #890). The timer is
+ * cleared however the race ends.
  */
 export async function with_timeout<T>(
   promise: Promise<T>,
   timeout_ms: number,
   message: string,
+  on_timeout: () => void = () => undefined,
 ): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([
       promise,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new TransferTimeoutError(message)), timeout_ms);
+        timer = setTimeout(() => {
+          // Rejected first, so the race settles with the timeout, not the abort it causes.
+          reject(new TransferTimeoutError(message));
+          on_timeout();
+        }, timeout_ms);
       }),
     ]);
   } finally {

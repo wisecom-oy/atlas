@@ -23,6 +23,7 @@ export {
   get_graph_bytes,
   get_graph_content_stream,
 } from '@/graph-binary-download';
+export { get_graph_binary_with_idle_timeout } from '@/graph-idle-download';
 export type { GraphRetryOptions } from './graph-request-error-handler';
 export {
   is_missing_grant_refusal,
@@ -62,3 +63,5 @@ export {
   reported_collection_count,
   with_collection_count,
 } from '@/graph-counted-listing';
+export { create_repeated_listing_filter, drop_repeated_listings } from '@/graph-listing-repeats';
+export type { ListedItemId, RepeatedListingFilter } from '@/graph-listing-repeats';

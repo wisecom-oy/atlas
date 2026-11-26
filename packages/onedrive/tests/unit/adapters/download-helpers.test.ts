@@ -65,7 +65,15 @@ function make_client(overrides: { download_url?: string | undefined } = {}): Gra
     );
   const get_stream = vi.fn(() => Promise.resolve(binary_graph_response(CONTENT_BODY)));
   const select = vi.fn(() => ({ get }));
-  const api = vi.fn(() => ({ select, get, responseType: () => ({ get: get_stream }) }));
+  const api = vi.fn(() => ({
+    select,
+    get,
+    responseType: () => ({ get: get_stream }),
+    // The /content request is handed its abort signal before it is sent (issue #890).
+    option() {
+      return this;
+    },
+  }));
   // The real Client has a large surface; these helpers touch only api/select/get/responseType.
   const client = { api } as unknown as Client;
   return { client, api, get, get_stream };
@@ -192,7 +200,7 @@ describe('OneDrive download executor', () => {
 
     it('goes straight to /content without re-resolving for a non-expired failure', async () => {
       const mock = make_client();
-      fetch_mock.mockResolvedValue(make_response({ status: 500 }));
+      fetch_mock.mockResolvedValue(make_response({ status: 404 }));
 
       const body = await download_with_fallback(
         mock.client,
@@ -202,7 +210,24 @@ describe('OneDrive download executor', () => {
       expect(body).toEqual(CONTENT_BODY);
       expect(mock.get).not.toHaveBeenCalled();
       expect(fetch_mock).toHaveBeenCalledOnce();
-      expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('HTTP 500'));
+      expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('HTTP 404'));
+    });
+
+    // Issue #885: /content redirects to the same host, so a host that is down is left to the
+    // file-level retry instead of being sent the file again under Graph's retry budget.
+    it('does not fall back to /content when the download host answers 503', async () => {
+      const mock = make_client();
+      fetch_mock.mockResolvedValue(make_response({ status: 503 }));
+
+      const failure = await download_with_fallback(
+        mock.client,
+        make_item({ download_url: STALE_URL }),
+      ).catch((err: unknown) => err);
+
+      expect(failure).toMatchObject({ status_code: 503 });
+      expect(fetch_mock).toHaveBeenCalledOnce();
+      expect(mock.get).not.toHaveBeenCalled();
+      expect(mock.get_stream).not.toHaveBeenCalled();
     });
 
     it('skips the retry and falls back when the refreshed URL cannot be resolved', async () => {
@@ -237,19 +262,21 @@ describe('OneDrive download executor', () => {
       expect(mock.get_stream).not.toHaveBeenCalled();
     });
 
-    it('falls back to /content only after the retries are spent', async () => {
+    // Issue #885: /content redirects to the same throttled host, so the 429 goes to the file-level
+    // retry once the URL retries are spent, instead of to /content.
+    it('hands the 429 to the file-level retry once the retries are spent', async () => {
       const mock = make_client();
       fetch_mock.mockResolvedValue(make_response({ status: 429, retry_after: '0' }));
 
-      const body = await download_with_fallback(
+      const failure = await download_with_fallback(
         mock.client,
         make_item({ download_url: STALE_URL }),
-      );
+      ).catch((err: unknown) => err);
 
-      expect(body).toEqual(CONTENT_BODY);
+      expect(failure).toMatchObject({ status_code: 429 });
       // MAX_URL_RETRIES is 3, so four attempts in total.
       expect(fetch_mock).toHaveBeenCalledTimes(4);
-      expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('HTTP 429'));
+      expect(mock.get_stream).not.toHaveBeenCalled();
     });
   });
 

@@ -9,6 +9,7 @@ interface MockChain {
   select: Mock;
   top: Mock;
   header: Mock;
+  option: Mock;
   responseType: Mock;
   get: Mock;
 }
@@ -24,12 +25,14 @@ function create_mock_client(): MockClient {
     select: vi.fn(),
     top: vi.fn(),
     header: vi.fn(),
+    option: vi.fn(),
     responseType: vi.fn(),
     get: get_fn,
   };
   chain.select.mockReturnValue(chain);
   chain.top.mockReturnValue(chain);
   chain.header.mockReturnValue(chain);
+  chain.option.mockReturnValue(chain);
   chain.responseType.mockReturnValue(chain);
   const api_fn = vi.fn().mockReturnValue(chain);
   return { api: api_fn, _chain: chain };

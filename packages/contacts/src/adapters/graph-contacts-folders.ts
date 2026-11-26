@@ -1,6 +1,10 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
 import type { GraphContactFolder } from '@wisecom/atlas-types';
-import { read_owner_listing } from '@wisecom/atlas-m365-graph';
+import {
+  create_repeated_listing_filter,
+  read_owner_listing,
+  type RepeatedListingFilter,
+} from '@wisecom/atlas-m365-graph';
 import {
   CONTACTS_READ,
   CONTACTS_READ_WRITE,
@@ -20,7 +24,9 @@ interface FolderPayload {
 /**
  * Lists the default Contacts folder first, then every descendant folder with its display-name path.
  * A 404 or other unclassified 4xx anywhere in the walk reads the whole listing again before it is
- * believed, since the listing decides whether the run happens (#864).
+ * believed, since the listing decides whether the run happens (#864). A folder Graph lists twice,
+ * on one page, across pages or under two parents, is returned once, at its first copy, and its
+ * subtree is walked once (#964). Every copy still counts toward its listing's `@odata.count` check.
  *
  * @throws ListingIncompleteError when one folder's child listing holds fewer folders than Graph counted.
  * @throws NotFoundError when the listing and the mailbox's user both answered 404 on every read.
@@ -35,6 +41,15 @@ export async function list_contact_folders(
   );
 }
 
+/** The state one walk of the folder tree shares across every level. */
+interface FolderWalk {
+  readonly client: Client;
+  readonly base: string;
+  /** Drops a folder any earlier listing in this walk returned. */
+  readonly keep_first_listing: RepeatedListingFilter<FolderPayload>;
+  readonly out: GraphContactFolder[];
+}
+
 /** One read of the default Contacts folder and every folder below it. */
 async function read_folder_tree(client: Client, mailbox_id: string): Promise<GraphContactFolder[]> {
   const base = mailbox_url(mailbox_id);
@@ -43,30 +58,34 @@ async function read_folder_tree(client: Client, mailbox_id: string): Promise<Gra
     `${base}/contactFolders/contacts`,
     CONTACTS_READ,
   );
-  const folders: GraphContactFolder[] = [{ id: root.id, display_name: root.displayName, path: [] }];
-  await walk_children(client, base, root.id, [], folders);
-  return folders;
+  const walk: FolderWalk = {
+    client,
+    base,
+    keep_first_listing: create_repeated_listing_filter((folder) => folder.id, [root.id]),
+    out: [{ id: root.id, display_name: root.displayName, path: [] }],
+  };
+  await walk_children(walk, root.id, []);
+  return walk.out;
 }
 
 /** Appends every descendant of `parent_id`, depth first, so parents precede children. */
 async function walk_children(
-  client: Client,
-  base: string,
+  walk: FolderWalk,
   parent_id: string,
   parent_path: readonly string[],
-  out: GraphContactFolder[],
 ): Promise<void> {
-  const children = await collect_listing<FolderPayload>(
-    client,
-    `${base}/contactFolders/${encodeURIComponent(parent_id)}/childFolders`,
+  const listed = await collect_listing<FolderPayload>(
+    walk.client,
+    `${walk.base}/contactFolders/${encodeURIComponent(parent_id)}/childFolders`,
     CONTACTS_READ,
     'contact folders',
   );
-  for (const child of children) {
+  // After the count check inside collect_listing, so a repeat still counts toward it (#853).
+  for (const child of walk.keep_first_listing(listed)) {
     // Exchange rejects a sibling whose name differs only in case, so a path names one folder.
     const path = [...parent_path, child.displayName];
-    out.push({ id: child.id, display_name: child.displayName, path });
-    await walk_children(client, base, child.id, path, out);
+    walk.out.push({ id: child.id, display_name: child.displayName, path });
+    await walk_children(walk, child.id, path);
   }
 }
 
