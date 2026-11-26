@@ -113,6 +113,37 @@ function to_throttle_replay_error(err: unknown, aadsts_codes: string): GraphToke
   );
 }
 
+/** An answer Entra ID gave a token request: its status and the `Retry-After` it carried. */
+export interface EntraAnswer {
+  readonly status: number;
+  readonly retry_after_ms: number | undefined;
+}
+
+/**
+ * The failure of an attempt that timed out while its token request was still running, so the
+ * retry log names Entra ID's last answer rather than `ETIMEDOUT` (issue #889). The Graph request
+ * was never sent, so it is transient and safe to repeat. After a `429` or `5xx` the repeat waits for
+ * Entra's `Retry-After`, and at least MSAL's throttle window.
+ */
+export function to_token_wait_timeout_error(
+  last_answer: EntraAnswer | undefined,
+): GraphTokenRequestError {
+  const status = last_answer?.status;
+  const throttled = is_msal_throttled_status(status);
+  return new GraphTokenRequestError(
+    'Microsoft Entra ID did not issue a Graph token before the attempt timed out: ' +
+      (status === undefined ? 'no response' : `last answer HTTP ${status}`),
+    {
+      cause: Object.assign(new Error('Token request timed out'), { code: 'ETIMEDOUT' }),
+      entra_status: status,
+      transient: true,
+      retry_after_ms: throttled
+        ? Math.max(MSAL_THROTTLE_WINDOW_MS, last_answer?.retry_after_ms ?? 0)
+        : undefined,
+    },
+  );
+}
+
 /** The wait a failed token request needs before it can reach Entra ID, or undefined for none. */
 export function token_request_retry_after_ms(err: unknown): number | undefined {
   return err instanceof GraphTokenRequestError ? err.retry_after_ms : undefined;

@@ -2,7 +2,9 @@ import type {
   AuthenticationProvider,
   AuthenticationProviderOptions,
 } from '@microsoft/microsoft-graph-client';
+import { get_active_graph_attempt } from '@/graph-attempt';
 import { to_token_request_error } from '@/graph-token-failure';
+import { SharedTokenRequest } from '@/graph-token-wait';
 
 /**
  * Wraps the credential's authentication provider so a failed token request reaches Atlas as a
@@ -12,6 +14,10 @@ import { to_token_request_error } from '@/graph-token-failure';
  * It also lets a Graph `401` discard the token Graph rejected (issue #861). MSAL renews a cached
  * token only near its expiry and offers no way to drop it, so discarding builds a new credential,
  * whose empty cache makes the next request fetch a newly issued token.
+ *
+ * Requests that need a token at the same time share one token request (issue #889). Each waits
+ * under its own attempt's signals, so a timed-out or cancelled attempt stops waiting and sends
+ * nothing, and a token request nobody waits for is aborted.
  */
 export class TypedTokenAuthProvider implements AuthenticationProvider {
   private credential_provider: AuthenticationProvider;
@@ -19,6 +25,8 @@ export class TypedTokenAuthProvider implements AuthenticationProvider {
   private generation = 0;
   /** The token the current credential last handed out, or undefined since the last discard. */
   private current_token: string | undefined;
+  /** The token request the current credential has in progress, shared by every caller. */
+  private in_progress: SharedTokenRequest | undefined;
 
   constructor(private readonly create_credential_provider: () => AuthenticationProvider) {
     this.credential_provider = create_credential_provider();
@@ -26,15 +34,27 @@ export class TypedTokenAuthProvider implements AuthenticationProvider {
 
   /** Returns a Graph access token, or throws `GraphTokenRequestError` saying why none came. */
   async getAccessToken(options?: AuthenticationProviderOptions): Promise<string> {
+    return await this.join_token_request(options).wait(get_active_graph_attempt());
+  }
+
+  /** The token request in progress for the current credential, or a new one when none is. */
+  private join_token_request(
+    options: AuthenticationProviderOptions | undefined,
+  ): SharedTokenRequest {
+    if (this.in_progress?.is_joinable() === true) return this.in_progress;
     const generation = this.generation;
-    let token: string;
-    try {
-      token = await this.credential_provider.getAccessToken(options);
-    } catch (err) {
-      throw to_token_request_error(err);
-    }
-    if (generation === this.generation) this.current_token = token;
-    return token;
+    const credential_provider = this.credential_provider;
+    this.in_progress = new SharedTokenRequest(async () => {
+      let token: string;
+      try {
+        token = await credential_provider.getAccessToken(options);
+      } catch (err) {
+        throw to_token_request_error(err);
+      }
+      if (generation === this.generation) this.current_token = token;
+      return token;
+    });
+    return this.in_progress;
   }
 
   /**
@@ -47,5 +67,6 @@ export class TypedTokenAuthProvider implements AuthenticationProvider {
     this.credential_provider = this.create_credential_provider();
     this.generation++;
     this.current_token = undefined;
+    this.in_progress = undefined;
   }
 }

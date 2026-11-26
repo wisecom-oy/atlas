@@ -3,27 +3,33 @@
  * the per-attempt timeout, and the waits between attempts.
  */
 
+import {
+  GraphAttempt,
+  cancelled_error,
+  run_in_graph_attempt,
+  type AttemptStopSignals,
+} from '@/graph-attempt';
+
 /**
  * Runs one attempt of `fn` under `timeout_ms`, handing it a signal that fires when the attempt
- * times out or the run is cancelled.
+ * times out or `stops.in_flight` fires.
  *
  * Racing alone used to leave a timed-out request running: the retry went out while the first
- * request could still commit, so a slow create landed twice (issue #624). Aborting the signal tears
- * down any request that was given it.
+ * request could still commit, so a slow create landed twice (issue #624). The attempt runs as a
+ * `GraphAttempt`, so every request it sends is torn down on expiry, whether or not `fn` passes the
+ * signal on (issue #888), and a request still waiting for its token is never sent (issue #889).
  */
 export async function run_attempt<T>(
   fn: (attempt_signal: AbortSignal) => Promise<T>,
   timeout_ms: number,
-  run_signal: AbortSignal | undefined,
+  stops: AttemptStopSignals,
 ): Promise<T> {
-  const attempt = new AbortController();
-  const abort_attempt = (): void => attempt.abort(cancelled_error(run_signal?.reason));
-  run_signal?.addEventListener('abort', abort_attempt, { once: true });
-  try {
-    return await race_timeout(race_abort(fn(attempt.signal), run_signal), timeout_ms, attempt);
-  } finally {
-    run_signal?.removeEventListener('abort', abort_attempt);
-  }
+  const attempt = new GraphAttempt(stops);
+  const expired = attempt.arm_timeout(timeout_ms);
+  const work = run_in_graph_attempt(attempt, async () => await fn(attempt.signal));
+  const settle = (): void => attempt.settle();
+  work.then(settle, settle);
+  return await Promise.race([race_abort(work, stops.in_flight), expired]);
 }
 
 /**
@@ -46,14 +52,6 @@ export async function sleep(ms: number, signal: AbortSignal | undefined): Promis
   }, ms);
   signal?.addEventListener('abort', on_abort, { once: true });
   await promise;
-}
-
-/**
- * The error a cancelled run rejects with: the signal's reason when it is an Error, otherwise an
- * Error carrying the reason as its `cause`, so the cancellation stays recognisable by identity.
- */
-function cancelled_error(reason: unknown): Error {
-  return reason instanceof Error ? reason : new Error('The run was cancelled', { cause: reason });
 }
 
 /** Throws the run's cancellation error when `signal` has already fired. */
@@ -108,18 +106,4 @@ export function link_signals(
       second.removeEventListener('abort', forward_second);
     },
   };
-}
-
-/**
- * Races a promise against a timeout. On expiry it rejects with ETIMEDOUT first, then aborts
- * `attempt`, so the caller sees the timeout rather than the abort it causes.
- */
-function race_timeout<T>(promise: Promise<T>, ms: number, attempt: AbortController): Promise<T> {
-  const { promise: expired, reject } = Promise.withResolvers<never>();
-  const timer = setTimeout(() => {
-    const timed_out = Object.assign(new Error('Request timed out'), { code: 'ETIMEDOUT' });
-    reject(timed_out);
-    attempt.abort(timed_out);
-  }, ms);
-  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
 }
