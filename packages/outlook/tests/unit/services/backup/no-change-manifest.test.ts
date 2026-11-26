@@ -90,7 +90,6 @@ describe('an outlook backup that captured nothing', () => {
       'folder-1',
       'https://delta/from-manifest',
       expect.anything(),
-      undefined,
     );
   });
 

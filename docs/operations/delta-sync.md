@@ -70,7 +70,7 @@ Cursors written before 7.0 record no snapshot. They are trusted while any manife
 
 ### What a full backup costs {#what-a-full-run-costs}
 
-A full run, whether you asked for it with `--full` or Atlas fell back to one, costs what a first backup costs in Microsoft 365 requests and time. For Outlook, Microsoft Graph lists every message again at one delta page per 10 messages by default (`--page-size`), and Atlas fetches each message's MIME with one `/$value` request plus one reaction `$batch` per page. The content must be read before it can be hashed.
+A full run, whether you asked for it with `--full` or Atlas fell back to one, costs what a first backup costs in Microsoft 365 requests and time. For Outlook, Microsoft Graph lists every message again in delta pages of up to 100 messages, and Atlas fetches each message's MIME with one `/$value` request plus reaction reads batched in groups of up to 20 per page. The content must be read before it can be hashed.
 
 Storage barely grows. Each unique message or file is stored once, so content already in the bucket costs one `HEAD` request and no upload. The run always writes a snapshot, and for Outlook that manifest lists every message of the selected folders, so it is as large as the first backup's.
 
@@ -257,7 +257,7 @@ Reactions and the pin live in MAPI properties, not in the MIME and not in the de
 GET /users/{id}/messages/{id}?$select=id&$expand=singleValueExtendedProperties($filter=...)
 ```
 
-The requests in a batch are chained with `dependsOn`, so Exchange runs them one at a time and the batch never exceeds the four concurrent requests a mailbox allows. Every message still counts once against the per-mailbox budget, because Microsoft Graph evaluates each request in a batch on its own. The batch saves round trips: at the default page size of 10, a first backup of N messages makes N `/$value` requests plus N/10 batch round trips. At `--page-size 100` it is N/20.
+The requests in a batch are chained with `dependsOn`, so Exchange runs them one at a time and the batch never exceeds the four concurrent requests a mailbox allows. Every message still counts once against the per-mailbox budget, because Microsoft Graph evaluates each request in a batch on its own. A full 100-message page uses 100 `/$value` requests and five batch round trips.
 
 Every message in a page is read, including messages without reactions and messages whose content deduplicates, because reactions and the pin belong to the snapshot entry rather than to the stored object.
 :::
