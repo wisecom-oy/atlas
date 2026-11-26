@@ -57,7 +57,7 @@ Every Microsoft Graph call goes through one retry loop. The Graph SDK's own retr
 | `Retry-After` below 1 s | Raised to 1 s |
 | `Retry-After` above 1 hour | The call fails at once with `ThrottledError` naming the value. The pool or mailbox still cools down for the hour, for the rest of the run |
 | `429` or `509` without `Retry-After` | 30 s cooldown for the pool |
-| Waiting budget per call | 24 minutes of backoff, `Retry-After`, and cooldown waits. A wait already started runs in full |
+| Waiting budget per call | 24 minutes of backoff, `Retry-After`, and cooldown waits, including the cooldown an Outlook call waits out before it is sent. A wait already started runs in full |
 | Per-attempt timeout | 60 s by default. 30 min for an Outlook MIME download (`/messages/{id}/$value`), an attachment download (`/attachments/{id}/$value`), and a Teams hosted-content download (`/hostedContents/{id}/$value`), so a large body on a slow link completes. A timed-out request is aborted before the next attempt is sent |
 | Idle timeout on a download | 60 s on an Outlook MIME or attachment download and a Teams hosted-content download. When neither the response headers nor any body bytes arrive for 60 s, the request is closed and the attempt is retried as a timed-out transfer |
 
@@ -84,6 +84,26 @@ That bounds the waiting, not the wall-clock time of a call. The time inside its 
 The 7 h 55 min case needs every attempt to receive at least one byte a minute for its full 30 minutes, and Graph to answer the last wait with a 1-hour `Retry-After`. A download that stops sending loses its attempt after 60 s instead, so a stalled server costs the stall row. Each message and attachment has its own call. An empty MIME body starts a new call, up to 3 per message, as described above.
 
 Downloads read their whole body inside the attempt, so the attempt timeout, the idle timeout, the retry on a body cut off mid-transfer, and Ctrl+C cover the body as well as the headers.
+
+An Outlook call waits out its mailbox's cooldown before it takes a [pacing](#pacing) slot, and that wait counts against the same budget. Under a persistent 1-hour throttle the call is sent once the cooldown ends, and the next `429` ends it with `ThrottledError` instead of starting a second hour. A short cooldown, such as the 30 s after a `429` without `Retry-After`, leaves almost the whole budget for the retries after it. The wait before the send is itself capped at one cooldown wait (1 hour plus the release delay): if other requests keep raising the cooldown past that, the call fails with `ThrottledError` without sending anything.
+
+### Long waits
+
+```text
+[!] Waiting 60 min, until 2026-11-26T14:05:12Z, for the cooldown on mailbox <object-id> after HTTP 429 ApplicationThrottled with Retry-After 3600 s
+[!] Waiting 64 s, until 2026-11-26T13:06:16Z, for backoff before retry 7 of 12 after HTTP 503
+```
+
+A wait longer than 60 s prints one warning when it starts, so a run that is waiting can be told from one that hangs. The line names what is waited for, the HTTP status and Graph or network error code that caused it, and when the wait ends, in UTC. Shorter waits print nothing at the default level; with `DEBUG` set, every retry still prints its own debug line. The 60 s threshold is fixed. It sits above the waits a healthy run makes: the 30 s default cooldown, the 60 s hold after a failed token request, and the first six backoff delays.
+
+| Wait | When the line prints |
+| --- | --- |
+| Cooldown for a mailbox, team, or pool | Once, when the cooldown is raised. Every request parked on it waits for the same end, so ten parked requests share one line. A later `429` prints again only if it moves the end by more than 60 s |
+| `Retry-After` that raises no cooldown, such as a `503` | Once per call, before its retry |
+| Backoff without `Retry-After` | Once per call and retry, from the seventh retry on (64 s, 128 s, 256 s, then 5 minutes) |
+| Hold after a failed token request | Only when Microsoft Entra ID asked for more than 60 s |
+
+A mailbox is named by its object ID only. When the command was given an address, the line says "the mailbox" instead. Under the SDK the line goes to the host's log sink as a `warn` record. With a host coordinator shared by several processes, only the process that received the `429` prints the cooldown line.
 
 ### The first read of a run {#first-reads-of-a-run}
 
@@ -129,6 +149,8 @@ Atlas paces requests below Microsoft's published limits rather than waiting for 
 | Teams | 80% of the Microsoft Graph Teams limits, per tenant, per team, and per channel |
 
 A request that finds its mailbox's window spent waits until earlier requests age out of it, up to 10 minutes, and the run then continues. That wait keeps the CLI process running only while the command is still working, like a cooldown does.
+
+These waits pace requests and count against no retry budget. The first Ctrl+C, or the SDK `signal` option, ends them at once, like a cooldown wait, and the request is not sent.
 
 Concurrency is fixed, not adaptive. A `429` does not lower it; the shared cooldown is what slows the instance down. `atlas teams backup --concurrency` sets how many channels run at once (default 4, maximum 16).
 
@@ -277,11 +299,11 @@ Object Lock retention is set per object at write time, and a delete it refuses e
 
 | Signal | Result |
 | --- | --- |
-| First Ctrl+C (`SIGINT`) | Soft stop. Microsoft Graph requests, download bodies being read, retries, and cooldown waits end at once; restore writes already sent finish. Completed work is committed, the lease is released, and the command exits `2` |
+| First Ctrl+C (`SIGINT`) | Soft stop. Microsoft Graph requests, download bodies being read, retries, and cooldown waits end at once, including an Outlook call still waiting for its mailbox's cooldown, request window, or concurrency slot; restore writes already sent finish. Completed work is committed, the lease is released, and the command exits `2` |
 | Second Ctrl+C | Exits at once with `130`. Nothing more is committed and the lease is left to expire, so a run on the same owner within 10 minutes exits `12` |
 | `SIGTERM` | Atlas installs no handler, so Node ends the process at once, as with a second Ctrl+C. The shell reports `143` |
 
-The soft stop covers the long-running commands, such as backup, restore, `restore-version`, and save. A command without it ends at once on the first Ctrl+C. A backup's soft stop starts with its first step, the lookup of the mailbox, drive owner, site, or the teams of `--all`, so a Ctrl+C there exits `2` within moments, even while a token request or a retry wait is pending, and before any lease is taken. A restore or save starts its soft stop after the owner lookup and any confirmation prompt, so a Ctrl+C during the lookup exits `130` before anything is written. A cooldown raised during the run is dropped on Ctrl+C, so an hour-long `Retry-After` does not hold the process open. [Stopping a run](/operations/delta-sync#interruption) describes what a soft-stopped backup saves.
+The soft stop covers the long-running commands, such as backup, restore, `restore-version`, and save. A command without it ends at once on the first Ctrl+C. A backup's soft stop starts with its first step, the lookup of the mailbox, drive owner, site, or the teams of `--all`, so a Ctrl+C there exits `2` within moments, even while a token request or a retry wait is pending, and before any lease is taken. A restore or save starts its soft stop after the owner lookup and any confirmation prompt, so a Ctrl+C during the lookup exits `130` before anything is written. A cooldown raised during the run is dropped on Ctrl+C, so an hour-long `Retry-After` does not hold the process open. A call cut short while it waits is never sent: stopping does not turn into an early request to a throttled mailbox. The SDK `signal` option stops the same waits. [Stopping a run](/operations/delta-sync#interruption) describes what a soft-stopped backup saves.
 
 ::: tip Soft stop under systemd
 `systemctl stop` sends `SIGTERM` by default. Set `KillSignal=SIGINT` in the service unit so a stopped backup commits what it finished and releases its lease, rather than leaving the next run to wait out the 10-minute lease.

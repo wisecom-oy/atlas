@@ -1,14 +1,14 @@
 /**
- * Composes SlidingWindowLimiter + ConcurrencySemaphore + the Outlook pool's
- * throttle cooldown into a single per-mailbox rate limiter. Each mailbox gets
- * its own sliding window and semaphore, and waits on the coordinator under its
- * own owner scope, so a 429 on one mailbox pauses only that mailbox.
+ * Composes SlidingWindowLimiter + ConcurrencySemaphore into a single per-mailbox pacer. Each
+ * mailbox gets its own sliding window and semaphore.
+ *
+ * Pacing only. The mailbox cooldown a 429 raises is waited out by the connector before it calls
+ * `acquire`, because that wait counts against the call's retry budget and these do not (issue #884).
  */
 
 import { SlidingWindowLimiter } from './sliding-window-limiter';
 import { ConcurrencySemaphore } from './concurrency-semaphore';
 import { GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-types';
-import type { ThrottleCoordinator, ThrottleScope } from '@wisecom/atlas-types';
 
 const EXCHANGE_WINDOW_MS = GRAPH_SERVICE_LIMITS.outlook.window_duration_ms;
 const EXCHANGE_SLIDE_MS = 1_000;
@@ -16,7 +16,11 @@ const EXCHANGE_CAPACITY = Math.floor(GRAPH_SERVICE_LIMITS.outlook.requests_per_w
 const EXCHANGE_CONCURRENCY = GRAPH_SERVICE_LIMITS.outlook.max_concurrent_requests;
 
 export interface MailboxRateLimiter {
-  acquire(cost?: number, scope?: ThrottleScope): Promise<void>;
+  /**
+   * Takes `cost` request-window tokens, then a concurrency slot. Rejects as soon as `signal` fires,
+   * holding no slot, so a cancelled run stops waiting at once (issue #874).
+   */
+  acquire(cost?: number, signal?: AbortSignal): Promise<void>;
   release(): void;
   /** Stops a caller parked on the request window from keeping the process alive. */
   release_process_hold(): void;
@@ -26,23 +30,28 @@ export interface MailboxRateLimiter {
 export class DefaultMailboxRateLimiter implements MailboxRateLimiter {
   private readonly _window: SlidingWindowLimiter;
   private readonly _semaphore: ConcurrencySemaphore;
-  private readonly _throttle: ThrottleCoordinator;
 
-  constructor(throttle: ThrottleCoordinator, window_capacity?: number, concurrency?: number) {
+  constructor(window_capacity?: number, concurrency?: number) {
     this._window = new SlidingWindowLimiter(
       EXCHANGE_WINDOW_MS,
       EXCHANGE_SLIDE_MS,
       window_capacity ?? EXCHANGE_CAPACITY,
     );
     this._semaphore = new ConcurrencySemaphore(concurrency ?? EXCHANGE_CONCURRENCY);
-    this._throttle = throttle;
   }
 
-  /** Waits out the scoped Outlook cooldown, acquires window tokens, then a concurrency slot. */
-  async acquire(cost = 1, scope?: ThrottleScope): Promise<void> {
-    await this._throttle.wait('outlook', scope);
-    await this._window.acquire(cost);
-    await this._semaphore.acquire();
+  /**
+   * Acquires window tokens, then a concurrency slot; either wait ends when `signal` fires. Tokens
+   * taken before a cancelled slot wait are returned, since that request is never sent.
+   */
+  async acquire(cost = 1, signal?: AbortSignal): Promise<void> {
+    const grant = await this._window.acquire(cost, signal);
+    try {
+      await this._semaphore.acquire(signal);
+    } catch (err) {
+      this._window.refund(grant);
+      throw err;
+    }
   }
 
   /** Releases one concurrency slot. Must be called after the Graph request completes. */
@@ -69,25 +78,19 @@ export interface MailboxRateLimiterFactory {
 }
 
 export class DefaultMailboxRateLimiterFactory implements MailboxRateLimiterFactory {
-  private readonly _throttle: ThrottleCoordinator;
   private readonly _window_capacity: number;
   private readonly _concurrency: number;
   private readonly _created: MailboxRateLimiter[] = [];
   private _holds_process = true;
 
-  constructor(throttle: ThrottleCoordinator, window_capacity?: number, concurrency?: number) {
-    this._throttle = throttle;
+  constructor(window_capacity?: number, concurrency?: number) {
     this._window_capacity = window_capacity ?? EXCHANGE_CAPACITY;
     this._concurrency = concurrency ?? EXCHANGE_CONCURRENCY;
   }
 
-  /** Creates a new per-mailbox rate limiter sharing the coordinator. */
+  /** Creates a new per-mailbox rate limiter. */
   create(): MailboxRateLimiter {
-    const limiter = new DefaultMailboxRateLimiter(
-      this._throttle,
-      this._window_capacity,
-      this._concurrency,
-    );
+    const limiter = new DefaultMailboxRateLimiter(this._window_capacity, this._concurrency);
     if (!this._holds_process) limiter.release_process_hold();
     this._created.push(limiter);
     return limiter;

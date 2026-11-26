@@ -23,7 +23,7 @@ function holds_process(): boolean {
 }
 
 /** Starts an acquire and reports whether it has resolved. */
-function track(acquire: Promise<void>): { done: boolean } {
+function track(acquire: Promise<unknown>): { done: boolean } {
   const state = { done: false };
   void acquire.then(() => {
     state.done = true;

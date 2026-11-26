@@ -89,7 +89,7 @@ A cooldown never crosses pools. Overlapping cooldowns do not add up: the longest
 | Cooldown without `Retry-After` | 30 s |
 | Maximum retries | 12, so at most 13 HTTP attempts per call |
 | Backoff cap per wait | 5 minutes |
-| Waiting budget per call | 24 minutes. After that the call starts no new wait, but a wait already started runs in full. Time spent inside each request does not count, so a call can take longer. See [the wall-clock worst case](/operations/reliability#microsoft-graph-requests) |
+| Waiting budget per call | 24 minutes. After that the call starts no new wait, but a wait already started runs in full. The cooldown an Outlook call waits out before it is sent counts too. Time spent inside each request does not count, so a call can take longer. See [the wall-clock worst case](/operations/reliability#microsoft-graph-requests) |
 | Waiting budget per backup run | One call's budget. The first call that spends it ends every other Graph call of the run, which exits `3`. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle) |
 | Longest `Retry-After` honoured | 1 hour. A longer value fails the call with a `ThrottledError` naming the value, and the pool still cools down for the hour. A CLI command that ends on that error exits at once; the cooldown does not hold the process open |
 | Release delay after a cooldown | Random, up to a tenth of the cooldown, kept between 1 and 5 s. A 6-minute cooldown releases its requests over 5 s |

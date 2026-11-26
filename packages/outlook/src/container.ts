@@ -33,11 +33,7 @@ export function bind_outlook(container: Container): void {
     .toDynamicValue((ctx) => {
       const inner = ctx.get(GraphMailboxConnector);
       const throttle = ctx.get<ThrottleCoordinator>(THROTTLE_COORDINATOR_TOKEN);
-      return new RateLimitedGraphConnector(
-        inner,
-        new DefaultMailboxRateLimiterFactory(throttle),
-        throttle,
-      );
+      return new RateLimitedGraphConnector(inner, new DefaultMailboxRateLimiterFactory(), throttle);
     })
     .inSingletonScope();
 
