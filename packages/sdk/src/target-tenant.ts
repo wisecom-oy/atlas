@@ -14,6 +14,7 @@ import {
   USER_IDENTITY_RESOLVER_TOKEN,
   type AtlasTenant,
   type AtlasTenantConfig,
+  type OwnerExclusion,
   type TargetTenantOption,
   type StorageRequestObserver,
   type UserIdentityResolver,
@@ -27,6 +28,12 @@ import { validate_graph_token } from '@/instance-validation';
  * restore, which reads the same bucket through its own S3 client, still reports every request.
  */
 export const STORAGE_OBSERVER_TOKEN = Symbol.for('AtlasSdkStorageObserver');
+
+/**
+ * The instance's `ownerExclusion`. Bound on the instance container so a cross-tenant restore, which
+ * builds its own container, takes the source owner through the host's exclusion as well (#974).
+ */
+export const OWNER_EXCLUSION_TOKEN = Symbol.for('AtlasSdkOwnerExclusion');
 
 /** Public option name for each Graph field, in the order errors report them. */
 const PUBLIC_FIELDS = {
@@ -128,10 +135,14 @@ export async function with_restore_side<T>(
     );
   }
   const graph = SdkTenant.credentials_of(target_tenant);
-  const target_container = create_container_from_config({
-    ...container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN),
-    ...graph,
-  });
+  const target_container = create_container_from_config(
+    { ...container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN), ...graph },
+    undefined,
+    {},
+    container.isBound(OWNER_EXCLUSION_TOKEN)
+      ? container.get<OwnerExclusion>(OWNER_EXCLUSION_TOKEN)
+      : undefined,
+  );
   if (container.isBound(STORAGE_OBSERVER_TOKEN)) {
     observe_storage_requests(
       target_container.get<S3Client>(S3_CLIENT_TOKEN),
