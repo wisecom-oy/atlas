@@ -29,6 +29,7 @@ The [exit code table](#exit-codes-and-whether-to-retry) says which codes a rerun
 | A `404` or other `4xx` on a run's first existence check or listing | Reads it twice more, 2 s and 4 s later, before it decides the owner is gone | [The first read of a run](#first-reads-of-a-run) |
 | Microsoft Graph outage outlasts the retry budget during a backup | Stops the run after one budget, commits what finished, exits `3` | [When retries run out](#when-retries-run-out-on-a-throttle) |
 | A large file transfer stalls or its URL expires | Retries the range, refreshes the URL, resumes at the failed range | [File transfers](#file-transfers-onedrive-and-sharepoint) |
+| The file download hosts are down while Microsoft Graph is up | Gives each file 3 attempts within a bounded wait, lists it for the next run without using an attempt, and moves to the next file | [File transfers](#file-transfers-onedrive-and-sharepoint) |
 | S3 request fails or the backend stops answering | Retries each request up to 3 times, cuts off a connect after 10 s and a silent socket after 5 min, then exits `3`. Writes that must not collide are conditional | [Storage](#storage) |
 | You press Ctrl+C | Commits what finished, exits `2` | [Ctrl+C and signals](#ctrl-c-and-signals) |
 | Process killed mid-run | Storage only references what was fully written. The next run resumes from the last saved cursor | [Crash safety and resume](#crash-safety-and-resume) |
@@ -152,14 +153,25 @@ File content comes from pre-authenticated download URLs rather than through the 
 | --- | --- |
 | File-level attempts | 3, with backoff from 2 s capped at 30 s |
 | Ranged download | Files over 4 MiB are read in 4 MiB ranges |
-| Range timeout | `max(30 s, size in bytes / 256)`, about 33 s for a 4 MiB range |
+| Range timeout | `max(30 s, size in bytes / 256 ms)`, so 30 s for a 4 MiB range |
 | Range retries | Up to 5 per range, backoff from 1 s plus up to 1 s of jitter, capped at 30 s. `Retry-After` honoured on `429` |
 | Streaming threshold | 64 MiB and above: streamed to storage through a multipart upload |
 | Upload part size | Smallest multiple of 8 MiB that fits the file in 10,000 parts, at most 32 MiB. A file or version above 312.5 GiB is refused before its download starts, see [object size limits](/self-hosting/storage#object-size-limits) |
-| Expired URL (`401` or `403` from the CDN) | Looked up again. Files of 64 MiB and more resume at the failed range, until 3 refreshed URLs in a row deliver nothing |
+| Expired URL (`401` or `403` from the CDN) | Looked up again. Files of 64 MiB and more resume at the failed range, until 3 refreshed URLs in a row deliver nothing. Smaller files retry once on the fresh URL, then fall back to `/content` |
+| Graph `/content` fallback | Files under 64 MiB only. Used when no URL resolves, after an expired URL's one refresh, or after a host answer that is not transient, such as a `404` or a body of the wrong length. Never after a `429`, `5xx`, reset, or timeout from the download host |
+| `/content` retries | The [Graph retry rules](#microsoft-graph-requests): up to 12 retries and 24 minutes of waiting, `Retry-After` honoured. The request times out after `max(30 s, size in bytes / 256 ms)` and the body after twice that. A timeout aborts the request and goes to the file-level attempts, not to Graph's retries |
 | Truncation check | Each range's length and `Content-Range`, and the total size, must match what Microsoft Graph listed |
 
-A file that still fails is added to the drive's list of failed files, and the drive's sync checkpoint moves on. Each later run fetches the listed files again before processing new changes, up to 5 attempts per file. Failures outside the file do not use an attempt: throttling, a Microsoft Graph `5xx`, a reset or timed-out connection, or a download host that is down, once the retries above are spent, and an expired URL. The same holds for the re-read of a listed file at the start of a run. A `404` on that re-read uses no attempt and keeps the file listed: Atlas drops it as deleted only when the change listing reports the deletion, or when the `404` repeats on 3 runs in a row spanning at least 24 hours. A body of the wrong length or range, and any other `4xx`, use one. [Failed files](/onedrive-backup#failed-files) lists each case and how to fetch a permanently skipped file again. A missing Microsoft Graph permission (`403 accessDenied`) stops the drive instead of costing one file per item. [Snapshot health](/onedrive-backup#snapshot-health) describes the list and the `403` cases.
+`/content` answers with a redirect to the same download hosts, so a failure of the host itself goes to the file-level attempts instead. Falling back would send each file into the same outage under Graph's 24-minute budget. While the hosts fail every request, a file below 64 MiB is given up within these bounds, then listed and the run moves to the next file:
+
+| Host behaviour | File up to 4 MiB | File over 4 MiB, under 64 MiB |
+| --- | --- | --- |
+| Answers `5xx` at once | About 10 s: 3 requests and the file backoff | About 2 minutes: 3 attempts of 6 range requests with their backoff |
+| Never answers | About 100 s: 3 request timeouts of 30 s | About 11 minutes: 3 attempts of 6 range timeouts of 30 s |
+
+Each file given up this way is logged as `Skipping drive file ... after 3 attempt(s)` with the host's answer, and listed as `will retry (no attempt counted yet)`. A failure that already spent the Graph retry budget is not repeated at file level, and stops the run with exit `3` as described in [When retries run out](#when-retries-run-out-on-a-throttle).
+
+A file that still fails is added to the drive's list of failed files, and the drive's sync checkpoint moves on. Each later run fetches the listed files again before processing new changes, up to 5 attempts per file. Failures outside the file do not use an attempt: throttling, a Microsoft Graph `5xx`, a reset or timed-out connection or `/content` request, or a download host that is down, once the retries above are spent, and an expired URL at any file size, even when the fresh URL and `/content` fail too. The same holds for the re-read of a listed file at the start of a run. A `404` on that re-read uses no attempt and keeps the file listed: Atlas drops it as deleted only when the change listing reports the deletion, or when the `404` repeats on 3 runs in a row spanning at least 24 hours. A body of the wrong length or range, and any other `4xx`, use one. [Failed files](/onedrive-backup#failed-files) lists each case and how to fetch a permanently skipped file again. A missing Microsoft Graph permission (`403 accessDenied`) stops the drive instead of costing one file per item. [Snapshot health](/onedrive-backup#snapshot-health) describes the list and the `403` cases.
 
 A failure to write the file to storage is not the file's either, whatever its size: a full disk or quota, an S3 `5xx` after the [storage retries](#storage), or an endpoint that never answers. It fails the drive or library, which keeps its sync checkpoint, so the file is read again by the next run without entering the list. A file of 64 MiB or more is streamed from the download into the multipart upload, and a failure on the storage side of that stream is told apart from a download failure by its type and status, never by its message.
 
