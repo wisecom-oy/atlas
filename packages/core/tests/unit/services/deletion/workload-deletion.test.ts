@@ -122,6 +122,7 @@ describe('workload deletion', () => {
       const scopes = vi.mocked(storage.list_versions).mock.calls.map(([scope]) => scope);
       expect(scopes).toEqual([
         `onedrive/manifests/${OWNER}/`,
+        `onedrive/manifest-parts/${OWNER}/`,
         `onedrive/data/${OWNER}/`,
         `onedrive/index/${OWNER}/`,
         `onedrive/_meta/${OWNER}/`,

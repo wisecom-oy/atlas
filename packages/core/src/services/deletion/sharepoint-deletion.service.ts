@@ -52,6 +52,7 @@ export class SharePointDeletionService implements SharePointDeletionUseCase {
       const staging_prefix = `sharepoint/staging/${site_id}/`;
       const result = await erase_leased_owner_scopes(storage, lease, [
         `sharepoint/manifests/${site_id}/`,
+        `sharepoint/manifest-parts/${site_id}/`,
         `sharepoint/data/${site_id}/`,
         `sharepoint/index/${site_id}/`,
         `sharepoint/_meta/${site_id}/`,

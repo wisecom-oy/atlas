@@ -1,59 +1,52 @@
 import type { ReadableManifestListing, TenantContext } from '@wisecom/atlas-types';
-import { UnreadableObjectsError } from '@wisecom/atlas-types';
 import {
   read_each_readable,
   require_every_object_readable,
   type ReadableObjects,
 } from '@wisecom/atlas-core/services/shared/readable-object-listing';
+import { read_encrypted_json } from '@wisecom/atlas-core/services/shared/stored-json-reader';
 import {
-  is_json_record,
-  read_encrypted_json,
-} from '@wisecom/atlas-core/services/shared/stored-json-reader';
-import { write_encrypted_json } from '@wisecom/atlas-core/services/shared/stored-json-writer';
-import type { DriveStorageKeys } from '@/shared/storage-keys';
+  require_drive_manifest,
+  require_drive_manifest_document,
+  type DriveManifestLayout,
+  type DriveStoredManifest,
+} from '@/shared/drive-manifest-document';
+import { read_manifest_entry_parts } from '@/shared/manifest-part-reader';
+import { sweep_orphan_manifest_parts } from '@/shared/manifest-part-sweep';
+import {
+  DEFAULT_MANIFEST_SIZING,
+  write_drive_manifest_document,
+  type DriveWritableManifest,
+  type ManifestSizing,
+} from '@/shared/manifest-part-writer';
 
-/** What the store needs from either provider's manifest. */
-export interface DriveStoredManifest {
-  readonly snapshot_id: string;
-  readonly created_at: Date;
-}
-
-/**
- * How one provider names and lays out its manifests. They differ only in the namespace and in
- * the field that names the owning segment (`owner_id` on OneDrive, `site_id` on SharePoint).
- */
-export interface DriveManifestLayout {
-  /** Provider name for operator-facing messages, e.g. `OneDrive`. */
-  readonly label: string;
-  readonly keys: DriveStorageKeys;
-  readonly owner_field: 'owner_id' | 'site_id';
-}
+export type { DriveManifestLayout, DriveStoredManifest };
+export { require_drive_manifest };
 
 const MANIFEST_READ_CONCURRENCY = 8;
 
 /**
  * Encrypts and uploads a manifest under the key its owner and snapshot name. The write is
- * create-only, refused when {@link require_drive_manifest} would reject the body, and read back
- * once it lands. The provider's repository records it in the owner's summary index afterwards,
- * only once this has resolved (#625).
+ * create-only, refused when a reader would reject the body, and read back once it lands. A
+ * manifest too large for one document is written as entry parts plus a head (#920); see
+ * `write_drive_manifest_document`. The provider's repository records it in the owner's summary
+ * index afterwards, only once this has resolved (#625).
  */
 export async function save_drive_manifest(
   ctx: TenantContext,
   layout: DriveManifestLayout,
   owner_id: string,
   manifest: DriveStoredManifest,
+  sizing: ManifestSizing = DEFAULT_MANIFEST_SIZING,
 ): Promise<void> {
-  await write_encrypted_json(
+  await write_drive_manifest_document(
     ctx,
-    {
-      key: layout.keys.manifest_key(owner_id, manifest.snapshot_id),
-      label: `${layout.label} manifest`,
-      reader_check: (parsed, key) => require_drive_manifest(layout, parsed, key),
-      write: 'create_only',
-      confirm_read_back: true,
-    },
-    manifest,
+    layout,
+    owner_id,
+    manifest as DriveWritableManifest,
+    sizing,
   );
+  await sweep_orphan_manifest_parts(ctx, layout, owner_id);
 }
 
 /**
@@ -73,49 +66,20 @@ export async function read_drive_manifest<T extends DriveStoredManifest>(
 ): Promise<T | undefined> {
   const parsed = await read_encrypted_json(ctx, key, `${layout.label} manifest`);
   if (parsed === undefined) return undefined;
-  return require_drive_manifest<T>(layout, parsed, key);
-}
-
-/**
- * The shape, identity and date checks of a parsed manifest body, shared by reader and writer.
- * Returns the manifest with `created_at` revived as a Date.
- */
-export function require_drive_manifest<T extends DriveStoredManifest>(
-  layout: DriveManifestLayout,
-  parsed: unknown,
-  key: string,
-): T {
-  const label = `${layout.label} manifest`;
-  if (!is_json_record(parsed) || !Array.isArray(parsed.entries)) {
-    throw new UnreadableObjectsError(`The ${label} is not a manifest`, [key]);
-  }
-  if (rebuilt_key(layout, parsed) !== key) {
-    const named = `${String(parsed[layout.owner_field])}/${String(parsed.snapshot_id)}`;
-    throw new UnreadableObjectsError(
-      `The ${label} decrypts to ${named}; ` +
-        `refusing to use a manifest that is not the one the key names`,
-      [key],
-    );
-  }
-  const created_at = new Date(parsed.created_at as string);
-  if (typeof parsed.created_at !== 'string' || Number.isNaN(created_at.getTime())) {
-    throw new UnreadableObjectsError(`Invalid created_at in the ${label}`, [key]);
-  }
-  return { ...(parsed as unknown as T), created_at };
-}
-
-/** The key a parsed body claims to live under; undefined when its identity fields are unusable. */
-function rebuilt_key(
-  layout: DriveManifestLayout,
-  body: Record<string, unknown>,
-): string | undefined {
-  const owner = body[layout.owner_field];
-  if (typeof owner !== 'string' || typeof body.snapshot_id !== 'string') return undefined;
-  try {
-    return layout.keys.manifest_key(owner, body.snapshot_id);
-  } catch {
-    return undefined;
-  }
+  const document = require_drive_manifest_document(layout, parsed, key);
+  if ('entries' in document) return require_drive_manifest<T>(layout, document.body, key);
+  const { entry_parts: _parts, ...head_fields } = document.body;
+  const entries = await read_manifest_entry_parts(
+    ctx,
+    layout,
+    {
+      head_key: key,
+      owner_id: String(document.body[layout.owner_field]),
+      snapshot_id: String(document.body.snapshot_id),
+    },
+    document.entry_parts,
+  );
+  return require_drive_manifest<T>(layout, { ...head_fields, entries }, key);
 }
 
 /** Reads the manifests at `keys`, newest first, naming each damaged one and keeping its error. */

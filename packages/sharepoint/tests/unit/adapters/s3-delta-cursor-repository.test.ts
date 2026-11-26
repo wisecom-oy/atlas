@@ -34,6 +34,12 @@ function make_ctx(objects: Record<string, unknown> = {}, get_error: Record<strin
         return Buffer.from(typeof value === 'string' ? value : JSON.stringify(value), 'utf-8');
       }),
       put,
+      list: vi.fn(async (prefix: string) =>
+        Object.keys(objects).filter((k) => k.startsWith(prefix)),
+      ),
+      delete: vi.fn(async (key: string) => {
+        delete objects[key];
+      }),
     },
     encrypt: (data: Buffer) => data,
     decrypt: (data: Buffer) => data,

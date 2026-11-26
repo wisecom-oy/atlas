@@ -144,6 +144,31 @@ describe.each(WORKLOADS)('$name delete -s and the delta cursor', (workload) => {
     expect(bucket.destroy).toHaveBeenCalledTimes(1);
   });
 
+  it('removes the entry parts of the deleted snapshot and both cursor forms (#920)', async () => {
+    const part = (snapshot_id: string, n: string) =>
+      `${prefix}/manifest-parts/${owner}/${snapshot_id}/${n}.json`;
+    const cursor_objects = [
+      `${prefix}/_meta/${owner}/delta/head.json`,
+      `${prefix}/_meta/${owner}/delta/parts/${'a'.repeat(64)}.json`,
+    ];
+    for (const key of [part('snap-2', '00000'), part('snap-2', '00001'), part('snap-1', '00000')]) {
+      bucket.keys.add(key);
+    }
+    for (const key of cursor_objects) bucket.keys.add(key);
+
+    await delete_snapshot('snap-2');
+
+    expect(bucket.keys.has(part('snap-2', '00000'))).toBe(false);
+    expect(bucket.keys.has(part('snap-2', '00001'))).toBe(false);
+    expect(bucket.keys.has(part('snap-1', '00000'))).toBe(true);
+    expect(cursor_objects.filter((key) => bucket.keys.has(key))).toEqual([]);
+    const deleted = bucket.storage.delete.mock.calls.map(([key]) => key as string);
+    expect(deleted.indexOf(manifest_key('snap-2'))).toBeLessThan(
+      deleted.indexOf(part('snap-2', '00000')),
+    );
+    expect(deleted.indexOf(cursor_objects[0]!)).toBeLessThan(deleted.indexOf(cursor_objects[1]!));
+  });
+
   it('keeps the older snapshot, the content, other cursors and the version index of the run', async () => {
     await delete_snapshot('snap-2');
 
