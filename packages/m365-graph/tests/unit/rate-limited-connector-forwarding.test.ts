@@ -7,11 +7,7 @@ import { logger } from '@wisecom/atlas-core/utils/logger';
 
 function wrap(inner: MailboxConnector): RateLimitedGraphConnector {
   const throttle = new InProcessThrottleCoordinator();
-  return new RateLimitedGraphConnector(
-    inner,
-    new DefaultMailboxRateLimiterFactory(throttle),
-    throttle,
-  );
+  return new RateLimitedGraphConnector(inner, new DefaultMailboxRateLimiterFactory(), throttle);
 }
 
 /**

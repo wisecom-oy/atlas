@@ -31,7 +31,7 @@ describe('RateLimitedGraphConnector throttle warning', () => {
   function wrap(list_mail_folders: MailboxConnector['list_mail_folders']): void {
     connector = new RateLimitedGraphConnector(
       { list_mail_folders } as MailboxConnector,
-      new DefaultMailboxRateLimiterFactory(throttle),
+      new DefaultMailboxRateLimiterFactory(),
       throttle,
     );
   }

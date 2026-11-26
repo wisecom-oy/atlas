@@ -63,9 +63,14 @@ export class SlidingWindowLimiter {
     this.syncProcessHold();
   }
 
-  /** Acquires `n` tokens, blocking until they are available. */
-  async acquire(n = 1): Promise<void> {
+  /**
+   * Acquires `n` tokens, blocking until they are available. Rejects as soon as `signal` fires and
+   * takes the caller out of the queue, so a cancelled run neither waits for the window to slide nor
+   * leaves tokens to be granted to nobody (issue #874).
+   */
+  async acquire(n = 1, signal?: AbortSignal): Promise<void> {
     if (this._shut_down) throw new Error('SlidingWindowLimiter: already shut down');
+    if (signal?.aborted) throw wait_cancelled_error(signal);
     if (n <= 0) return;
 
     if (this._available >= n) {
@@ -73,8 +78,20 @@ export class SlidingWindowLimiter {
       return;
     }
 
-    return new Promise<void>((resolve) => {
-      this._queue.push({ needed: n, resolve });
+    return new Promise<void>((resolve, reject) => {
+      const on_abort = (): void => {
+        this.removePending(pending);
+        reject(wait_cancelled_error(signal!));
+      };
+      const pending: PendingAcquire = {
+        needed: n,
+        resolve: () => {
+          signal?.removeEventListener('abort', on_abort);
+          resolve();
+        },
+      };
+      this._queue.push(pending);
+      signal?.addEventListener('abort', on_abort, { once: true });
       this.syncProcessHold();
     });
   }
@@ -142,6 +159,13 @@ export class SlidingWindowLimiter {
     }
   }
 
+  /** Drops a cancelled caller, then serves any caller its place in the queue was holding up. */
+  private removePending(pending: PendingAcquire): void {
+    const index = this._queue.indexOf(pending);
+    if (index !== -1) this._queue.splice(index, 1);
+    this.drainQueue();
+  }
+
   private drainQueue(): void {
     while (this._queue.length > 0) {
       const head = this._queue[0]!;
@@ -164,4 +188,15 @@ export class SlidingWindowLimiter {
     if (this._holds_process && this._queue.length > 0) this._timer.ref();
     else this._timer.unref();
   }
+}
+
+/**
+ * The error a wait cut short by `signal` rejects with: its reason when that is an Error, otherwise
+ * an Error carrying the reason as `cause`. The Graph retry loop rejects its own waits the same way,
+ * so a cancellation keeps its identity wherever it lands. Kept here rather than shared: a test runs
+ * this file alone in a child Node process, where a sibling import without its extension fails.
+ */
+function wait_cancelled_error(signal: AbortSignal): Error {
+  const reason: unknown = signal.reason;
+  return reason instanceof Error ? reason : new Error('The run was cancelled', { cause: reason });
 }

@@ -41,7 +41,7 @@ function make_capturing_stub(seen: GraphOperation[]): MailboxConnector {
 
 function make_rate_limited(inner: MailboxConnector): RateLimitedGraphConnector {
   const throttle = new InProcessThrottleCoordinator();
-  const factory = new DefaultMailboxRateLimiterFactory(throttle);
+  const factory = new DefaultMailboxRateLimiterFactory();
   return new RateLimitedGraphConnector(inner, factory, throttle);
 }
 

@@ -26,14 +26,18 @@ import type {
   MailboxRateLimiterFactory,
 } from '@wisecom/atlas-core/services/shared/mailbox-rate-limiter';
 import {
+  get_active_abort_signal,
   run_with_graph_operation,
   run_with_throttle_coordinator,
 } from '@wisecom/atlas-core/services/shared/graph-request-context';
+import { get_active_graph_outage_signal } from '@wisecom/atlas-core/services/shared/graph-outage-latch';
 import { GRAPH_SERVICE_LIMITS, ThrottledError } from '@wisecom/atlas-types';
-import type { ThrottleCoordinator, ThrottleScope } from '@wisecom/atlas-types';
+import type { ThrottleCoordinator } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { is_retry_after_above_cap_error } from '@/graph-retry-after';
+import { link_signals } from '@/graph-attempt-cancellation';
+import { run_with_uncharged_wait, wait_out_cooldown_before_send } from '@/graph-presend-cooldown';
 
 const DELTA_WITH_TOKEN_COST = 1;
 const DELTA_WITHOUT_TOKEN_COST = 2;
@@ -227,18 +231,22 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     return limiter;
   }
 
+  /**
+   * Runs one connector call under the mailbox's cooldown and pacing. Published for the whole call so
+   * the cooldown wait before the send, and the retry loop inside `fn`, both park on the mailbox's
+   * cooldown and report each 429 against the pool the request declared. Nothing is raised here:
+   * the retry loop already did, on the response that carried the 429, and it knows the pool while
+   * this frame does not.
+   */
   private async rateLimited<T>(owner_id: string, cost: number, fn: () => Promise<T>): Promise<T> {
     const owner = normalize_owner_id(owner_id);
-    const scope: ThrottleScope = { ownerId: owner };
-    const limiter = this.getLimiter(owner);
-    await limiter.acquire(cost, scope);
     try {
-      // Published so the retry loop inside `fn` parks on the cooldown between
-      // its own attempts, and reports each 429 against the pool the request
-      // declared. acquire() above only covers the first attempt. Nothing is
-      // raised here: the retry loop already did, on the response that
-      // carried the 429, and it knows the pool while this frame does not.
-      return await run_with_throttle_coordinator(this._throttle, 'outlook', fn, scope);
+      return await run_with_throttle_coordinator(
+        this._throttle,
+        'outlook',
+        () => this.sendWhenAdmitted(owner, cost, fn),
+        { ownerId: owner },
+      );
     } catch (err) {
       // A Retry-After above the cap fails the call at once, so no retry budget was spent; the error
       // itself names the value (issue #873).
@@ -246,8 +254,37 @@ export class RateLimitedGraphConnector implements MailboxConnector {
         logger.warn(`Graph kept throttling mailbox ${owner_id} through the retry budget`);
       }
       throw err;
+    }
+  }
+
+  /**
+   * Waits out the mailbox cooldown, takes the mailbox's window tokens and a concurrency slot, then
+   * sends `fn` with the cooldown wait charged to its retry budget (issue #884). Every wait ends at
+   * once when the run is cancelled or has recorded a Graph outage, and `fn` is then never called,
+   * so a stop never becomes an early request to a throttled mailbox (issue #874).
+   */
+  private async sendWhenAdmitted<T>(owner: string, cost: number, fn: () => Promise<T>): Promise<T> {
+    const limiter = this.getLimiter(owner);
+    const waited_ms = await this.waitForAdmission(limiter, cost);
+    try {
+      return await run_with_uncharged_wait(waited_ms, fn);
     } finally {
       limiter.release();
+    }
+  }
+
+  /**
+   * The waits before a call is sent: the cooldown first, so a parked call holds neither tokens nor
+   * a slot, then the pacing. Resolves with the cooldown wait, which the call's budget is charged.
+   */
+  private async waitForAdmission(limiter: MailboxRateLimiter, cost: number): Promise<number> {
+    const stop = link_signals(get_active_abort_signal(), get_active_graph_outage_signal());
+    try {
+      const waited_ms = await wait_out_cooldown_before_send(stop.signal);
+      await limiter.acquire(cost, stop.signal);
+      return waited_ms;
+    } finally {
+      stop.release();
     }
   }
 }

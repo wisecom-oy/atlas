@@ -20,15 +20,29 @@ export class ConcurrencySemaphore {
     this._available = capacity;
   }
 
-  /** Acquires one slot. Resolves immediately if a slot is free, otherwise waits. */
-  async acquire(): Promise<void> {
+  /**
+   * Acquires one slot. Resolves immediately if a slot is free, otherwise waits. Rejects as soon as
+   * `signal` fires, leaving the queue without its waiter, so a cancelled caller never holds a slot
+   * it will not release (issue #874).
+   */
+  async acquire(signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) throw wait_cancelled_error(signal);
     if (this._available > 0) {
       this._available--;
       return;
     }
 
-    return new Promise<void>((resolve) => {
-      this._queue.push(resolve);
+    return new Promise<void>((resolve, reject) => {
+      const on_abort = (): void => {
+        this.remove_waiter(waiter);
+        reject(wait_cancelled_error(signal!));
+      };
+      const waiter = (): void => {
+        signal?.removeEventListener('abort', on_abort);
+        resolve();
+      };
+      this._queue.push(waiter);
+      signal?.addEventListener('abort', on_abort, { once: true });
     });
   }
 
@@ -40,6 +54,11 @@ export class ConcurrencySemaphore {
     } else {
       this._available = Math.min(this._available + 1, this._capacity);
     }
+  }
+
+  private remove_waiter(waiter: () => void): void {
+    const index = this._queue.indexOf(waiter);
+    if (index !== -1) this._queue.splice(index, 1);
   }
 
   /** Number of slots currently available. */
@@ -56,4 +75,14 @@ export class ConcurrencySemaphore {
   get capacity(): number {
     return this._capacity;
   }
+}
+
+/**
+ * The error a wait cut short by `signal` rejects with: its reason when that is an Error, otherwise
+ * an Error carrying the reason as `cause`. The Graph retry loop rejects its own waits the same way,
+ * so a cancellation keeps its identity wherever it lands.
+ */
+function wait_cancelled_error(signal: AbortSignal): Error {
+  const reason: unknown = signal.reason;
+  return reason instanceof Error ? reason : new Error('The run was cancelled', { cause: reason });
 }
