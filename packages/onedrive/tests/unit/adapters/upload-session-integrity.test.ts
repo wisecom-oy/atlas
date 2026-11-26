@@ -5,6 +5,9 @@ import {
 } from '@wisecom/atlas-drive/restore/upload-session';
 
 const UPLOAD_URL = 'https://graph.test/upload/session-1';
+/** Two chunks, so the first is an intermediate one: the committing chunk is not replayed on a 5xx. */
+const TWO_CHUNKS = Buffer.alloc(LARGE_UPLOAD_CHUNK + 100);
+const FIRST_RANGE = `bytes 0-${LARGE_UPLOAD_CHUNK - 1}/${LARGE_UPLOAD_CHUNK + 100}`;
 
 interface Call {
   readonly method: string;
@@ -80,40 +83,45 @@ describe('upload_content_to_session integrity', () => {
 
   it('replays the same range after a transient 5xx, waiting one second without Retry-After', async () => {
     vi.useFakeTimers();
-    const calls = stub_session([{ status: 503 }, { status: 201 }]);
+    const calls = stub_session([{ status: 503 }, { status: 202 }, { status: 201 }]);
 
-    const upload = upload_content_to_session(UPLOAD_URL, Buffer.alloc(100), 'a.bin');
+    const upload = upload_content_to_session(UPLOAD_URL, TWO_CHUNKS, 'a.bin');
     await vi.advanceTimersByTimeAsync(999);
     expect(calls.filter((call) => call.method === 'PUT')).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1);
     await upload;
 
     expect(calls.map((call) => [call.method, call.range])).toEqual([
-      ['PUT', 'bytes 0-99/100'],
-      ['PUT', 'bytes 0-99/100'],
+      ['PUT', FIRST_RANGE],
+      ['PUT', FIRST_RANGE],
+      ['PUT', `bytes ${LARGE_UPLOAD_CHUNK}-${LARGE_UPLOAD_CHUNK + 99}/${LARGE_UPLOAD_CHUNK + 100}`],
     ]);
   });
 
   it('waits as long as Retry-After asks before replaying the chunk', async () => {
     vi.useFakeTimers();
-    const calls = stub_session([{ status: 502, retry_after: '3' }, { status: 200 }]);
+    const calls = stub_session([
+      { status: 502, retry_after: '3' },
+      { status: 202 },
+      { status: 200 },
+    ]);
 
-    const upload = upload_content_to_session(UPLOAD_URL, Buffer.alloc(100), 'a.bin');
+    const upload = upload_content_to_session(UPLOAD_URL, TWO_CHUNKS, 'a.bin');
     await vi.advanceTimersByTimeAsync(2999);
     expect(calls.filter((call) => call.method === 'PUT')).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1);
     await upload;
 
-    expect(calls.filter((call) => call.method === 'PUT')).toHaveLength(2);
+    expect(calls.filter((call) => call.method === 'PUT')).toHaveLength(3);
   });
 
   it('gives up after three transient failures and releases the session', async () => {
     vi.useFakeTimers();
     const calls = stub_session([{ status: 500 }, { status: 500 }, { status: 500 }]);
 
-    const upload = upload_content_to_session(UPLOAD_URL, Buffer.alloc(100), 'a.bin');
+    const upload = upload_content_to_session(UPLOAD_URL, TWO_CHUNKS, 'a.bin');
     const outcome = expect(upload).rejects.toThrow(
-      'Resumable upload failed at range bytes 0-99/100: HTTP 500',
+      `Resumable upload failed at range ${FIRST_RANGE}: HTTP 500`,
     );
     await vi.advanceTimersByTimeAsync(2000);
     await outcome;

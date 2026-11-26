@@ -174,14 +174,13 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
         },
         sharing,
       );
+      // Recorded before a cancellation too: a file whose final chunk may have landed is still named
+      // when Ctrl+C cut its restore short (issue #892).
+      if (result.error !== undefined) errors.push(result.error);
       // Cut short by Ctrl+C: neither restored nor skipped, so the count reads as interrupted.
       if (result.cancelled === true) break;
-      if (result.restored) {
-        files_restored++;
-      } else {
-        files_skipped++;
-        if (result.error) errors.push(result.error);
-      }
+      if (result.restored) files_restored++;
+      else files_skipped++;
       emit_operation_progress(options, {
         operation: 'restore',
         workload: 'onedrive',

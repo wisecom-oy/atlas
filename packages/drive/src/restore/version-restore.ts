@@ -6,6 +6,7 @@ import {
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
+import { UploadCommitUnknownError } from '@wisecom/atlas-types';
 import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import type {
@@ -185,8 +186,12 @@ async function restore_versions_leased(
       candidate,
       placement,
     );
-    // Cut short by Ctrl+C: neither restored nor skipped, so the count reads as interrupted.
-    if (outcome.cancelled === true) break;
+    // Cut short by Ctrl+C: neither restored nor skipped, so the count reads as interrupted. A
+    // version whose final chunk may have landed is still named (issue #892).
+    if (outcome.cancelled === true) {
+      if (outcome.error) errors.push(outcome.error);
+      break;
+    }
     if (outcome.restored) restored.push(outcome.restored);
     else {
       files_skipped++;
@@ -320,10 +325,12 @@ async function restore_one_version(
       },
     };
   } catch (err) {
-    // An upload cut short by Ctrl+C is the run stopping, not a failed version (issue #682).
-    if (is_active_run_cancelled()) return { cancelled: true };
+    // An upload cut short by Ctrl+C is the run stopping, not a failed version (issue #682), unless
+    // its final chunk was sent and may have created the file, which is named either way (#892).
+    const may_exist = err instanceof UploadCommitUnknownError;
+    if (is_active_run_cancelled() && !may_exist) return { cancelled: true };
     const msg = `${original_path}: ${err instanceof Error ? err.message : String(err)}`;
     logger.warn(`Skipped ${msg}`);
-    return { error: msg };
+    return is_active_run_cancelled() ? { error: msg, cancelled: true } : { error: msg };
   }
 }
