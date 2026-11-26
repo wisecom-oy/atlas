@@ -1,5 +1,6 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
 import type { GraphContactFolder } from '@wisecom/atlas-types';
+import { read_owner_listing } from '@wisecom/atlas-m365-graph';
 import {
   CONTACTS_READ,
   CONTACTS_READ_WRITE,
@@ -18,13 +19,24 @@ interface FolderPayload {
 
 /**
  * Lists the default Contacts folder first, then every descendant folder with its display-name path.
+ * A 404 or other unclassified 4xx anywhere in the walk reads the whole listing again before it is
+ * believed, since the listing decides whether the run happens (#864).
  *
  * @throws ListingIncompleteError when one folder's child listing holds fewer folders than Graph counted.
+ * @throws NotFoundError when the listing and the mailbox's user both answered 404 on every read.
+ * @throws GraphUnavailableError when a 404 or another 4xx persisted for a mailbox that exists.
  */
 export async function list_contact_folders(
   client: Client,
   mailbox_id: string,
 ): Promise<GraphContactFolder[]> {
+  return read_owner_listing(client, { owner_id: mailbox_id, listing: 'contact folders' }, () =>
+    read_folder_tree(client, mailbox_id),
+  );
+}
+
+/** One read of the default Contacts folder and every folder below it. */
+async function read_folder_tree(client: Client, mailbox_id: string): Promise<GraphContactFolder[]> {
   const base = mailbox_url(mailbox_id);
   const root = await get_json<FolderPayload>(
     client,
