@@ -6,7 +6,7 @@ import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import type { StatsUseCase } from '@wisecom/atlas-types';
 import { STATS_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import type { BucketStats, MailboxStats, DriveStats } from '@wisecom/atlas-types';
-import { resolve_owner } from '@/commands/onedrive/command.handlers';
+import { resolve_stored_owner } from '@/commands/shared/owner-resolution';
 import { print_bucket_stats, print_mailbox_stats } from '@/commands/stats/outlook.view';
 import { print_drive_stats } from '@/commands/stats/drive.view';
 import {
@@ -128,12 +128,12 @@ async function collect_service_stats(
 ): Promise<ServiceStats> {
   if (service === 'outlook') {
     if (!options.mailbox) return stats.get_bucket_stats(tenant_id);
-    const owner = await resolve_owner(container, tenant_id, options.mailbox);
+    const owner = await resolve_stored_owner(container, tenant_id, options.mailbox);
     return stats.get_mailbox_stats(tenant_id, owner.object_id);
   }
   if (service === 'onedrive') {
     if (!options.owner) return stats.get_onedrive_stats(tenant_id);
-    const owner = await resolve_owner(container, tenant_id, options.owner);
+    const owner = await resolve_stored_owner(container, tenant_id, options.owner);
     return stats.get_onedrive_stats(tenant_id, owner.object_id);
   }
   if (!options.site) return stats.get_sharepoint_stats(tenant_id);

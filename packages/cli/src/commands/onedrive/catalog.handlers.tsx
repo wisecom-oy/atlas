@@ -5,10 +5,10 @@ import { logger } from '@wisecom/atlas-core';
 import type { OneDriveCatalogUseCase } from '@wisecom/atlas-types';
 import { ONEDRIVE_CATALOG_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import {
-  resolve_owner,
   resolve_tenant_id,
   type OneDriveTenantOptions,
 } from '@/commands/onedrive/command.handlers';
+import { resolve_stored_owner } from '@/commands/shared/owner-resolution';
 import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { DataTable, type TableColumn } from '@/ui/components/data-table';
@@ -68,7 +68,7 @@ export async function execute_onedrive_list_snapshots(
   options: OneDriveListSnapshotsOptions,
 ): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
-  const owner = await resolve_owner(container, tenant_id, options.owner);
+  const owner = await resolve_stored_owner(container, tenant_id, options.owner);
   const catalog = container.get<OneDriveCatalogUseCase>(ONEDRIVE_CATALOG_USE_CASE_TOKEN);
   const listing = await read_listing(() =>
     catalog.list_onedrive_snapshot_summaries(tenant_id, owner.object_id),
@@ -94,7 +94,7 @@ export async function execute_onedrive_list_versions(
   options: OneDriveListVersionsOptions,
 ): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
-  const owner = await resolve_owner(container, tenant_id, options.owner);
+  const owner = await resolve_stored_owner(container, tenant_id, options.owner);
   const catalog = container.get<OneDriveCatalogUseCase>(ONEDRIVE_CATALOG_USE_CASE_TOKEN);
   const listing = await read_listing(() =>
     catalog.list_onedrive_file_versions(tenant_id, owner.object_id, options.file),
@@ -125,7 +125,7 @@ export async function execute_onedrive_list_permissions(
   options: OneDriveListPermissionsOptions,
 ): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
-  const owner = await resolve_owner(container, tenant_id, options.owner);
+  const owner = await resolve_stored_owner(container, tenant_id, options.owner);
   const catalog = container.get<OneDriveCatalogUseCase>(ONEDRIVE_CATALOG_USE_CASE_TOKEN);
   const listing = await catalog.list_onedrive_permissions(
     tenant_id,

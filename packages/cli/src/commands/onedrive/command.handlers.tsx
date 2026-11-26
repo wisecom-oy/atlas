@@ -2,20 +2,18 @@ import type { Container } from 'inversify';
 import { Box } from 'ink';
 import { report_unreadable_keys } from '@/command-unreadable-objects';
 import type { AtlasConfig } from '@wisecom/atlas-core';
-import { ATLAS_CONFIG_TOKEN, GRAPH_IDENTITY_RESOLVER_TOKEN, logger } from '@wisecom/atlas-core';
+import { ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
 import type {
   OneDriveBackupUseCase,
   OneDriveRestoreUseCase,
   OneDriveSaveUseCase,
   OneDriveVerificationUseCase,
-  UserIdentityResolver,
 } from '@wisecom/atlas-types';
 import {
   ONEDRIVE_BACKUP_USE_CASE_TOKEN,
   ONEDRIVE_RESTORE_USE_CASE_TOKEN,
   ONEDRIVE_SAVE_USE_CASE_TOKEN,
   ONEDRIVE_VERIFICATION_USE_CASE_TOKEN,
-  USER_IDENTITY_RESOLVER_TOKEN,
 } from '@wisecom/atlas-types';
 import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
@@ -39,6 +37,13 @@ import {
   target_profile_items,
 } from '@/commands/shared/restore-target-container';
 import { run_interruptible } from '@/adapters/interruptible-run';
+import { resolve_under_gate } from '@/adapters/gated-resolution';
+import {
+  resolve_owner,
+  resolve_restore_target,
+  resolve_stored_owner,
+  type ResolvedOwner,
+} from '@/commands/shared/owner-resolution';
 import {
   DRIVE_RESTORE_INTERRUPT_MESSAGE,
   report_drive_restore,
@@ -89,61 +94,8 @@ export function resolve_tenant_id(container: Container, options: OneDriveTenantO
   return container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN).tenant_id;
 }
 
-export interface ResolvedOwner {
-  readonly object_id: string;
-  readonly email?: string;
-  readonly display_name?: string;
-}
-
-/** Resolves owner: if it contains @, call UserIdentityResolver; otherwise use as-is. */
-export async function resolve_owner(
-  container: Container,
-  tenant_id: string,
-  owner_input: string,
-): Promise<ResolvedOwner> {
-  const resolver = container.get<UserIdentityResolver>(USER_IDENTITY_RESOLVER_TOKEN);
-  return resolve_owner_with(resolver, tenant_id, owner_input);
-}
-
-/**
- * Resolves a restore target through Graph alone, never the identity registry. The target lives in
- * the tenant the Graph credentials belong to, which in a cross-tenant restore is not the backed-up
- * tenant whose registry the caching resolver reads and writes.
- */
-export async function resolve_restore_target(
-  container: Container,
-  tenant_id: string,
-  target_input: string,
-): Promise<ResolvedOwner> {
-  const graph = container.get<UserIdentityResolver>(GRAPH_IDENTITY_RESOLVER_TOKEN);
-  return resolve_owner_with(graph, tenant_id, target_input);
-}
-
-async function resolve_owner_with(
-  resolver: UserIdentityResolver,
-  tenant_id: string,
-  owner_input: string,
-): Promise<ResolvedOwner> {
-  if (!owner_input.includes('@')) return { object_id: owner_input };
-  const identity = await resolver.resolve_user(tenant_id, owner_input);
-  logger.info(`Resolved ${owner_input} -> ${identity.object_id} (${identity.display_name})`);
-  return {
-    object_id: identity.object_id,
-    email: identity.email,
-    display_name: identity.display_name,
-  };
-}
-
-export async function execute_onedrive_backup(
-  container: Container,
-  options: OneDriveBackupOptions,
-): Promise<void> {
-  const tenant_id = resolve_tenant_id(container, options);
-  // Built before the Graph lookup: invalid Object Lock flags must fail without a network call.
-  const object_lock_request = build_object_lock_request(options);
-  const owner = await resolve_owner(container, tenant_id, options.owner);
-  const backup = container.get<OneDriveBackupUseCase>(ONEDRIVE_BACKUP_USE_CASE_TOKEN);
-
+/** Prints the backup banner naming the resolved drive owner. */
+async function render_owner_banner(owner: ResolvedOwner): Promise<void> {
   await render_static_view(
     <Box flexDirection="column">
       <Banner title={banner_title('onedrive', 'Backup')} />
@@ -159,12 +111,26 @@ export async function execute_onedrive_backup(
       />
     </Box>,
   );
+}
+
+export async function execute_onedrive_backup(
+  container: Container,
+  options: OneDriveBackupOptions,
+): Promise<void> {
+  const tenant_id = resolve_tenant_id(container, options);
+  // Built before the Graph lookup: invalid Object Lock flags must fail without a network call.
+  const object_lock_request = build_object_lock_request(options);
+  const backup = container.get<OneDriveBackupUseCase>(ONEDRIVE_BACKUP_USE_CASE_TOKEN);
 
   const result = await run_interruptible(
     container,
     'Stopping the current transfer; the delta cursor is not advanced for an interrupted run',
-    (gate) =>
-      backup.backup_onedrive(tenant_id, owner.object_id, {
+    async (gate) => {
+      const owner = await resolve_under_gate(gate, () =>
+        resolve_owner(container, tenant_id, options.owner),
+      );
+      await render_owner_banner(owner);
+      return backup.backup_onedrive(tenant_id, owner.object_id, {
         force_full: options.full ?? false,
         ...(options.folder !== undefined ? { folder_scope: options.folder } : {}),
         owner_email: owner.email,
@@ -177,7 +143,8 @@ export async function execute_onedrive_backup(
         }),
         should_interrupt: gate.should_interrupt,
         abort_signal: gate.abort_signal,
-      }),
+      });
+    },
   );
   if (result === undefined) return;
 
@@ -266,7 +233,7 @@ export async function execute_onedrive_save(
 ): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
   if (!(await confirm_output_overwrite(options.output, options.yes))) return;
-  const owner = await resolve_owner(container, tenant_id, options.owner);
+  const owner = await resolve_stored_owner(container, tenant_id, options.owner);
   const save_uc = container.get<OneDriveSaveUseCase>(ONEDRIVE_SAVE_USE_CASE_TOKEN);
   const result = await save_uc.save_snapshot(tenant_id, owner.object_id, {
     snapshot_id: options.snapshot,
@@ -306,7 +273,7 @@ export async function execute_onedrive_verify(
   options: OneDriveVerifyOptions,
 ): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
-  const owner = await resolve_owner(container, tenant_id, options.owner);
+  const owner = await resolve_stored_owner(container, tenant_id, options.owner);
   const verifier = container.get<OneDriveVerificationUseCase>(ONEDRIVE_VERIFICATION_USE_CASE_TOKEN);
   const result = await verifier.verify_onedrive_snapshot(
     tenant_id,
