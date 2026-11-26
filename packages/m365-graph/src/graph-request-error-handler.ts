@@ -24,6 +24,7 @@ import {
   wait_out_throttle,
 } from '@/graph-cooldown-wait';
 import { take_uncharged_wait_ms } from '@/graph-presend-cooldown';
+import { announce_retry_delay, announce_throttle_cooldown } from '@/graph-wait-notice';
 import { is_network_error } from '@/graph-network-error';
 import { is_permanent_item_error } from '@/graph-permanent-item-errors';
 import { is_retryable_graph_status, is_throttle_status } from '@/graph-retryable-status';
@@ -159,7 +160,8 @@ export function is_retryable_error(err: unknown): boolean {
  * Retries up to 12 times with backoff delays capped at 5 minutes. A call starts no new wait once it
  * has waited 24 minutes, counting waits and cooldowns. Honours Retry-After up to the 1-hour cap,
  * plus a small positive jitter so callers throttled together do not retry together, and fails with
- * ThrottledError naming the value when Retry-After exceeds that cap. Each retry is logged. An Outlook
+ * ThrottledError naming the value when Retry-After exceeds that cap. Each retry is logged at debug
+ * level, and a wait longer than a minute also at warn level when it starts (issue #880). An Outlook
  * call starts with the cooldown it waited out before it was sent already on its budget (issue #884).
  *
  * `fn` receives a signal that fires when its attempt times out or the run is cancelled. A request
@@ -230,7 +232,7 @@ async function retry_until_settled<T>(
       const retry_after = requested_wait_ms(err);
       // Raise on the response that carried the 429 or 509, not after the budget
       // is spent, so every other owner backs off during this cooldown too.
-      raise_throttle_on_throttle_status(err, retry_after);
+      const cooldown_raised = raise_throttle_on_throttle_status(err, retry_after);
       if (is_throttle_status(status_code_of(err))) get_active_request_pacing()?.on_throttled();
       throw_if_retry_after_above_cap(err);
       if (attempt === MAX_RETRIES || waited_ms >= RETRY_BUDGET_MS) {
@@ -241,6 +243,11 @@ async function retry_until_settled<T>(
       const reason = describe_graph_error(err);
       logger.debug(
         `Retry ${attempt + 1}/${MAX_RETRIES} in ${(delay / 1000).toFixed(1)}s -- ${reason}`,
+      );
+      announce_retry_delay(
+        err,
+        { delay_ms: delay, retry_after_ms: retry_after, cooldown_raised },
+        { retry: attempt + 1, max_retries: MAX_RETRIES },
       );
       waited_ms += await wait_before_retry(delay, retry_after ?? delay, stop_signal);
     }
@@ -355,7 +362,8 @@ function retry_delay_ms(attempt: number, retry_after_ms: number | undefined): nu
 
 /**
  * Reports a 429 or 509 to the ambient throttle coordinator, so the cooldown starts on
- * the first throttled response rather than after a retry budget is spent.
+ * the first throttled response rather than after a retry budget is spent, and announces it when it
+ * is long. True when a cooldown was raised.
  *
  * Only a throttle status raises a cooldown. A 500 or a socket reset is one unlucky
  * request and is the retry loop's business alone; a 429, or SharePoint's 509
@@ -363,18 +371,21 @@ function retry_delay_ms(attempt: number, retry_after_ms: number | undefined): nu
  * Cooldowns are non-additive, so concurrent owners hitting the same one extend it
  * rather than stacking it.
  */
-function raise_throttle_on_throttle_status(err: unknown, retry_after_ms: number | undefined): void {
-  if (!is_throttle_status(status_code_of(err))) return;
+function raise_throttle_on_throttle_status(
+  err: unknown,
+  retry_after_ms: number | undefined,
+): boolean {
+  if (!is_throttle_status(status_code_of(err))) return false;
 
   const throttle = get_active_throttle();
   const pool = get_active_throttle_pool();
-  if (!throttle || !pool) return;
+  if (!throttle || !pool) return false;
 
-  throttle.coordinator.raise(
-    pool,
-    retry_after_ms ?? DEFAULT_THROTTLE_SECONDS * 1000,
-    get_active_throttle_scope(),
-  );
+  const cooldown_ms = retry_after_ms ?? DEFAULT_THROTTLE_SECONDS * 1000;
+  const target = { coordinator: throttle.coordinator, pool, scope: get_active_throttle_scope() };
+  throttle.coordinator.raise(pool, cooldown_ms, target.scope);
+  announce_throttle_cooldown(target, cooldown_ms, err);
+  return true;
 }
 
 /**
