@@ -56,6 +56,7 @@ function versions_of(response: ListObjectVersionsCommandOutput): StorageObjectVe
         version_id: version.VersionId,
         is_delete_marker: false,
         ...currency_of(version.IsLatest),
+        ...(version.Size !== undefined && { size_bytes: version.Size }),
       });
     }
   }

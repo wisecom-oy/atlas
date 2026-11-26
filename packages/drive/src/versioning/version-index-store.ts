@@ -96,11 +96,13 @@ export interface RunVersionIndexWrite {
 
 /**
  * Encrypts and uploads one run's index object. The write is create-only, refused when
- * {@link require_version_indexes} would reject the body, and read back once it lands.
+ * {@link require_version_indexes} would reject the body, and read back once it lands. A prune
+ * passes `overwrite` to give a folded baseline's run index the rows it carries over (#977).
  */
 export async function write_run_version_index(
   ctx: TenantContext,
   run_index: RunVersionIndexWrite,
+  write: 'create_only' | 'overwrite' = 'create_only',
 ): Promise<void> {
   await write_encrypted_json(
     ctx,
@@ -108,7 +110,7 @@ export async function write_run_version_index(
       key: run_index.key,
       label: `${run_index.provider} version index`,
       reader_check: require_version_indexes,
-      write: 'create_only',
+      write,
       confirm_read_back: true,
     },
     run_index.payload,

@@ -108,6 +108,10 @@ function build_storage(bucket: Bucket): ObjectStorage {
     async copy(source_key: string, dest_key: string): Promise<void> {
       store(bucket, dest_key, read(source_key).body);
     },
+    /** An unversioned bucket lists no versions, so a version sweep falls back to the keys. */
+    async list_versions(): Promise<[]> {
+      return [];
+    },
     /** Accepts every policy, as a lock-capable bucket would, so a run can attach retention. */
     async validate_object_lock_policy(): Promise<void> {},
   };

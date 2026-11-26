@@ -1,4 +1,4 @@
-import type { TenantContext } from '@wisecom/atlas-types';
+import type { StorageObjectLockPolicy, TenantContext } from '@wisecom/atlas-types';
 import { AtlasError, RefusedWriteError } from '@wisecom/atlas-types';
 import {
   write_encrypted_json,
@@ -40,6 +40,20 @@ export const DEFAULT_MANIFEST_SIZING: ManifestSizing = Object.freeze({
   write_concurrency: 4,
 });
 
+/**
+ * How a manifest document is written. A backup creates it, and every part and the head are
+ * create-only. A prune replaces a kept snapshot's manifest with its folded baseline: then each
+ * object is overwritten, and `single_document` keeps the baseline in one document whatever its
+ * size, for a snapshot whose current head lists parts (see `replace_drive_manifest`).
+ */
+export interface ManifestDocumentWrite {
+  readonly write: 'create_only' | 'overwrite';
+  readonly single_document?: boolean | undefined;
+  readonly object_lock_policy?: StorageObjectLockPolicy | undefined;
+}
+
+const CREATE_MANIFEST: ManifestDocumentWrite = Object.freeze({ write: 'create_only' });
+
 /** A manifest with the entry list the writer splits. */
 export interface DriveWritableManifest extends DriveStoredManifest {
   readonly entries: readonly unknown[];
@@ -51,7 +65,8 @@ export interface DriveWritableManifest extends DriveStoredManifest {
  *
  * The head goes last and is the commit point: until it exists no reader sees the snapshot, so an
  * interrupted write leaves only parts that nothing references. Every part and the head are
- * create-only, carry the run's Object Lock retention, and are read back once they land.
+ * create-only unless `mode` says otherwise, carry the run's Object Lock retention, and are read
+ * back once they land. Returns how many entry parts were written: 0 for one document.
  */
 export async function write_drive_manifest_document(
   ctx: TenantContext,
@@ -59,12 +74,14 @@ export async function write_drive_manifest_document(
   owner_id: string,
   manifest: DriveWritableManifest,
   sizing: ManifestSizing,
-): Promise<void> {
+  mode: ManifestDocumentWrite = CREATE_MANIFEST,
+): Promise<number> {
   const head_key = layout.keys.manifest_key(owner_id, manifest.snapshot_id);
-  if (!Array.isArray(manifest.entries)) {
-    // Not a manifest at all: the reader check refuses it with the reason a reader would give.
-    await write_manifest_document(ctx, layout, head_key, manifest);
-    return;
+  if (!Array.isArray(manifest.entries) || mode.single_document === true) {
+    // Kept whole on request; or not a manifest at all, and the reader check refuses it with the
+    // reason a reader would give.
+    await write_manifest_document(ctx, layout, head_key, manifest, mode);
+    return 0;
   }
   const runs = guard_serialisation(
     split_entries_by_size(manifest.entries, sizing.part_bytes),
@@ -73,17 +90,19 @@ export async function write_drive_manifest_document(
   );
   const leading = take_runs_within(runs, sizing.single_document_bytes);
   if (leading.exhausted) {
-    await write_manifest_document(ctx, layout, head_key, manifest);
-    return;
+    await write_manifest_document(ctx, layout, head_key, manifest, mode);
+    return 0;
   }
   const parts = await write_entry_parts(
     ctx,
     layout,
     { owner_id, snapshot_id: manifest.snapshot_id },
     concat_runs(leading.runs, runs),
-    sizing.write_concurrency,
+    { concurrency: sizing.write_concurrency, mode },
   );
-  await write_manifest_document(ctx, layout, head_key, build_manifest_head(manifest, parts));
+  const head = build_manifest_head(manifest, parts);
+  await write_manifest_document(ctx, layout, head_key, head, mode);
+  return parts.length;
 }
 
 /** The runs read before the total passed `limit`, and whether that was every run. */
@@ -138,10 +157,10 @@ async function write_entry_parts(
   layout: DriveManifestLayout,
   snapshot: { readonly owner_id: string; readonly snapshot_id: string },
   runs: Iterable<SerialisedEntryRun>,
-  concurrency: number,
+  writing: { readonly concurrency: number; readonly mode: ManifestDocumentWrite },
 ): Promise<ManifestPartReference[]> {
   const references: ManifestPartReference[] = [];
-  const pool = new BoundedTaskPool(concurrency);
+  const pool = new BoundedTaskPool(writing.concurrency);
   for (const run of runs) {
     const identity: ManifestPartIdentity = {
       owner_field: layout.owner_field,
@@ -150,18 +169,19 @@ async function write_entry_parts(
     };
     const text = build_manifest_part_text(identity, run.entry_texts);
     references.push({ entry_count: run.entry_texts.length, digest: digest_part_text(ctx, text) });
-    await pool.add(() => write_entry_part(ctx, layout, identity, text));
+    await pool.add(() => write_entry_part(ctx, layout, identity, text, writing.mode));
   }
   await pool.drain();
   return references;
 }
 
-/** Writes one entry part create-only and reads it back. */
+/** Writes one entry part, create-only unless `mode` says otherwise, and reads it back. */
 async function write_entry_part(
   ctx: TenantContext,
   layout: DriveManifestLayout,
   identity: ManifestPartIdentity,
   text: string,
+  mode: ManifestDocumentWrite,
 ): Promise<void> {
   await write_encrypted_json_text(
     ctx,
@@ -179,8 +199,9 @@ async function write_entry_part(
           layout.keys.manifest_part_key,
           key,
         ),
-      write: 'create_only',
+      write: mode.write,
       confirm_read_back: true,
+      object_lock_policy: mode.object_lock_policy,
     },
     text,
   );
@@ -200,12 +221,13 @@ function build_manifest_head(
   return { ...head_fields, entry_parts };
 }
 
-/** Writes a whole manifest or a head at the manifest key, create-only, and reads it back. */
+/** Writes a whole manifest or a head at the manifest key, as `mode` says, and reads it back. */
 async function write_manifest_document(
   ctx: TenantContext,
   layout: DriveManifestLayout,
   key: string,
   document: object,
+  mode: ManifestDocumentWrite,
 ): Promise<void> {
   await write_encrypted_json(
     ctx,
@@ -214,8 +236,9 @@ async function write_manifest_document(
       label: `${layout.label} manifest`,
       reader_check: (parsed, parsed_key) =>
         require_drive_manifest_document(layout, parsed, parsed_key),
-      write: 'create_only',
+      write: mode.write,
       confirm_read_back: true,
+      object_lock_policy: mode.object_lock_policy,
     },
     document,
   );

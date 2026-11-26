@@ -28,6 +28,8 @@ export interface StorageObjectVersion {
    * so an adapter that leaves it out deletes nothing.
    */
   readonly is_latest?: boolean;
+  /** Stored bytes of the version, when the listing reports them. Absent for a delete marker. */
+  readonly size_bytes?: number | undefined;
 }
 
 /** One object or object version to delete. Without `version_id` the visible key is deleted. */

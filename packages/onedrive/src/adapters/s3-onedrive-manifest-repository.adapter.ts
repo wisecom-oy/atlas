@@ -9,7 +9,12 @@ import type {
   ReadableSnapshotSummaries,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { forget_snapshot_summary_or_warn } from '@wisecom/atlas-core/services/shared/snapshot-summary-pruner';
+import {
+  forget_snapshot_summaries_or_warn,
+  forget_snapshot_summary_or_warn,
+} from '@wisecom/atlas-core/services/shared/snapshot-summary-pruner';
+import { baseline_lock_policy } from '@wisecom/atlas-core/services/retention/baseline-lock-policy';
+import { replace_drive_manifest } from '@wisecom/atlas-drive/shared/manifest-baseline-replace';
 import {
   find_latest_readable_by_summary,
   list_snapshot_summaries,
@@ -60,6 +65,33 @@ export class S3OneDriveManifestRepository implements OneDriveManifestRepository 
     const key = onedrive_manifest_key(manifest.owner_id, manifest.snapshot_id);
     const summary = SUMMARY_LAYOUT.summarize(manifest, key);
     await record_snapshot_summary_or_warn(ctx, SUMMARY_LAYOUT, manifest.owner_id, summary, lease);
+  }
+
+  /**
+   * Writes a folded baseline over its snapshot's manifest (see `replace_drive_manifest`), then
+   * the snapshot's summary row, checking `lease` before each write.
+   */
+  async replace_with_baseline(
+    ctx: TenantContext,
+    manifest: OneDriveSnapshotManifest,
+    lease: HeldOwnerLease,
+  ): Promise<void> {
+    lease.assert_held();
+    const lock_policy = baseline_lock_policy(manifest.object_lock);
+    await replace_drive_manifest(ctx, LAYOUT, manifest.owner_id, manifest, lock_policy);
+    const key = onedrive_manifest_key(manifest.owner_id, manifest.snapshot_id);
+    const summary = SUMMARY_LAYOUT.summarize(manifest, key);
+    await record_snapshot_summary_or_warn(ctx, SUMMARY_LAYOUT, manifest.owner_id, summary, lease);
+  }
+
+  /** Drops several removed snapshots' rows in one summary rewrite; logs instead of failing. */
+  async forget_snapshot_summaries(
+    ctx: TenantContext,
+    owner_id: string,
+    snapshot_ids: readonly string[],
+    lease?: HeldOwnerLease,
+  ): Promise<void> {
+    await forget_snapshot_summaries_or_warn(ctx, SUMMARY_LAYOUT, owner_id, snapshot_ids, lease);
   }
 
   /** Drops a removed snapshot's row from the owner's summary index; logs instead of failing. */
