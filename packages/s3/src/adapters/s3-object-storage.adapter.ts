@@ -36,7 +36,7 @@ import {
   STORAGE_LEASE_POLICY,
   type ConditionalWritePolicy,
 } from '@/adapters/conditional-write-policy';
-import { put_with_checked_condition } from '@/adapters/emulated-conditional-put';
+import { put_with_checked_condition } from '@/adapters/checked-conditional-put';
 import {
   probe_conditional_writes,
   run_conditional_write_probe,
