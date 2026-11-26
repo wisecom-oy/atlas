@@ -28,6 +28,7 @@ import {
 } from '@/graph-attempt-cancellation';
 import { is_network_error } from '@/graph-network-error';
 import { is_permanent_item_error } from '@/graph-permanent-item-errors';
+import { is_retryable_graph_status, is_throttle_status } from '@/graph-retryable-status';
 import { to_graph_unavailable_error } from '@/graph-unavailable-failure';
 import {
   GraphTokenRequestError,
@@ -37,22 +38,11 @@ import {
 } from '@/graph-token-failure';
 import { GraphUnavailableError, ThrottledError } from '@wisecom/atlas-types';
 
-/**
- * Statuses Graph recovers from on its own, per Microsoft's throttling and
- * resilience guidance: the request never reached a working backend, or the
- * gateway gave up on one. 501 and every 4xx stay out -- repeating those
- * returns the same answer.
- *
- * These apply to idempotent calls only. A 5xx or a timeout after a create POST
- * can arrive after the backend committed it, so a call marked `idempotent: false`
- * retries only on a throttle response (see `is_throttle_response`, issue #624).
- */
-const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 const MAX_RETRIES = 12;
 const BASE_DELAY_MS = 1_000;
 const MAX_DELAY_MS = 300_000;
 const REQUEST_TIMEOUT_MS = 60_000;
-/** Cooldown applied to a 429 that arrives without a usable Retry-After. */
+/** Cooldown applied to a 429 or 509 that arrives without a usable Retry-After. */
 const DEFAULT_THROTTLE_SECONDS = 30;
 
 /**
@@ -100,7 +90,8 @@ export interface GraphRetryOptions {
 /**
  * Whether a failure is Graph refusing the request before processing it: a 429, or a 503 carrying
  * Retry-After, the form SharePoint and OneDrive throttling also takes. Only these are safe to
- * repeat for a write that is not idempotent.
+ * repeat for a write that is not idempotent. A 509 is not among them: nothing documents that Graph
+ * refuses a write with it before processing, so a write answered 509 is not sent again (#867).
  */
 export function is_throttle_response(err: unknown): boolean {
   const status = status_code_of(err);
@@ -137,7 +128,8 @@ export function is_invalid_delta_error(err: unknown): boolean {
 }
 
 /**
- * Returns true when the error carries a transient HTTP status (429, 500, 502, 503, 504), or is the
+ * Returns true when the error carries a transient HTTP status (408, 429, 500, 502, 503, 504, 509;
+ * see `graph-retryable-status.ts`), or is the
  * `ThrottledError` or `GraphUnavailableError` an exhausted retry becomes, so an outer retry loop
  * still sees the transient failure it wraps. A 500 whose Graph code is permanent for the item,
  * such as `ErrorMimeContentConversionFailed`, is not transient (issue #812).
@@ -145,8 +137,7 @@ export function is_invalid_delta_error(err: unknown): boolean {
 export function is_transient_error(err: unknown): boolean {
   if (err instanceof ThrottledError || err instanceof GraphUnavailableError) return true;
   if (is_permanent_item_error(err)) return false;
-  const status = (err as Record<string, unknown>).statusCode;
-  return typeof status === 'number' && RETRYABLE_STATUS_CODES.has(status);
+  return is_retryable_graph_status((err as Record<string, unknown>).statusCode);
 }
 
 /** Returns true when an error is retryable (transient HTTP, network error, or failed token request). */
@@ -156,7 +147,7 @@ export function is_retryable_error(err: unknown): boolean {
 
 /**
  * Wraps any async network call with exponential backoff + jitter for both
- * transient HTTP errors (429, 500, 502, 503, 504) and network-level errors (ETIMEDOUT,
+ * transient HTTP errors (408, 429, 500, 502, 503, 504, 509), network-level errors (ETIMEDOUT,
  * ECONNRESET, socket hang up, etc.).
  *
  * Retries up to 12 times with backoff delays capped at 5 minutes. A call starts no new wait once it
@@ -228,10 +219,10 @@ async function retry_until_settled<T>(
       if (!is_retry_safe(err, idempotent)) throw as_final_failure(err);
 
       const retry_after = floor_retry_after_ms(extract_retry_after_ms(err));
-      // Raise on the response that carried the 429, not after the budget is
-      // spent, so every other owner backs off during this cooldown too.
-      raise_throttle_on_429(err, retry_after);
-      if (status_code_of(err) === 429) get_active_request_pacing()?.on_throttled();
+      // Raise on the response that carried the 429 or 509, not after the budget
+      // is spent, so every other owner backs off during this cooldown too.
+      raise_throttle_on_throttle_status(err, retry_after);
+      if (is_throttle_status(status_code_of(err))) get_active_request_pacing()?.on_throttled();
       throw_if_retry_after_above_cap(err);
       if (attempt === MAX_RETRIES || waited_ms >= RETRY_BUDGET_MS) {
         throw as_exhausted_failure(err, attempt, Date.now() - started_at);
@@ -258,9 +249,10 @@ function as_final_failure(err: unknown): unknown {
 
 /**
  * Types a retryable failure that outlasted the retry budget, keeping the Graph error as `cause`:
- * a 429 becomes `ThrottledError` (issue #440), and a 5xx, network error or timeout becomes
- * `GraphUnavailableError` (issue #773). A Graph SDK error for a 5xx with an empty or non-JSON body
- * has an empty `message`, so the message is built from `describe_graph_error`, never copied.
+ * a 429 or 509 becomes `ThrottledError` (issues #440, #867), and a 408, 5xx, network error or
+ * timeout becomes `GraphUnavailableError` (issues #773, #867). A Graph SDK error for a 5xx with an
+ * empty or non-JSON body has an empty `message`, so the message is built from
+ * `describe_graph_error`, never copied.
  */
 function as_exhausted_failure(err: unknown, retries: number, elapsed_ms: number): unknown {
   // An inner call already typed its exhausted failure; wrapping it again would hide a throttle.
@@ -268,8 +260,7 @@ function as_exhausted_failure(err: unknown, retries: number, elapsed_ms: number)
   if (err instanceof GraphTokenRequestError) {
     return to_token_unavailable_error(err, { retries, elapsed_ms });
   }
-  const status = status_code_of(err);
-  if (status === 429) {
+  if (is_throttle_status(status_code_of(err))) {
     return new ThrottledError(
       `Microsoft Graph kept throttling the request after ${retries} retries: ` +
         describe_graph_error(err),
@@ -385,16 +376,17 @@ function retry_delay_ms(attempt: number, retry_after_ms: number | undefined): nu
 }
 
 /**
- * Reports a 429 to the ambient throttle coordinator, so the cooldown starts on
+ * Reports a 429 or 509 to the ambient throttle coordinator, so the cooldown starts on
  * the first throttled response rather than after a retry budget is spent.
  *
- * Only 429 raises a cooldown. A 500 or a socket reset is one unlucky request and
- * is the retry loop's business alone; a 429 is Graph asking the whole client to
- * slow down. Cooldowns are non-additive, so concurrent owners hitting the same
- * one extend it rather than stacking it.
+ * Only a throttle status raises a cooldown. A 500 or a socket reset is one unlucky
+ * request and is the retry loop's business alone; a 429, or SharePoint's 509
+ * Bandwidth Limit Exceeded, is Graph asking the whole client to slow down (issue #867).
+ * Cooldowns are non-additive, so concurrent owners hitting the same one extend it
+ * rather than stacking it.
  */
-function raise_throttle_on_429(err: unknown, retry_after_ms: number | undefined): void {
-  if (status_code_of(err) !== 429) return;
+function raise_throttle_on_throttle_status(err: unknown, retry_after_ms: number | undefined): void {
+  if (!is_throttle_status(status_code_of(err))) return;
 
   const throttle = get_active_throttle();
   const pool = get_active_throttle_pool();
