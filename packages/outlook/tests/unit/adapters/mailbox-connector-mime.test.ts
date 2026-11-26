@@ -27,7 +27,15 @@ function create_harness(get_impl: () => Promise<unknown>): MimeConnectorHarness 
   const response_type = vi.fn();
   const header = vi.fn();
   const api = vi.fn();
-  const chain = { header, responseType: response_type, get, select: vi.fn(), top: vi.fn() };
+  const chain = {
+    header,
+    option: vi.fn(),
+    responseType: response_type,
+    get,
+    select: vi.fn(),
+    top: vi.fn(),
+  };
+  chain.option.mockReturnValue(chain);
   header.mockReturnValue(chain);
   response_type.mockReturnValue(chain);
   chain.select.mockReturnValue(chain);
