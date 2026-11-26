@@ -76,4 +76,25 @@ describe('fatal Graph errors', () => {
     expect(output).toContain('Microsoft Graph was unavailable after 12 retries: HTTP 504');
     expect(output).toContain('Atlas code: ATLAS_GRAPH_UNAVAILABLE');
   });
+
+  // Issues #862, #863 and #864: a 404 or 400 that persisted through the in-run confirmation reads
+  // for an owner who exists. The 404 in the cause chain must not turn it into exit 7.
+  it.each([
+    [404, 'itemNotFound'],
+    [400, 'invalidRequest'],
+  ])('exits 3, not 7 or 1, for a %i that persisted on a first listing', (status, code) => {
+    const cause = Object.assign(new Error(code), { statusCode: status, code });
+    handle_fatal_error(
+      new GraphUnavailableError(
+        `Microsoft Graph kept answering HTTP ${status} on 3 reads`,
+        { retries: 2, elapsed_ms: 6_000 },
+        { status_code: status, graph_code: code, cause },
+      ),
+    );
+
+    expect(process.exitCode).toBe(3);
+    const output = diagnostics.join('\n');
+    expect(output).toContain('Atlas code: ATLAS_GRAPH_UNAVAILABLE');
+    expect(output).not.toContain('ATLAS_NOT_FOUND');
+  });
 });

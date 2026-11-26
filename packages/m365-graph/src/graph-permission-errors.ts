@@ -188,19 +188,29 @@ export function rethrow_if_mailbox_not_licensed(err: unknown): void {
 }
 
 /**
- * Detects a 404 from a OneDrive lookup and rethrows it as a `NotFoundError`.
+ * Detects the 404 a OneDrive lookup answers for a user without a OneDrive and rethrows it as a
+ * `NotFoundError`.
  *
- * Graph answers `GET /users/{id}/drives` and `/users/{id}/drive` with 404 "User's mysite not
- * found." when the user has never opened OneDrive, which is the normal state of every admin and
- * service account in a tenant. Left untyped it reached consumers as a bare Graph error with no
- * class and no code, so retry policies treated a permanent answer as transient and re-asked it
- * once per attempt (issue #403). Reported as a missing grant it sent operators to Entra to grant
- * permissions they already held (issue #404). A missing grant is a 403, and
+ * Graph answers `GET /users/{id}/drives` and `/users/{id}/drive` with 404 `ResourceNotFound`
+ * "User's mysite not found." when the user has never opened OneDrive, which is the normal state of
+ * every admin and service account in a tenant. Left untyped it reached consumers as a bare Graph
+ * error with no class and no code, so retry policies treated a permanent answer as transient and
+ * re-asked it once per attempt (issue #403). Reported as a missing grant it sent operators to
+ * Entra to grant permissions they already held (issue #404). A missing grant is a 403, and
  * `rethrow_if_access_denied` still owns that.
+ *
+ * Any other 404, such as `itemNotFound`, is not this answer and returns unchanged: Graph sends one
+ * for a drive that exists, and reporting it as "no OneDrive" ended the run with exit `7` (#863).
  */
 export function rethrow_if_no_onedrive(err: unknown, owner_id: string): void {
-  if (as_error_fields(err).statusCode !== 404) return;
+  if (!is_no_onedrive_answer(err)) return;
   throw new NotFoundError(no_onedrive_message(owner_id), { cause: err });
+}
+
+/** True for the 404 `ResourceNotFound` Graph answers a drive lookup for a user with no OneDrive. */
+export function is_no_onedrive_answer(err: unknown): boolean {
+  const fields = as_error_fields(err);
+  return fields.statusCode === 404 && graph_code_of(fields)?.toLowerCase() === 'resourcenotfound';
 }
 
 /** The message both the 404 path and the empty-drive-id path report. */

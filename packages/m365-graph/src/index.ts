@@ -26,6 +26,7 @@ export {
 export type { GraphRetryOptions } from './graph-request-error-handler';
 export {
   is_missing_grant_refusal,
+  is_no_onedrive_answer,
   no_onedrive_message,
   rethrow_if_access_denied,
   rethrow_if_teams_access_denied,
