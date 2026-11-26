@@ -496,7 +496,7 @@ A second Ctrl+C exits at once with status `130` and skips the safe stop. A file 
 :::
 
 ::: details Which writes finish after Ctrl+C
-A file up to 4 MiB is uploaded in one request. A larger file is created by the final chunk of its upload session, so that request finishes and the file counts as restored if Microsoft 365 accepted it. A larger file stopped before its final chunk is not created, and its upload session is deleted.
+A file up to 4 MiB is uploaded in one request. A larger file is created by the final chunk of its upload session, so that request finishes, up to its deadline of about 82 s, and the file counts as restored if Microsoft 365 accepted it. A final chunk that did not complete cleanly is named in the errors as `outcome unknown, the file may exist`. A larger file stopped before its final chunk is not created, and its upload session is deleted. See [Upload sessions](/operations/reliability#upload-sessions).
 :::
 
 See [reliability](/operations/reliability) for retries and what is safe to rerun.

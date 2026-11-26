@@ -138,15 +138,23 @@ When the directory record answers `404` too, the owner is gone and the run exits
 
 ### Restore writes are sent once
 
-A restore reports an item as failed after a `408`, `500`, `502`, `504`, `509`, a `503` without `Retry-After`, a dropped connection, or a timeout. The item may or may not exist in the target: Microsoft 365 can commit a create and still lose the response, so Atlas does not repeat it and risk two copies. The restore continues with the other items.
+A restore reports an item as failed after a `408`, `500`, `502`, `504`, `509`, a `503` without `Retry-After`, a dropped connection, or a timeout. The item may or may not exist in the target: Microsoft 365 can commit a create and still lose the response, so Atlas does not repeat it and risk two copies. The restore continues with the other items and exits `2`.
 
 This covers messages, message and event attachments, events, contacts, mail, contact, and calendar folders, and OneDrive or SharePoint files restored with `--conflict rename` or `--conflict fail`.
 
-1. **Calendar or Contacts:** rerun the restore. A Calendar restore skips events already in the target calendar, and a Contacts restore skips contacts it restored earlier, so the rerun fills the gap without duplicates.
-2. **Outlook:** check the reported message in the restore folder before restoring it again.
-3. **OneDrive or SharePoint with `--conflict rename` or `--conflict fail`:** check the target for the reported file before restoring it again.
+A file over 4 MiB, or an attachment of 3 MiB or more, is created by the final chunk of an upload session. When that chunk ends this way, the error says so:
 
-A `429`, or a `503` with `Retry-After`, is still retried, because Microsoft Graph sends these instead of processing the request. Files restored with `--conflict replace`, folder creation on OneDrive and SharePoint, and upload sessions are safe to repeat and keep the full retry policy. Upload chunks are safe to repeat too and have their own retry, up to 3 attempts on a `408`, `429`, `500`, `502`, `503`, `504`, or `509`. See [File transfers](/operations/reliability#file-transfers-onedrive-and-sharepoint).
+```
+Report.docx: outcome unknown, the file may exist: the final upload chunk (bytes 10485760-12582911/12582912) ended with HTTP 504 after Microsoft 365 may have committed it. Check the target before restoring it again
+```
+
+An attachment reads `the attachment may exist`. An error that starts `Resumable upload failed at range` instead means Microsoft 365 refused a chunk, and nothing was created. Ctrl+C does not hide an unknown outcome: the item is still named.
+
+1. **Calendar or Contacts:** rerun the restore. A Calendar restore skips events already in the target calendar and recreates an event whose attachment failed, and a Contacts restore skips contacts it restored earlier, so the rerun fills the gap without duplicates.
+2. **Outlook:** check the reported message, and its attachments, in the restore folder before restoring it again.
+3. **OneDrive or SharePoint with `--conflict rename` or `--conflict fail`:** check the target for the reported file before restoring it again. Under `rename`, a rerun into the same folder next to a file that did land creates a renamed second copy.
+
+A `429`, or a `503` with `Retry-After`, is still retried, because Microsoft Graph sends these instead of processing the request. Files restored with `--conflict replace`, folder creation on OneDrive and SharePoint, and opening an upload session are safe to repeat and keep the full retry policy. Intermediate upload chunks are safe to repeat too: a OneDrive or SharePoint chunk gets up to 3 attempts, and an attachment chunk the Graph retry policy. Every chunk has a per-attempt deadline. See [Upload sessions](/operations/reliability#upload-sessions).
 
 ## OneDrive and SharePoint permission errors
 
