@@ -466,8 +466,16 @@ interface RestoreResult {
   verificationWarnings: string[];
   messages: RestoredMessageReport[];
   restoreFolderName: string;
+  outcomeUnknown: OutcomeUnknownMessage[];
   graphCost?: OperationCost; // SDK only
   interrupted: boolean;
+}
+
+interface OutcomeUnknownMessage {
+  objectId: string; // source message id from the snapshot
+  targetFolderId: string; // Graph id of the folder it was created in, or was being created in
+  attachmentName?: string; // set when the message was created and one of its attachments is unknown
+  error: string; // the same line as in `errors`
 }
 
 interface RestoredMessageReport {
@@ -487,9 +495,11 @@ interface RestoredMessageReport {
 | `verificationWarnings` | Per-folder warnings, including failures that prevented a count check, and one line per message that received fewer attachments than its snapshot holds |
 | `messages`             | One report per message created in the target mailbox, in restore order. IDs and counts only, never names or content                 |
 | `restoreFolderName`    | The destination path                                                                                                                |
+| `outcomeUnknown`       | Messages, and attachments of created messages, whose create may have committed although it failed. Each also has its line in `errors`. See the notes below |
 
 - **Destination.** `destination` is relative to the top of the target mailbox and uses `/` between levels, as the drive restores do. Each level, and each source folder beneath it, is reused when it exists, matched case-insensitively. The call rejects before writing any message when the path is empty, `/`, has an empty level, or lies inside a well-known folder such as Inbox. See [atlas outlook restore](/reference/cli#atlas-outlook-restore).
 - **No deduplication.** Restoring the same snapshot twice into one destination creates every message twice.
+- **Writes that may have committed.** A create is sent once. When it ends with a `500`, `502`, `504`, `408`, `509`, a `503` without `Retry-After`, a timeout, or a dropped connection, Microsoft 365 may have created the item anyway, so the item is listed in `outcomeUnknown` and its `errors` line reads `outcome unknown, the item may exist` (or `the attachment may exist`). Check those items in the target before restoring them again: rerunning the whole restore duplicates every message that landed. A message or attachment Graph refused (`400`, `403`, `404`, `409`, `413`) is never listed. A `429` or a `503` with `Retry-After` is retried and never listed. A single-message restore (`messageRef`) whose create ended this way resolves with the message in `outcomeUnknown` instead of rejecting. See [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once).
 - **The chain.** `restore`, `save`, and `verify` read a snapshot together with every older snapshot of the mailbox. `restoreMailbox` and `saveMailbox` read every snapshot in the date range. A message a backup recorded as deleted (in `removed_object_ids`) is left out of every older snapshot in that set. See [Delta sync](/operations/delta-sync#deleted-and-moved-messages-outlook) for which runs record removals.
 - **Attachments per message.** `attachmentsExpected` comes from the snapshot: the manifest's attachment list for a Graph JSON entry, or the parts of the stored MIME for a MIME entry. `inline` counts parts embedded in the body (`isInline: true`), `file` counts attachments Outlook lists. A gap between `attachmentsUploaded` and `attachmentsExpected` marks a message that lost attachments. `attachmentsFailed` counts upload errors, which also appear in `errors`. A legacy attachment whose content was never stored is skipped without an error and shows only as that gap.
 - **What the counts prove.** The split shows what Atlas restored, from the same MIME parse that drove the upload, not whether the parse classified every part correctly. `attachmentsUploaded` counts what Atlas sent, not what Microsoft Graph stored. To check what landed, read the created message back and compare:
@@ -725,8 +735,9 @@ await atlas.onedrive.restore('owner-id', { snapshotId, inPlace: true });
 | `targetTenant`                  | `AtlasTenant`                       | See [Cross-tenant restore](#cross-tenant-restore)                                                  |
 | `onProgress`, `signal`          |                                     | See [Progress and cancellation](#progress-and-cancellation)                                        |
 
-The result has `snapshotId`, `filesRestored`, `foldersCreated`, `filesSkipped`, `errors`, `interrupted`, `unreadableKeys`, and `unmatchedFileFilters`.
+The result has `snapshotId`, `filesRestored`, `foldersCreated`, `filesSkipped`, `errors`, `outcomeUnknown`, `interrupted`, `unreadableKeys`, and `unmatchedFileFilters`.
 
+- `outcomeUnknown` lists each file whose upload may have committed although it failed, as `{ path, error }`: `path` is where the file was being written, and `error` is its line in `errors`. That covers a single-request upload under `'rename'` or `'fail'` and the final chunk of an upload session, when either ended with a `5xx` other than a throttle, a timeout, or a dropped connection. Check those files in the target before restoring them again, because a rerun under `'rename'` next to a file that landed creates a second copy. A refusal such as `400`, `404`, `409`, or `413` is never listed. See [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once).
 - By default nothing existing is overwritten: files go under a new root with `'rename'` on conflict.
 - `restore` and `save` require an options object with `snapshotId`. TypeScript enforces it. A JavaScript caller that omits it gets a `TypeError` naming the method. `verify` takes its options optionally.
 - When some `fileFilter` values match, the run goes ahead and lists each unmatched value in `unmatchedFileFilters`. When none match, the call rejects with `NotFoundError`.
@@ -1260,7 +1271,7 @@ Cancellation does not throw. The call resolves normally with `interrupted: true`
 
 - **Waits end at once.** In every backup, every restore and version restore, and `outlook.save()`, the signal reaches every Microsoft Graph call of the run. It closes the read in flight, and a token request no other call waits for, and ends any retry backoff or throttle wait, including a `Retry-After` of up to an hour, so the call resolves within moments and leaves no socket holding the host process open. That covers an Outlook call still waiting for its mailbox's cooldown, request window, or concurrency slot, which is then never sent.
 - **Accepted requests still complete.** Microsoft Graph has no cancel, so a request it already accepted completes on its side and Atlas drops the answer.
-- **Restore writes already sent finish first,** because Microsoft 365 may have committed them: a message, event, contact, calendar, folder, or attachment create, a Calendar event update or delete, a contact photo upload, a OneDrive or SharePoint upload of up to 4 MiB, and the final chunk of a larger upload or of an attachment of 3 MiB or more, which runs to its per-attempt deadline. They are counted if accepted, and one that did not complete cleanly is listed in `errors` as `outcome unknown`. A Calendar or Contacts rerun recognises such an item by its source tag. A larger file stopped before its final chunk is not created, and its upload session is deleted. See [Upload sessions](/operations/reliability#upload-sessions) and [Writes that are sent once](/operations/reliability#writes-that-are-sent-once).
+- **Restore writes already sent finish first,** because Microsoft 365 may have committed them: a message, event, contact, calendar, folder, or attachment create, a Calendar event update or delete, a contact photo upload, a OneDrive or SharePoint upload of up to 4 MiB, and the final chunk of a larger upload or of an attachment of 3 MiB or more, which runs to its per-attempt deadline. They are counted if accepted, and one that did not complete cleanly is listed in `errors` as `outcome unknown`, and for Outlook, OneDrive, and SharePoint also in `outcomeUnknown`. A Calendar or Contacts rerun recognises such an item by its source tag. A larger file stopped before its final chunk is not created, and its upload session is deleted. See [Upload sessions](/operations/reliability#upload-sessions) and [Writes that are sent once](/operations/reliability#writes-that-are-sent-once).
 - **Outlook messages short of attachments.** A message created before the stop whose attachments were not all uploaded is listed in `errors` once, as `<message-id>: N attachment(s) not uploaded: the run was interrupted`.
 - **OneDrive and SharePoint downloads.** The signal aborts the download in flight, skips retry backoff and any `Retry-After` wait, and closes a historical version's stream, for files of every size. The interrupted file is not recorded as failed, so it keeps its retry budget. Listing, download URL lookups, the `/content` fallback, and version listing stop too. The CLI passes Ctrl+C to every backup as this signal.
 - **Teams.** `backup` closes the request in flight as soon as the signal fires and resolves with `interrupted: true`. The root that request belonged to is not recorded as a failed attempt. Only the channel loop checks the signal, so a signal fired during the team or channel lookups takes effect when the loop starts.
