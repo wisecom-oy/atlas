@@ -194,12 +194,8 @@ export class GraphMailboxConnector implements MailboxConnector {
     }
   }
 
-  /** Fetches the message's original RFC 5322 MIME; undefined when Graph has none (issue #50). */
-  async fetch_mime(
-    _tenant_id: string,
-    owner_id: string,
-    message_id: string,
-  ): Promise<Buffer | undefined> {
+  /** Fetches the message's original RFC 5322 MIME (issue #50). */
+  async fetch_mime(_tenant_id: string, owner_id: string, message_id: string): Promise<Buffer> {
     return fetch_message_mime(this._client, owner_id, message_id, IMMUTABLE_ID_PREFER);
   }
 

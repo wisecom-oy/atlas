@@ -221,9 +221,11 @@ Incremental runs fetch MIME only for new and changed messages. The first backup 
 
 | Situation | What Atlas does |
 | --- | --- |
-| Microsoft 365 cannot produce MIME for the message | Stores the legacy JSON form and records the format in the snapshot entry. The run succeeds |
 | Exchange refuses the conversion for good with `500 ErrorMimeContentConversionFailed` | Sends the request once, without retries. Stores the JSON form, records the error code as `mime_unavailable` in the snapshot entry, reports it as an error of its folder, and exits `2`. This failure alone does not hold the folder's checkpoint back, so the next run does not ask for the MIME again unless the message changes or another failure in the folder withholds the checkpoint |
 | The MIME request still fails after [retries](/operations/reliability#microsoft-graph-requests), for example a `503` | Stores the JSON form so the message is kept, reports it as an error of its folder, keeps the folder's previous checkpoint, and exits `2`. The next run fetches the folder's changes again, captures the MIME, and its entry replaces the JSON one |
+| The MIME request answers `400`, `401`, or `404` | Handled as the failed request above. These answers are not retried, and none of them proves that Microsoft 365 has no MIME for the message, so the next run asks again |
+| The message was deleted after its delta page was read, so the MIME request answers `404` | Handled as the failed request above, for one run only. The next run's changes report the message as removed rather than listing it, so its MIME is not requested again and the folder's checkpoint moves on |
+| The MIME request answers `403` | Fails the folder with an error naming the Microsoft Graph permissions to grant. The folder keeps its previous checkpoint. A missing permission would fail every message, so it is never stored as JSON one message at a time |
 | The MIME request answers `200` with an empty body on all 3 attempts | Handled as the failed request above. Zero bytes are never stored as MIME, so the empty answer cannot replace the message's content in the snapshot |
 | A JSON entry's attachments could not be fetched or stored | Handled the same way: the next run fetches the message and its attachments again |
 
