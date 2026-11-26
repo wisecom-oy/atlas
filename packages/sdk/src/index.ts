@@ -139,6 +139,8 @@ export type {
 
 export type { KeysApi, KeysRewrapOptions, KeysPurgeOptions } from '@wisecom/atlas-types';
 
+export type { SnapshotPruneSdkOptions, SnapshotPruneSdkResult } from '@wisecom/atlas-types';
+
 export type {
   SdkOperationOptions,
   OperationProgressEvent,

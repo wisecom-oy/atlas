@@ -9,6 +9,7 @@ import type {
 } from '@/ports/catalog/use-case.port';
 import type { Manifest } from '@/domain/outlook/manifest';
 import type { DeletionResult } from '@/ports/deletion/use-case.port';
+import type { SnapshotPruneSdkOptions, SnapshotPruneSdkResult } from '@/ports/retention/api.port';
 import type { MailboxStats } from '@/domain/stats/stats';
 import type { MailboxStatusResult } from '@/ports/status/use-case.port';
 import type { TenantMailbox, MailboxDiscoveryOptions } from '@/ports/outlook/discovery.port';
@@ -88,6 +89,15 @@ export interface OutlookApi {
   ): Promise<OutlookReadMessageResult | undefined>;
   deleteMailboxData(mailboxId: string): Promise<OutlookDeletionResult>;
   deleteSnapshot(snapshotId: string): Promise<OutlookDeletionResult>;
+  /**
+   * Removes the mailbox's snapshots older than `options.before` and keeps every newer one
+   * restorable: the oldest kept snapshot absorbs what the older ones recorded, then the older
+   * manifests and the content no remaining snapshot references are deleted (issue #977).
+   */
+  pruneSnapshots(
+    mailboxId: string,
+    options: SnapshotPruneSdkOptions,
+  ): Promise<SnapshotPruneSdkResult>;
   purgeTenantData(): Promise<OutlookDeletionResult>;
   getMailboxStats(mailboxId: string): Promise<OutlookMailboxStats>;
   checkMailboxStatus(mailboxId: string): Promise<OutlookMailboxStatus>;

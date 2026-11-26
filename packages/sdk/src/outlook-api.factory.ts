@@ -11,6 +11,7 @@ import type {
   CatalogUseCase,
   DeletionUseCase,
   SaveUseCase,
+  SnapshotPruneUseCase,
   StatsUseCase,
   StatusUseCase,
   MailboxDiscoveryService,
@@ -23,6 +24,7 @@ import {
   RESTORE_USE_CASE_TOKEN,
   CATALOG_USE_CASE_TOKEN,
   DELETION_USE_CASE_TOKEN,
+  OUTLOOK_SNAPSHOT_PRUNE_USE_CASE_TOKEN,
   SAVE_USE_CASE_TOKEN,
   STATS_USE_CASE_TOKEN,
   STATUS_USE_CASE_TOKEN,
@@ -41,6 +43,7 @@ import type {
 import type { SyncOptions } from '@wisecom/atlas-types/ports/backup/use-case.port';
 import type { RestoreOptions } from '@wisecom/atlas-types';
 import { split_target_tenant, with_restore_side } from '@/target-tenant';
+import { adapt_prune_options } from '@/snapshot-prune-options';
 import {
   refuse_blank_snapshot_message_ref,
   refuse_mailbox_message_ref,
@@ -53,6 +56,7 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
   const verification = container.get<VerificationUseCase>(VERIFICATION_USE_CASE_TOKEN);
   const catalog = container.get<CatalogUseCase>(CATALOG_USE_CASE_TOKEN);
   const deletion = container.get<DeletionUseCase>(DELETION_USE_CASE_TOKEN);
+  const prune = container.get<SnapshotPruneUseCase>(OUTLOOK_SNAPSHOT_PRUNE_USE_CASE_TOKEN);
   const save = container.get<SaveUseCase>(SAVE_USE_CASE_TOKEN);
   const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
   const status = container.get<StatusUseCase>(STATUS_USE_CASE_TOKEN);
@@ -180,6 +184,11 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
     },
     async deleteSnapshot(snapshot_id) {
       return camelize(await deletion.delete_snapshot(tenant_id, snapshot_id));
+    },
+    async pruneSnapshots(mailbox, options) {
+      const adapted = adapt_prune_options(options, 'outlook.pruneSnapshots');
+      const mailbox_id = await resolve_object_id(mailbox);
+      return camelize(await prune.prune_snapshots(tenant_id, mailbox_id, adapted));
     },
     async purgeTenantData() {
       return camelize(await deletion.purge_tenant(tenant_id));
