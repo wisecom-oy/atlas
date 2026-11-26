@@ -199,6 +199,8 @@ Methods accept the same identifiers as the CLI and normalize them the same way.
 | `teams`                                       | Graph team ID (GUID)                                                       | Trimmed, lowercased, and checked as a GUID. No Graph call                                             |
 
 - A failed lookup throws, so a mistyped address fails instead of addressing an empty scope. Lookups are cached per instance. `resolveUser` and `resolveSite` are available on their own.
+- An address Microsoft Graph answers `404` for, after 3 reads in about 6 s, resolves to its entry in the identity registry when one exists. A Graph outage that spends the lookup's retry budget throws `GraphUnavailableError` or `ThrottledError` rather than falling back, because the method's next Graph call would spend a second budget on the same outage.
+- Methods that only read stored backups (`verify`, `save`, `saveMailbox`, `listSnapshots`, `listSnapshotSummaries`, `listFileVersions`, `listPermissions`, `getStats`, `getMailboxStats`) wait at most 15 s for Graph when the identity registry holds the address, then use the registry entry and log a warning. See [Owner lookup](/operations/reliability#owner-lookup).
 - Backups record the resolved email and display name in the snapshot, so later listings show readable owners. Object paths always use the object ID.
 - Object IDs and site IDs are lowercased before they become part of an object path, so two spellings of one ID address one tree. Graph item IDs (`fileId`, `itemId`) are case-sensitive and never changed. `fileFilter` compares them case-insensitively.
 - Outlook data written by v5 used the SMTP address in its paths and is not reachable under object-ID paths. See [Migrating to v6](/migration/v6).
@@ -968,7 +970,7 @@ See [Calendar backup](/calendar-backup) for the storage layout and restore behav
 | `checkStorage(request?)`        | Reports what the bucket supports. See [checkStorage](#checkstorage)                             |
 | `getBucketStats()`              | Logical totals across the tenant: mailboxes, snapshots, messages, and sizes                     |
 | `getStorageUsage(options?)`     | Bytes the bucket physically holds. See [Storage usage](#storage-usage)                          |
-| `resolveUser(email)`            | Looks up an address's Entra object ID through Microsoft Graph                                   |
+| `resolveUser(email)`            | Looks up an address's Entra object ID through Microsoft Graph. See [Identifiers](#identifiers)  |
 | `listUsers()`                   | The tenant's identity registry, or `undefined` when none exists yet                             |
 | `rewrapDataKey(newPassphrase?)` | Re-wraps the tenant data key. See [Key re-wrap](#key-re-wrap)                                   |
 | `keys`                          | Re-wraps and purges key wrappers across tenants. See [Re-wrapping several tenants](#re-wrapping-several-tenants) |

@@ -110,6 +110,8 @@ The message always names the HTTP status and the Microsoft Graph error code when
 
 One outage costs a backup one retry budget. The first call that spends its budget stops every other Graph call of the run, whether it was reading a message, a folder, an event, a channel, or a lookup that may otherwise fail without failing the backup. The run still writes the snapshot of the folders, drives, calendars, and channels it finished, keeps the previous checkpoint of the rest, and releases the owner lease, so the next scheduled run does not meet `ATLAS_OWNER_BUSY`. `atlas teams backup --all` and `atlas sharepoint backup --include-subsites` do not start the next team or subsite. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
 
+The lookup of an email address before the run counts too. When it spends its budget, the backup exits `3` before it takes the owner lease, instead of continuing on the identity registry entry and spending a second budget. Commands that only read backups, such as `verify` and `list -m`, use the registry entry after 15 s instead. See [Owner lookup](/operations/reliability#owner-lookup).
+
 In the SDK the error is `GraphUnavailableError`:
 
 | Field | Value |

@@ -120,7 +120,8 @@ These rules apply to Outlook, Contacts, Calendar, OneDrive, and SharePoint. Team
 
 #### Stopping a run
 
-The first Ctrl+C is a soft interrupt. It covers every backup, every restore including `restore-version`, and `atlas outlook save`:
+The first Ctrl+C is a soft interrupt. It covers every backup, every restore including `restore-version`, and `atlas outlook save`. A backup's soft stop begins when it starts to look up the mailbox, drive owner, site, or the teams of `--all`, so a Ctrl+C during that lookup also exits `2`, before the run takes a lease. A restore or save starts its soft stop after the owner lookup and any confirmation prompt. A Ctrl+C during that lookup ends the command at once with `130`, and one at a prompt exits `1`. Neither writes anything.
+
 
 - The Graph request in flight and any retry backoff or throttle wait end at once, including a `Retry-After` wait of up to an hour, and the command exits `2`.
 - Restore writes already sent to Microsoft 365 finish, so what the restore reports matches what was written. An interrupted restore prints what it restored before the stop, and the message or file in flight is not counted as failed.
@@ -208,7 +209,9 @@ error: option '-s <value>' argument 'https://...' is invalid. -s no longer means
 | Mailbox, drive owner  | Email address or Entra object ID                                                                                                                                            |
 | Site (`--site`)       | Browser URL (`https://contoso.sharepoint.com/sites/Engineering`), Graph short form (`contoso.sharepoint.com:/sites/Engineering`), or site ID with or without its hostname (`contoso.sharepoint.com,<siteGuid>,<webGuid>` or `<siteGuid>,<webGuid>`) |
 
-- An email address is looked up through Microsoft Graph before any object path is built. Object IDs are used as given. Backups are keyed by object ID, so the address is display metadata only.
+- An email address is looked up through Microsoft Graph before any object path is built. Object IDs are used as given, with no lookup. Backups are keyed by object ID, so the address is display metadata only.
+- `backup`, `restore`, `restore-version`, `status`, and `delete` wait for Graph's answer, so an address reassigned to a new user resolves to that user. When Graph answers `404`, Atlas reads the address twice more, 2 s and 4 s later, then uses the entry in the identity registry (the record of every user Atlas has backed up) and logs a warning. A Graph outage that spends the lookup's retry budget, about 24 minutes, ends the command with exit `3` before it takes the owner's lease.
+- Commands that only read backups (`list`, `list-snapshots`, `list-versions`, `list-permissions`, `verify`, `save`, and `atlas stats -m` or `-o`) wait at most 15 s for Graph when the identity registry already holds the address. If Graph has not answered by then, or fails, they use the registry entry and log a warning that names the reason, so backups stay reachable while Graph is unavailable. An address the registry does not hold is looked up with the full retry budget, and a `404` still reports the user as not found.
 - Owner and site IDs are case-insensitive. They are lowercased before they become object paths, so one identifier always addresses one tree.
 - Object paths use `<siteGuid>,<webGuid>`, so a SharePoint domain rename does not start a second backup history. See [SharePoint storage layout](../sharepoint-backup.md#storage-layout).
 - Commands that read existing backups (`list-snapshots`, `list-versions`, `save`, `verify`, `status`, `delete`, the source site of `restore`, and `atlas stats --site`) drop the hostname from a site ID with string handling alone. They make no Graph call, so backups of a site deleted from SharePoint stay reachable and disaster recovery works while Graph is unavailable.
@@ -218,7 +221,7 @@ error: option '-s <value>' argument 'https://...' is invalid. -s no longer means
 
 Back up, restore, export, verify, and manage Outlook mailboxes. Storage and tenant-wide commands live at the root.
 
-Mailboxes are identified by Entra object ID. `-m` accepts an email address or an object ID, and a value containing `@` is looked up through `GET /users/{email}` first. Backups written by v5 were keyed by address; see [Migrating to v6](/migration/v6).
+Mailboxes are identified by Entra object ID. `-m` accepts an email address or an object ID, and a value containing `@` is looked up through `GET /users/{email}` first, as described under [Identifiers](#identifiers). Backups written by v5 were keyed by address; see [Migrating to v6](/migration/v6).
 
 `restore`, `list`, and `save` select what to act on with `-s, --snapshot` (one snapshot) or `-m, --mailbox` (every snapshot for a mailbox):
 
