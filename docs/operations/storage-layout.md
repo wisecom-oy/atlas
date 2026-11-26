@@ -209,14 +209,14 @@ A manifest records only the changes of its run, so incremental manifests stay on
 
 #### Memory
 
-Measured with synthetic drives of 2 million files, about 1.2 KB of manifest entry and 470 bytes of cursor state per file, on Node.js 26:
+Measured with synthetic drives of 2 million files, about 1.2 KB of manifest entry and 470 bytes of cursor state per file, on Node.js 26. Peaks count the heap and encryption buffers together.
 
-| Document | Stored | Heap held by the objects | Heap peak while reading |
-| --- | --- | --- | --- |
-| Manifest of a first backup | 306 parts, 2.4 GiB | 2.9 GiB | 4.4 GiB |
-| Delta cursor | 1,025 objects, 939 MiB | 1.6 GiB | 1.6 GiB above the objects |
+| Document | Stored | Objects in memory | Peak while saving | Peak while loading |
+| --- | --- | --- | --- | --- |
+| Manifest of a first backup | 306 parts, 2.4 GiB | 2.9 GiB | 3.3 GiB | 4.5 GiB |
+| Delta cursor | 1,025 objects, 939 MiB | 1.6 GiB | 2.4 GiB | 1.7 GiB |
 
-Writing holds at most four parts in flight, a few copies of 8 MiB each, on top of the objects. The objects themselves stay in memory because a backup builds the whole manifest and cursor before saving them. Node.js caps the heap at about 4 GiB by default, so back up a drive or library of more than about 1 million files with a larger limit:
+Saving holds at most four parts in flight on top of the objects. Each fits in Node.js's default heap limit of about 4 GiB on its own. A backup holds the manifest it builds and the cursor at the same time, so back up a drive or library of more than about 1 million files with a larger limit:
 
 ```bash
 NODE_OPTIONS=--max-old-space-size=8192 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
