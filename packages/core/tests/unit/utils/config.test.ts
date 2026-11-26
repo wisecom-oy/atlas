@@ -21,6 +21,7 @@ const ALL_ENV_KEYS = [
   'ATLAS_S3_SECRET_KEY',
   'ATLAS_S3_REGION',
   'ATLAS_ENCRYPTION_PASSPHRASE',
+  'ATLAS_SINGLE_WRITER',
 ];
 
 const FULL_CONFIG = {
@@ -152,6 +153,16 @@ describe('config', () => {
       const result = load_config();
       expect(result.tenant_id).toBe('tid');
       expect(result.s3_endpoint).toBe('http://localhost:9000');
+    });
+
+    it('keeps the storage lease unless ATLAS_SINGLE_WRITER opts out of it (issue #974)', () => {
+      vi.mocked(os.homedir).mockReturnValue('/home/testuser');
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      set_all_env();
+
+      expect(load_config()).not.toHaveProperty('writer_exclusion');
+      process.env['ATLAS_SINGLE_WRITER'] = '1';
+      expect(load_config().writer_exclusion).toBe('single_writer');
     });
 
     it('throws when config is incomplete', () => {

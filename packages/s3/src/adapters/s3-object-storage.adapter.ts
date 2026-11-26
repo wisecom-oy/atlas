@@ -318,7 +318,14 @@ export class S3ObjectStorage implements ObjectStorage {
   /** This bucket's storage calls with puts that skip the guard, which would await the probe. */
   private unguarded_probe_target(): ConditionalWriteProbeTarget {
     return {
-      put: async (key, data, metadata, object_lock_policy, if_match, if_none_match) => {
+      put: async (
+        key,
+        data,
+        metadata,
+        object_lock_policy,
+        if_match,
+        if_none_match,
+      ): Promise<void> => {
         await send_put_object(this._client, this._bucket, {
           key,
           data,
