@@ -293,7 +293,7 @@ Older snapshots do not record library names, so rule 1 cannot apply. Such a snap
 
 ## Sharing
 
-Sharing on files and folders is captured and restored as for OneDrive. See [Sharing](./onedrive-backup.md#sharing) and [Restoring sharing](./onedrive-backup.md#restoring-sharing).
+Sharing on files and folders is captured and restored as for OneDrive. See [Sharing](./onedrive-backup.md#sharing) and [Restoring sharing](./onedrive-backup.md#restoring-sharing). A permission read that Microsoft Graph refuses lists the item on the library's [failed files](#failed-files) and the run exits `2`, as described in [When permissions cannot be read](./onedrive-backup.md#when-permissions-cannot-be-read).
 
 - Site and library permissions are not part of a backup.
 - A restore applies no permission unless you pass `--restore-permissions`.
@@ -395,6 +395,7 @@ Microsoft does not document which code a download returns for an IRM or retentio
 Each failed file is retried at the start of the next run, before new changes:
 
 - If the file downloads, it is stored and the failure clears.
+- If it was listed because its permissions could not be read, they are read again without downloading the file, and the failure clears once they are. See [When permissions cannot be read](./onedrive-backup.md#when-permissions-cannot-be-read).
 - If the file was deleted, the failure is dropped. A `404` on the re-read is not enough on its own. See [A listed file that answers not found](#a-listed-file-that-answers-not-found).
 - If it fails again, its attempt count increases, unless the failure is outside the file.
 
