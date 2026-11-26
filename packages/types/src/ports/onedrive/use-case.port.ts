@@ -61,9 +61,14 @@ export interface OneDriveBackupOptions extends OperationControlOptions {
    */
   readonly folder_scope?: string | undefined;
   /**
-   * Object Lock retention applied as the bucket's default retention before
-   * the run: every new object version (files, versions, manifests, cursors)
-   * inherits the lock. Persists on the bucket for subsequent writes.
+   * Object Lock retention for this run only, stamped on each backup object the run writes: file
+   * content, file versions, the run's version index and its snapshot manifest. It is not a bucket
+   * setting. Atlas never sets or changes the bucket's default retention, so the request does not
+   * affect other runs, other owners or other workloads, and a later run without it writes no lock.
+   *
+   * The run writes its delta cursor, snapshot summary index and owner lease, and the staging
+   * uploads of files of 64 MiB and larger, without the lock (#919). The bucket must be versioned
+   * with Object Lock enabled, or the run fails before it stores any backup data.
    */
   readonly object_lock_request?: ObjectLockRequest | undefined;
   /**

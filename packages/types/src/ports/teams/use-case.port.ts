@@ -90,8 +90,14 @@ export interface TeamsBackupOptions extends OperationControlOptions {
   /** Back up only this channel. Other channels carry forward from the previous manifest. */
   readonly channel_id?: string | undefined;
   /**
-   * Object Lock retention applied as the bucket's default retention before the run. Persists on
-   * the bucket for subsequent writes.
+   * Object Lock retention for this run only, stamped on each backup object the run writes: message
+   * blobs, hosted content, channel shards and the snapshot index. It is not a bucket setting. Atlas
+   * never sets or changes the bucket's default retention, so the request does not affect other
+   * runs, other teams or other workloads, and a later run without it writes no lock.
+   *
+   * The run writes its channel delta cursors, read checkpoints and owner lease without the lock
+   * (#919). The bucket must be versioned with Object Lock enabled, or the run fails before it
+   * stores any backup data.
    */
   readonly object_lock_request?: ObjectLockRequest | undefined;
   /** Channels backed up at once within a team, 1 to 16. Defaults to 4. */
