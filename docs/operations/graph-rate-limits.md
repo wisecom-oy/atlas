@@ -68,7 +68,7 @@ A throttled request still counts toward the budget.
 
 ## Throttle handling
 
-When Microsoft Graph throttles a request, Atlas pauses every request that draws on the same budget, not only the one that was refused. This is what slows the instance down: concurrency is fixed and a `429` does not lower it.
+When Microsoft Graph throttles a request, Atlas pauses every request that draws on the same budget, not only the one that was refused. A `429`, and SharePoint's `509 Bandwidth Limit Exceeded`, both count as throttling. This is what slows the instance down: concurrency is fixed and a `429` does not lower it.
 
 1. **The pool cools down.** Atlas's throttle coordinator starts a cooldown for the `Retry-After` window, or 30 seconds when Microsoft Graph sends none. Every request to that budget waits for it before it is sent, including retry attempts already in progress.
 2. **The throttled call retries.** It waits out the cooldown and tries again, up to 12 retries. Without a `Retry-After`, it backs off exponentially, up to 5 minutes per wait.
