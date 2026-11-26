@@ -57,7 +57,8 @@ Every Microsoft Graph call goes through one retry loop. The Graph SDK's own retr
 | `Retry-After` above 1 hour | The call fails at once with `ThrottledError` naming the value. The pool or mailbox still cools down for the hour, for the rest of the run |
 | `429` or `509` without `Retry-After` | 30 s cooldown for the pool |
 | Waiting budget per call | 24 minutes of backoff, `Retry-After`, and cooldown waits. A wait already started runs in full |
-| Per-attempt timeout | 60 s by default. A timed-out request is aborted before the next attempt is sent |
+| Per-attempt timeout | 60 s by default. 30 min for an Outlook MIME download (`/messages/{id}/$value`) and an attachment download (`/attachments/{id}/$value`), so a large body on a slow link completes. A timed-out request is aborted before the next attempt is sent |
+| Idle timeout on a download | 60 s on an Outlook MIME or attachment download and a Teams hosted-content download. When neither the response headers nor any body bytes arrive for 60 s, the request is closed and the attempt is retried as a timed-out transfer |
 
 `500` and `502` are retried because Microsoft Graph returns them for load and gateway faults that clear on their own. `408 Request Timeout` is retried like a `504`, as it already is for a token request. `509 Bandwidth Limit Exceeded` is SharePoint's throttle for a tenant or app over its bandwidth limit, so it is retried and pauses the pool like a `429`.
 
@@ -69,7 +70,19 @@ A JSON read that answers `2xx` with a body that does not parse, empty or cut sho
 
 A token request that Microsoft Entra ID answers with a `429` or `5xx` is held back for at least 60 s by MSAL, the Microsoft library that requests the token, or for as long as Entra's `Retry-After` asks. A repeat inside that window never reaches Entra ID, so Atlas waits at least 60 s between token attempts. An Entra ID outage is retried through the whole budget and ends in `ATLAS_GRAPH_UNAVAILABLE`, exit `3`. A refusal of the credentials (`invalid_client`, an unknown client ID or tenant, an expired secret) is never retried and exits `4`.
 
-The 24-minute budget sits just above the full exponential schedule (1 + 2 + 4 + ... capped at 5 minutes comes to about 23.5 minutes), so backoff alone always gets all 12 retries. Time spent inside a request does not count, so a slow download keeps its retries. One call therefore waits at most about 24 minutes plus one cooldown, and so does a whole backup run: see [When retries run out](#when-retries-run-out-on-a-throttle).
+The 24-minute budget sits just above the full exponential schedule (1 + 2 + 4 + ... capped at 5 minutes comes to about 23.5 minutes), so backoff alone always gets all 12 retries. Time spent inside a request does not count, so a slow download keeps its retries. One call therefore waits at most about 24 minutes plus one wait of up to 1 hour and 5 s, and so does a whole backup run: see [When retries run out](#when-retries-run-out-on-a-throttle).
+
+That bounds the waiting, not the wall-clock time of a call. The time inside its 13 attempts comes on top:
+
+| Call | Attempts | Waits | Worst case |
+| --- | ---: | ---: | ---: |
+| Any Graph request with the 60 s timeout | 13 × 60 s = 13 min | 24 min + 1 h 0 min 5 s | about 1 h 37 min |
+| Outlook MIME or attachment download whose body keeps trickling in | 13 × 30 min = 6 h 30 min | 24 min + 1 h 0 min 5 s | about 7 h 55 min |
+| Outlook MIME or attachment download that stalls on every attempt | 13 × 60 s idle = 13 min | about 23.5 min of backoff | about 37 min |
+
+The 7 h 55 min case needs every attempt to receive at least one byte a minute for its full 30 minutes, and Graph to answer the last wait with a 1-hour `Retry-After`. A download that stops sending loses its attempt after 60 s instead, so a stalled server costs the stall row. Each message and attachment has its own call. An empty MIME body starts a new call, up to 3 per message, as described above.
+
+Downloads read their whole body inside the attempt, so the attempt timeout, the idle timeout, the retry on a body cut off mid-transfer, and Ctrl+C cover the body as well as the headers.
 
 ### The first read of a run {#first-reads-of-a-run}
 
@@ -205,7 +218,7 @@ Object Lock retention is set per object at write time, and a delete it refuses e
 
 | Signal | Result |
 | --- | --- |
-| First Ctrl+C (`SIGINT`) | Soft stop. Microsoft Graph requests, retries, and cooldown waits end at once; restore writes already sent finish. Completed work is committed, the lease is released, and the command exits `2` |
+| First Ctrl+C (`SIGINT`) | Soft stop. Microsoft Graph requests, download bodies being read, retries, and cooldown waits end at once; restore writes already sent finish. Completed work is committed, the lease is released, and the command exits `2` |
 | Second Ctrl+C | Exits at once with `130`. Nothing more is committed and the lease is left to expire, so a run on the same owner within 10 minutes exits `12` |
 | `SIGTERM` | Atlas installs no handler, so Node ends the process at once, as with a second Ctrl+C. The shell reports `143` |
 
