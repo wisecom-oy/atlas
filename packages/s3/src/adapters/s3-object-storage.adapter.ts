@@ -12,6 +12,8 @@ import type {
   ObjectStorageEtagResult,
   MultipartUploadHandle,
   StorageConditionalWriteCheck,
+  StorageDeleteOutcome,
+  StorageDeleteTarget,
   StorageImmutabilityProbeRequest,
   StorageImmutabilityProbeResult,
   StorageObjectLockPolicy,
@@ -29,7 +31,11 @@ import {
 } from '@/adapters/object-lock.errors';
 import { is_backend_mode_rejection } from '@/adapters/s3-error-classifier';
 import { copy_object_server_side } from '@/adapters/s3-large-copy';
-import { list_object_versions } from '@/adapters/s3-object-version-listing';
+import {
+  list_object_version_pages,
+  list_object_versions,
+} from '@/adapters/s3-object-version-listing';
+import { S3BatchDeleter } from '@/adapters/s3-batch-delete';
 import { is_conditional_put, send_put_object } from '@/adapters/s3-object-put';
 import { require_conditional_writes } from '@/adapters/conditional-write-guard';
 import {
@@ -48,12 +54,20 @@ import {
  * Not injectable -- created by TenantContextFactory per tenant.
  */
 export class S3ObjectStorage implements ObjectStorage {
+  private readonly _batch_deleter: S3BatchDeleter;
+
   constructor(
     private readonly _client: S3Client,
     private readonly _bucket: string,
     private readonly _buckets: BucketCache,
     private readonly _policy: ConditionalWritePolicy = STORAGE_LEASE_POLICY,
-  ) {}
+  ) {
+    this._batch_deleter = new S3BatchDeleter(_client, _bucket, (target) =>
+      target.version_id === undefined
+        ? this.delete(target.key)
+        : this.delete_version(target.key, target.version_id),
+    );
+  }
 
   /**
    * Uploads data with a Content-MD5 header for transport integrity verification. By default a
@@ -173,6 +187,15 @@ export class S3ObjectStorage implements ObjectStorage {
     }
   }
 
+  /**
+   * Deletes up to 1,000 objects or versions with one `DeleteObjects` request, mapping each key's
+   * error onto retained or failed. A backend that refuses the bulk request gets one delete per
+   * target from then on.
+   */
+  delete_batch(targets: readonly StorageDeleteTarget[]): Promise<StorageDeleteOutcome[]> {
+    return this._batch_deleter.delete_batch(targets);
+  }
+
   /** Returns true if the object exists (HEAD request). */
   async exists(key: string): Promise<boolean> {
     try {
@@ -234,6 +257,11 @@ export class S3ObjectStorage implements ObjectStorage {
   /** Lists all object versions and delete markers under a prefix. */
   async list_versions(prefix: string): Promise<StorageObjectVersion[]> {
     return list_object_versions(this._client, this._bucket, prefix);
+  }
+
+  /** Yields the versions and delete markers under a prefix one listing page at a time. */
+  list_version_pages(prefix: string): AsyncIterable<StorageObjectVersion[]> {
+    return list_object_version_pages(this._client, this._bucket, prefix);
   }
 
   /** Starts a multipart upload with optional metadata and object lock. */

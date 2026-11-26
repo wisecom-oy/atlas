@@ -49,9 +49,11 @@ export function contacts_summary_key(mailbox_id: string): string {
 export function contacts_mailbox_prefixes(mailbox_id: string): string[] {
   const segment = contacts_mailbox_segment(mailbox_id);
   return [
+    // Manifests before the items they list, so an interrupted erasure leaves orphan items rather
+    // than manifests pointing at items already gone (issue #922).
+    `contacts/manifests/${segment}/`,
     `contacts/data/${segment}/`,
     `contacts/photos/${segment}/`,
-    `contacts/manifests/${segment}/`,
     `contacts/_meta/${segment}/`,
     // A quarantined manifest still lists this mailbox's items (issue #631).
     `_quarantine/contacts/manifests/${segment}/`,

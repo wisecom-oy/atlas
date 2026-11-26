@@ -110,7 +110,7 @@ These commands remove objects in a fixed order:
 1. **Manifests first.** This removes the index that points to data.
 2. **Data objects second.** These are the encrypted messages and files.
 
-If deletion stops between the two steps, the leftover data objects are orphans. They are harmless and can be removed later. The reverse order would leave manifests pointing at missing data. `atlas teams delete` removes the channel cursors first, then the snapshot indexes, then the channel shards, then the message and image blobs.
+A purge deletes every workload's manifest prefix before it lists the rest of the bucket. If deletion stops between the two steps, the leftover data objects are orphans. They are harmless and can be removed later. The reverse order would leave manifests pointing at missing data. `atlas teams delete` removes the channel cursors first, then the snapshot indexes, then the channel shards, then the message and image blobs.
 
 While retention is active, a delete removes what it can and reports what it kept:
 

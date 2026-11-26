@@ -549,6 +549,8 @@ Every delete removes each object and its noncurrent versions, addressed by versi
 
 `atlas delete --purge` lists the whole bucket instead of a fixed list of prefixes, so a newly added workload cannot be missed and the purge never erases less than it reports. The encrypted DEK is deleted last, and only after the sweep reports nothing remaining. Deleting the key first would leave ciphertext that could neither be restored nor reported as erased.
 
+The sweep deletes every workload's manifest prefix before the rest of the bucket, streams the listing a page at a time, and deletes in `DeleteObjects` batches of up to 1,000 versions. Each key in a batch response is classified with the same retained or failed rules as a single delete, below, and Atlas never sends `BypassGovernanceRetention`. See [Bulk deletes](/self-hosting/storage#bulk-deletes).
+
 The purge and the key re-wrap take a tenant lease first, so a backup, restore, deletion, or quarantine cannot write into a bucket being erased, and a purge cannot start while an owner operation runs. Both sides check the other's lease after writing their own, so the two cannot both proceed. A process killed during the purge leaves the lease behind for 10 minutes, after which it stops blocking. The purge removes the lease last, with its versions, so an erased bucket holds no lease object.
 
 ### Per-user erasure is not available for Teams

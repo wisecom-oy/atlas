@@ -157,7 +157,7 @@ atlas contacts delete -m user@example.com
 atlas contacts delete -m user@example.com -s ct-snap-123
 ```
 
-Without `-s`, every contacts backup for the mailbox is removed. With `-s`, Atlas removes that snapshot's manifest and the mailbox's sync checkpoints, and keeps the contact and photo objects other snapshots share. Each snapshot is complete, so deleting any one leaves the others whole. The next backup reads every folder in full and captures again what the deleted snapshot held. `atlas delete --purge` removes contacts together with the rest of the tenant bucket.
+Without `-s`, every contacts backup for the mailbox is removed, manifests before the contact and photo objects they list. With `-s`, Atlas removes that snapshot's manifest and the mailbox's sync checkpoints, and keeps the contact and photo objects other snapshots share. Each snapshot is complete, so deleting any one leaves the others whole. The next backup reads every folder in full and captures again what the deleted snapshot held. `atlas delete --purge` removes contacts together with the rest of the tenant bucket.
 
 ::: danger Irreversible
 Deletion cannot be undone. Objects under Object Lock retention stay until the retention period ends. See [Erasure](/security#erasure).

@@ -24,11 +24,11 @@ describe('calendar storage keys', () => {
     );
   });
 
-  it('erases every location a mailbox occupies and nothing else', () => {
+  it('erases every location a mailbox occupies and nothing else, manifests first', () => {
     expect(calendar_mailbox_prefixes(MAILBOX)).toEqual([
+      `calendar/manifests/${MAILBOX_LOWER}/`,
       `calendar/data/${MAILBOX_LOWER}/`,
       `calendar/attachments/${MAILBOX_LOWER}/`,
-      `calendar/manifests/${MAILBOX_LOWER}/`,
       `calendar/_meta/${MAILBOX_LOWER}/`,
       `_quarantine/calendar/manifests/${MAILBOX_LOWER}/`,
     ]);
