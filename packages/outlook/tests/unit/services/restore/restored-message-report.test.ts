@@ -8,10 +8,8 @@ import type {
   TenantContext,
   TransferProgressReporter,
 } from '@wisecom/atlas-types';
-import {
-  restore_folder_entries,
-  restore_single_message,
-} from '@/services/restore/restore-execution-orchestrator';
+import { restore_single_message } from '@/services/restore/restore-execution-orchestrator';
+import { restore_folder_entries } from '@/services/restore/folder-entries-restore';
 
 /**
  * Issue #475. A restore reported only run-wide attachment totals, so a message that landed with

@@ -8,6 +8,7 @@ import {
   restore_item_metadata_entry,
   type ItemSharingRestoreDeps,
 } from '@wisecom/atlas-drive/restore/item-sharing-restore';
+import { rethrow_if_restore_run_refusal } from '@wisecom/atlas-drive/restore/restore-run-refusal';
 import { ensure_sharepoint_folder_path } from '@/services/restore/restore-folder-path';
 import { is_run_interrupted } from '@/services/restore/restore-result';
 
@@ -24,7 +25,7 @@ export interface ItemMetadataRestoreTarget {
 /**
  * Reapplies folder permissions after the files are in place, when asked. Every
  * outcome lands on the sharing summary; only an unexpected failure is added to `errors`.
- * Resolves true when the run was cancelled part-way.
+ * Resolves true when the run was cancelled part-way. Throws a refusal of every restore write.
  */
 export async function restore_sharepoint_item_metadata(
   connector: SharePointSiteConnector,
@@ -54,6 +55,7 @@ export async function restore_sharepoint_item_metadata(
       });
     } catch (err) {
       if (is_active_run_cancelled()) return true;
+      rethrow_if_restore_run_refusal('sharepoint', err);
       errors.push(`${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }

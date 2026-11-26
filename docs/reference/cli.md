@@ -446,6 +446,10 @@ Ctrl+C stops the restore at once, including a message create or attachment uploa
 - A message created before the stop whose attachments were not all uploaded is reported once as `<message-id>: N attachment(s) not uploaded: the run was interrupted`. Delete it, or restore again into a fresh folder.
 - A second Ctrl+C exits at once with status `130`.
 
+#### When Microsoft Graph refuses the restore
+
+A missing grant (`403` with `ErrorAccessDenied`), a revoked credential, or an unlicensed mailbox applies to every message, so the restore stops at the first one with exit `4` and the error's Atlas code (`ATLAS_AUTH_DENIED` or `ATLAS_MAILBOX_NOT_LICENSED`). No further folder, message, or attachment is sent. The summary line still counts the messages restored before it, and they stay in the restore folder. A failure of one message, such as a `400`, fails only that message and the run exits `2`.
+
 ### atlas outlook list
 
 Browse backed-up mail at three levels: mailboxes, snapshots, and messages.
@@ -783,6 +787,8 @@ atlas contacts quarantine --key contacts/manifests/<mailbox-id>/<snapshot-id>.js
 
 - **Complete snapshots.** Each snapshot manifest is complete, so `restore` and `verify` read one manifest and no chain.
 - **Restore never overwrites or deletes.** It tags each contact it creates with its source contact id, and skips an entry the target folder already holds as the original contact or as a tagged copy, counting it in `contacts_skipped`. Same-name contacts are restored separately, and a rerun creates nothing. Folders map by display-name path, compared without case. See [Contacts backup](/contacts-backup#restore).
+- **A target folder that cannot be listed** after retries fails each of its contacts with the listing error and is not listed again in the run. Other folders restore, exit `2`.
+- **Ctrl+C** lets a contact, folder, or photo write already sent finish, counts it, then stops with exit `2`. A second Ctrl+C exits `130` at once.
 - **`verify`** exits `1` when a check fails and `2` when interrupted. A full `verify` checks every object and lists each damaged one; other storage errors stop the run, as for [`atlas outlook verify`](#atlas-outlook-verify).
 - **`delete -s`** removes the snapshot's manifest and the mailbox's delta cursor. The other snapshots stay whole, and the next backup reads every folder in full, so it captures again every change the deleted snapshot held. `delete -m` removes the cursor with the rest of the mailbox's data. A cursor left behind is resumed only while the snapshot it was saved with is still the newest readable one.
 
@@ -819,6 +825,8 @@ atlas calendar quarantine --key calendar/manifests/<mailbox-id>/<snapshot-id>.js
 - **Complete snapshots.** Each snapshot manifest is complete, so `restore` and `verify` read one manifest and no chain.
 - **Restore never overwrites or deletes an event it did not create.** An event already in the target is skipped and counted in `events_skipped`. An event an earlier restore left incomplete (a failed attachment upload or recurrence change) is deleted and recreated in full.
 - **No invitations.** Restored events carry no attendees, so no invitations are sent; the attendee list is written into the event body instead. See [why attendees are not re-invited](/calendar-backup#why-attendees-are-not-re-invited).
+- **A target calendar that cannot be listed** after retries fails each of its events with the listing error and is not listed again in the run. Other calendars restore, exit `2`.
+- **Ctrl+C** lets an event or calendar write already sent finish, counts it, then stops with exit `2`. A second Ctrl+C exits `130` at once.
 - **`verify`** exits `1` when a check fails and `2` when interrupted. A full `verify` checks every object and lists each damaged one; other storage errors stop the run, as for [`atlas outlook verify`](#atlas-outlook-verify).
 - **`delete -s`** removes the snapshot's manifest and the mailbox's delta cursor. The other snapshots stay whole, and the next backup reads every calendar in full, so it captures again every change the deleted snapshot held. `delete -m` removes the cursor with the rest of the mailbox's data. A cursor left behind is resumed only while the snapshot it was saved with is still the newest readable one.
 
@@ -925,6 +933,7 @@ atlas onedrive restore -o user@example.com -s od-snap-123 --file-filter "/Docume
 - **`--file-filter` paths** are the rooted paths shown in a listing. A file at the root is `/Report.docx`, not `//Report.docx`. Version commands accept the same path forms.
 - **Unmatched `--file-filter`.** On `restore` and `save`, for OneDrive and SharePoint: when no value matches, the command stops with `ATLAS_NOT_FOUND` (exit `7`) after reading the snapshot and before any Graph listing or write, so no file or archive is written. When some values match, it restores or saves those, names each unmatched value, and exits `2`, whether or not a file also failed. A value selects every file whose ID or full path it names.
 - **Ctrl+C.** An upload already sent is never cut off, because Microsoft 365 may already have committed it; that file counts as restored if it was accepted. A large file stopped before its final chunk is not created. The run prints the files restored so far and exits `2`, and a file stopped before it was written is not reported as failed. A second Ctrl+C exits at once with status `130`, so the file in flight may or may not exist: check the destination before retrying, especially with `--in-place`. This applies to `atlas sharepoint restore` and to `restore-version` on both drives. Upload sizes and session cleanup are under [File transfers](/operations/reliability#file-transfers-onedrive-and-sharepoint).
+- **A refusal for the whole drive.** An `AuthError`, or a `403 accessDenied` on a folder create or upload, stops `restore` with exit `4` and `ATLAS_AUTH_DENIED`, naming `Files.ReadWrite.All` (OneDrive) or `Sites.ReadWrite.All` (SharePoint). No further file is sent, and the files restored before it are logged with their count. Any other `403` fails only its file. This applies to `atlas sharepoint restore` too.
 
 ::: details Upload limits behind the interrupt rules
 A file up to 4 MiB is one upload request. A larger file goes through an upload session, and its final chunk is the request that creates it. When Ctrl+C stops a larger file before that chunk, Atlas deletes the upload session, giving the delete 10 s. A session Atlas cannot delete expires on Graph's side without creating a file.
