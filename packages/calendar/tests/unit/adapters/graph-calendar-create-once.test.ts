@@ -41,7 +41,10 @@ describe('create_event after an ambiguous failure', () => {
     );
     await vi.advanceTimersByTimeAsync(600_000);
 
-    expect(await outcome).toMatchObject({ statusCode: 503 });
+    expect(await outcome).toMatchObject({
+      name: 'CreateOutcomeUnknownError',
+      cause: { statusCode: 503 },
+    });
     expect(stored).toHaveLength(1);
   });
 
@@ -55,7 +58,10 @@ describe('create_event after an ambiguous failure', () => {
     );
     await vi.advanceTimersByTimeAsync(600_000);
 
-    expect(await outcome).toMatchObject({ code: 'ETIMEDOUT' });
+    expect(await outcome).toMatchObject({
+      name: 'CreateOutcomeUnknownError',
+      cause: { code: 'ETIMEDOUT' },
+    });
     expect(stored).toHaveLength(1);
   });
 });
@@ -69,7 +75,10 @@ describe('create_calendar after an ambiguous failure', () => {
     const outcome = create_calendar(client, MAILBOX, 'Restored').catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(600_000);
 
-    expect(await outcome).toMatchObject({ statusCode: 504 });
+    expect(await outcome).toMatchObject({
+      name: 'CreateOutcomeUnknownError',
+      cause: { statusCode: 504 },
+    });
     expect(stored).toHaveLength(1);
   });
 });

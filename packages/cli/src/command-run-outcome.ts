@@ -8,6 +8,10 @@ import { logger } from '@wisecom/atlas-core';
  */
 export const EXIT_PARTIAL = 2;
 
+/** The troubleshooting section on checking the target before restoring an item again. */
+export const RESTORE_WRITES_SENT_ONCE_URL =
+  'https://docs.atlas.wisecom.fi/troubleshooting#restore-writes-are-sent-once';
+
 export interface RunOutcome {
   readonly errors: readonly string[];
   readonly warnings: readonly string[];
@@ -19,6 +23,8 @@ export interface RunOutcome {
    * be the content that was backed up.
    */
   readonly integrity_failures?: readonly string[];
+  /** How many of `errors` are restore items whose create may have committed (issue #893). */
+  readonly outcome_unknown?: number;
 }
 
 /**
@@ -40,6 +46,8 @@ export function report_run_outcome(outcome: RunOutcome, item_noun: string): void
     logger.error(`  ${item_noun} integrity failure: ${failure}`);
   }
 
+  report_outcome_unknown(outcome.outcome_unknown ?? 0, item_noun);
+
   if (outcome.interrupted) {
     logger.warn('Run interrupted before all items were processed');
   }
@@ -57,6 +65,19 @@ export function report_run_outcome(outcome: RunOutcome, item_noun: string): void
     ...(integrity_failures.length > 0 ? [`${integrity_failures.length} integrity failure(s)`] : []),
   ].join(', ');
   logger.error(`Run incomplete: ${counts}${suffix} -- exit ${EXIT_PARTIAL}`);
+}
+
+/**
+ * Says how many restore items may exist in the target although their create failed, and where to
+ * read what to check, so an operator checks those items before a rerun leaves a second copy
+ * (issue #893). Sets no exit code: each such item is also an error, which already exits 2.
+ */
+export function report_outcome_unknown(count: number, item_noun: string): void {
+  if (count <= 0) return;
+  logger.warn(
+    `Outcome unknown: ${count} ${item_noun}(s) may exist in the target although the restore ` +
+      `reported an error. Check the target before restoring them again: ${RESTORE_WRITES_SENT_ONCE_URL}`,
+  );
 }
 
 /**

@@ -14,7 +14,15 @@ import {
   restore_entry_attachments,
   restore_parsed_attachments,
 } from '@/services/restore/restore-attachment-writer';
-import type { AttachmentRestoreResult } from '@/services/restore/restore-attachment-writer';
+import type {
+  AttachmentOutcomeUnknown,
+  AttachmentRestoreResult,
+} from '@/services/restore/restore-attachment-writer';
+import {
+  unknown_attachment_creates,
+  unknown_message_create,
+  unknown_single_message_result,
+} from '@/services/restore/outcome-unknown-messages';
 import {
   attachment_shortfall_warning,
   count_attachment_kinds,
@@ -52,6 +60,8 @@ export async function restore_one_entry(
 export interface EntryRestoreOutcome {
   readonly att: number;
   readonly attachment_errors: string[];
+  /** The attachments among `attachment_errors` whose create may have committed (issue #893). */
+  readonly attachment_outcome_unknown: readonly AttachmentOutcomeUnknown[];
   readonly report: RestoredMessageReport;
   /** A refusal for the whole mailbox met while uploading the attachments; it ends the restore. */
   readonly refusal?: RunFatalError;
@@ -71,6 +81,7 @@ function entry_outcome(
     ...(result?.refusal !== undefined && { refusal: result.refusal }),
     att: uploaded.file + uploaded.inline,
     attachment_errors,
+    attachment_outcome_unknown: result?.outcome_unknown ?? [],
     report: {
       object_id,
       target_message_id,
@@ -184,14 +195,23 @@ export async function restore_single_message(
     created_folders,
   );
 
-  const outcome = await restore_one_entry(
-    ctx,
-    restore_connector,
-    tenant_id,
-    target_mailbox,
-    target_fid,
-    entry,
-  );
+  let outcome: EntryRestoreOutcome;
+  try {
+    outcome = await restore_one_entry(
+      ctx,
+      restore_connector,
+      tenant_id,
+      target_mailbox,
+      target_fid,
+      entry,
+    );
+  } catch (err) {
+    // A create that may have committed is reported on the result, not thrown (issue #893).
+    const line = `${entry.object_id}: ${err instanceof Error ? err.message : String(err)}`;
+    const unknown = unknown_message_create(entry.object_id, target_fid, line, err);
+    if (unknown === undefined) throw err;
+    return unknown_single_message_result(snapshot_id, root.display_name, unknown);
+  }
   const att_count = outcome.att;
   const shortfall = attachment_shortfall_warning(outcome.report);
 
@@ -208,6 +228,12 @@ export async function restore_single_message(
     verification_warnings: shortfall ? [shortfall] : [],
     messages: [outcome.report],
     restore_folder_name: root.display_name,
+    outcome_unknown: unknown_attachment_creates(
+      entry.object_id,
+      target_fid,
+      outcome.attachment_outcome_unknown,
+      '',
+    ),
     interrupted: false,
   };
 }

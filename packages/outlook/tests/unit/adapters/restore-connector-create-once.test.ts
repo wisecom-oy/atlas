@@ -42,7 +42,10 @@ describe('GraphRestoreConnector create_message after an ambiguous failure', () =
       .catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(600_000);
 
-    expect(await outcome).toMatchObject({ statusCode: 503 });
+    expect(await outcome).toMatchObject({
+      name: 'CreateOutcomeUnknownError',
+      cause: { statusCode: 503 },
+    });
     expect(stored).toHaveLength(1);
   });
 
@@ -56,7 +59,10 @@ describe('GraphRestoreConnector create_message after an ambiguous failure', () =
       .catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(600_000);
 
-    expect(await outcome).toMatchObject({ code: 'ETIMEDOUT' });
+    expect(await outcome).toMatchObject({
+      name: 'CreateOutcomeUnknownError',
+      cause: { code: 'ETIMEDOUT' },
+    });
     expect(stored).toHaveLength(1);
   });
 
@@ -97,7 +103,10 @@ describe('GraphRestoreConnector create_message after an ambiguous failure', () =
       .catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(600_000);
 
-    expect(await outcome).toMatchObject({ statusCode: 502 });
+    expect(await outcome).toMatchObject({
+      name: 'CreateOutcomeUnknownError',
+      cause: { statusCode: 502 },
+    });
     expect(stored).toHaveLength(1);
   });
 });

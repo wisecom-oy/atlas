@@ -27,3 +27,4 @@ export type {
   DriveFolderColorConnector,
   DriveFolderColorRestoreSummary,
 } from './folder-color.port';
+export type { OutcomeUnknownFile } from './outcome-unknown-file.port';

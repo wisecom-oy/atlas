@@ -41,7 +41,10 @@ describe('create_contact after an ambiguous failure', () => {
     );
     await vi.advanceTimersByTimeAsync(600_000);
 
-    expect(await outcome).toMatchObject({ statusCode: 503 });
+    expect(await outcome).toMatchObject({
+      name: 'CreateOutcomeUnknownError',
+      cause: { statusCode: 503 },
+    });
     expect(stored).toHaveLength(1);
   });
 
@@ -55,7 +58,10 @@ describe('create_contact after an ambiguous failure', () => {
     );
     await vi.advanceTimersByTimeAsync(600_000);
 
-    expect(await outcome).toMatchObject({ code: 'ETIMEDOUT' });
+    expect(await outcome).toMatchObject({
+      name: 'CreateOutcomeUnknownError',
+      cause: { code: 'ETIMEDOUT' },
+    });
     expect(stored).toHaveLength(1);
   });
 });
@@ -71,7 +77,10 @@ describe('create_contact_folder after an ambiguous failure', () => {
     );
     await vi.advanceTimersByTimeAsync(600_000);
 
-    expect(await outcome).toMatchObject({ statusCode: 500 });
+    expect(await outcome).toMatchObject({
+      name: 'CreateOutcomeUnknownError',
+      cause: { statusCode: 500 },
+    });
     expect(stored).toHaveLength(1);
   });
 });

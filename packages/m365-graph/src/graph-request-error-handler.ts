@@ -30,6 +30,9 @@ import { is_permanent_item_error } from '@/graph-permanent-item-errors';
 import { is_retryable_graph_status, is_throttle_status } from '@/graph-retryable-status';
 import { is_unreadable_success_body } from '@/graph-unreadable-body';
 import { to_graph_unavailable_error } from '@/graph-unavailable-failure';
+import { describe_graph_error } from '@/graph-error-description';
+import { is_throttle_response } from '@/graph-throttle-response';
+import { throw_if_send_once_outcome_unknown } from '@/graph-send-once-outcome';
 import {
   GraphTokenRequestError,
   is_transient_token_request_error,
@@ -40,6 +43,9 @@ import {
 import { NewTokenRepeat, is_graph_unauthorized } from '@/graph-unauthorized-retry';
 import { get_active_graph_attempt, rethrow_if_stopped_before_send } from '@/graph-attempt';
 import { GraphUnavailableError, ThrottledError } from '@wisecom/atlas-types';
+
+export { describe_graph_error } from '@/graph-error-description';
+export { is_throttle_response } from '@/graph-throttle-response';
 
 const MAX_RETRIES = 12;
 const BASE_DELAY_MS = 1_000;
@@ -77,18 +83,6 @@ export interface GraphRetryOptions {
    * that exists. Waits before a send stay cancellable. Defaults to false (issue #682).
    */
   readonly complete_in_flight?: boolean;
-}
-
-/**
- * Whether a failure is Graph refusing the request before processing it: a 429, or a 503 carrying
- * Retry-After, the form SharePoint and OneDrive throttling also takes. Only these are safe to
- * repeat for a write that is not idempotent. A 509 is not among them: nothing documents that Graph
- * refuses a write with it before processing, so a write answered 509 is not sent again (#867).
- */
-export function is_throttle_response(err: unknown): boolean {
-  const status = status_code_of(err);
-  if (status === 429) return true;
-  return status === 503 && extract_retry_after_ms(err) !== undefined;
 }
 
 /**
@@ -168,7 +162,8 @@ export function is_retryable_error(err: unknown): boolean {
  * `fn` receives a signal that fires when its attempt times out or the run is cancelled. A request
  * that passes it to fetch (`.option('signal', signal)` on a Graph request) is torn down rather than
  * left running beside the next attempt. A call marked `idempotent: false` is retried only on a
- * throttle response. A 401 is repeated once, with a newly issued token. A failed token request waits
+ * throttle response, and one that ended the way a committed request can, a 5xx, a timeout or a
+ * dropped connection, throws `CreateOutcomeUnknownError` (issue #893). A 401 is repeated once, with a newly issued token. A failed token request waits
  * at least MSAL's throttle window before its repeat, since MSAL replays the failure until then.
  *
  * Inside a backup run (`run_stopping_on_graph_outage`), a call that spends its budget records the
@@ -243,6 +238,8 @@ async function retry_until_settled<T>(
         before_send: stop_signal,
       });
     } catch (err) {
+      // Before the cancellation check: a create sent once may have landed, even after Ctrl+C (#893).
+      throw_if_send_once_outcome_unknown(err, idempotent, cancel_signal);
       throw_if_cancelled(cancel_signal);
       rethrow_if_stopped_before_send(err);
       if (!claim_retry(err, idempotent, new_token_repeat)) throw as_final_failure(err);
@@ -404,29 +401,6 @@ function raise_throttle_on_throttle_status(
   throttle.coordinator.raise(pool, cooldown_ms, target.scope);
   announce_throttle_cooldown(target, cooldown_ms, err);
   return true;
-}
-
-/**
- * Renders any Graph/network error as a non-empty, actionable one-liner.
- * Graph SDK errors routinely carry an empty `message` with the useful part in
- * `statusCode`/`code`/`body`, so every available facet is joined rather than
- * picking the first one present (issue #92).
- */
-export function describe_graph_error(err: unknown): string {
-  if (err === null || err === undefined) return 'unknown error';
-  if (typeof err !== 'object') return String(err);
-
-  const graph_err = err as Record<string, unknown>;
-  const status = graph_err.statusCode ?? graph_err.status;
-  const message = err instanceof Error ? err.message.trim() : '';
-  const parts = [
-    typeof status === 'number' || typeof status === 'string' ? `HTTP ${status}` : '',
-    typeof graph_err.code === 'string' ? graph_err.code.trim() : '',
-    message.slice(0, 200),
-    message === '' && typeof graph_err.body === 'string' ? graph_err.body.slice(0, 200) : '',
-  ].filter((part) => part !== '');
-
-  return parts.length > 0 ? parts.join(' -- ') : `unknown error (${err.constructor.name})`;
 }
 
 /**

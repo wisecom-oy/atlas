@@ -73,7 +73,11 @@ describe('a timed-out attempt closes its request before the retry (issue #888)',
 
     expect(rig.requests[0]!.method).toBe('POST');
     expect(rig.requests[0]!.closed_at).toBe(TIMEOUT_MS);
-    expect(await outcome).toMatchObject({ code: 'ETIMEDOUT' });
+    // A create cut off at its timeout may still have landed, so it is reported as unknown (#893).
+    expect(await outcome).toMatchObject({
+      name: 'CreateOutcomeUnknownError',
+      cause: { code: 'ETIMEDOUT' },
+    });
   });
 
   it('keeps a signal the call site set itself', async () => {

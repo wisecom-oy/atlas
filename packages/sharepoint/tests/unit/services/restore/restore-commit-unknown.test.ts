@@ -8,6 +8,7 @@ import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manif
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  CreateOutcomeUnknownError,
   UploadCommitUnknownError,
   type SharePointManifestEntry,
   type SharePointManifestRepository,
@@ -53,7 +54,7 @@ function make_entry(file_id: string): SharePointManifestEntry {
   };
 }
 
-function make_harness() {
+function make_harness(first_upload: () => Promise<never> = final_chunk_timing_out) {
   const entries = [make_entry('file-1'), make_entry('file-2'), make_entry('file-3')];
   const store = in_memory_tenant_context('tenant-1');
   for (const entry of entries) {
@@ -65,10 +66,7 @@ function make_harness() {
   const connector = {
     list_document_libraries: vi.fn().mockResolvedValue([]),
     create_folder: vi.fn().mockResolvedValue('folder-1'),
-    upload_small_file: vi
-      .fn()
-      .mockImplementationOnce(final_chunk_timing_out)
-      .mockResolvedValue(undefined),
+    upload_small_file: vi.fn().mockImplementationOnce(first_upload).mockResolvedValue(undefined),
     upload_large_file: vi.fn().mockResolvedValue(undefined),
   } as unknown as SharePointSiteConnector;
   const manifests = {
@@ -118,7 +116,40 @@ describe('SharePoint restore of a file whose final chunk ended ambiguously (issu
         'ended with no answer within 60 s after Microsoft 365 may have committed it. ' +
         'Check the target before restoring it again',
     ]);
+    // Issue #893: the file is also listed, with where it was being written.
+    expect(result.outcome_unknown).toEqual([
+      { path: expect.stringMatching(/\/Reports\/file-1\.docx$/), error: result.errors[0] },
+    ]);
   });
+
+  it('lists a single-request upload whose create outcome is unknown (issue #893)', async () => {
+    const unknown = new CreateOutcomeUnknownError('HTTP 502');
+    const { service } = make_harness(() => Promise.reject(unknown));
+
+    const result = await service.restore_sharepoint('tenant-1', 'site-1', {
+      snapshot_id: 'sp-snap-1',
+    });
+
+    expect(result.errors).toEqual([`file-1.docx: ${unknown.message}`]);
+    expect(result.outcome_unknown).toEqual([
+      { path: expect.stringMatching(/\/Reports\/file-1\.docx$/), error: result.errors[0] },
+    ]);
+  });
+
+  it.each([400, 404, 409, 413])(
+    'does not list a file Graph refused with %i (issue #893)',
+    async (status) => {
+      const refused = Object.assign(new Error(`HTTP ${status}`), { statusCode: status });
+      const { service } = make_harness(() => Promise.reject(refused));
+
+      const result = await service.restore_sharepoint('tenant-1', 'site-1', {
+        snapshot_id: 'sp-snap-1',
+      });
+
+      expect(result.errors).toEqual([`file-1.docx: HTTP ${status}`]);
+      expect(result.outcome_unknown).toEqual([]);
+    },
+  );
 
   it('names the file when Ctrl+C was pressed while its final chunk was in flight', async () => {
     const { connector, service } = make_harness();

@@ -19,6 +19,7 @@ function summary(overrides: Partial<DriveRestoreSummary> = {}): DriveRestoreSumm
     folders_created: 1,
     files_skipped: 0,
     errors: [],
+    outcome_unknown: [],
     interrupted: false,
     ...overrides,
   };
