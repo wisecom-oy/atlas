@@ -1,3 +1,4 @@
+import { UploadCommitUnknownError } from '@wisecom/atlas-types';
 import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { restore_parent_path } from '@wisecom/atlas-core/services/shared/restore-destination';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -27,7 +28,7 @@ export interface FileRestoreTarget {
   readonly file_name: string;
 }
 
-/** How one file restore ended. */
+/** How one file restore ended. A cancelled restore carries an error when the file may exist. */
 export interface FileRestoreOutcome {
   readonly restored: boolean;
   readonly error?: string;
@@ -72,12 +73,15 @@ export async function restore_onedrive_file_entry(
     await apply_restored_file_permissions(sharing, target.drive_id, item_id, entry);
     return { restored: true };
   } catch (err) {
-    // An upload cut short by Ctrl+C is the run stopping, not a failed file (issue #682).
-    if (is_active_run_cancelled()) return { restored: false, cancelled: true };
+    // An upload cut short by Ctrl+C is the run stopping, not a failed file (issue #682), unless its
+    // final chunk was sent and may have created the file, which is named either way (issue #892).
+    const may_exist = err instanceof UploadCommitUnknownError;
+    if (is_active_run_cancelled() && !may_exist) return { restored: false, cancelled: true };
     // A refusal of every write would fail each remaining file the same way (issue #871).
     rethrow_if_restore_run_refusal('onedrive', err);
     const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
     logger.warn(`Skipped ${entry.file_name}: ${msg}`);
+    if (is_active_run_cancelled()) return { restored: false, error: msg, cancelled: true };
     return { restored: false, error: msg };
   }
 }

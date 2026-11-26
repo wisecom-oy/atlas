@@ -2,6 +2,7 @@ import type { TenantContext } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { AttachmentEntry, AttachmentKindCounts } from '@wisecom/atlas-types';
 import type { MimeAttachment } from '@/services/shared/mime-message-parser';
+import { UploadCommitUnknownError } from '@wisecom/atlas-types';
 import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import {
   is_run_fatal_error,
@@ -132,7 +133,7 @@ function record_failed_upload(
   err: unknown,
 ): UploadStop | undefined {
   if (is_active_run_cancelled()) {
-    errors.push(interrupted_attachments(remaining));
+    record_interrupted_upload(errors, name, remaining, err);
     return {};
   }
   if (is_run_fatal_error(err)) {
@@ -149,6 +150,24 @@ function with_refusal(
   refusal: RunFatalError | undefined,
 ): AttachmentRestoreResult {
   return refusal === undefined ? result : { ...result, refusal };
+}
+
+/**
+ * Records the attachments a cancelled run did not upload, in one line, after naming an attachment
+ * whose final chunk was sent and may have landed (issue #891).
+ */
+function record_interrupted_upload(
+  errors: string[],
+  name: string,
+  remaining: number,
+  err: unknown,
+): void {
+  if (!(err instanceof UploadCommitUnknownError)) {
+    errors.push(interrupted_attachments(remaining));
+    return;
+  }
+  errors.push(`${name}: ${err.message}`);
+  if (remaining > 1) errors.push(interrupted_attachments(remaining - 1));
 }
 
 /**

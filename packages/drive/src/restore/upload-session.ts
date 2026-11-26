@@ -1,63 +1,14 @@
-import {
-  cancellable_sleep,
-  is_transient_error,
-  parse_retry_after_ms,
-  report_transfer_throttle,
-  wait_for_transfer_slot,
-} from '@wisecom/atlas-m365-graph';
+import { UploadCommitUnknownError } from '@wisecom/atlas-types';
 import { ByteQueue } from '@wisecom/atlas-core/services/shared/byte-queue';
 import { get_active_abort_signal } from '@wisecom/atlas-core/services/shared/graph-request-context';
-import { logger } from '@wisecom/atlas-core/utils/logger';
 import type { LargeFileContent, StreamedFileContent } from '@wisecom/atlas-types';
+import { put_chunk_with_retry } from '@/restore/upload-session-chunk';
+import { cancel_upload_session, read_outstanding_ranges } from '@/restore/upload-session-cleanup';
+
+export { SESSION_CLEANUP_TIMEOUT_MS } from '@/restore/upload-session-cleanup';
 
 /** Bytes per chunk PUT into a Graph upload session. */
 export const LARGE_UPLOAD_CHUNK = 10 * 1024 * 1024;
-
-const CHUNK_PUT_ATTEMPTS = 3;
-
-/** How long releasing an abandoned session may hold up the run that is giving it up. */
-export const SESSION_CLEANUP_TIMEOUT_MS = 10_000;
-
-/**
- * Releases an upload session Atlas is abandoning.
- *
- * A cleanup that itself fails is reported rather than swallowed: the session keeps its reserved
- * quota until Graph expires it, and an operator chasing a quota complaint needs to know Atlas tried
- * and could not (issue #342).
- *
- * The DELETE gets its own deadline. It runs on the way out of a failed or cancelled upload, so an
- * endpoint that never answers would otherwise hold back the interrupted result Ctrl+C asked for
- * (issue #682). A session left behind this way expires on Graph's side without creating a file.
- */
-async function cancel_upload_session(upload_url: string, reason: string): Promise<void> {
-  const deadline = new AbortController();
-  const timer = setTimeout(
-    () => deadline.abort(new Error('timed out')),
-    SESSION_CLEANUP_TIMEOUT_MS,
-  );
-  try {
-    const response = await fetch(upload_url, { method: 'DELETE', signal: deadline.signal });
-    if (!response.ok) {
-      logger.warn(
-        `Could not cancel the upload session after ${reason}: HTTP ${response.status}. ` +
-          `It stays reserved until Graph expires it.`,
-      );
-    }
-  } catch (err) {
-    logger.warn(
-      `Could not cancel the upload session after ${reason}: ` +
-        `${err instanceof Error ? err.message : String(err)}. ` +
-        `It stays reserved until Graph expires it.`,
-    );
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/** What Graph answers an intermediate chunk with, per the createUploadSession contract. */
-interface UploadSessionStatus {
-  readonly nextExpectedRanges?: string[];
-}
 
 /**
  * Uploads a file into an open Graph upload session and returns only on a completed item.
@@ -90,7 +41,8 @@ export async function upload_content_to_session(
 
   // Ctrl+C ends an intermediate chunk PUT or any retry wait, which leaves an abandoned session and
   // no file. The committing chunk is never cut off mid-flight: Graph may already have accepted it,
-  // and an upload that then reported itself cancelled could hide a file it had written (#682).
+  // and an upload that then reported itself cancelled could hide a file it had written (#682). Its
+  // per-attempt deadline is what bounds it instead (#878).
   const abort_signal = get_active_abort_signal();
   let outcome: UploadOutcome;
   try {
@@ -98,8 +50,7 @@ export async function upload_content_to_session(
   } catch (err) {
     // A thrown error takes the same exit as a terminal HTTP failure. Without this a socket reset on
     // a chunk, or a source that failed to authenticate, left the session open.
-    const reason = abort_signal?.aborted === true ? 'a cancelled run' : 'a failed chunk upload';
-    await cancel_upload_session(upload_url, reason);
+    await cancel_upload_session(upload_url, abandon_reason(err, abort_signal));
     throw err;
   }
 
@@ -187,75 +138,8 @@ async function put_source_chunks(
   return { kind: 'incomplete' };
 }
 
-/** How Graph answered one chunk: whether the item is complete, and its id when Graph said. */
-interface ChunkAnswer {
-  readonly completed: boolean;
-  readonly item_id?: string | undefined;
-}
-
-/** Uploads one chunk, returning whether Graph reported the item as complete. */
-async function put_chunk_with_retry(
-  upload_url: string,
-  range: string,
-  chunk: Buffer,
-  abort_signal: AbortSignal | undefined,
-  role: 'intermediate' | 'commit' = 'intermediate',
-): Promise<ChunkAnswer> {
-  // The waits before a send stay cancellable either way; only the committing request runs to its end.
-  const request_signal = role === 'commit' ? undefined : abort_signal;
-  for (let attempt = 0; attempt < CHUNK_PUT_ATTEMPTS; attempt++) {
-    await wait_for_transfer_slot(abort_signal);
-    const response = await fetch(upload_url, {
-      method: 'PUT',
-      headers: { 'Content-Range': range, 'Content-Length': String(chunk.length) },
-      body: chunk,
-      ...(request_signal ? { signal: request_signal } : {}),
-    });
-    report_transfer_throttle(response);
-    // 200 and 201 carry the finished driveItem; 202 means the session wants more bytes.
-    if (response.status === 200 || response.status === 201) {
-      return { completed: true, item_id: await read_created_item_id(response) };
-    }
-    if (response.status === 202) return { completed: false };
-
-    const detail = await response.text();
-    // A range PUT is addressed by Content-Range, so replaying one after a
-    // transient 500/502/504 rewrites the same bytes (issue #36).
-    const retriable = is_transient_error({ statusCode: response.status });
-    if (retriable && attempt < CHUNK_PUT_ATTEMPTS - 1) {
-      // The shared parser: the private `parseInt` copy this replaces had no clamp, so a value
-      // above 2^31-1 ms overflowed `setTimeout` and retried after about 1 ms (issue #628).
-      const wait_ms = parse_retry_after_ms(response.headers.get('retry-after')) ?? 1000;
-      await cancellable_sleep(wait_ms, abort_signal);
-      continue;
-    }
-    throw new Error(`Resumable upload failed at range ${range}: HTTP ${response.status} ${detail}`);
-  }
-  throw new Error(`Resumable upload failed at range ${range}: retries exhausted`);
-}
-
-/**
- * The id of the item a completed session created, or undefined when the body does not say. Only a
- * permission restore needs it, so an unreadable body never fails an upload that succeeded.
- */
-async function read_created_item_id(response: Response): Promise<string | undefined> {
-  try {
-    const body = (await response.json()) as { id?: unknown };
-    return typeof body.id === 'string' ? body.id : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** Asks the session what it is still waiting for, so the failure names it. */
-async function read_outstanding_ranges(upload_url: string): Promise<string> {
-  try {
-    const response = await fetch(upload_url, { method: 'GET' });
-    if (!response.ok) return `an unknown range (status query returned HTTP ${response.status})`;
-    const status = (await response.json()) as UploadSessionStatus;
-    const ranges = status.nextExpectedRanges;
-    return ranges && ranges.length > 0 ? ranges.join(', ') : 'an unreported range';
-  } catch {
-    return 'an unknown range';
-  }
+/** Why a session is being released after a thrown error, for the cleanup warning. */
+function abandon_reason(err: unknown, abort_signal: AbortSignal | undefined): string {
+  if (err instanceof UploadCommitUnknownError) return 'a final chunk with an unknown outcome';
+  return abort_signal?.aborted === true ? 'a cancelled run' : 'a failed chunk upload';
 }

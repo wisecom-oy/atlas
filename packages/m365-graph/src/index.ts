@@ -65,3 +65,11 @@ export {
 } from '@/graph-counted-listing';
 export { create_repeated_listing_filter, drop_repeated_listings } from '@/graph-listing-repeats';
 export type { ListedItemId, RepeatedListingFilter } from '@/graph-listing-repeats';
+export {
+  UploadChunkTransportError,
+  is_upload_chunk_retry_safe,
+  leaves_commit_unknown,
+  send_upload_chunk,
+  upload_chunk_timeout_ms,
+} from '@/graph-upload-session-chunk';
+export type { UploadChunk, UploadChunkRole, UploadChunkRunner } from '@/graph-upload-session-chunk';

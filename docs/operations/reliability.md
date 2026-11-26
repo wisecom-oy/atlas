@@ -177,6 +177,8 @@ A `408`, `500`, `502`, `504`, `509`, timeout, or dropped connection after a crea
 
 Once a restore write is on the wire, Ctrl+C lets it finish, up to its timeout, instead of aborting it, and an item it created is counted as restored. An aborted write might exist in the target while Atlas reports it as not written. This holds for every workload's restore, including Calendar event updates and deletes and contact photos. Only the waits before a send (backoff, `Retry-After`, cooldowns) end on the first Ctrl+C.
 
+The final chunk of an upload session is such a create, see [Upload sessions](#upload-sessions).
+
 ### File transfers (OneDrive and SharePoint)
 
 File content comes from pre-authenticated download URLs rather than through the Graph client, so it has its own retries. Transfers share the `sharepoint_onedrive` cooldown: each waits for it before it starts, and a `429`, or a `503` with `Retry-After`, raises it.
@@ -213,7 +215,33 @@ A `404` or `410` on the content of a file version is not taken at its word, beca
 
 A file whose content was stored but whose versions were not captured, because the drive failed, the file failed, or Ctrl+C stopped the run in between, is recorded in the cursor. The next run that sees the file captures its versions even though the content is already stored.
 
-During a restore, a file over 4 MiB is uploaded through an upload session in 10 MiB chunks. Each chunk is sent up to 3 times in all: a `429`, `500`, `502`, `503`, or `504` on either of the first two attempts sends it again after `Retry-After` or 1 s. A failed session is not resumed: Atlas deletes it, giving the delete 10 s, and the next restore starts a new one. The final chunk is the request that creates the file, so a checksum mismatch found while streaming abandons the session before anything is created.
+During a restore, a file over 4 MiB is uploaded through an upload session in 10 MiB chunks, see [Upload sessions](#upload-sessions). The final chunk is the request that creates the file, so a checksum mismatch found while streaming abandons the session before anything is created.
+
+### Upload sessions {#upload-sessions}
+
+A OneDrive or SharePoint file over 4 MiB, and an Outlook or Calendar attachment of 3 MiB or more, is restored through a Microsoft Graph upload session: a series of chunk `PUT`s, each naming its byte range in `Content-Range`. Sending an intermediate chunk again rewrites the same bytes. The final chunk is the request that creates the file or attachment, so it follows the [sent once](#writes-that-are-sent-once) rule.
+
+| Parameter | OneDrive and SharePoint files | Outlook and Calendar attachments |
+| --- | --- | --- |
+| Chunk size | 10 MiB | About 4 MiB (13 × 320 KiB) |
+| Per-attempt deadline | `max(60 s, chunk bytes / 128)` ms, about 82 s for a 10 MiB chunk | The same formula, 60 s per chunk |
+| Intermediate chunk | Up to 3 attempts after a `408`, `429`, `500`, `502`, `503`, `504`, `509`, a dropped connection, or the deadline. Waits `Retry-After` or 1 s | The [Graph retry policy](#microsoft-graph-requests): up to 13 attempts within the 24-minute budget |
+| Final chunk | Sent again only after a `429`, or a `503` with `Retry-After`, within the 3 attempts | Sent again only after a `429`, or a `503` with `Retry-After`, within the Graph retry policy |
+| Any other `4xx` | Not sent again | Not sent again |
+
+The deadline covers sending the chunk and reading the answer. A chunk that passes it is aborted before it is sent again, so two copies of one range are never in flight. It assumes at least about 1 Mbit/s of upload bandwidth: on a slower link, a 10 MiB chunk times out on every attempt.
+
+A final chunk that ends with a `408`, `500`, `502`, `504`, `509`, a `503` without `Retry-After`, a timeout, or a dropped connection may have been committed by Microsoft 365. So may any failure of a final chunk sent again after a throttle, such as a `416` because the session already holds the bytes. Atlas does not send it again and reports the item as an unknown outcome, distinct from a refusal:
+
+```
+Report.docx: outcome unknown, the file may exist: the final upload chunk (bytes 10485760-12582911/12582912) ended with HTTP 504 after Microsoft 365 may have committed it. Check the target before restoring it again
+```
+
+A `4xx` on the first send of the final chunk, or any failure of an intermediate chunk, is reported as `Resumable upload failed at range ...`: nothing was created. Either way the restore continues and exits `2`. See [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) for what to check.
+
+A failed file upload is not resumed. Atlas deletes the session, giving the `DELETE` 10 s, and the next restore starts a new one. After an unknown outcome the delete can fail because the session already completed, and the warning names `a final chunk with an unknown outcome`. When every chunk was accepted but the session never reported a finished file, Atlas asks it which ranges it still expects before deleting it, and that query has the same 10 s. A failed attachment session is left to expire, since it creates nothing on its own.
+
+Ctrl+C ends an intermediate chunk and any wait at once, so the file or attachment is not created. A final chunk already sent runs to its deadline: the first Ctrl+C returns control within about 82 s for a file and 60 s for an attachment. A final chunk that did not complete cleanly is still named in the result.
 
 ### Storage
 

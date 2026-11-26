@@ -1,4 +1,5 @@
 import type { CalendarConnector, CalendarEventEntry, TenantContext } from '@wisecom/atlas-types';
+import { UploadCommitUnknownError } from '@wisecom/atlas-types';
 
 import { build_create_payload } from '@/services/restore/restore-event-payload';
 import { replay_recurrence_changes } from '@/services/restore/restore-recurrence';
@@ -88,10 +89,19 @@ async function restore_attachments(
       );
     } catch (err) {
       if (is_run_fatal(err)) throw err;
-      failures.push(`attachment "${attachment.name}" not restored: ${error_message(err)}`);
+      failures.push(describe_attachment_failure(attachment.name, err));
     }
   }
   return failures;
+}
+
+/**
+ * One line for an attachment that did not upload. One whose final chunk may have landed is not
+ * called "not restored", since it may be on the event (issue #891).
+ */
+function describe_attachment_failure(name: string, err: unknown): string {
+  if (err instanceof UploadCommitUnknownError) return `attachment "${name}": ${err.message}`;
+  return `attachment "${name}" not restored: ${error_message(err)}`;
 }
 
 /** Adds the complete tag to a fully written event, so later restores skip it. */

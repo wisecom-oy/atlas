@@ -1,4 +1,5 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
+import { send_upload_chunk, type UploadChunkRunner } from '@wisecom/atlas-m365-graph';
 import type { EventAttachmentUpload, GraphEventAttachment } from '@wisecom/atlas-types';
 import {
   CALENDARS_READ,
@@ -81,50 +82,96 @@ export async function upload_event_attachment(
   const content = Buffer.from(attachment.content);
   const url = attachments_url(mailbox_id, event_id);
   if (content.length < LARGE_ATTACHMENT_THRESHOLD) {
-    await graph_call(
-      CALENDARS_READ_WRITE,
-      (signal) =>
-        client
-          .api(url)
-          .option('signal', signal)
-          .post({
-            '@odata.type': '#microsoft.graph.fileAttachment',
-            name: attachment.name,
-            contentType: attachment.content_type,
-            isInline: attachment.is_inline,
-            ...(attachment.content_id === undefined ? {} : { contentId: attachment.content_id }),
-            contentBytes: content.toString('base64'),
-          }),
-      CREATE_ONCE,
-    );
+    await post_inline_attachment(client, url, attachment, content);
     return;
   }
-  const session: unknown = await graph_call(CALENDARS_READ_WRITE, () =>
-    client.api(`${url}/createUploadSession`).post({
-      AttachmentItem: {
-        attachmentType: 'file',
-        name: attachment.name,
-        size: content.length,
-        ...(attachment.content_type === undefined ? {} : { contentType: attachment.content_type }),
-        isInline: attachment.is_inline,
-        ...(attachment.content_id === undefined ? {} : { contentId: attachment.content_id }),
-      },
-    }),
+  const upload_url = await open_attachment_upload_session(client, url, attachment, content.length);
+  await put_attachment_chunks(client, upload_url, content);
+}
+
+/** Creates an attachment below 3 MiB with one POST, sent once. */
+async function post_inline_attachment(
+  client: Client,
+  url: string,
+  attachment: EventAttachmentUpload,
+  content: Buffer,
+): Promise<void> {
+  await graph_call(
+    CALENDARS_READ_WRITE,
+    (signal) =>
+      client
+        .api(url)
+        .option('signal', signal)
+        .post({
+          '@odata.type': '#microsoft.graph.fileAttachment',
+          name: attachment.name,
+          contentType: attachment.content_type,
+          isInline: attachment.is_inline,
+          ...(attachment.content_id === undefined ? {} : { contentId: attachment.content_id }),
+          contentBytes: content.toString('base64'),
+        }),
+    CREATE_ONCE,
+  );
+}
+
+/** Opens an upload session for a large attachment and returns its upload URL. */
+async function open_attachment_upload_session(
+  client: Client,
+  url: string,
+  attachment: EventAttachmentUpload,
+  size: number,
+): Promise<string> {
+  // A spare session creates nothing and expires on its own, so this keeps the full retry policy.
+  const session: unknown = await graph_call(CALENDARS_READ_WRITE, (signal) =>
+    client
+      .api(`${url}/createUploadSession`)
+      .option('signal', signal)
+      .post({
+        AttachmentItem: {
+          attachmentType: 'file',
+          name: attachment.name,
+          size,
+          ...(attachment.content_type === undefined
+            ? {}
+            : { contentType: attachment.content_type }),
+          isInline: attachment.is_inline,
+          ...(attachment.content_id === undefined ? {} : { contentId: attachment.content_id }),
+        },
+      }),
   );
   const upload_url =
     typeof session === 'object' && session !== null && 'uploadUrl' in session
       ? session.uploadUrl
       : undefined;
   if (typeof upload_url !== 'string') throw new Error('Graph returned no uploadUrl for session');
+  return upload_url;
+}
+
+/**
+ * Sends the attachment into its session chunk by chunk. The last chunk creates the attachment, so
+ * it is sent once except after a throttle response, and one that ended ambiguously throws
+ * `UploadCommitUnknownError` (issue #891).
+ */
+async function put_attachment_chunks(
+  client: Client,
+  upload_url: string,
+  content: Buffer,
+): Promise<void> {
+  const run: UploadChunkRunner = (call, options) => graph_call(CALENDARS_READ_WRITE, call, options);
   for (let offset = 0; offset < content.length; offset += UPLOAD_CHUNK_SIZE) {
     const chunk = content.subarray(offset, Math.min(offset + UPLOAD_CHUNK_SIZE, content.length));
     const range = `bytes ${offset}-${offset + chunk.length - 1}/${content.length}`;
-    await graph_call(CALENDARS_READ_WRITE, () =>
-      client
-        .api(upload_url)
-        .header('Content-Range', range)
-        .header('Content-Length', String(chunk.length))
-        .put(chunk),
+    const role = offset + chunk.length === content.length ? 'commit' : 'intermediate';
+    await send_upload_chunk(
+      { role, range, bytes: chunk.length, item: 'attachment' },
+      (signal) =>
+        client
+          .api(upload_url)
+          .option('signal', signal)
+          .header('Content-Range', range)
+          .header('Content-Length', String(chunk.length))
+          .put(chunk),
+      run,
     );
   }
 }
