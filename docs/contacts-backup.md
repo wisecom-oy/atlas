@@ -60,6 +60,8 @@ The mailbox must hold an Exchange Online license. Microsoft Graph does not serve
 
 Both end a backup or restore at once, because no further request can succeed.
 
+A missing permission is a `403` whose Microsoft Graph code is `accessDenied`, `ErrorAccessDenied`, or `Authorization_RequestDenied`. A `403` with any other code fails only the item it answered, and the run exits `2`. See [Which `403` responses stop a run](/operations/reliability#forbidden-responses).
+
 ## Commands
 
 Every command accepts `-t, --tenant <id>` to override the tenant from config. The full option list is in the [CLI reference](/reference/cli#atlas-contacts).

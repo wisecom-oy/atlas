@@ -44,6 +44,25 @@ To fix a stored value:
 
 For any other AADSTS code, look it up in Microsoft's AADSTS error reference, then check **Microsoft Entra ID → Sign-in logs → Service principal sign-ins**, filtered by the application's client ID.
 
+### Microsoft Graph refused a request with 403
+
+```text
+[x] Microsoft Graph returned 403 Forbidden (ErrorAccessDenied).
+The app registration needs these Application permissions with admin consent:
+```
+
+The token was accepted, but Graph refused the call. When the code is `accessDenied`, `ErrorAccessDenied`, or `Authorization_RequestDenied`, or `Forbidden` on a Teams call, the app registration lacks a permission. The command exits `4` with `ATLAS_AUTH_DENIED`.
+
+1. Add the permissions the message lists, as Application permissions.
+2. Select **Grant admin consent for \<tenant\>**.
+3. For Teams, confirm Microsoft approved the protected API, see [Teams application permissions](/azure-ad-setup#teams-application-permissions).
+
+```text
+Channel <channel-id>: Microsoft Graph returned 403 UnknownError, which does not name a missing permission: ...
+```
+
+Any other code is not a missing permission, and Atlas does not report it as one. The request fails alone: one message, event, contact, or channel. The run continues, exits `2`, and the next run asks again. If the same item fails on every run, look up the code in the Microsoft Graph documentation for that endpoint. [Which `403` responses stop a run](/operations/reliability#forbidden-responses) lists the codes.
+
 ## Throttling and Microsoft Graph errors {#graph-throttling-and-transient-server-errors}
 
 Microsoft Graph returns `429` when it throttles a request, and occasionally `500`, `502`, `503`, or `504` under load. Atlas retries these on its own, up to 12 times per call, honouring `Retry-After`, so occasional throttling or server errors during a large first backup need no action. [Retries and fail-safes](/operations/reliability#microsoft-graph-requests) lists every retry parameter, and [Graph rate limits](/operations/graph-rate-limits) explains the budgets behind the `429`.

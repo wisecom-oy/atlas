@@ -227,7 +227,7 @@ A failure that belongs to one item is recorded against that item and the run con
 
 An exhausted retry budget is never one of these. It stops the backup, see [When retries run out](#when-retries-run-out-on-a-throttle).
 
-Some failures are not the item's fault. Atlas stops the larger unit instead of failing every remaining item the same way:
+Some failures are not the item's fault. Atlas stops the larger unit instead of failing every remaining item the same way. A `403` counts as an `AuthError` here only when its code means a missing permission, see [Which `403` responses stop a run](#forbidden-responses):
 
 | Failure | What stops |
 | --- | --- |
@@ -239,6 +239,18 @@ Some failures are not the item's fault. Atlas stops the larger unit instead of f
 | `AuthError` before any item is read, such as resolving the owner | The command, with exit `4` |
 | Wrong passphrase, unreadable cursor, storage failure while committing | The command, before anything is written past the last commit |
 | A unit listing that ends short of Microsoft Graph's count | The command, before any unit is read, with exit `2`. See [Unit listings that end early](#unit-listings) |
+
+### Which `403` responses stop a run {#forbidden-responses}
+
+Microsoft Graph answers `403 Forbidden` for a missing permission and for other refusals, and only the error code tells them apart. For Outlook, Calendar, Contacts, and Teams, Atlas reads that code:
+
+| Graph error code on the `403` | Reported as | Effect |
+| --- | --- | --- |
+| `accessDenied`, `ErrorAccessDenied`, `Authorization_RequestDenied` | `MissingGraphPermissionsError` (`ATLAS_AUTH_DENIED`), naming the code and the permissions to grant | Stops as an `AuthError` in the table above, exit `4` |
+| `Forbidden` on a Teams call | The same | Teams uses this code for a missing role permission and for a protected API Microsoft has not approved |
+| Any other code, or no code | A failure of that request, naming the code Graph sent | Fails the item, channel, folder, or team that request belonged to. The rest of the run continues and the command exits `2` |
+
+The codes are compared without regard to case. A `403` with no code did not come from Graph's permission check, which always sends one. A `403` that reaches the command before any item is read still exits `4`, whatever its code, since an unwrapped `403` maps to `ATLAS_AUTH_DENIED`; the message then names the code. OneDrive and SharePoint classify their own `403` responses, described in [Failed files](/onedrive-backup#failed-files).
 
 ### Unit listings that end early {#unit-listings}
 
