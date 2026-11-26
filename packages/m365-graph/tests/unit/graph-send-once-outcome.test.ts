@@ -145,3 +145,25 @@ describe('leaves_create_outcome_unknown', () => {
     expect(leaves_create_outcome_unknown(graph_error(401))).toBe(false);
   });
 });
+
+describe('a create sent once whose socket never connected', () => {
+  it.each(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUNREACH', 'ENETDOWN'])(
+    'is rethrown unchanged after %s, because nothing was sent',
+    async (code) => {
+      const err = Object.assign(new Error(`connect ${code}`), { code });
+      const { fn, calls } = failing_once(err);
+
+      const outcome = await settle(fn);
+
+      expect(outcome).toBe(err);
+      expect(calls()).toBe(1);
+    },
+  );
+
+  it('is recognised through the cause chain of a fetch failure', () => {
+    const socket = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
+    const fetch_failure = new TypeError('fetch failed', { cause: socket });
+
+    expect(leaves_create_outcome_unknown(fetch_failure)).toBe(false);
+  });
+});

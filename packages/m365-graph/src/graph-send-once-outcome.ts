@@ -14,7 +14,7 @@ import {
 } from '@wisecom/atlas-types';
 import { RequestNotSentError } from '@/graph-attempt';
 import { describe_graph_error } from '@/graph-error-description';
-import { is_network_error } from '@/graph-network-error';
+import { is_network_error, is_never_connected_error } from '@/graph-network-error';
 import { is_permanent_item_error } from '@/graph-permanent-item-errors';
 import { is_retryable_graph_status } from '@/graph-retryable-status';
 import { is_throttle_response } from '@/graph-throttle-response';
@@ -51,11 +51,13 @@ export function throw_if_send_once_outcome_unknown(
  * Whether a create sent once may have been committed although its attempt failed: a `408`, `500`,
  * `502`, `504`, a `503` without `Retry-After`, a `509`, a `2xx` whose body did not parse, a timeout,
  * or a dropped connection. A throttle response (`429`, or `503` with `Retry-After`) is Graph refusing
- * before processing, and is retried. A request never sent, a failed token request, an inner call's
- * exhausted budget and every other `4xx` created nothing.
+ * before processing, and is retried. A request never sent, a socket that never connected (refused,
+ * unreachable, or a name that did not resolve), a failed token request, an inner call's exhausted
+ * budget and every other `4xx` created nothing.
  */
 export function leaves_create_outcome_unknown(err: unknown): boolean {
   if (err instanceof RequestNotSentError || is_transient_token_request_error(err)) return false;
+  if (is_never_connected_error(err)) return false;
   if (err instanceof ThrottledError || err instanceof GraphUnavailableError) return false;
   if (is_throttle_response(err) || is_permanent_item_error(err)) return false;
   return (
