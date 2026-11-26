@@ -42,11 +42,16 @@ export async function list_hosted_contents(
   return items;
 }
 
+/** Per-attempt timeout of a hosted-content download, matching an Outlook MIME download. */
+const HOSTED_CONTENT_DOWNLOAD_TIMEOUT_MS = 1_800_000;
+
 /**
  * Downloads one hosted content item's raw bytes and its Content-Type header. A non-2xx becomes a
  * GraphError with its headers inside the retried call, so a 404 or 429 error body is never stored
- * as the image. The body is read inside each attempt too, so the 60 s attempt timeout, a retry on
- * a body cut off mid-stream, and Ctrl+C cover it (issue #877). The call is not wrapped in
+ * as the image. The body is read inside each attempt too, so the attempt timeout, the 60 s idle
+ * timeout, a retry on a body cut off mid-stream, and Ctrl+C cover it (issue #877). The attempt gets
+ * the same 30 min as an Outlook MIME download, so a large body on a slow link still completes; a
+ * body that stops arriving is closed by the idle timeout instead. The call is not wrapped in
  * `graph_teams_call`, so a 403 stays a GraphError for the caller to treat as missing.
  */
 export async function download_hosted_content(
@@ -55,7 +60,8 @@ export async function download_hosted_content(
   hosted_id: string,
 ): Promise<TeamsHostedContent> {
   const url = `${hosted_contents_path(locator)}/${encodeURIComponent(hosted_id)}/$value`;
-  return await with_graph_retry((attempt_signal) =>
-    get_graph_binary_with_idle_timeout(client.api(url), attempt_signal),
+  return await with_graph_retry(
+    (attempt_signal) => get_graph_binary_with_idle_timeout(client.api(url), attempt_signal),
+    { timeout_ms: HOSTED_CONTENT_DOWNLOAD_TIMEOUT_MS },
   );
 }

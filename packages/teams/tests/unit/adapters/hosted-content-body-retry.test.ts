@@ -26,6 +26,8 @@ const LOCATOR = { team_id: 'team-1', channel_id: 'channel-1', root_id: 'root-1' 
 const IMAGE = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
 /** `with_graph_retry` sends the first attempt and 12 retries. */
 const MAX_ATTEMPTS = 13;
+/** A download with no headers or body bytes for this long is abandoned. */
+const IDLE_MS = 60_000;
 /** The first retry's backoff is 1 s plus up to 1 s of jitter. */
 const FIRST_BACKOFF_MAX_MS = 2_000;
 
@@ -69,20 +71,35 @@ afterEach(() => {
 });
 
 describe('download_hosted_content body read (issue #877)', () => {
-  it('abandons a body that stalls past the 60 s attempt timeout and asks again', async () => {
+  it('abandons a body that stops arriving for 60 s and asks again', async () => {
     const stalled = controlled_response_body();
     const rig = serve(streamed_graph_response(stalled, 'image/png'), image_response());
 
     const hosted = download();
     await vi.advanceTimersByTimeAsync(30_000);
     stalled.push(new Uint8Array([0x89]));
-    await vi.advanceTimersByTimeAsync(29_999);
+    await vi.advanceTimersByTimeAsync(IDLE_MS - 1);
     expect(rig.urls).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1 + FIRST_BACKOFF_MAX_MS);
 
     expect(stalled.cancelled).toBe(true);
     expect(rig.urls).toHaveLength(2);
     expect_image(await hosted);
+  });
+
+  it('completes a body that trickles in for 20 minutes in one request', async () => {
+    const slow = controlled_response_body();
+    const rig = serve(streamed_graph_response(slow, 'image/png'));
+
+    const hosted = download();
+    for (let chunk = 0; chunk < 24; chunk++) {
+      await vi.advanceTimersByTimeAsync(50_000);
+      slow.push(new Uint8Array([0x41]));
+    }
+    slow.close();
+
+    expect(rig.urls).toHaveLength(1);
+    expect((await hosted).bytes).toHaveLength(24);
   });
 
   it('asks again within the call when the body is cut off mid-stream', async () => {
