@@ -14,6 +14,8 @@ export interface ConditionalBehaviour {
    * as a backend without conditional `PUT` on versioned buckets may (issue #974).
    */
   readonly rejects_condition_headers?: boolean;
+  /** Answers `HeadObject` without an `ETag`, as some backends do; GET and PUT still carry one. */
+  readonly head_omits_etag?: boolean;
 }
 
 /** MinIO, SeaweedFS, RustFS and Versity, as measured in issue #915. */
@@ -93,7 +95,7 @@ export function fake_conditional_s3(behaviour: ConditionalBehaviour) {
       case 'HeadObjectCommand': {
         const data = objects.get(key);
         if (!data) throw named_error('NotFound', 404);
-        return { ETag: etag_of(data) };
+        return behaviour.head_omits_etag ? {} : { ETag: etag_of(data) };
       }
       case 'PutObjectCommand': {
         if (behaviour.rejects_condition_headers && carries_condition(cmd.input)) {
