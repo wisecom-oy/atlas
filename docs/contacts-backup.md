@@ -62,6 +62,8 @@ The mailbox must hold an Exchange Online license. Microsoft Graph does not serve
 
 Both end a backup or restore at once, because no further request can succeed.
 
+A `404` or `400` on the folder listing is read again, 3 reads in about 6 s, before the run ends on it. One that persists ends the run before anything is written: with `ATLAS_NOT_FOUND` (exit `7`) when the mailbox's user is gone from the directory too, and with `ATLAS_GRAPH_UNAVAILABLE` (exit `3`) otherwise. See [The first read of a run](/operations/reliability#first-reads-of-a-run).
+
 A missing permission is a `403` whose Microsoft Graph code is `accessDenied`, `ErrorAccessDenied`, or `Authorization_RequestDenied`. A `403` with any other code fails only the item it answered, and the run exits `2`. See [Which `403` responses stop a run](/operations/reliability#forbidden-responses).
 
 ## Commands
@@ -192,7 +194,9 @@ A restore prints `Contacts restored`, `Contacts skipped (already present)`, and 
 | ---- | ----------------------------------------------------------------------------- |
 | `0`  | Complete                                                                      |
 | `2`  | Partial: a contact failed, or the run was interrupted                         |
+| `3`  | Microsoft Graph kept failing, or the folder listing kept answering `4xx` for a mailbox that exists. Nothing was written |
 | `4`  | Missing permission or unlicensed mailbox                                      |
+| `7`  | The mailbox's user does not exist in the tenant                               |
 | `9`  | A damaged snapshot manifest was found. Run the printed `atlas contacts quarantine` command |
 
 See [Exit codes](/reference/cli#exit-codes) for the full list.

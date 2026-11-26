@@ -60,11 +60,11 @@ exit "$status"
 | `0`  | Success, help, or a command with no failure reported                          | Continue                                                    |
 | `1`  | Unclassified failure, invalid usage, or `ATLAS_WRITE_REFUSED`                 | Read stderr. Do not assume it is transient                  |
 | `2`  | Partial run: items failed or were skipped, a soft interrupt, or `ATLAS_LISTING_INCOMPLETE` | Inspect the partial result before relying on it |
-| `3`  | `ATLAS_THROTTLED`, `ATLAS_GRAPH_UNAVAILABLE`, or `ATLAS_STORAGE_UNAVAILABLE` after the retry budget | Schedule a later attempt                     |
+| `3`  | `ATLAS_THROTTLED`, `ATLAS_GRAPH_UNAVAILABLE`, or `ATLAS_STORAGE_UNAVAILABLE` after the retry budget, or a run's [first read](/operations/reliability#first-reads-of-a-run) that kept answering `4xx` for an owner that exists | Schedule a later attempt |
 | `4`  | `ATLAS_AUTH_DENIED`, `ATLAS_MAILBOX_NOT_LICENSED`, or `ATLAS_ACCESS_REFUSED`  | Fix credentials, permissions, admin consent, or licensing   |
 | `5`  | `ATLAS_WRONG_PASSPHRASE`: the data key would not unwrap                       | Supply the original tenant passphrase                       |
 | `6`  | `ATLAS_CONFIG_INVALID`                                                        | Correct the configuration or its storage access             |
-| `7`  | `ATLAS_NOT_FOUND`, or a selector that matched nothing                         | Check the resource, identifiers, and selectors              |
+| `7`  | `ATLAS_NOT_FOUND`, or a selector that matched nothing. A mailbox or drive owner only after its `404` repeated on 3 reads | Check the resource, identifiers, and selectors |
 | `8`  | `ATLAS_OBJECT_LOCK_RETAINED`                                                  | Respect the retention or legal hold                         |
 | `9`  | `ATLAS_CONTENT_UNREADABLE`, `ATLAS_FORMAT_UNSUPPORTED`, or a damaged manifest | Do not retry unchanged. See the notes below                 |
 | `10` | Unassigned                                                                    | Not returned                                                |
@@ -264,6 +264,7 @@ Snapshot <id> -- <n> objects (<size> captured by this run)
 `<n>` counts the messages in the snapshot's chain, the same set `verify`, `restore -s`, and `save -s` read, so it rises when mail arrives and falls when the run records deletions. `<size>` is only what this run captured. A run that captured nothing reports the existing newest snapshot and its count.
 
 - **One mailbox per run.** To back up several, list them with `atlas outlook mailboxes` and loop from your scheduler. Atlas does not fan out across mailboxes itself.
+- **Mailbox existence check.** Before it reads anything, the run asks Microsoft Graph for the mailbox's user. A `404` is read again, 3 reads in about 6 s, before the run ends with `ATLAS_NOT_FOUND` (exit `7`), because Graph answers `404` for a user whose directory replica lags. `restore` and `status` run the same check. See [The first read of a run](/operations/reliability#first-reads-of-a-run).
 - **Object Lock.** `--lock-mode` alone is rejected, so a run meant to be immutable cannot exit `0` with unprotected data. Retention without a mode defaults to `governance`. Atlas turns `--retention-days` into a UTC `retain_until`, checks that the bucket supports versioning and Object Lock in the requested mode, and stops before writing if it does not, instead of writing unprotected data. See [Immutability and Object Lock](/operations/immutability).
 
 #### Which folders are backed up

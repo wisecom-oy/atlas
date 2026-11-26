@@ -59,6 +59,8 @@ Add these application permissions to the Atlas app registration in Microsoft Ent
 
 If a permission is missing, the run stops before it touches any files with `MissingGraphPermissionsError` (`ATLAS_AUTH_DENIED`, exit `4`). The message names the HTTP status, the Microsoft Graph error code, and the permissions to grant.
 
+An owner who has never opened OneDrive has no drive. Microsoft Graph answers the drive listing with `404 ResourceNotFound` ("User's mysite not found."), and the run ends at once with `NotFoundError` (`ATLAS_NOT_FOUND`, exit `7`), see [no drive is provisioned](/troubleshooting#onedrive-no-drive-is-provisioned). Any other `404` or `400` on the listing is read again, 3 reads in about 6 s. One that persists for an owner who exists ends the run with `GraphUnavailableError` (`ATLAS_GRAPH_UNAVAILABLE`, exit `3`) before anything is written. See [The first read of a run](/operations/reliability#first-reads-of-a-run).
+
 ## Commands
 
 Every command takes `-o, --owner <id>` (required) and `-t, --tenant <id>` (defaults to the configured tenant). Snapshot is `-s`. The [CLI reference](./reference/cli.md) lists global flags and exit codes.
