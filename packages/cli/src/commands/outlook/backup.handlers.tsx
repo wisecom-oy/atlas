@@ -11,6 +11,7 @@ import {
   run_backup_with_cli_adapter,
 } from '@/adapters/backup-operation.adapter';
 import { run_interruptible } from '@/adapters/interruptible-run';
+import { resolve_under_gate } from '@/adapters/gated-resolution';
 import { build_object_lock_policy, build_object_lock_request } from '@/command-object-lock';
 import { format_bytes } from '@/command-formatters';
 import { report_run_outcome } from '@/command-run-outcome';
@@ -19,7 +20,7 @@ import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
-import { resolve_owner } from '@/commands/onedrive/command.handlers';
+import { resolve_owner } from '@/commands/shared/owner-resolution';
 
 export interface OutlookBackupOptions {
   tenant?: string;
@@ -76,25 +77,37 @@ export async function execute_outlook_backup(
     </Box>,
   );
 
-  const owner = await resolve_owner(container, tenant_id, mailbox);
-  await backup_single_mailbox(container, tenant_id, owner.object_id, {
-    ...build_sync_options(options),
-    owner_email: owner.email,
-    owner_display_name: owner.display_name,
-  });
+  await backup_single_mailbox(container, tenant_id, mailbox, build_sync_options(options));
 }
 
-/** Runs a single-mailbox backup and logs the outcome. */
+/**
+ * Resolves the mailbox and backs it up under one interrupt gate, so a first Ctrl+C during the
+ * owner lookup is the same soft stop as during the run (issue #876). Logs the outcome.
+ */
 async function backup_single_mailbox(
   container: Container,
   tenant_id: string,
-  mailbox_id: string,
+  mailbox: string,
   sync_options: SyncOptions,
 ): Promise<void> {
   const backup_use_case = container.get<BackupUseCase>(BACKUP_USE_CASE_TOKEN);
-  const result = await run_interruptible(container, OUTLOOK_INTERRUPT_MESSAGE, (gate) =>
-    run_backup_with_cli_adapter(backup_use_case, tenant_id, mailbox_id, sync_options, gate),
-  );
+  const result = await run_interruptible(container, OUTLOOK_INTERRUPT_MESSAGE, async (gate) => {
+    const owner = await resolve_under_gate(gate, () =>
+      resolve_owner(container, tenant_id, mailbox),
+    );
+    const owner_options: SyncOptions = {
+      ...sync_options,
+      owner_email: owner.email,
+      owner_display_name: owner.display_name,
+    };
+    return run_backup_with_cli_adapter(
+      backup_use_case,
+      tenant_id,
+      owner.object_id,
+      owner_options,
+      gate,
+    );
+  });
   if (result === undefined) return;
   // A run cancelled before it read any folder reports a placeholder snapshot that was never stored.
   // The count is the snapshot's merged chain, the figure verify, restore and save report (#711).

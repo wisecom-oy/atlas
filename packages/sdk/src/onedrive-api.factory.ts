@@ -51,6 +51,8 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
   const identity = container.get<UserIdentityResolver>(USER_IDENTITY_RESOLVER_TOKEN);
 
   const resolve_owner_id = (owner: string) => resolve_owner_object_id(identity, tenant_id, owner);
+  const resolve_stored_owner_id = (owner: string) =>
+    resolve_owner_object_id(identity, tenant_id, owner, 'stored_backups');
 
   return {
     async backup(owner_input, options) {
@@ -67,7 +69,7 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
       );
     },
     async verify(owner_input, snapshot_id, options) {
-      const owner_id = await resolve_owner_id(owner_input);
+      const owner_id = await resolve_stored_owner_id(owner_input);
       const adapted = adapt_operation_options(options);
       return camelize(
         adapted === undefined
@@ -105,7 +107,7 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
       );
     },
     async save(owner_input, options) {
-      const owner_id = await resolve_owner_id(owner_input);
+      const owner_id = await resolve_stored_owner_id(owner_input);
       return camelize(
         await save.save_snapshot(
           tenant_id,
@@ -115,7 +117,7 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
       );
     },
     async listSnapshots(owner_input) {
-      const resolved_id = await resolve_owner_id(owner_input);
+      const resolved_id = await resolve_stored_owner_id(owner_input);
       return camelize(
         await with_camelized_partial_result(() =>
           catalog.list_onedrive_snapshots(tenant_id, resolved_id),
@@ -123,7 +125,7 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
       );
     },
     async listSnapshotSummaries(owner_input) {
-      const resolved_id = await resolve_owner_id(owner_input);
+      const resolved_id = await resolve_stored_owner_id(owner_input);
       return camelize(
         await with_camelized_partial_result(() =>
           catalog.list_onedrive_snapshot_summaries(tenant_id, resolved_id),
@@ -131,7 +133,7 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
       );
     },
     async listFileVersions(owner_input, file_ref) {
-      const owner_id = await resolve_owner_id(owner_input);
+      const owner_id = await resolve_stored_owner_id(owner_input);
       return camelize(
         await with_camelized_partial_result(() =>
           catalog.list_onedrive_file_versions(tenant_id, owner_id, file_ref),
@@ -139,7 +141,7 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
       );
     },
     async listPermissions(owner_input, snapshot_id) {
-      const owner_id = await resolve_owner_id(owner_input);
+      const owner_id = await resolve_stored_owner_id(owner_input);
       return camelize(await catalog.list_onedrive_permissions(tenant_id, owner_id, snapshot_id));
     },
     async deleteOwnerData(owner_input) {
@@ -157,7 +159,8 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
       );
     },
     async getStats(owner_input) {
-      const owner_id = owner_input === undefined ? undefined : await resolve_owner_id(owner_input);
+      const owner_id =
+        owner_input === undefined ? undefined : await resolve_stored_owner_id(owner_input);
       return camelize(await stats.get_onedrive_stats(tenant_id, owner_id));
     },
     async quarantine(storage_key) {

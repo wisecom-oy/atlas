@@ -160,6 +160,10 @@ describe('GraphUserIdentityResolver.resolve_by_object_id', () => {
 
 /** A primary SMTP address that is not the UPN 404s on `/users/{key}`; it resolves through `mail`. */
 describe('GraphUserIdentityResolver.resolve_user', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const USER = { id: OBJECT_ID, displayName: 'John Doe', mail: 'john.doe@example.com' };
 
   function client_with(
@@ -167,11 +171,13 @@ describe('GraphUserIdentityResolver.resolve_user', () => {
     by_mail: () => Promise<unknown>,
   ): { client: Client; filters: string[] } {
     const filters: string[] = [];
+    const by_mail_request = {
+      option: () => by_mail_request,
+      filter: (f: string) => (filters.push(f), { select: () => ({ get: by_mail }) }),
+    };
+    const by_upn_request = { option: () => by_upn_request, select: () => ({ get: by_upn }) };
     const client = {
-      api: (path: string) =>
-        path === '/users'
-          ? { filter: (f: string) => (filters.push(f), { select: () => ({ get: by_mail }) }) }
-          : { select: () => ({ get: by_upn }) },
+      api: (path: string) => (path === '/users' ? by_mail_request : by_upn_request),
     } as unknown as Client;
     return { client, filters };
   }
@@ -192,15 +198,19 @@ describe('GraphUserIdentityResolver.resolve_user', () => {
   });
 
   it('rethrows the original 404 when no user has that mail either', async () => {
+    vi.useFakeTimers();
     const not_found = graph_error(404, 'Request_ResourceNotFound');
     const { client } = client_with(
       () => Promise.reject(not_found),
       () => Promise.resolve({ value: [] }),
     );
 
-    await expect(
-      new GraphUserIdentityResolver(client).resolve_user('t', 'nobody@example.com'),
-    ).rejects.toBe(not_found);
+    const failure = new GraphUserIdentityResolver(client)
+      .resolve_user('t', 'nobody@example.com')
+      .catch((e: unknown) => e);
+    await vi.runAllTimersAsync();
+
+    expect(await failure).toBe(not_found);
   });
 
   it('rejects a malformed mail filter page instead of reading it as no match', async () => {

@@ -11,10 +11,10 @@ import {
   SHAREPOINT_VERSION_RESTORE_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
 import {
-  resolve_owner,
   resolve_tenant_id,
   type OneDriveTenantOptions,
 } from '@/commands/onedrive/command.handlers';
+import { resolve_owner } from '@/commands/shared/owner-resolution';
 import { resolve_site_id } from '@/commands/sharepoint/site-resolution';
 import {
   resolve_tenant_id as resolve_sharepoint_tenant_id,

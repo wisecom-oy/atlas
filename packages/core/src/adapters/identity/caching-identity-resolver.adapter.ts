@@ -4,9 +4,11 @@ import type {
   IdentityRegistryEntry,
   IdentityRegistryRepository,
   ResolvedUserIdentity,
+  ResolveUserOptions,
   TenantContext,
   TenantContextFactory,
   UserIdentityResolver,
+  UserLookupPurpose,
 } from '@wisecom/atlas-types';
 import {
   NotFoundError,
@@ -24,6 +26,13 @@ import {
   build_tenant_identity_index,
   type TenantIdentityIndex,
 } from '@/adapters/identity/tenant-identity-index';
+import {
+  ask_graph_for_identity,
+  describe_lookup_failure,
+  registry_may_answer,
+  STORED_BACKUPS_GRAPH_WAIT_MS,
+  type GraphLookupOutcome,
+} from '@/adapters/identity/graph-identity-lookup';
 
 export const GRAPH_IDENTITY_RESOLVER_TOKEN = Symbol.for('GraphIdentityResolver');
 
@@ -36,6 +45,8 @@ export const GRAPH_IDENTITY_RESOLVER_TOKEN = Symbol.for('GraphIdentityResolver')
  * 3. If Graph returns a NEW object_id for a cached email -> email recycled!
  *    -> Mark old entry as 'recycled', store new entry as 'active'
  * 4. If Graph returns 404 (user deleted) -> fall back to active cache entry
+ * 5. If Graph's retry budget runs out -> fail, unless the caller only reads stored backups
+ *    (issue #882). Such a caller waits on Graph for a short, bounded time (issue #887).
  *
  * Multiple entries can share the same email; only one is 'active'.
  * Old users are accessed via their object_id directly.
@@ -65,7 +76,11 @@ export class CachingIdentityResolver implements UserIdentityResolver {
     private readonly _config: Pick<GraphConfig, 'tenant_id'>,
   ) {}
 
-  async resolve_user(tenant_id: string, email: string): Promise<ResolvedUserIdentity> {
+  async resolve_user(
+    tenant_id: string,
+    email: string,
+    options: ResolveUserOptions = {},
+  ): Promise<ResolvedUserIdentity> {
     const index = await this.ensure_loaded(tenant_id);
     const normalized = normalize_registry_email(email);
     const graph_is_foreign = tenant_id.toLowerCase() !== this._config.tenant_id.toLowerCase();
@@ -73,20 +88,20 @@ export class CachingIdentityResolver implements UserIdentityResolver {
       return this.resolve_without_registering(tenant_id, email, normalized, index);
     }
 
-    const graph = await this.try_graph_resolve(tenant_id, email);
+    const purpose = options.purpose ?? 'microsoft_365';
+    const active = index.active_by_email.get(normalized);
+    const graph = await this.ask_graph(tenant_id, email, purpose, active !== undefined);
 
     if ('identity' in graph) {
       const graph_result = graph.identity;
-      const active = index.active_by_email.get(normalized);
       if (active?.object_id !== graph_result.object_id) {
         await this.try_register_identity(tenant_id, graph_result);
       }
       return graph_result;
     }
 
-    const active = index.active_by_email.get(normalized);
-    if (active) {
-      logger.debug(`User ${email} not found in Graph, using cached identity`);
+    if (active && registry_may_answer(graph.error, purpose)) {
+      log_registry_fallback(email, active, graph.error);
       return to_identity(active);
     }
 
@@ -133,23 +148,19 @@ export class CachingIdentityResolver implements UserIdentityResolver {
   }
 
   /**
-   * Graph lookup that falls back to the cached registry, so a lookup still works while Graph is
-   * unreachable. The failure is logged rather than dropped: a silent swallow here looks identical
-   * to a user that genuinely does not exist (issue #202).
+   * Asks Graph first, so a recycled address resolves to its current owner and the registry is kept
+   * current. A command that only reads stored backups waits a short, bounded time when the registry
+   * can answer for it; otherwise the lookup runs the full Graph retry budget (issue #887).
    */
-  private async try_graph_resolve(
+  private ask_graph(
     tenant_id: string,
     email: string,
-  ): Promise<{ identity: ResolvedUserIdentity } | { error: unknown }> {
-    try {
-      return { identity: await this._graph.resolve_user(tenant_id, email) };
-    } catch (err) {
-      logger.debug(
-        `Graph could not resolve "${email}", falling back to the cached registry: ` +
-          `${err instanceof Error ? err.message : String(err)}`,
-      );
-      return { error: err };
-    }
+    purpose: UserLookupPurpose,
+    registry_knows_email: boolean,
+  ): Promise<GraphLookupOutcome> {
+    const bounded = purpose === 'stored_backups' && registry_knows_email;
+    const wait_ms = bounded ? STORED_BACKUPS_GRAPH_WAIT_MS : undefined;
+    return ask_graph_for_identity(this._graph, tenant_id, email, wait_ms);
   }
 
   /**
@@ -263,4 +274,15 @@ function log_registration(identity: ResolvedUserIdentity, outcome: IdentityMerge
   if (outcome.kind !== 'unchanged') {
     logger.info(`Identity registered: ${email} -> ${identity.object_id}`);
   }
+}
+
+/**
+ * Says, at the default log level, that the registry answered in Graph's place, and why. A run that
+ * continues on a stored identity must not look as if Graph had answered (issue #882).
+ */
+function log_registry_fallback(email: string, entry: IdentityRegistryEntry, error: unknown): void {
+  logger.warn(
+    `Microsoft Graph did not resolve ${email} (${describe_lookup_failure(error)}). ` +
+      `Using the identity registry entry ${entry.object_id}.`,
+  );
 }

@@ -15,7 +15,7 @@ import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
 import { print_mime_message } from '@/commands/outlook/mime-message.view';
-import { resolve_owner } from '@/commands/onedrive/command.handlers';
+import { resolve_stored_owner } from '@/commands/shared/owner-resolution';
 
 export interface OutlookListOptions {
   tenant?: string;
@@ -62,7 +62,7 @@ export async function execute_outlook_list(
       options.subjects,
     );
   } else if (scope.mode === 'mailbox') {
-    const owner = await resolve_owner(container, tenant_id, scope.mailbox);
+    const owner = await resolve_stored_owner(container, tenant_id, scope.mailbox);
     await print_mailbox_snapshots(catalog, tenant_id, owner.object_id, scope.mailbox);
   } else {
     await print_all_mailboxes(catalog, tenant_id);

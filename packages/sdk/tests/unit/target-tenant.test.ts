@@ -126,7 +126,13 @@ describe('restore with targetTenant', () => {
       expect.objectContaining({ target_mailbox: DEST_OBJECT_ID }),
     );
     expect(target_restore.restore_snapshot.mock.calls[0]![2]).not.toHaveProperty('target_tenant');
-    expect(target_graph.resolve_user).toHaveBeenCalledWith('tenant-source', 'john.doe@example.com');
+    expect(target_graph.resolve_user).toHaveBeenCalledWith(
+      'tenant-source',
+      'john.doe@example.com',
+      {
+        purpose: 'microsoft_365',
+      },
+    );
     expect(source_identity.resolve_user).not.toHaveBeenCalled();
     expect(source_restore.restore_snapshot).not.toHaveBeenCalled();
     expect(target.disposed).toBe(true);

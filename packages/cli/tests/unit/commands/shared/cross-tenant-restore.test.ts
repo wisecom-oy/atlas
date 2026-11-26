@@ -168,8 +168,12 @@ describe('cross-tenant restore with --target-profile', () => {
       ]);
 
       expect(compose_target_container).toHaveBeenCalledWith({ tenant_id: 'tenant-src' }, 'ops');
-      expect(source_resolve).toHaveBeenCalledWith('tenant-src', 'src@example.com');
-      expect(target_resolve).toHaveBeenCalledWith('tenant-src', 'dst@example.com');
+      expect(source_resolve).toHaveBeenCalledWith('tenant-src', 'src@example.com', {
+        purpose: 'microsoft_365',
+      });
+      expect(target_resolve).toHaveBeenCalledWith('tenant-src', 'dst@example.com', {
+        purpose: 'microsoft_365',
+      });
       expect(target_restore.restore_onedrive).toHaveBeenCalledWith(
         'tenant-src',
         'src-id',

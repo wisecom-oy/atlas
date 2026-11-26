@@ -127,6 +127,8 @@ The first Microsoft Graph read of a run decides whether the run happens at all: 
 
 An owner that is really gone costs at most 2 extra requests on the existence check and 5 on a listing, about 12 s in all, before exit `7`. The directory check needs `User.Read.All`. Without it, a listing that keeps answering `404` cannot be shown to belong to a missing owner and ends with exit `3`.
 
+The lookup of an email address, which comes before all of these, follows the rule for a `404` only. `GET /users/{address}` and the `mail` filter Atlas tries after it are read 3 times in about 6 s before Atlas believes the address is unknown. Any other `4xx` on the lookup is judged on its first answer. See [Owner lookup](#owner-lookup) for what a believed `404` does.
+
 The rule only delays a verdict within one run, and a run that ends here writes nothing. It differs from the rule for a file, version, or contact photo that answers `404`, which spreads its 3 reads over 24 hours because that verdict removes data from later snapshots. A `404` on a later calendar's, folder's, or drive's changes still fails only that unit, with exit `2`.
 
 ### Cooldowns shared across requests
@@ -171,6 +173,21 @@ One outage therefore holds a backup for about one budget: 1,411 s of backoff for
 The scope is one run, meaning one owner under one lease. A host that backs up many owners at once lets each one spend its own budget, because one mailbox's exhausted calls can come from its own Exchange server rather than from all of Microsoft 365, and the shared [cooldowns](#cooldowns-shared-across-requests) already spread a `429` across owners. Within a run the stop covers every pool: a run that cannot read one pool is incomplete and is rerun either way. A command that loops over owners stops at the first one that ends on an outage: `atlas teams backup --all` does not start the next team, and `atlas sharepoint backup --include-subsites` does not start the next subsite.
 
 A call that is not retried to exhaustion stays the item's own failure and the run continues, as described in [Partial runs](#partial-runs). See [Microsoft Graph unavailable after retries](/troubleshooting#microsoft-graph-unavailable-after-retries) for the message and what to do.
+
+### Owner lookup {#owner-lookup}
+
+```text
+[!] Microsoft Graph did not resolve user@example.com (Microsoft Graph did not answer within 15 s). Using the identity registry entry <object-id>.
+```
+
+A command given an email address looks it up in Microsoft Graph before its run starts. The identity registry, the tenant's record of every user Atlas has backed up, can stand in for Graph's answer. When it does, Atlas logs the warning above with the reason.
+
+| Command | Graph answers `404` | Graph's retry budget runs out | Graph is slow |
+| --- | --- | --- | --- |
+| `backup`, `restore`, `restore-version`, `status`, `delete` | Registry entry, after the [3 reads](#first-reads-of-a-run) | Exit `3`, before the owner lease is taken | Waits for the answer |
+| `list`, `list-snapshots`, `list-versions`, `list-permissions`, `verify`, `save`, `atlas stats` | Registry entry, after the 3 reads | Registry entry | Registry entry after 15 s |
+
+Commands that work on live data wait for Graph so an address reassigned to a new user resolves to that user, not to the departed one the registry still holds. A spent budget there means Microsoft Graph is down, and the run's next Graph call would only spend a second budget on the same outage while it holds the lease. Commands that only read stored backups need nothing more from Graph, so they wait 15 s at most when the registry holds the address. An address the registry does not hold always goes to Graph with the full budget, and a `404` for it exits `7`. An object ID skips the lookup.
 
 ### Writes that are sent once
 
@@ -256,7 +273,7 @@ Object Lock retention is set per object at write time, and a delete it refuses e
 | Second Ctrl+C | Exits at once with `130`. Nothing more is committed and the lease is left to expire, so a run on the same owner within 10 minutes exits `12` |
 | `SIGTERM` | Atlas installs no handler, so Node ends the process at once, as with a second Ctrl+C. The shell reports `143` |
 
-The soft stop covers the long-running commands, such as backup, restore, `restore-version`, and save. A command without it ends at once on the first Ctrl+C. A cooldown raised during the run is dropped on Ctrl+C, so an hour-long `Retry-After` does not hold the process open. A call cut short while it waits is never sent: stopping does not turn into an early request to a throttled mailbox. The SDK `signal` option stops the same waits. [Stopping a run](/operations/delta-sync#interruption) describes what a soft-stopped backup saves.
+The soft stop covers the long-running commands, such as backup, restore, `restore-version`, and save. A command without it ends at once on the first Ctrl+C. A backup's soft stop starts with its first step, the lookup of the mailbox, drive owner, site, or the teams of `--all`, so a Ctrl+C there exits `2` within moments, even while a token request or a retry wait is pending, and before any lease is taken. A restore or save starts its soft stop after the owner lookup and any confirmation prompt, so a Ctrl+C during the lookup exits `130` before anything is written. A cooldown raised during the run is dropped on Ctrl+C, so an hour-long `Retry-After` does not hold the process open. A call cut short while it waits is never sent: stopping does not turn into an early request to a throttled mailbox. The SDK `signal` option stops the same waits. [Stopping a run](/operations/delta-sync#interruption) describes what a soft-stopped backup saves.
 
 ::: tip Soft stop under systemd
 `systemctl stop` sends `SIGTERM` by default. Set `KillSignal=SIGINT` in the service unit so a stopped backup commits what it finished and releases its lease, rather than leaving the next run to wait out the 10-minute lease.
