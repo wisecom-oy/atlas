@@ -248,7 +248,7 @@ atlas sharepoint list-permissions --site https://contoso.sharepoint.com/sites/En
 atlas sharepoint status --site https://contoso.sharepoint.com/sites/Engineering
 ```
 
-Reports, per library, the file changes waiting for the next backup and the files in the list of failed files. It reads the sync checkpoint without moving it, so the next backup is unaffected. A library is up to date only when it has no pending file and no failed file, so a site with files still waiting for a retry is not reported as current. A Microsoft Graph `401` or `403` exits with code `4`. See the [status columns](/reference/cli#drive-status-columns).
+Reports, per library, the file changes waiting for the next backup and the files in the list of failed files. It reads the sync checkpoint without moving it, so the next backup is unaffected. A library is up to date only when it has no pending file and no failed file, so a site with files still waiting for a retry is not reported as current. A Microsoft Graph `401` or `403` exits with code `4`. A library that could not be checked shows `peek failed` and the command exits `3` when Microsoft Graph was throttling or unavailable through the retries, or `2` for any other failure. See the [status columns](/reference/cli#drive-status-columns).
 
 ### delete
 
