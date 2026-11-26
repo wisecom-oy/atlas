@@ -101,6 +101,18 @@ Microsoft 365 also reports messages deleted from, or moved out of, each folder. 
 
 A moved message keeps its ID, because Atlas uses [immutable message IDs](#immutable-message-ids). Microsoft 365 reports the move as a removal from the old folder and a new message in the new one. A manifest's own entries win over its own removals, so the message stays restorable at its new location.
 
+### Messages listed more than once
+
+Microsoft 365 can report the same message more than once while Atlas reads a folder's changes, on one page or across pages. Atlas keeps the last report for each message ID, in the order Microsoft Graph sent them, and downloads and records each message once per run. A repeat costs no second MIME download, manifest entry, or stored count, so the run's figures match a read without repeats.
+
+| Reports for one message in one read | Result |
+| --- | --- |
+| Listed twice or more | Stored once, from the first listing |
+| Removed, then listed again | Stored, and no removal recorded |
+| Listed, then removed | No entry in the snapshot, and the removal recorded. A copy stored before the removal arrived is not referenced by the snapshot |
+
+When Microsoft Graph rejects an expired checkpoint partway through, the same rules span both reads: a message stored before the rejection is not downloaded again by the full read.
+
 ### When removals are recorded
 
 Removals are only safe when the run saw both ends of a move. Atlas records them only when every selected folder finished:
