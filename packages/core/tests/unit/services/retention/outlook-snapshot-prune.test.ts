@@ -197,4 +197,15 @@ describe('Outlook snapshot prune', () => {
     expect(result.deleted_objects + result.deleted_manifests).toBe(0);
     expect(await bucket_state(bucket)).toBe(state);
   });
+
+  it('deletes no content of a mailbox that has no snapshot at all', async () => {
+    const bucket = await seeded_bucket();
+    for (const id of ['s1', 's2', 's3', 's4']) await bucket.storage.delete(manifest_key(id));
+    const { service } = prune_service(bucket.storage);
+
+    const result = await service.prune_snapshots(TENANT, OWNER, prune_options());
+
+    expect(result.deleted_objects).toBe(0);
+    for (const name of BLOBS) expect(await bucket.storage.exists(blob_key(name))).toBe(true);
+  });
 });

@@ -83,6 +83,10 @@ export async function prune_owner_snapshots<M extends PrunableManifest>(
   const plan = plan_snapshot_prune(listing.summaries, options.before);
   const folded = await fold_baselines(target, plan);
   const run: PruneRun<M> = { target, options, plan, folded, tally: new PruneTally() };
+  // With no snapshot left to keep, every content object would count as unreferenced. Removing an
+  // owner's data outright is the owner delete's job, so a prune of an owner without snapshots
+  // changes nothing.
+  if (plan.kept.length === 0) return build_result(run, NOTHING_REMOVED, undefined);
   return options.dry_run === true ? report_dry_run(run) : prune_and_sweep(run, lease);
 }
 

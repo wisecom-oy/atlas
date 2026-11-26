@@ -37,6 +37,8 @@ A prune first folds the history into the oldest snapshot it keeps, called the ba
 | Created after `--before` | Kept |
 | The newest snapshot of the owner | Always kept, even when it is older than the cut-off |
 
+An owner with no snapshot at all is left alone, content included. Remove an owner's data outright with `delete`.
+
 `--before` takes an ISO 8601 date or date-time, such as `2026-08-01` (midnight UTC) or `2026-08-01T00:00:00Z`, or an age counted back from now: `90d`, `12w`, or `36h`. The SDK takes a `Date` or an ISO 8601 string.
 
 When several snapshots share the oldest kept creation time, each of them becomes a baseline. This is rare, because the owner lease keeps two runs of one owner apart.
