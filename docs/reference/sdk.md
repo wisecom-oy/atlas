@@ -373,7 +373,8 @@ for (const folder of result.summary.excludedFolders) {
 | `interrupted`, `snapshotStored`     | Whether the run was cancelled, and whether `snapshot` was actually stored                                           |
 | `summary.stored`, `deduplicated`, `attachmentsStored`, `processed` | Message counters                                                                     |
 | `summary.completedFolderCount`, `totalFolderCount`, `elapsedMs`   | Progress of the run                                                                   |
-| `summary.folderErrors`              | One line per failed folder or unmatched `folderFilter` selector                                                     |
+| `summary.folderErrors`              | One line per failed folder or unmatched `folderFilter` selector. A failed folder's line ends with `(Atlas code: <code>)` when the failure has one |
+| `summary.folderFailures`            | One entry per folder whose sync failed as a whole: `folderId`, `folderPath`, `message`, `code`, and `transient` |
 | `summary.warnings`                  | One line per notable event, such as a folder whose reactions could not be read                                      |
 | `summary.excludedFolders`           | Folders not captured, with `folderPath` and `reason`                                                                |
 | `summary.reactionsNotCaptured`      | Messages stored without their reactions and pin                                                                     |
@@ -387,6 +388,8 @@ for (const folder of result.summary.excludedFolders) {
 - **Reactions.** A message whose reactions and pin could not be read, because Microsoft Graph returned an error or the read ran out of retries, is still stored and counted in `summary.reactionsNotCaptured`, with one `summary.warnings` line per affected folder. The sync checkpoint still advances, so those properties are read again only when the message changes.
 - **Interrupted before any folder.** A run cancelled before it read any folder resolves with `interrupted: true` and `snapshotStored: false`. Its `snapshot` and `manifest` are placeholders that were never stored, `mode` means nothing, and no checkpoint moved. Do not record or look up that snapshot ID. Every other result has `snapshotStored: true`.
 - **A run that captured nothing** reports the existing newest snapshot and its count.
+- **Failed folders.** `transient` is `true` when the folder failed on a Microsoft Graph call that spent its retry budget (`ATLAS_GRAPH_UNAVAILABLE` or `ATLAS_THROTTLED`), and `false` for any other failure. `code` is `undefined` for an error Atlas did not classify. A failed folder keeps its previous sync checkpoint, so the next backup reads its changes again.
+- **Graph outage.** Once a call spends its retry budget, the backup rejects with that `GraphUnavailableError` or `ThrottledError` instead of resolving, so the CLI exits `3`. Its `partial_result` holds the result described above for the run up to the outage. When every folder failed, `partial_result.summary.folderFailures` lists each of them with `transient: true` and `completedFolderCount` is `0`. A first backup still stores a snapshot of 0 objects in that case, and `partial_result.snapshot` names it. See [Graph failures](#graph-failures).
 - **Counts.** `snapshot.objectCount` counts the messages in the snapshot's chain after recorded removals, the set `verify`, `restore`, and `save` read. `manifest.totalObjects` is a high-water mark: the largest message count any single run of the mailbox stored. It never decreases, and the stale-delta safeguard reads it to tell an unchanged mailbox from one never backed up.
 
 #### Recoverable Items
@@ -1835,8 +1838,8 @@ try {
 | Error                          | Properties                                                                                                     |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------- |
 | every `AtlasError`             | `code`, and `cause` with the underlying Graph or AWS SDK error, for logging. Branching never depends on it     |
-| `ThrottledError`               | `retry_after_ms`                                                                                               |
-| `GraphUnavailableError`        | `status_code`, `graph_code`, `retries`, `elapsed_ms`                                                           |
+| `ThrottledError`               | `retry_after_ms`, and `partial_result` when it stopped a backup                                                |
+| `GraphUnavailableError`        | `status_code`, `graph_code`, `retries`, `elapsed_ms`, and `partial_result` when it stopped a backup            |
 | `StorageUnavailableError`      | `attempts`                                                                                                     |
 | `ListingIncompleteError`       | `listing`, `listed_count`, `reported_count` (`undefined` when no page carried a count)                         |
 | `GraphAccessRefusedError`      | `site_id`, `drive_id`, `owner_id`, `reason`, `status_code`, `graph_code`                                       |
@@ -1887,6 +1890,20 @@ try {
 - A `200` whose JSON body did not parse ends as `GraphUnavailableError` with `status_code` `200` and `graph_code` `undefined`, since the parse error is not a Graph code.
 - The first read of a run is the exception: the Outlook mailbox existence check, the OneDrive drive listing, and the Calendar and Contacts listings. A `404`, `400`, or other unclassified `4xx` there is read again, 3 reads in about 6 s. One that persists for an owner who exists becomes `GraphUnavailableError` with `retries` set to `2` and the answer in `status_code` and `graph_code`. A `404` that persists for an owner whose directory record answers `404` too is `NotFoundError`. On OneDrive, `404 ResourceNotFound` ("User's mysite not found.") is `NotFoundError` on the first answer. See [The first read of a run](/operations/reliability#first-reads-of-a-run).
 - Every workload's `backup` rejects with the first `GraphUnavailableError` or `ThrottledError` of the run. After that call spent its budget, no other Graph call of the run was sent. The snapshot of what the run finished is still written and the owner lease is released, so the next attempt resumes from the units that did not finish. See [When retries run out](/operations/reliability#when-retries-run-out-on-a-throttle).
+- **`partial_result`** on that rejection is the result the backup would have resolved with, in the same camelCase shape, so a host still learns which snapshot was written and which units failed. For SharePoint it is the result of the site the outage stopped, one element of the array `backup()` resolves with. It is not enumerable, so logging the error does not print it, and it is `undefined` on a `GraphUnavailableError` or `ThrottledError` from any other call:
+
+  ```ts
+  try {
+    await atlas.outlook.backup('user@example.com');
+  } catch (error) {
+    if (error instanceof GraphUnavailableError || error instanceof ThrottledError) {
+      const partial = error.partial_result as OutlookBackupResult | undefined;
+      const failed = partial?.summary.folderFailures.filter((folder) => folder.transient) ?? [];
+      scheduleRetryLater(partial?.snapshot.id, failed.map((folder) => folder.folderPath));
+    }
+    throw error;
+  }
+  ```
 - A Graph token request that Microsoft Entra ID leaves unanswered, or answers with `408`, `429`, a `5xx`, or `temporarily_unavailable`, becomes `GraphUnavailableError` once retries run out, `429` included. Its `status_code` and `graph_code` are `undefined`, because the status is Entra's, not Graph's. The message starts `Microsoft Entra ID did not issue a Graph token`, and `cause` keeps Entra's answer.
 - **`GraphAccessRefusedError`** is raised for a OneDrive or SharePoint `403` whose code does not name a missing permission, or, for SharePoint, a refused site while the same app can read the tenant's root site. A SharePoint Embedded container is the known case.
 - **Outlook, Calendar, Contacts, and Teams** raise `MissingGraphPermissionsError` only for a `403` whose code is `accessDenied`, `ErrorAccessDenied`, or `Authorization_RequestDenied`, or `Forbidden` on a Teams call. Any other `403` is not an `AuthError`: it fails the item, channel, or folder it answered, and the message names the code Graph sent. See [Which `403` responses stop a run](/operations/reliability#forbidden-responses).

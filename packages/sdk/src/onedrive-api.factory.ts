@@ -2,6 +2,7 @@ import type { Container } from 'inversify';
 import type { QuarantineUseCase } from '@wisecom/atlas-types';
 import { ONEDRIVE_QUARANTINE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { with_camelized_partial_result } from '@/partial-listing';
+import { with_camelized_outage_result } from '@/outage-partial-result';
 import type {
   OneDriveApi,
   OneDriveBackupUseCase,
@@ -60,12 +61,14 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
       const adapted = adapt_operation_options(options);
       // Forward the resolved identity so the registry learns the email, as the CLI does.
       return camelize(
-        await backup.backup_onedrive(tenant_id, resolved?.object_id ?? owner_input, {
-          ...adapted,
-          ...(resolved && adapted?.owner_email === undefined
-            ? { owner_email: resolved.email, owner_display_name: resolved.display_name }
-            : {}),
-        }),
+        await with_camelized_outage_result(() =>
+          backup.backup_onedrive(tenant_id, resolved?.object_id ?? owner_input, {
+            ...adapted,
+            ...(resolved && adapted?.owner_email === undefined
+              ? { owner_email: resolved.email, owner_display_name: resolved.display_name }
+              : {}),
+          }),
+        ),
       );
     },
     async verify(owner_input, snapshot_id, options) {

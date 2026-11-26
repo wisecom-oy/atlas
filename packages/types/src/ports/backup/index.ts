@@ -4,6 +4,7 @@ export type {
   SyncOptions,
   SyncResult,
   BackupSyncSummary,
+  FolderFailure,
   BackupSyncMode,
   NoSnapshotReason,
   BackupProgressReporter,

@@ -5,10 +5,13 @@ import type {
   SyncOptions,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { failed_folder_result } from '@/services/backup/failed-folder-result';
+import {
+  failed_folder_result,
+  type FolderSyncFailure,
+} from '@/services/backup/failed-folder-result';
 import { sync_single_folder, type FolderSyncResult } from '@/services/backup/folder-sync-executor';
 
-/** Syncs one folder and updates progress; returns aggregated results or an error message. */
+/** Syncs one folder and updates progress; returns aggregated results or the classified failure. */
 export async function sync_single_folder_with_progress(
   connector: MailboxConnector,
   ctx: TenantContext,
@@ -25,7 +28,7 @@ export async function sync_single_folder_with_progress(
   options: SyncOptions,
   should_interrupt: () => boolean,
   should_force_stop: () => boolean,
-): Promise<FolderSyncResult & { error?: string }> {
+): Promise<FolderSyncResult & FolderSyncFailure> {
   try {
     const prev_link = saved_links[folder.folder_id];
     const result = await sync_single_folder({

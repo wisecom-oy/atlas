@@ -2,6 +2,7 @@ import type { Container } from 'inversify';
 import type { QuarantineUseCase } from '@wisecom/atlas-types';
 import { OUTLOOK_QUARANTINE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { with_camelized_partial_result } from '@/partial-listing';
+import { with_camelized_outage_result } from '@/outage-partial-result';
 import type {
   OutlookApi,
   BackupUseCase,
@@ -96,11 +97,13 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
   return {
     async backup(mailbox, options) {
       // Resolution is a Graph call too, so it runs inside the tracked scope and counts in graphCost.
-      const [result, cost_result] = await run_with_cost_tracking(async () => {
-        const resolved = await resolve_owner_identity(identity, tenant_id, mailbox);
-        const sync_options = with_resolved_identity(adapt_backup_options(options), resolved);
-        return backup.sync_mailbox(tenant_id, resolved?.object_id ?? mailbox, sync_options);
-      });
+      const [result, cost_result] = await with_camelized_outage_result(() =>
+        run_with_cost_tracking(async () => {
+          const resolved = await resolve_owner_identity(identity, tenant_id, mailbox);
+          const sync_options = with_resolved_identity(adapt_backup_options(options), resolved);
+          return backup.sync_mailbox(tenant_id, resolved?.object_id ?? mailbox, sync_options);
+        }),
+      );
       return camelize({ ...result, graph_cost: cost_result });
     },
     async verify(snapshot_id, options) {

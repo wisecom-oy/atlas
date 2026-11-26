@@ -179,7 +179,7 @@ A call that spends its whole budget has met an incident at Microsoft or on the n
 
 1. Writes the snapshot for every folder, drive, library, calendar, contact folder, or channel it finished before the outage.
 2. Leaves each unit it did not finish at its previous sync checkpoint, so the next run reads those changes again. A Graph call the outage stopped is not recorded as a failed file or thread, so it spends none of their retry attempts.
-3. Releases the owner lease and exits `3` with the error of the first exhausted call.
+3. Releases the owner lease and exits `3` with the error of the first exhausted call, printed with its `Atlas code` line. An SDK caller gets the result of the run up to the outage as the error's `partial_result`, see [Graph failures](/reference/sdk#graph-failures).
 
 One outage therefore holds a backup for about one budget: 1,411 s of backoff for a `503` without `Retry-After` (1 + 2 + 4 + ... + 256 s, then three waits of 300 s), plus the requests in flight.
 
@@ -501,7 +501,7 @@ When a scheduled run did not exit `0`:
 | `0` | Complete | |
 | `1` | Unclassified failure, storage failure, or `ATLAS_WRITE_REFUSED` | Once, after reading stderr. A persistent `1` needs a person |
 | `2` | Partial run, soft interrupt, or items skipped | Backup: yes, the next backup retries failed items. Items lost for good, such as a message Exchange cannot convert to MIME or a file permanently skipped after 5 attempts, are reported but not retried. Restore: first check the target for items whose create may have committed, see [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) |
-| `3` | Throttled, network failure, Microsoft Graph `5xx`, or an S3 endpoint that never answered, after retries. Also a run's first read that kept answering `4xx` for an owner that exists | Yes, later |
+| `3` | Throttled, network failure, Microsoft Graph `5xx`, or an S3 endpoint that never answered, after retries. Also a run's first read that kept answering `4xx` for an owner that exists. A backup in which every folder, drive, or channel failed because Microsoft Graph was unavailable exits `3`, because the first exhausted call stops the run | Yes, later |
 | `4` | Authentication, permission, or licence | No. Fix consent or licensing |
 | `5` | Wrong passphrase | No. Supply the original passphrase |
 | `6` | Invalid configuration | No |

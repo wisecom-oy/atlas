@@ -189,6 +189,6 @@ describe('a Graph request waiting for its token (issue #889)', () => {
 
     expect(rig.requests).toHaveLength(0);
     expect(await waiting).toBe(outage);
-    expect(await run).toBe(outage);
+    expect(await run).toMatchObject({ name: outage.name, message: outage.message });
   });
 });

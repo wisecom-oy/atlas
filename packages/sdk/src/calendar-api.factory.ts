@@ -2,6 +2,7 @@ import type { Container } from 'inversify';
 import type { QuarantineUseCase } from '@wisecom/atlas-types';
 import { CALENDAR_QUARANTINE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { with_camelized_partial_result } from '@/partial-listing';
+import { with_camelized_outage_result } from '@/outage-partial-result';
 import type {
   CalendarApi,
   CalendarBackupUseCase,
@@ -65,7 +66,9 @@ export function create_calendar_api(tenant_id: string, container: Container): Ca
     async backup(mailbox, options) {
       const mailbox_id = await resolve_mailbox_id(mailbox);
       return camelize(
-        await backup.backup_calendar(tenant_id, mailbox_id, adapt_operation_options(options)),
+        await with_camelized_outage_result(() =>
+          backup.backup_calendar(tenant_id, mailbox_id, adapt_operation_options(options)),
+        ),
       );
     },
     async restore(mailbox, options) {

@@ -2,6 +2,7 @@ import type { Container } from 'inversify';
 import type { QuarantineUseCase } from '@wisecom/atlas-types';
 import { SHAREPOINT_QUARANTINE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { with_camelized_partial_result } from '@/partial-listing';
+import { with_camelized_outage_result } from '@/outage-partial-result';
 import type {
   SharePointApi,
   SharePointSiteTreeBackupUseCase,
@@ -65,7 +66,9 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
     async backup(site_input, options) {
       const site_id = await resolve_site_id(site_input);
       return camelize(
-        await backup.backup_site_tree(tenant_id, site_id, adapt_operation_options(options)),
+        await with_camelized_outage_result(() =>
+          backup.backup_site_tree(tenant_id, site_id, adapt_operation_options(options)),
+        ),
       );
     },
     async verify(site_input, snapshot_id, options) {

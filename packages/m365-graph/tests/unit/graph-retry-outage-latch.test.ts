@@ -44,7 +44,10 @@ describe('with_graph_retry inside a backup run', () => {
     expect(graph.requests).toBe(ATTEMPTS_PER_RETRY_CHAIN);
     expect(failure).toBeInstanceOf(GraphUnavailableError);
     expect(outcomes).toHaveLength(5);
-    for (const outcome of outcomes) expect(outcome).toBe(failure);
+    for (const outcome of outcomes) expect(outcome).toBe(outcomes[0]);
+    // The run rejects with a copy of the recorded outage that carries what it committed (#869).
+    expect(failure).toMatchObject({ message: (outcomes[0] as Error).message });
+    expect((failure as GraphUnavailableError).partial_result).toBe('committed');
   });
 
   it('cuts short a concurrent call waiting out its backoff', async () => {
