@@ -3,7 +3,7 @@
  * waits for the same end. The line names the pool or owner by id only, and reaches a host's sink.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import type { LogSink } from '@wisecom/atlas-types';
 import type { MailboxConnector } from '@wisecom/atlas-types/ports/outlook/connector.port';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -21,7 +21,7 @@ const ADDRESS = 'john.doe@example.com';
 const END = '\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z';
 
 let throttle: InProcessThrottleCoordinator;
-let warn: ReturnType<typeof vi.spyOn>;
+let warn: MockInstance<(message: string) => void>;
 
 function throttled(retry_after_seconds: string): Record<string, unknown> {
   return {

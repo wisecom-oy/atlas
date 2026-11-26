@@ -4,7 +4,7 @@
  * warn line when it starts; the per-retry debug line is unchanged.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { GraphUnavailableError } from '@wisecom/atlas-types';
 import { with_graph_retry } from '@/graph-request-error-handler';
@@ -13,8 +13,8 @@ import { LONG_WAIT_NOTICE_MS } from '@/graph-wait-notice';
 
 const END = '\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z';
 
-let warn: ReturnType<typeof vi.spyOn>;
-let debug: ReturnType<typeof vi.spyOn>;
+let warn: MockInstance<(message: string) => void>;
+let debug: MockInstance<(message: string) => void>;
 
 function failure(status: number, retry_after?: string): Record<string, unknown> {
   const headers = new Headers(retry_after === undefined ? {} : { 'retry-after': retry_after });
