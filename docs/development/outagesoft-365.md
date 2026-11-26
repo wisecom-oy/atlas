@@ -182,9 +182,13 @@ Atlas's retry policy (`packages/m365-graph/src/graph-request-error-handler.ts`)
 decides what most of these test. It retries 429, 500, 502, 503, 504, and network
 errors such as `ECONNRESET`, `ETIMEDOUT`, and undici's `terminated`, up to 12
 times. Without Retry-After it backs off exponentially from 1 s with jitter, capped
-at 5 minutes. A Retry-After is honoured exactly, and one above 300 s fails the call
-at once instead of waiting. Each attempt has a 60 s timeout that races the request
-promise rather than aborting it.
+at 5 minutes per wait. A Retry-After up to 1 hour is waited out, followed by a
+random release delay of up to a tenth of the wait, kept between 1 and 5 s
+(`packages/core/src/services/shared/cooldown-release-jitter.ts`), so no retry goes
+out before the advised time. A Retry-After above 1 hour fails the call at once with
+`ThrottledError` naming the value. Each attempt has a 60 s timeout, and a timed-out
+attempt is aborted before the next one is sent. [Retries and
+fail-safes](/operations/reliability#microsoft-graph-requests) lists the full policy.
 
 ### Throttle
 
@@ -192,7 +196,7 @@ promise rather than aborting it.
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `throttle_429`                  | 429, Retry-After 5 to 30 s. Outlook: `ApplicationThrottled`, "Application is over its MailboxConcurrency limit." Drives: `activityLimitReached` with inner `throttledRequest`. Others: `TooManyRequests`. | Graph throttles with 429 and Retry-After, and Microsoft's guidance is to honour the delay. Outlook allows 10,000 requests per 10 minutes and 4 concurrent requests per app per mailbox. |
 | `throttle_429_no_retry_after`   | The same 429 without Retry-After                                                                                                                                                                          | Some workloads return 429 without Retry-After.                                                                                                                                          |
-| `throttle_429_long_retry_after` | 429 with Retry-After 315 to 3570 s                                                                                                                                                                        | OneDrive and SharePoint have advised waits from minutes up to about an hour. Exercises Atlas's fail-fast path above 300 s.                                                              |
+| `throttle_429_long_retry_after` | 429 with Retry-After 315 to 3570 s                                                                                                                                                                        | OneDrive and SharePoint have advised waits from minutes up to about an hour. Every value is under Atlas's 1-hour cap, so Atlas waits each one out.                                      |
 | `throttle_503`                  | 503 `serviceNotAvailable` with Retry-After 5 to 30 s; "Server Too Busy" on drives                                                                                                                         | OneDrive and SharePoint also throttle with 503 and Retry-After.                                                                                                                         |
 | `batch_inner_429`               | A 200 `$batch` whose sub-responses include 429s with Retry-After                                                                                                                                          | Throttled sub-requests in a JSON batch come back as 429 inside a 200.                                                                                                                   |
 | `token_endpoint_429`            | 429 from the token endpoint, Retry-After 60, OAuth error body                                                                                                                                             | Stress case for token acquisition; identity requests only.                                                                                                                              |

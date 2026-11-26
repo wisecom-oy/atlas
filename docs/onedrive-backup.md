@@ -208,7 +208,7 @@ atlas onedrive list-permissions -o user@example.com -s od-snap-123
 atlas onedrive status -o user@example.com
 ```
 
-Reports, per drive, the file changes waiting for the next backup and the files in the list of failed files. It reads the sync checkpoint without moving it, so the next backup is unaffected. A drive is up to date only when it has no pending file and no failed file. A Microsoft Graph `401` or `403` exits with code `4`. See the [status columns](/reference/cli#drive-status-columns).
+Reports, per drive, the file changes waiting for the next backup and the files in the list of failed files. It reads the sync checkpoint without moving it, so the next backup is unaffected. A drive is up to date only when it has no pending file and no failed file. A Microsoft Graph `401` or `403` exits with code `4`. A drive that could not be checked shows `peek failed` and the command exits `3` when Microsoft Graph was throttling or unavailable through the retries, or `2` for any other failure. See the [status columns](/reference/cli#drive-status-columns).
 
 ### delete
 

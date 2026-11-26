@@ -58,7 +58,11 @@ const NETWORK_CODES: Readonly<Record<string, true>> = {
   UND_ERR_BODY_TIMEOUT: true,
   UND_ERR_SOCKET: true,
 };
-const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
+// The Graph statuses `with_graph_retry` repeats (`graph-retryable-status.ts` in m365-graph). One
+// that reaches here unwrapped, such as a 408 after a write that is sent once, is still transient.
+const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504, 509]);
+// The throttle statuses among them: Graph's 429 and SharePoint's 509 Bandwidth Limit Exceeded.
+const THROTTLE_STATUS_CODES = new Set([429, 509]);
 
 type ErrorFields = Record<string, unknown>;
 
@@ -127,7 +131,7 @@ function failure_exit_code(
 function transport_atlas_code(statuses: number[]): AtlasErrorCode | undefined {
   if (statuses.some((status) => status === 401 || status === 403)) return 'ATLAS_AUTH_DENIED';
   if (statuses.includes(404)) return 'ATLAS_NOT_FOUND';
-  if (statuses.includes(429)) return 'ATLAS_THROTTLED';
+  if (statuses.some((status) => THROTTLE_STATUS_CODES.has(status))) return 'ATLAS_THROTTLED';
   return undefined;
 }
 

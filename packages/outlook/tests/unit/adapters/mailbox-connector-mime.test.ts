@@ -98,18 +98,29 @@ describe('GraphMailboxConnector.fetch_mime', () => {
     }
   });
 
+  // A 401 is sent once more with a newly issued token before it is final (issue #861).
   it.each([
-    [400, 'ErrorInvalidRequest'],
-    [401, 'InvalidAuthenticationToken'],
-    [404, 'ErrorItemNotFound'],
+    [400, 'ErrorInvalidRequest', 1],
+    [401, 'InvalidAuthenticationToken', 2],
+    [404, 'ErrorItemNotFound', 1],
   ])(
     'rejects with the Graph error on %i %s instead of resolving no MIME (issue #849)',
-    async (status, code) => {
-      const refusal = graph_error(status, code);
-      const harness = create_harness(() => Promise.reject(refusal as unknown as Error));
+    async (status, code, attempts) => {
+      vi.useFakeTimers();
+      try {
+        const refusal = graph_error(status, code);
+        const harness = create_harness(() => Promise.reject(refusal as unknown as Error));
 
-      await expect(harness.connector.fetch_mime('t', 'owner-1', 'msg-1')).rejects.toBe(refusal);
-      expect(harness.get).toHaveBeenCalledTimes(1);
+        const outcome = harness.connector
+          .fetch_mime('t', 'owner-1', 'msg-1')
+          .catch((e: unknown) => e);
+        await vi.advanceTimersByTimeAsync(5_000);
+
+        expect(await outcome).toBe(refusal);
+        expect(harness.get).toHaveBeenCalledTimes(attempts);
+      } finally {
+        vi.useRealTimers();
+      }
     },
   );
 

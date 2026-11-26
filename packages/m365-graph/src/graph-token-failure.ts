@@ -16,6 +16,19 @@ const MSAL_NETWORK_ERROR_CODE = 'network_error';
 const TEMPORARILY_UNAVAILABLE_CODE = 'temporarily_unavailable';
 
 /**
+ * How long MSAL holds a token request back after Entra ID answered it with a 429 or 5xx: its
+ * `DEFAULT_THROTTLE_TIME_SECONDS`, or longer when Entra ID sent a `Retry-After`. A repeat inside that
+ * window never reaches Entra ID; MSAL replays the stored failure instead (issue #860).
+ */
+export const MSAL_THROTTLE_WINDOW_MS = 60_000;
+
+/**
+ * MSAL's replay of a stored throttle entry: a `ServerError` with no `status` whose `errorCode` is the
+ * space-separated list of numeric AADSTS codes Entra ID sent, or empty when it sent none.
+ */
+const MSAL_THROTTLE_REPLAY_CODES = /^(\d+( \d+)*)?$/;
+
+/**
  * A Graph token request that failed, carried through the Graph SDK intact (issue #786).
  *
  * `GraphRequest` turns any other error the authentication middleware throws into a `GraphError`
@@ -29,13 +42,12 @@ const TEMPORARILY_UNAVAILABLE_CODE = 'temporarily_unavailable';
 export class GraphTokenRequestError extends GraphClientError {
   /** HTTP status Entra ID answered with, or undefined when the request got no response. */
   readonly entra_status: number | undefined;
-  /** True when repeating the request can succeed: no response, a 408, a 429 or a 5xx. */
+  /** True when repeating the request can succeed: no response, a 408, a 429, a 5xx or its replay. */
   readonly transient: boolean;
+  /** The shortest wait before a repeat can reach Entra ID, or undefined when it can go at once. */
+  readonly retry_after_ms: number | undefined;
 
-  constructor(
-    message: string,
-    facts: { cause: unknown; entra_status: number | undefined; transient: boolean },
-  ) {
+  constructor(message: string, facts: TokenFailureFacts) {
     super(message);
     // GraphClientError resets the prototype to its own, which would break `instanceof` here.
     Object.setPrototypeOf(this, new.target.prototype);
@@ -43,11 +55,22 @@ export class GraphTokenRequestError extends GraphClientError {
     this.cause = facts.cause;
     this.entra_status = facts.entra_status;
     this.transient = facts.transient;
+    this.retry_after_ms = facts.retry_after_ms;
   }
+}
+
+/** What a failed token request established about Entra ID's answer. */
+interface TokenFailureFacts {
+  readonly cause: unknown;
+  readonly entra_status: number | undefined;
+  readonly transient: boolean;
+  readonly retry_after_ms?: number | undefined;
 }
 
 /** Classifies a failed token request: refused credentials, a transient failure, or neither. */
 export function to_token_request_error(err: unknown): GraphTokenRequestError {
+  const replay = find_throttle_replay(err);
+  if (replay !== undefined) return to_throttle_replay_error(err, replay);
   const entra_status = find_entra_status(err);
   const oauth_code = find_oauth_code(err);
   const detail = describe_token_failure(entra_status, oauth_code);
@@ -67,7 +90,32 @@ export function to_token_request_error(err: unknown): GraphTokenRequestError {
     cause: err,
     entra_status,
     transient: is_transient_token_failure(entra_status, oauth_code, err),
+    retry_after_ms: is_msal_throttled_status(entra_status) ? MSAL_THROTTLE_WINDOW_MS : undefined,
   });
+}
+
+/**
+ * The failure MSAL replays from its throttle cache. Entra ID answered an earlier request with a 429
+ * or 5xx, which is the only kind of answer MSAL stores, so it is transient, and a repeat cannot
+ * reach Entra ID until the stored window ends.
+ */
+function to_throttle_replay_error(err: unknown, aadsts_codes: string): GraphTokenRequestError {
+  const codes = aadsts_codes === '' ? '' : ` (AADSTS${aadsts_codes.split(' ').join(', AADSTS')})`;
+  return new GraphTokenRequestError(
+    'Microsoft Entra ID did not issue a Graph token: it answered an earlier request with HTTP 429 ' +
+      `or 5xx${codes}, and MSAL holds token requests back until its throttle window ends`,
+    {
+      cause: err,
+      entra_status: undefined,
+      transient: true,
+      retry_after_ms: MSAL_THROTTLE_WINDOW_MS,
+    },
+  );
+}
+
+/** The wait a failed token request needs before it can reach Entra ID, or undefined for none. */
+export function token_request_retry_after_ms(err: unknown): number | undefined {
+  return err instanceof GraphTokenRequestError ? err.retry_after_ms : undefined;
 }
 
 /** The typed error a failed token request carries, when it carries one: `AuthError` on a refusal. */
@@ -118,6 +166,11 @@ function is_transient_token_failure(
   return oauth_code === MSAL_NETWORK_ERROR_CODE || is_network_error(err);
 }
 
+/** Whether MSAL stores a throttle entry for this Entra ID status: a 429 or any 5xx. */
+function is_msal_throttled_status(status: number | undefined): boolean {
+  return status !== undefined && (status === 429 || (status >= 500 && status <= 599));
+}
+
 function describe_token_failure(
   status: number | undefined,
   oauth_code: string | undefined,
@@ -148,6 +201,20 @@ function find_oauth_code(err: unknown): string | undefined {
     if (typeof response === 'object' && response !== null) {
       const code = (response as Record<string, unknown>).error;
       if (typeof code === 'string' && code !== '') return code;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The AADSTS codes of MSAL's throttle replay in the cause chain, or undefined when there is none.
+ * A `ServerError` built from an Entra ID answer always carries its `status`; only the replay lacks it.
+ */
+function find_throttle_replay(err: unknown): string | undefined {
+  for (const link of cause_chain(err)) {
+    if (link.name !== 'ServerError' || link.status !== undefined) continue;
+    if (typeof link.errorCode === 'string' && MSAL_THROTTLE_REPLAY_CODES.test(link.errorCode)) {
+      return link.errorCode;
     }
   }
   return undefined;

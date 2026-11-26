@@ -66,9 +66,10 @@ function provider_for(answer: EntraAnswer): TypedTokenAuthProvider {
     retryOptions: { maxRetries: 0 },
   });
   return new TypedTokenAuthProvider(
-    new TokenCredentialAuthenticationProvider(credential, {
-      scopes: ['https://graph.microsoft.com/.default'],
-    }),
+    () =>
+      new TokenCredentialAuthenticationProvider(credential, {
+        scopes: ['https://graph.microsoft.com/.default'],
+      }),
   );
 }
 

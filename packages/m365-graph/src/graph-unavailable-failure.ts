@@ -1,4 +1,5 @@
 import { GraphUnavailableError } from '@wisecom/atlas-types';
+import { is_unreadable_success_body } from '@/graph-unreadable-body';
 
 /** How many retries an exhausted call made, and how long it spent before giving up. */
 export interface ExhaustedAttempts {
@@ -45,8 +46,12 @@ function http_status_of(err: unknown): number | undefined {
     : undefined;
 }
 
-/** Graph's error code on a Graph error, or undefined for a failure that carries none. */
+/**
+ * Graph's error code on a Graph error, or undefined for a failure that carries none. A 2xx whose
+ * body did not parse carries the SDK's `SyntaxError` there, which is not Graph's (issue #868).
+ */
 function graph_code_of(err: unknown): string | undefined {
+  if (is_unreadable_success_body(err)) return undefined;
   const code = field_of(err, 'code');
   return typeof code === 'string' && code !== '' ? code : undefined;
 }

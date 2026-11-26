@@ -77,4 +77,27 @@ describe('fatal token request failures', () => {
     expect(process.exitCode).toBe(3);
     expect(diagnostics.join('\n')).toContain('Atlas code: ATLAS_GRAPH_UNAVAILABLE');
   });
+
+  it('exits 3 when the budget ends on MSAL replaying an Entra ID outage (issue #860)', () => {
+    const replay = Object.assign(new Error('90033: AADSTS90033: A transient error has occurred.'), {
+      name: 'ServerError',
+      errorCode: '90033',
+    });
+    const carrier = Object.assign(new Error('Microsoft Entra ID did not issue a Graph token'), {
+      name: 'GraphTokenRequestError',
+      cause: Object.assign(new Error(replay.message, { cause: replay }), {
+        name: 'AuthenticationRequiredError',
+      }),
+    });
+    handle_fatal_error(
+      new GraphUnavailableError(
+        'Microsoft Entra ID did not issue a Graph token after 12 retries over 1440 s',
+        { retries: 12, elapsed_ms: 1_440_000 },
+        { cause: carrier },
+      ),
+    );
+
+    expect(process.exitCode).toBe(3);
+    expect(diagnostics.join('\n')).toContain('Atlas code: ATLAS_GRAPH_UNAVAILABLE');
+  });
 });
