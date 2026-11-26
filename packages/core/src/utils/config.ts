@@ -25,6 +25,8 @@ import {
   type BucketSelection,
 } from '@/utils/bucket-override';
 import { read_env_s3_transport, type S3TransportSettings } from '@/utils/s3-transport-settings';
+import { read_env_writer_exclusion } from '@/utils/single-writer-setting';
+import type { WriterExclusionMode } from '@wisecom/atlas-types';
 
 export interface GraphConfig {
   readonly tenant_id: string;
@@ -44,6 +46,11 @@ export interface S3Config {
   readonly s3_bucket?: BucketSelection | undefined;
   /** Timeouts and attempts for the S3 client. Undefined means the defaults. */
   readonly s3_transport?: S3TransportSettings | undefined;
+  /**
+   * What keeps two writers off one owner (issue #974). Undefined means `storage_lease`: lease
+   * objects and conditional writes the backend must enforce.
+   */
+  readonly writer_exclusion?: WriterExclusionMode | undefined;
 }
 
 export interface CryptoConfig {
@@ -52,8 +59,11 @@ export interface CryptoConfig {
 
 export type AtlasConfig = GraphConfig & S3Config & CryptoConfig;
 
-/** Config fields that hold one string: every field but the structured bucket and transport ones. */
-export type StringConfigField = Exclude<keyof AtlasConfig, 's3_bucket' | 's3_transport'>;
+/** Config fields that hold one string: every field but the structured and enumerated ones. */
+export type StringConfigField = Exclude<
+  keyof AtlasConfig,
+  's3_bucket' | 's3_transport' | 'writer_exclusion'
+>;
 
 /** The string-valued part of the config, as files, the store and ATLAS_* variables hold it. */
 export type StringConfig = Pick<AtlasConfig, StringConfigField>;
@@ -91,7 +101,8 @@ export interface LoadConfigOptions {
  * override changes its tenant or client ID, the profile is unknown, or a required field is missing.
  * A bucket override comes from `ATLAS_S3_BUCKET` or the profile's `bucket`, bound to the tenant it
  * belongs to; a top-level `bucket` is refused. S3 timeouts and attempts come only from their
- * `ATLAS_S3_*` variables, and an invalid one throws `ConfigError`.
+ * `ATLAS_S3_*` variables, and the single-writer opt-in only from `ATLAS_SINGLE_WRITER`; an invalid
+ * value throws `ConfigError`.
  */
 export function load_config(options: LoadConfigOptions = {}): AtlasConfig {
   // quiet: dotenv's load banner goes to stdout, which corrupts pipeable output
@@ -126,10 +137,12 @@ export function load_config(options: LoadConfigOptions = {}): AtlasConfig {
     ),
   });
   const s3_transport = read_env_s3_transport();
+  const writer_exclusion = read_env_writer_exclusion();
   return {
     ...config,
     ...(s3_bucket !== undefined ? { s3_bucket } : {}),
     ...(s3_transport !== undefined ? { s3_transport } : {}),
+    ...(writer_exclusion !== 'storage_lease' ? { writer_exclusion } : {}),
   };
 }
 

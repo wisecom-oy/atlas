@@ -2,7 +2,6 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
-  ListObjectsV2Command,
   CreateMultipartUploadCommand,
   type S3Client,
 } from '@aws-sdk/client-s3';
@@ -31,6 +30,7 @@ import {
 } from '@/adapters/object-lock.errors';
 import { is_backend_mode_rejection } from '@/adapters/s3-error-classifier';
 import { copy_object_server_side } from '@/adapters/s3-large-copy';
+import { list_object_keys } from '@/adapters/s3-object-key-listing';
 import {
   list_object_version_pages,
   list_object_versions,
@@ -38,6 +38,11 @@ import {
 import { S3BatchDeleter } from '@/adapters/s3-batch-delete';
 import { is_conditional_put, send_put_object } from '@/adapters/s3-object-put';
 import { require_conditional_writes } from '@/adapters/conditional-write-guard';
+import {
+  STORAGE_LEASE_POLICY,
+  type ConditionalWritePolicy,
+} from '@/adapters/conditional-write-policy';
+import { put_with_checked_condition } from '@/adapters/checked-conditional-put';
 import {
   probe_conditional_writes,
   run_conditional_write_probe,
@@ -55,6 +60,7 @@ export class S3ObjectStorage implements ObjectStorage {
     private readonly _client: S3Client,
     private readonly _bucket: string,
     private readonly _buckets: BucketCache,
+    private readonly _policy: ConditionalWritePolicy = STORAGE_LEASE_POLICY,
   ) {
     this._batch_deleter = new S3BatchDeleter(_client, _bucket, (target) =>
       target.version_id === undefined
@@ -64,10 +70,13 @@ export class S3ObjectStorage implements ObjectStorage {
   }
 
   /**
-   * Uploads data with a Content-MD5 header for transport integrity verification. A conditional
-   * write first confirms, once per bucket and process, that the backend enforces conditions.
+   * Uploads data with a Content-MD5 header for transport integrity verification. By default a
+   * conditional write first confirms, once per bucket and process, that the backend enforces
+   * conditions. In an opt-in writer-exclusion mode Atlas checks the condition itself and sends
+   * none (issue #974), so every create-only and compare-and-swap write takes the same path.
    *
    * @throws ConditionalWritesNotEnforcedError on a conditional write to a backend that ignores it.
+   * @throws PreconditionFailedError when the condition fails.
    */
   async put(
     key: string,
@@ -79,6 +88,15 @@ export class S3ObjectStorage implements ObjectStorage {
   ): Promise<void> {
     await this.validate_object_lock_policy(object_lock_policy);
     const request = { key, data, metadata, object_lock_policy, if_match, if_none_match };
+    if (is_conditional_put(request) && this._policy.emulates_conditions()) {
+      await put_with_checked_condition(
+        this._client,
+        this._bucket,
+        request,
+        this._policy.key_serializer,
+      );
+      return;
+    }
     if (is_conditional_put(request)) {
       await require_conditional_writes(this._bucket, this._buckets, () =>
         run_conditional_write_probe(this.unguarded_probe_target()),
@@ -208,32 +226,12 @@ export class S3ObjectStorage implements ObjectStorage {
   }
 
   /** One paginated walk; the two listings differ only in what they keep and when they stop. */
-  private async collect_keys(
+  private collect_keys(
     prefix: string,
     keep: (last_modified: Date | undefined) => boolean,
     limit?: number,
   ): Promise<string[]> {
-    const keys: string[] = [];
-    let continuation_token: string | undefined;
-
-    do {
-      const response = await this._client.send(
-        new ListObjectsV2Command({
-          Bucket: this._bucket,
-          Prefix: prefix,
-          ContinuationToken: continuation_token,
-          ...(limit !== undefined ? { MaxKeys: Math.min(limit, 1000) } : {}),
-        }),
-      );
-
-      for (const obj of response.Contents ?? []) {
-        if (obj.Key && keep(obj.LastModified)) keys.push(obj.Key);
-      }
-      if (limit !== undefined && keys.length >= limit) return keys.slice(0, limit);
-      continuation_token = response.NextContinuationToken;
-    } while (continuation_token);
-
-    return keys;
+    return list_object_keys(this._client, this._bucket, { prefix, keep, limit });
   }
 
   /** Lists all object versions and delete markers under a prefix. */
@@ -328,15 +326,23 @@ export class S3ObjectStorage implements ObjectStorage {
   /** This bucket's storage calls with puts that skip the guard, which would await the probe. */
   private unguarded_probe_target(): ConditionalWriteProbeTarget {
     return {
-      put: (key, data, metadata, object_lock_policy, if_match, if_none_match) =>
-        send_put_object(this._client, this._bucket, {
+      put: async (
+        key,
+        data,
+        metadata,
+        object_lock_policy,
+        if_match,
+        if_none_match,
+      ): Promise<void> => {
+        await send_put_object(this._client, this._bucket, {
           key,
           data,
           metadata,
           object_lock_policy,
           if_match,
           if_none_match,
-        }),
+        });
+      },
       get_with_etag: (key) => this.get_with_etag(key),
       delete: (key) => this.delete(key),
       list_versions: (prefix) => this.list_versions(prefix),

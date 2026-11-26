@@ -114,7 +114,7 @@ describe('restore with targetTenant', () => {
       targetTenant: create_tenant(DESTINATION),
     });
 
-    expect(create_container_from_config).toHaveBeenCalledWith({
+    expect(create_container_from_config.mock.calls[0]![0]).toEqual({
       ...SOURCE_CONFIG,
       tenant_id: DESTINATION.tenantId,
       client_id: DESTINATION.clientId,

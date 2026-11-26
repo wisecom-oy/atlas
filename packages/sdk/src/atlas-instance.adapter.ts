@@ -33,18 +33,24 @@ import { create_disposer } from '@/instance-disposal';
 import { resolve_log_sink, scope_api_logging } from '@/log-scope';
 import { normalize_config } from '@/instance-config';
 import { validate_instance } from '@/instance-validation';
-import { STORAGE_OBSERVER_TOKEN } from '@/target-tenant';
+import { OWNER_EXCLUSION_TOKEN, STORAGE_OBSERVER_TOKEN } from '@/target-tenant';
 
 /** Creates a tenant-bound Atlas SDK instance from explicit configuration values. */
 export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance {
   const atlas_config = normalize_config(config);
-  const container = create_container_from_config(atlas_config, config.throttleCoordinator, {
-    tenant_pacing_share: config.teamsPacingShare,
-  });
+  const container = create_container_from_config(
+    atlas_config,
+    config.throttleCoordinator,
+    { tenant_pacing_share: config.teamsPacingShare },
+    config.ownerExclusion,
+  );
   if (config.onStorageRequest) {
     const s3_client = container.get<S3Client>(S3_CLIENT_TOKEN);
     observe_storage_requests(s3_client, config.onStorageRequest);
     container.bind(STORAGE_OBSERVER_TOKEN).toConstantValue(config.onStorageRequest);
+  }
+  if (config.ownerExclusion) {
+    container.bind(OWNER_EXCLUSION_TOKEN).toConstantValue(config.ownerExclusion);
   }
   const tenant_id = atlas_config.tenant_id;
 

@@ -29,7 +29,7 @@ const RAW_PUT_ALLOWLIST: Record<string, string> = {
   'outlook/src/services/backup/message-payload-store.ts': 'message body content',
   'teams/src/services/backup/message-blob-writer.ts': 'Teams message and hosted content',
   // The wrapped data key: binary, with its own create-only and compare-and-swap protocol.
-  's3/src/adapters/tenant-context.factory.ts': 'data key bootstrap, create-only',
+  's3/src/adapters/tenant-dek-bootstrap.ts': 'data key bootstrap, create-only',
   'core/src/services/keys/dek-wrapper-rewrite.ts': 'data key rewrap, compare-and-swap',
   // The registry retries on its own ETag compare-and-swap, which the guarded writer does not model.
   's3/src/adapters/s3-identity-registry-repository.adapter.ts': 'identity registry CAS loop',

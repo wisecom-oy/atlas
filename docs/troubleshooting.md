@@ -306,10 +306,21 @@ The storage backend failed the conditional-write probe Atlas runs before its fir
 | `accepted a compare-and-swap (If-Match) with a stale ETag` | Ignores `If-Match` | Garage, Scality CloudServer |
 | `refused a compare-and-swap (If-Match) with the current ETag` | Refuses every `If-Match` | Ceph RGW 18 |
 
-Retrying returns the same answer, and there is no option to run anyway.
+Retrying returns the same answer.
 
 1. Run `atlas storage-check` and read the `Conditional writes` row to confirm it.
 2. Upgrade the backend to a release that enforces conditional writes, or move the bucket to one that does. See [Backend compatibility](/self-hosting/storage#backend-compatibility).
+3. If neither is possible and you can guarantee one writer per tenant, opt in with `ATLAS_SINGLE_WRITER=1` (CLI) or `ownerExclusion` (SDK). Read [Backends without conditional writes](/self-hosting/storage#backends-without-conditional-writes) first: it lists what the opt-in no longer guarantees.
+
+A backend that answers conditional writes with `501 Not Implemented` shows `not probed` in `storage-check`, and the write then fails with that `501`. The same opt-in applies.
+
+### Another writer replaced the object
+
+```
+Conditional write failed for key <key>: another writer replaced the object right after this write. ...
+```
+
+Only in [single-writer mode or with a host exclusion](/self-hosting/storage#backends-without-conditional-writes). Atlas wrote the object, read its ETag back, and found a different object stored, so a second process wrote the same key at the same moment. The run fails instead of continuing on state that is no longer its own. Find the second process: another scheduler, a manual run, or a host exclusion that granted one owner twice. Then rerun.
 
 ## Decryption failures
 

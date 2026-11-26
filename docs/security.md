@@ -362,13 +362,29 @@ Atlas keeps concurrent runs apart, and keeps one data key per tenant, with condi
 | Create-only manifests and indexes | A snapshot ID collision or a retried `PUT` replaces a stored manifest instead of failing |
 | Identity registry | Concurrent backups drop each other's new entries. A backend that refuses a correct `If-Match`, as Ceph RGW 18 does, makes every registry update fail |
 
-Every Atlas process therefore probes each bucket before its first conditional write to it, with the same three checks `atlas storage-check` runs, and remembers the answer for the rest of the process. A backend that accepts a create-only write onto an existing object, accepts a stale ETag, or refuses the current ETag is refused with `ConditionalWritesNotEnforcedError` (`ATLAS_CONFIG_INVALID`, exit `6`) before any lease, key, or backup data is written. There is no override: running without these guarantees corrupts backups silently, and the damage surfaces only at restore.
+Every Atlas process therefore probes each bucket before its first conditional write to it, with the same three checks `atlas storage-check` runs, and remembers the answer for the rest of the process. A backend that accepts a create-only write onto an existing object, accepts a stale ETag, or refuses the current ETag is refused with `ConditionalWritesNotEnforcedError` (`ATLAS_CONFIG_INVALID`, exit `6`) before any lease, key, or backup data is written. No setting turns this into a warning: running without these guarantees corrupts backups silently, and the damage surfaces only at restore. The only way past the refusal is to take the exclusion over yourself, described next.
 
 The probe is a behaviour check from one client, not a proof:
 
 - **It does not detect a malicious backend.** A backend that answers the probe correctly and ignores the headers later is not caught. Choose the backend for its conditional-write support, as listed in [Backend compatibility](/self-hosting/storage#backend-compatibility).
 - **It tests single `PUT` requests.** Atlas sends every conditional write as a single `PutObject`, never as `CopyObject` or `CompleteMultipartUpload`, so a backend that enforces the conditions only on `PutObject` is sufficient.
 - **A probe that cannot run does not block.** If the bucket does not exist yet, the credentials may not write, or a request fails, the command logs a warning and continues without the check. After a failed request the next conditional write probes again, so a storage outage never becomes a lasting refusal.
+
+### When you take over writer exclusion
+
+`ATLAS_SINGLE_WRITER=1` in the CLI, or `ownerExclusion` in the SDK, runs Atlas on a backend that cannot enforce conditional writes. Both are explicit, both are reported by `atlas storage-check` and `checkStorage()` as `writerExclusion`, and the CLI prints a warning on every run. They move the lock from the bucket to whoever runs Atlas:
+
+| Threat | Default mode | Opt-in mode |
+| --- | --- | --- |
+| Two operations on one owner in one process | Refused by the lease | Refused by the in-process or host exclusion |
+| Two operations on one owner in two processes | Refused by the lease | Refused only if the host exclusion covers both processes. Under `ATLAS_SINGLE_WRITER`, not detected: you must not run two processes per tenant |
+| Two first runs creating different data keys | Refused by create-only `PUT` | Refused only while the tenant scope is exclusive across processes. A second process without the exclusion could store a different key, and data it encrypted would be unreadable |
+| Concurrent identity registry updates from two processes | Merged by compare-and-swap | Can drop entries one process just added. They are recorded again by the next backup that looks the user up |
+| A writer replacing a create-only object | Refused by the backend | Refused when Atlas sees the object first, and reported as a lost race when the replacement lands before Atlas reads its write back. A replacement after that is not detected |
+
+What does not change: encryption, key wrapping, Object Lock retention, the read-back of every manifest, index, and cursor, and the restore-time integrity checks. A backend that silently loses or rewrites objects is still caught by `verify` and at restore, as in the default mode.
+
+Treat the opt-in as a statement about your deployment. If a second scheduler, a manual run on another host, or a stuck container can write the same tenant, use the default mode on a backend that enforces conditional writes instead. A compromised or misbehaving host exclusion can let two runs write one owner; it cannot read or decrypt anything, because it never receives storage credentials, keys, or data.
 
 ## S3 permissions by command class
 
@@ -387,10 +403,10 @@ Only the provisioning row creates a bucket or a new data key, and only a derived
 
 Give monitoring and audit principals the read-only row only. They never need `s3:CreateBucket`; a principal that holds it from Atlas versions before 2.1.0-beta can have it revoked.
 
-`storage-check` is read-only except for its conditional-write probe, which puts and deletes one object under `_meta/storage-check/`. With read-only credentials the probe reports `not probed` and the rest of the check still runs. Every command that writes runs the same probe once per bucket before its first conditional write, so writing principals need `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`, `s3:ListBucketVersions`, and `s3:DeleteObjectVersion` on that prefix too. Without them the probe is skipped with a warning, and the command runs without that check.
+`storage-check` is read-only except for its conditional-write probe, which puts and deletes one object under `_meta/storage-check/`. With read-only credentials the probe reports `not probed` and the rest of the check still runs. Every command that writes runs the same probe once per bucket before its first conditional write, except in an [opt-in writer-exclusion mode](#when-you-take-over-writer-exclusion), so writing principals need `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`, `s3:ListBucketVersions`, and `s3:DeleteObjectVersion` on that prefix too. Without them the probe is skipped with a warning, and the command runs without that check.
 
 ::: details Owner leases and write permissions
-Atlas runs one operation at a time per mailbox, drive owner, site, or team. Backups, restores, deletions, and quarantines write, renew, and delete the [owner lease](/operations/storage-layout#owner-leases) for what they act on. A purge and a key re-wrap do the same with the tenant lease. A principal that may write but not delete, for example under a policy that denies `DeleteObject` on `_meta/*`, marks the lease released in place with a conditional write instead. A restore whose credentials cannot write the lease runs without one and logs that concurrent-run protection is off, so read-only restore credentials keep working at the cost of that protection.
+Atlas runs one operation at a time per mailbox, drive owner, site, or team. Backups, restores, deletions, and quarantines write, renew, and delete the [owner lease](/operations/storage-layout#owner-leases) for what they act on. A purge and a key re-wrap do the same with the tenant lease. A principal that may write but not delete, for example under a policy that denies `DeleteObject` on `_meta/*`, marks the lease released in place with a conditional write instead. A restore whose credentials cannot write the lease runs without one and logs that concurrent-run protection is off, so read-only restore credentials keep working at the cost of that protection. In an [opt-in writer-exclusion mode](#when-you-take-over-writer-exclusion) no lease object exists, and a restore holds the in-process or host exclusion whatever its credentials.
 
 The lease keeps Atlas runs apart. It is not an access control: it is unencrypted and unauthenticated, so anyone who can write to the bucket can remove or forge it, and anyone who can do that can already delete the backups.
 :::
