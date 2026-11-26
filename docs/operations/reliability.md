@@ -25,6 +25,7 @@ The [exit code table](#exit-codes-and-whether-to-retry) says which codes a rerun
 | Failure | What Atlas does | Section |
 | --- | --- | --- |
 | Microsoft Graph `429`, `500`, `502`, `503`, `504`, network error | Retries up to 12 times with backoff, honouring `Retry-After` | [Microsoft Graph requests](#microsoft-graph-requests) |
+| Microsoft Graph `401` on an issued token | Requests a new token and repeats the call once. A second `401` exits `4` | [Microsoft Graph requests](#microsoft-graph-requests) |
 | Microsoft Graph outage outlasts the retry budget during a backup | Stops the run after one budget, commits what finished, exits `3` | [When retries run out](#when-retries-run-out-on-a-throttle) |
 | A large file transfer stalls or its URL expires | Retries the range, refreshes the URL, resumes at the failed range | [File transfers](#file-transfers-onedrive-and-sharepoint) |
 | S3 request fails or the backend stops answering | Retries each request up to 3 times, cuts off a connect after 10 s and a silent socket after 5 min, then exits `3`. Writes that must not collide are conditional | [Storage](#storage) |
@@ -43,6 +44,8 @@ Every Microsoft Graph call goes through one retry loop. The Graph SDK's own retr
 | Parameter | Value |
 | --- | --- |
 | Retried HTTP statuses | `429`, `500`, `502`, `503`, `504` |
+| `401` | Repeated once per call, with a newly issued access token. A second `401` in the same call ends it |
+| Failed Graph token request | Retried like a `5xx` when Microsoft Entra ID did not answer, or answered `408`, `429`, a `5xx`, or `temporarily_unavailable`. After a `429` or `5xx`, the next attempt waits at least 60 s |
 | Retried transport errors | Node and undici codes such as `ECONNRESET`, `ETIMEDOUT`, `ENOTFOUND`, `EAI_AGAIN`, `UND_ERR_SOCKET`, and aborted or timed-out transfers |
 | Maximum retries | 12, so at most 13 attempts per call |
 | Backoff without `Retry-After` | `min(1 s × 2^attempt + random(0 to 1 s), 5 min)` |
@@ -54,9 +57,11 @@ Every Microsoft Graph call goes through one retry loop. The Graph SDK's own retr
 | Waiting budget per call | 24 minutes of backoff, `Retry-After`, and cooldown waits. A wait already started runs in full |
 | Per-attempt timeout | 60 s by default. A timed-out request is aborted before the next attempt is sent |
 
-`500` and `502` are retried because Microsoft Graph returns them for load and gateway faults that clear on their own. `501` and every other `4xx` are not retried: the same request returns the same answer. A `500` carrying `ErrorMimeContentConversionFailed` is not retried either, because Exchange returns it for an item it can never convert (see [When a message cannot be stored as MIME](/operations/delta-sync#when-a-message-cannot-be-stored-as-mime)). Atlas decides from the HTTP status and structured error codes only, never from message text, which carries request IDs and item IDs whose digits could pass for a status.
+`500` and `502` are retried because Microsoft Graph returns them for load and gateway faults that clear on their own. `501` and every other `4xx` are not retried: the same request returns the same answer. A `401` is the exception. Graph can reject a token Microsoft Entra ID has only just issued, so Atlas discards the token Graph rejected and repeats the request once with a new one. A `401` that a new token does not clear means the credentials or the tenant are at fault, and it ends the call at once with exit `4` rather than after the 24-minute budget. A `500` carrying `ErrorMimeContentConversionFailed` is not retried either, because Exchange returns it for an item it can never convert (see [When a message cannot be stored as MIME](/operations/delta-sync#when-a-message-cannot-be-stored-as-mime)). Atlas decides from the HTTP status and structured error codes only, never from message text, which carries request IDs and item IDs whose digits could pass for a status.
 
 An Outlook MIME download (`GET /messages/{id}/$value`) that answers `200` with an empty body is requested again, up to 3 requests in all, 2 s and then 4 s apart. Zero bytes are never an RFC 5322 message, and storing them would pass every later check, since `verify` compares a checksum of zero bytes with zero bytes. If the body stays empty, the message is handled as a failed MIME capture (see [Partial runs](#partial-runs)). Attachments and files can be empty legitimately, so the check covers MIME only. A body shorter than its `Content-Length` fails in transport as `UND_ERR_SOCKET` and is retried as above.
+
+A token request that Microsoft Entra ID answers with a `429` or `5xx` is held back for at least 60 s by MSAL, the Microsoft library that requests the token, or for as long as Entra's `Retry-After` asks. A repeat inside that window never reaches Entra ID, so Atlas waits at least 60 s between token attempts. An Entra ID outage is retried through the whole budget and ends in `ATLAS_GRAPH_UNAVAILABLE`, exit `3`. A refusal of the credentials (`invalid_client`, an unknown client ID or tenant, an expired secret) is never retried and exits `4`.
 
 The 24-minute budget sits just above the full exponential schedule (1 + 2 + 4 + ... capped at 5 minutes comes to about 23.5 minutes), so backoff alone always gets all 12 retries. Time spent inside a request does not count, so a slow download keeps its retries. One call therefore waits at most about 24 minutes plus one cooldown, and so does a whole backup run: see [When retries run out](#when-retries-run-out-on-a-throttle).
 
@@ -102,7 +107,7 @@ A call that is not retried to exhaustion stays the item's own failure and the ru
 
 ### Writes that are sent once
 
-A restore request that creates something (a message, attachment, event, contact, folder, or a drive file under `--conflict rename` or `--conflict fail`) is retried only on a `429`, or a `503` carrying `Retry-After`. Microsoft Graph sends those instead of processing the request.
+A restore request that creates something (a message, attachment, event, contact, folder, or a drive file under `--conflict rename` or `--conflict fail`) is retried only on a `429`, a `503` carrying `Retry-After`, or a single `401` with the code `InvalidAuthenticationToken`. Microsoft Graph sends those instead of processing the request: it checks the token before the request reaches Exchange or SharePoint. A `401` with any other code is not repeated.
 
 A `500`, `502`, `504`, timeout, or dropped connection after a create may arrive after Microsoft 365 committed it, so repeating the request could leave a duplicate. The item is reported as failed and the restore continues. See [Restore writes are sent once](/troubleshooting#restore-writes-are-sent-once) for what to check before restoring it again.
 
