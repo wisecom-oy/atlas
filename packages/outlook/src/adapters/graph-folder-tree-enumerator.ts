@@ -52,6 +52,32 @@ export const FOLDER_PATH_SEPARATOR = '/';
 export type FolderChildrenFetcher = (parent_folder_id?: string) => Promise<GraphFolderRecord[]>;
 
 /**
+ * Wraps a folder fetcher so a folder one of its listings already returned is not returned again.
+ *
+ * Graph can list a folder more than once, within a listing or across its pages, and the walk would
+ * then sync that folder and walk its subtree once per copy (issue #894). The first copy is kept.
+ * The repeats are dropped after the fetcher returns, so a listing's completeness check still
+ * compares every item Graph sent against its `@odata.count` (issue #853).
+ */
+export function skip_repeated_folders(
+  fetch_children: FolderChildrenFetcher,
+): FolderChildrenFetcher {
+  const listed_ids = new Set<string>();
+  return async (parent_folder_id) => {
+    const records = await fetch_children(parent_folder_id);
+    return records.filter((record) => is_first_listing(record, listed_ids));
+  };
+}
+
+/** Records a folder as listed; false when an earlier listing already returned it. */
+function is_first_listing(record: GraphFolderRecord, listed_ids: Set<string>): boolean {
+  if (!record.id) return true;
+  if (listed_ids.has(record.id)) return false;
+  listed_ids.add(record.id);
+  return true;
+}
+
+/**
  * Walks the full folder hierarchy and returns every folder to back up, each
  * carrying its root-relative path.
  *
