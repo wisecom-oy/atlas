@@ -123,6 +123,8 @@ atlas onedrive restore -o user@example.com -s od-snap-123 \
 
 Restored files keep their original created and modified timestamps. Each file is decrypted and checked against its SHA-256 checksum before upload. A file whose stored object is missing, fails AES-GCM authentication, or does not match the snapshot is reported as a restore error with the reason and is not created. The rest of the snapshot is restored, and the run exits `2`. A wrong passphrase stops the run with exit `5` before anything is written.
 
+A refusal that every later write would meet stops the restore at once with exit `4`: an `AuthError` such as a revoked credential, or a `403 accessDenied` on a folder create or upload, reported as `MissingGraphPermissionsError` naming `Files.ReadWrite.All`. Files restored before it stay at the destination and are logged with their count. Any other failure, including a `403` with another code, fails only its own file.
+
 To stop a restore safely, see [stopping a run](#stopping-a-run).
 
 ### restore-version
