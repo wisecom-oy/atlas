@@ -340,6 +340,7 @@ Options shared by every long-running method are documented once:
 | `getMailboxStats(mailboxId)`          | `atlas stats -m`           | Mailbox-level statistics                                                                            |
 | `deleteSnapshot(snapshotId)`          | `atlas outlook delete -s`  | Delete the mailbox's newest snapshot                                                                |
 | `deleteMailboxData(mailboxId)`        | `atlas outlook delete -m`  | Delete all data of a mailbox                                                                        |
+| `pruneSnapshots(mailboxId, options)`  | `atlas outlook prune`      | Remove snapshots older than a cut-off. See [Pruning old snapshots](#pruning-old-snapshots)          |
 | `purgeTenantData()`                   | `atlas delete --purge`     | Delete the entire tenant bucket, all workloads                                                      |
 | `quarantine(storageKey)`              | `atlas outlook quarantine` | Move an unreadable manifest aside                                                                   |
 
@@ -658,6 +659,7 @@ Each returns `deletedObjects`, `deletedManifests`, `retainedObjects`, `retainedM
 | `getStats(id?)`                                | `atlas stats`                          | Backup statistics. Omit the argument for every drive or site in the tenant          |
 | `deleteSnapshot(id, snapshotId)`               | `delete -s`                            | Delete the newest snapshot                                                          |
 | `deleteOwnerData(ownerId)`, `deleteSiteData(siteId)` | `delete`                         | Delete everything of a drive owner or site                                          |
+| `pruneSnapshots(id, options)`                  | `prune`                                | Remove snapshots older than a cut-off. See [Pruning old snapshots](#pruning-old-snapshots) |
 | `quarantine(storageKey)`                       | `quarantine`                           | Move an unreadable manifest or version index aside                                  |
 | `sharepoint.listSites()`                       | `atlas sharepoint list-sites`          | Sites the application can read                                                      |
 | `sharepoint.resolveSite(urlOrId)`              | _(none)_                               | Look up one site                                                                    |
@@ -879,6 +881,47 @@ Entries can also describe more than files:
 - While a manifest of the owner or site is unreadable, the order cannot be checked and the call rejects with `UnreadableObjectsError` naming the manifest to quarantine.
 - The check decrypts manifests, so `deleteSnapshot` needs the tenant's data key. `deleteOwnerData` and `deleteSiteData` do not.
 - After `deleteSnapshot`, the next `backup` reads every drive or library in full and captures again what the deleted snapshot held. The run's version index is kept, so `listFileVersions` and `restoreVersion` still offer the versions it recorded.
+
+## Pruning old snapshots
+
+```ts
+const result = await atlas.outlook.pruneSnapshots('user@example.com', {
+  before: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+});
+if (result.retainedManifestKeys.length > 0 || result.contentSweepSkipped) {
+  // Something stayed behind. A later run removes what retention no longer protects.
+}
+
+await atlas.onedrive.pruneSnapshots('user@example.com', { before: '2026-08-01', dryRun: true });
+await atlas.sharepoint.pruneSnapshots(siteId, { before: cutoff, signal: controller.signal });
+```
+
+`pruneSnapshots` removes one owner's snapshots older than a cut-off and keeps every newer one restorable and verifiable. The oldest kept snapshot becomes a baseline that holds everything the removed snapshots contributed to it, under its own snapshot ID. Then the older manifests and the content no remaining snapshot references are deleted. See [Snapshot retention](/operations/retention) for the steps, the cost of a run, and what is and is not removed.
+
+| Option   | Type               | Description                                                                                                  |
+| -------- | ------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `before` | `Date` or `string` | Cut-off, required. Snapshots created strictly before it are removed; one created at exactly it is kept        |
+| `dryRun` | `boolean`          | Report what a run would remove and change nothing                                                            |
+| `signal` | `AbortSignal`      | Stops the run between steps and during the content sweep. A repeated call continues where it stopped         |
+
+| Result field                                                    | Description                                                                                       |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `dryRun`, `before`                                              | Whether this was a dry run, and the cut-off it applied                                            |
+| `baselineSnapshotIds`                                           | The oldest kept snapshot, now a baseline. Empty when nothing was older than the cut-off           |
+| `removedSnapshotIds`                                            | Snapshots whose manifests were removed, or would be                                               |
+| `retainedManifestKeys`                                          | Manifests older than the cut-off that Object Lock still retains                                    |
+| `failedManifestKeys`                                            | Manifests whose deletion failed for another reason                                                |
+| `deletedManifests`, `deletedObjects`, `deletedBytes`            | Object versions deleted, or that a dry run would delete, and their bytes                          |
+| `retainedManifests`, `retainedObjects`, `failedManifests`, `failedObjects` | Versions Object Lock kept, and versions whose deletion failed                          |
+| `contentSweepSkipped`                                           | Why unreferenced content was not deleted: `unreadable_objects`, `quarantined_objects`, or `interrupted` |
+| `interrupted`                                                   | `true` when `signal` stopped the run                                                              |
+
+- The newest snapshot is always kept, even when it is older than the cut-off.
+- An invalid `before` rejects with a `TypeError` before anything is read.
+- The call takes the [owner lease](#one-operation-per-owner) and rejects with `OwnerBusyError` (`ATLAS_OWNER_BUSY`) while another operation holds the owner. A dry run takes it too.
+- A manifest of the owner that cannot be read rejects with `UnreadableObjectsError` before anything is written.
+- Content keys are per owner, so deduplicated content shared by a removed and a kept snapshot stays. The reference scan reads the owner's own manifests and indexes, never the whole tenant.
+- An interrupted call leaves every kept snapshot restorable, and repeating it ends in the same state as an uninterrupted call.
 
 ## Teams
 
@@ -1479,7 +1522,7 @@ Atlas has no scheduler, so running operations at the same time is your decision.
 
 ### One operation per owner
 
-Every backup, restore, version restore, deletion, and quarantine takes a lease on its owner before it reads or writes that owner's state, and holds it until it ends. A second operation on that owner rejects with `OwnerBusyError` (`ATLAS_OWNER_BUSY`, CLI exit `12`) before writing anything:
+Every backup, restore, version restore, deletion, prune, and quarantine takes a lease on its owner before it reads or writes that owner's state, and holds it until it ends. A second operation on that owner rejects with `OwnerBusyError` (`ATLAS_OWNER_BUSY`, CLI exit `12`) before writing anything:
 
 ```ts
 import { OwnerBusyError } from '@wisecom/atlas-sdk';

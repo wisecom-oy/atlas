@@ -1387,6 +1387,32 @@ atlas sharepoint delete --site https://contoso.sharepoint.com/sites/Engineering 
 
 Without `-s`, the command removes the site's `manifests`, `data`, `index`, `_meta`, and `staging` prefixes. With `-s`, the site's newest snapshot manifest, the delta cursor, and the snapshot's row in the [summary index](/operations/storage-layout#snapshot-summary-index) are removed, and the shared files stay. Any other snapshot is refused with exit `11`, and the next backup reads every library in full. See [Deleting one drive snapshot](#drive-snapshot-delete).
 
+## atlas outlook, onedrive, and sharepoint prune {#atlas-workload-prune}
+
+Remove one mailbox's, drive owner's, or site's snapshots older than a cut-off, and keep every newer snapshot restorable. Available for `outlook`, `onedrive`, and `sharepoint`.
+
+```bash
+atlas outlook prune -m user@example.com --before 90d --dry-run
+atlas outlook prune -m user@example.com --before 90d -y
+atlas onedrive prune -o user@example.com --before 2026-08-01 -y
+atlas sharepoint prune --site https://contoso.sharepoint.com/sites/Engineering --before 12w -y
+```
+
+| Option                                           | Description                                                                                    |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `-m, --mailbox`, `-o, --owner`, or `--site`      | The mailbox, drive owner, or site, as for the workload's other commands (required)              |
+| `--before <date-or-age>`                          | Cut-off: an ISO 8601 date or date-time, or an age such as `90d`, `12w`, or `36h` (required)    |
+| `--dry-run`                                      | Report the snapshots, object versions, and bytes a run would remove, and change nothing         |
+| `-y, --yes`                                      | Skip the confirmation prompt                                                                   |
+| `-t, --tenant <id>`                              | Override the tenant ID from config                                                             |
+
+- **Cut-off.** Snapshots created strictly before `--before` are removed. One created at exactly that instant is kept, and the newest snapshot is always kept. A date without a time is midnight UTC.
+- **Baseline.** The oldest kept snapshot absorbs everything the removed snapshots contributed to it, under its own snapshot ID, before anything is deleted. Then the older manifests and the content no remaining snapshot references are deleted. See [Snapshot retention](/operations/retention).
+- **Lease.** The prune takes the [owner lease](#run-leases), so it exits `12` while another operation holds the owner.
+- **Damaged manifests.** A manifest of the owner that cannot be read stops the prune with exit `9` before anything is written. A quarantined object, or a version index that cannot be read, leaves content unswept, which the command reports.
+- **Exit codes.** The command exits `1` when an object was retained by Object Lock, a delete failed, or unreferenced content was not swept. Running it again later finishes the job. A dry run exits `0`.
+- **Interruption.** Every step leaves a bucket in which every kept snapshot restores, and running the same command again ends in the same state as an uninterrupted run.
+
 ## atlas teams
 
 Back up Microsoft Teams channel messages, replies, membership, and tabs per team, and export a snapshot as a zip archive. Restore is not yet available. Files and manifests live under the `teams/` prefix of the tenant bucket, and a team is named by its Graph team ID. See [Teams backup](../teams-backup.md).

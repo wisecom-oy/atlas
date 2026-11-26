@@ -541,9 +541,30 @@ async function collect_mailbox_metrics(atlas: AtlasInstance, mailbox: string) {
 
 ### Remove old backups
 
-There is no recipe for pruning old snapshots, because Atlas does not support it. Outlook, OneDrive, and SharePoint snapshots each record only what changed in their run, and a restore combines them with the older snapshots of the same owner. For that reason `deleteSnapshot` refuses any snapshot except the newest of its mailbox, drive owner, or site, and rejects with `SnapshotNotNewestError`.
+Keep 90 days of history per owner. Run it after the owner's backup, since both take the owner lease:
 
-To remove an owner's data, delete all of it:
+```ts
+import { OwnerBusyError } from '@wisecom/atlas-sdk';
+
+const RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+
+async function pruneMailbox(mailbox: string): Promise<void> {
+  const before = new Date(Date.now() - RETENTION_MS);
+  try {
+    const result = await atlas.outlook.pruneSnapshots(mailbox, { before });
+    if (result.retainedManifestKeys.length > 0 || result.contentSweepSkipped) {
+      console.warn(`Prune of ${mailbox} left data behind; the next run retries it`);
+    }
+  } catch (err) {
+    if (!(err instanceof OwnerBusyError)) throw err;
+    // Another operation holds the mailbox; try again on the next schedule.
+  }
+}
+```
+
+`onedrive.pruneSnapshots(ownerId, options)` and `sharepoint.pruneSnapshots(siteId, options)` work the same way. The oldest kept snapshot absorbs the older history, so every newer snapshot still restores. Pass `dryRun: true` to see the snapshots, object versions, and bytes a run would remove. See [Snapshot retention](/operations/retention).
+
+To remove all of an owner's data instead:
 
 ```ts
 await atlas.outlook.deleteMailboxData('user@example.com');
