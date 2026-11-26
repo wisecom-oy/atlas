@@ -78,7 +78,7 @@ What each code covers:
 - **`3`** means Microsoft Graph kept answering `408`, `429`, `500`, `502`, `503`, `504`, `509`, a `200` whose JSON body did not parse, or a network error through the retry budget, or the command met an unwrapped transient status or recognized network error. A backup stops at the first call that spends its budget, after writing the snapshot of what it finished, even when that call was reading a folder, drive, or channel. A restore or save does not stop: the item whose call spent its budget fails with this error on its error line, and the command exits `2`. A `2` from a restore or save can therefore also be a Microsoft 365 incident. For `ATLAS_GRAPH_UNAVAILABLE`, check Microsoft 365 service health first. A Graph token request that Microsoft Entra ID leaves unanswered, or answers with `408`, `429`, a `5xx`, or `temporarily_unavailable`, is retried the same way and also ends in `ATLAS_GRAPH_UNAVAILABLE`. After a `429` or `5xx`, token attempts are at least 60 s apart. A timeout does not prove a write was never committed, so inspect partial work before repeating a restore. `ATLAS_STORAGE_UNAVAILABLE` means the S3 endpoint never answered: the connection was refused or did not open within `ATLAS_S3_CONNECTION_TIMEOUT_MS`, or a request's socket stayed silent past `ATLAS_S3_IDLE_TIMEOUT_MS`, on each of `ATLAS_S3_MAX_ATTEMPTS` attempts. See [S3 timeouts and retries](/self-hosting/storage#s3-timeouts-and-retries).
 - **`4`** also covers an unwrapped HTTP `401` or `403`. Atlas repeats a Graph `401` once with a newly issued token first, so only a `401` that survives a new token exits `4`. A Graph token request that Microsoft Entra ID refuses also exits `4` with `ATLAS_AUTH_DENIED`: a wrong or expired client secret, an unknown client ID, or a tenant that does not exist. Entra's answer, including its AADSTS code, is printed as the cause. See [AADSTS error codes](/troubleshooting#aadsts-error-codes). `ATLAS_ACCESS_REFUSED` means Graph refused one site, drive, or owner and Atlas did not attribute it to a missing grant, as with a SharePoint Embedded container. Retrying returns the same answer: leave a container out of the run, and check the per-site grant of an ordinary site. See [SharePoint: site refused while the root site is readable](/troubleshooting#sharepoint-site-refused-while-the-root-site-is-readable).
 - **`5`**: never pad the passphrase or delete the wrapped key. If the passphrase is correct, investigate possible corruption.
-- **`6`** includes failure to load the CLI configuration, and a partial `ATLAS_*` Graph override that changes the selected profile's tenant or client ID. It also covers a storage backend that does not enforce conditional writes: every command that writes refuses such a bucket before its first lease, key, or backup write. See [Conditional writes not enforced](/troubleshooting#conditional-writes-not-enforced).
+- **`6`** includes failure to load the CLI configuration, and a partial `ATLAS_*` Graph override that changes the selected profile's tenant or client ID. It also covers a storage backend that does not enforce conditional writes: every command that writes refuses such a bucket before its first lease, key, or backup write, unless `ATLAS_SINGLE_WRITER` is set. See [Conditional writes not enforced](/troubleshooting#conditional-writes-not-enforced). An `ATLAS_SINGLE_WRITER` value other than `1`, `true`, `0`, or `false` also exits `6`.
 - **`7`** includes an unwrapped HTTP `404`, and a `--folder`, `--file-filter`, or `--message` selection that matched nothing.
 - **`8`** means storage refused to remove an object because of retention or a legal hold. The `quarantine` commands return it when the original cannot be removed, and a Teams `backup` returns it when the backend refuses to delete a finished channel checkpoint. A `delete` that meets retained objects reports them as retained and exits `1`.
 - **`9`** means the stored bytes cannot be parsed back, or were written by a newer Atlas format. Repeating the command will not help. For a newer format, upgrade Atlas. For a named manifest or version index, see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes). Otherwise extract the raw content with `save`.
@@ -145,6 +145,18 @@ Atlas runs one operation at a time per mailbox, drive owner, site, or team. It d
 - The lease is not encrypted, so a deletion needs no passphrase for it.
 
 Lease lifetime and renewal are listed in [Retries and fail-safes](/operations/reliability).
+
+#### Single-writer mode
+
+```bash
+ATLAS_SINGLE_WRITER=1 atlas outlook backup -m user@example.com
+```
+
+`ATLAS_SINGLE_WRITER=1` (or `true`) replaces the leases with an exclusion inside the process, for a storage backend that cannot enforce conditional writes on a versioned bucket. Within the process the table above still holds and a conflict still exits `12`. No lease object is written, and no conditional header is sent: Atlas checks create-only and compare-and-swap writes itself. Each run prints `ATLAS_SINGLE_WRITER is set` on stderr.
+
+::: warning You keep other processes off the tenant
+Atlas no longer sees a second process. Run one Atlas process at a time per tenant, for example one scheduler job per tenant with no overlap, and set the variable on every process that writes the tenant or on none. See [Backends without conditional writes](/self-hosting/storage#backends-without-conditional-writes) for what is no longer guaranteed.
+:::
 
 ### Fatal error diagnostics
 
@@ -1538,7 +1550,7 @@ atlas storage-check --apply-lifecycle
 | `--apply-lifecycle`    | Add the Atlas lifecycle rules the bucket lacks, keeping every existing rule |
 | `-t, --tenant <id>`    | Override the tenant ID from config                                          |
 
-The command reports versioning, Object Lock status, the bucket class, and conditional-write support. It checks the effective bucket, including a [bucket override](/configuration#bucket-override), and exits `1` when the bucket is not ready, so it can gate scheduled jobs.
+The command reports versioning, Object Lock status, the bucket class, conditional-write support, and the writer-exclusion mode. It checks the effective bucket, including a [bucket override](/configuration#bucket-override), and exits `1` when the bucket is not ready, so it can gate scheduled jobs.
 
 | Bucket class              | Meaning                                                |
 | ------------------------- | ------------------------------------------------------ |
@@ -1553,10 +1565,17 @@ The `Conditional writes` row reports a probe of the three writes that keep concu
 | Value          | Meaning                                                                                                                       | Exit code |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------- |
 | `supported`    | All three rules held                                                                                                          | Unchanged |
-| `NOT ENFORCED` | The backend broke at least one rule, and the row names which. Every command that writes refuses this bucket with exit `6`. Upgrade or replace the backend | `1`       |
+| `NOT ENFORCED` | The backend broke at least one rule, and the row names which. Every command that writes refuses this bucket with exit `6`. Upgrade or replace the backend, or see [Single-writer mode](#single-writer-mode). Under `ATLAS_SINGLE_WRITER` the row adds `not sent in this mode` and is yellow | `1`, unchanged under `ATLAS_SINGLE_WRITER` |
 | `not probed`   | The probe could not run: the bucket does not exist yet, the credentials are read-only, or a request failed. The row gives the reason | Unchanged |
 
-Backup, restore, delete, quarantine, and the `keys` commands run the same probe once per bucket and process before their first conditional write, and refuse a bucket that fails it. See [Atlas refuses a backend that does not enforce them](/self-hosting/storage#atlas-refuses-a-backend-that-does-not-enforce-them).
+Backup, restore, delete, quarantine, and the `keys` commands run the same probe once per bucket and process before their first conditional write, and refuse a bucket that fails it. See [Atlas refuses a backend that does not enforce them](/self-hosting/storage#atlas-refuses-a-backend-that-does-not-enforce-them). Under `ATLAS_SINGLE_WRITER` they never run it.
+
+The `Writer exclusion` row names what keeps two writers off one owner:
+
+| Value | Meaning |
+| --- | --- |
+| `owner leases in the bucket` | The default. Leases taken with conditional writes |
+| `single writer (ATLAS_SINGLE_WRITER): one Atlas process per tenant` | [Single-writer mode](#single-writer-mode). Shown in yellow. When the backend enforces conditional writes, the row adds that the default owner lease would work there |
 
 - **The probe is the only write.** It puts one plaintext object of a few bytes under `_meta/storage-check/` and deletes it, with its versions, before the command returns. It needs `s3:PutObject` and `s3:DeleteObject` on that prefix. On a bucket with a default retention the probe's versions stay until that retention ends.
 - **Bucket default retention.** On a lock-capable bucket the command also reports the bucket's default retention. Atlas does not set one, because it would lock every object written without its own retention: backups without `--retention-days`, and the staging uploads Atlas deletes after copying them. A default found here was left by a version before 6.1.0 or set by hand. It is shown in yellow and does not change the exit code. See [Removing a bucket default retention](/self-hosting/storage#removing-a-bucket-default-retention).

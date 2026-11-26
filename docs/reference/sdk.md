@@ -56,6 +56,7 @@ The API is grouped by workload (`atlas.outlook`, `atlas.onedrive`, `atlas.sharep
 | `logger`               | `LogSink`                              | No       | Receives SDK log lines. The SDK is silent without it. See [Logging](#logging)                                                     |
 | `onStorageRequest`     | `(event: StorageRequestEvent) => void` | No       | Receives one event per S3 request. See [Storage request events](#storage-request-events)                                          |
 | `throttleCoordinator`  | `ThrottleCoordinator`                  | No       | Shares Microsoft Graph throttling cooldowns between processes. See [Sharing throttle cooldowns](#sharing-throttle-cooldowns)      |
+| `ownerExclusion`       | `OwnerExclusion`                       | No       | Replaces the storage owner lease with your own exclusion, for a backend without conditional writes. See [Exclusion supplied by the host](#exclusion-supplied-by-the-host) |
 | `teamsPacingShare`     | `number`                               | No       | Share of the tenant's Teams request budget this instance uses, above 0 and at most 1. Default `1`. Set `1 / n` when `n` processes back up teams of one tenant. See [Teams pacing](/teams-backup#pacing) |
 
 Construction is synchronous and makes no network requests. It throws `ConfigError` (`ATLAS_CONFIG_INVALID`) when:
@@ -63,6 +64,7 @@ Construction is synchronous and makes no network requests. It throws `ConfigErro
 - a required field is missing or blank, or the passphrase is shorter than 14 UTF-8 bytes;
 - `s3Endpoint` is not a valid URL as described above, or `s3Bucket` is not a valid S3 bucket name;
 - `onStorageRequest` is not a function, or `throttleCoordinator` lacks `wait` and `raise` functions;
+- `ownerExclusion` lacks an `acquire` function;
 - `teamsPacingShare` is outside the range above 0 and at most 1;
 - `s3ConnectionTimeoutMs`, `s3IdleTimeoutMs`, or `s3MaxAttempts` is not an integer in its range.
 
@@ -991,7 +993,9 @@ if (check.conditionalWrites.support !== 'supported') {
 }
 ```
 
-The result has `bucket`, `reachable`, `versioningEnabled`, `objectLockEnabled`, `modeSupported`, `defaultRetention` (`{ mode, days?, years? }`), the request echoed as `requestedMode` and `requestedRetentionDays`, the `resolvedRetainUntil` it would apply, and `conditionalWrites`. `conditionalWrites` is always present: `{ support: 'supported' | 'ignored' | 'not_probed', detail?: string, violations?: string[] }`, whether the backend refuses a create-only write and a stale compare-and-swap, and accepts a compare-and-swap with the current ETag. `ignored` means at least one rule was broken; `violations` then lists which, as `'create_only'`, `'stale_if_match'`, or `'current_if_match'`, and every method that writes throws `ConditionalWritesNotEnforcedError` for this bucket. The probe writes and removes one object under `_meta/storage-check/`, so it needs write access.
+The result has `bucket`, `reachable`, `versioningEnabled`, `objectLockEnabled`, `modeSupported`, `defaultRetention` (`{ mode, days?, years? }`), the request echoed as `requestedMode` and `requestedRetentionDays`, the `resolvedRetainUntil` it would apply, and `conditionalWrites`. `conditionalWrites` is always present: `{ support: 'supported' | 'ignored' | 'not_probed', detail?: string, violations?: string[] }`, whether the backend refuses a create-only write and a stale compare-and-swap, and accepts a compare-and-swap with the current ETag. `ignored` means at least one rule was broken; `violations` then lists which, as `'create_only'`, `'stale_if_match'`, or `'current_if_match'`, and in the default mode every method that writes throws `ConditionalWritesNotEnforcedError` for this bucket. The probe writes and removes one object under `_meta/storage-check/`, so it needs write access.
+
+`writerExclusion` names what keeps two writers off one owner: `'storage_lease'` by default, or `'host_exclusion'` when the instance has an [`ownerExclusion`](#exclusion-supplied-by-the-host). In `host_exclusion` mode the probe result is reported but does not stop any write. Results from Atlas 7.3.0 and later always carry it; the type marks it optional so a hand-written result keeps compiling.
 
 `lifecycle` reports the readback of the bucket's lifecycle configuration. When `status` is `checked`, `missingActions` lists the missing Atlas actions as `{ ruleId, action, fixedByApply }` entries. `fixedByApply` is `false` for a base rule that is present but disabled or edited, which `applyLifecycle` keeps. When `status` is `not_checked`, `detail` explains why the configuration could not be read.
 
@@ -1459,7 +1463,7 @@ try {
   await atlas.onedrive.backup(ownerId);
 } catch (err) {
   if (!(err instanceof OwnerBusyError)) throw err;
-  // err.held_by_operation: 'backup' | 'delete' | 'quarantine' | 'restore' | 'purge' | 'rewrap'
+  // err.held_by_operation: 'backup' | 'delete' | 'quarantine' | 'restore' | 'purge' | 'rewrap' | 'bootstrap'
   // err.lease_expires_at: ISO 8601
   await requeue(ownerId, { notBefore: err.lease_expires_at });
 }
@@ -1506,16 +1510,56 @@ Operations on different owners of one tenant can run at once, on one instance or
 | Object Lock retention    | Applied to each object a run writes. No run changes the bucket's lock configuration. A lease is never written with retention                                      |
 | Per-owner state          | Sync checkpoints, the Outlook `latest.json` pointer, version indexes, staging objects, and Teams checkpoints are written only by the run holding the owner's lease |
 
-These conditional writes, the lease included, need a backend that enforces `If-Match` and `If-None-Match`. Every SDK method that writes probes the bucket once per instance before its first conditional write, and throws `ConditionalWritesNotEnforcedError` on a backend that does not. `checkStorage()` and `atlas storage-check` run the same probe and report it. See [Atlas refuses a backend that does not enforce them](/self-hosting/storage#atlas-refuses-a-backend-that-does-not-enforce-them).
+These conditional writes, the lease included, need a backend that enforces `If-Match` and `If-None-Match`. Every SDK method that writes probes the bucket once per instance before its first conditional write, and throws `ConditionalWritesNotEnforcedError` on a backend that does not, unless the instance has an [`ownerExclusion`](#exclusion-supplied-by-the-host). `checkStorage()` and `atlas storage-check` run the same probe and report it. See [Atlas refuses a backend that does not enforce them](/self-hosting/storage#atlas-refuses-a-backend-that-does-not-enforce-them).
 
 ### What the host must guarantee
 
 - **Restores and leases.** Restore takes the source owner's lease in the bucket it reads, also for a cross-tenant restore, so it never runs next to a backup, deletion, quarantine, or second restore of that owner. A restore whose storage credentials cannot write the lease (HTTP `403`) still runs, without a lease, and logs `concurrent-run protection is off for this restore`; a backup, deletion, or second restore of that owner is then not refused. A live lease held by another operation still refuses the restore, owner or tenant, because reading a lease needs no write access.
 - **Readers take no lease.** Save, verify, status, and the listings only read, so they can run next to a backup of the same owner. A deletion or quarantine running at the same time can remove the snapshot they are reading.
 - **Clocks.** Keep the clocks of hosts that share a bucket within a few minutes of each other. A host whose clock is ahead by more than the time left on a live lease (5 to 10 minutes in steady state) sees it as expired and takes over a running operation. The displaced run notices within 60 seconds and stops before its next commit, but both ran for that long.
-- **Backends that ignore write conditions** are refused. A backup, restore, deletion, quarantine, or key re-wrap throws `ConditionalWritesNotEnforcedError` before it takes a lease or writes a key. If the probe cannot run, for example with read-only credentials, Atlas logs a warning and continues without the check.
+- **Backends that ignore write conditions** are refused. A backup, restore, deletion, quarantine, or key re-wrap throws `ConditionalWritesNotEnforcedError` before it takes a lease or writes a key. If the probe cannot run, for example with read-only credentials, Atlas logs a warning and continues without the check. To run on such a backend, supply an [`ownerExclusion`](#exclusion-supplied-by-the-host).
 - **Mixed versions.** A host running an Atlas version older than the lease does not see it. Upgrade every host that writes to a bucket before relying on it.
 - **Disposal.** Let operations finish or cancel them before `dispose()`. See [Instance lifecycle](#instance-lifecycle).
+
+### Exclusion supplied by the host
+
+```ts
+import type { OwnerExclusion } from '@wisecom/atlas-sdk';
+
+const ownerExclusion: OwnerExclusion = {
+  async acquire({ tenantId, workload, ownerId, operation }) {
+    // Your scheduler's own claim: per owner, or the whole tenant for workload 'tenant'.
+    const claim = await jobs.tryClaim(tenantId, workload, ownerId, operation);
+    if (!claim) return { acquired: false };
+    return { acquired: true, release: () => claim.release(), isHeld: () => claim.isValid() };
+  },
+};
+
+const atlas = createAtlasInstance({ ...config, ownerExclusion });
+```
+
+`ownerExclusion` replaces the storage owner lease with your exclusion. Use it when your host already keeps operations apart per owner and the storage backend cannot enforce conditional writes on a versioned bucket. See [Backends without conditional writes](/self-hosting/storage#backends-without-conditional-writes). Without it, Atlas keeps the lease and refuses such a backend.
+
+| Call | When Atlas makes it |
+| --- | --- |
+| `acquire(request)` | Wherever it would take a lease: each backup, restore, version restore, deletion, and quarantine for its owner; `purgeTenantData()`, `rewrapDataKey()`, and the `keys` methods for the tenant scope; and creating a new tenant's data key, as `operation: 'bootstrap'` on the tenant scope |
+| `isHeld()` on the grant | Optional. Before each write that advances durable state. `false` stops the run with `OwnerLeaseLostError` before that write |
+| `release()` on the grant | Once, when the operation ends with a result, an error, or a cancellation. A rejection is logged and never replaces the result |
+
+`request` is `{ tenantId, workload, ownerId, operation }`. For the tenant scope `workload` is `'tenant'` and `ownerId` is the tenant ID. Answering `{ acquired: false, heldByOperation?, busyUntil? }` makes the operation reject with `OwnerBusyError` before it writes anything, with `held_by_operation` and `lease_expires_at` taken from those fields. A rejected `acquire` fails the operation with your error. Atlas never retries either.
+
+Your exclusion must hold these rules across every process that writes the tenant. Atlas cannot check them:
+
+- Two grants for the same `workload` and `ownerId` never overlap.
+- A `tenant` grant never overlaps any other grant of the same tenant.
+- A grant stays valid until `release()`, or until `isHeld()` returns `false`.
+
+With `ownerExclusion` set:
+
+- No lease object is written or read. A versioned bucket keeps no lease versions or delete markers, and a restore with read-only credentials holds your grant instead of running unprotected.
+- No conditional header reaches the backend. Atlas checks create-only and compare-and-swap writes itself. [Backends without conditional writes](/self-hosting/storage#backends-without-conditional-writes) lists what that keeps and what it no longer guarantees across processes.
+- The first operation on a new tenant holds the tenant scope while it creates the data key. Operations in one instance wait for each other; one in another process that is refused the scope rejects with `OwnerBusyError` and succeeds once the key exists.
+- `checkStorage()` reports `writerExclusion: 'host_exclusion'`.
 
 ### Sharing throttle cooldowns
 
