@@ -88,15 +88,32 @@ describe('atlas storage-check', () => {
     const rows = await rendered_rows(
       lock_capable_bucket({
         support: 'ignored',
-        detail: 'the backend accepted a write with If-Match (compare-and-swap)',
+        detail: 'the backend accepted a compare-and-swap (If-Match) with a stale ETag',
+        violations: ['stale_if_match'],
       }),
     );
 
     expect(row(rows, 'Conditional writes')).toEqual({
       label: 'Conditional writes',
-      value: 'IGNORED: the backend accepted a write with If-Match (compare-and-swap)',
+      value: 'NOT ENFORCED: the backend accepted a compare-and-swap (If-Match) with a stale ETag',
       color: 'red',
     });
+    expect(row(rows, 'Status')?.value).toBe('not-ready');
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('fails the check when the backend refuses a compare-and-swap with the current ETag', async () => {
+    const rows = await rendered_rows(
+      lock_capable_bucket({
+        support: 'ignored',
+        detail: 'the backend refused a compare-and-swap (If-Match) with the current ETag',
+        violations: ['current_if_match'],
+      }),
+    );
+
+    expect(row(rows, 'Conditional writes')?.value).toBe(
+      'NOT ENFORCED: the backend refused a compare-and-swap (If-Match) with the current ETag',
+    );
     expect(row(rows, 'Status')?.value).toBe('not-ready');
     expect(process.exitCode).toBe(1);
   });

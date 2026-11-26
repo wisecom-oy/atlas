@@ -1,6 +1,7 @@
 import { BucketCache } from '@/adapters/bucket-cache';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DefaultTenantContextFactory } from '@/adapters/tenant-context.factory';
+import { remember_conditional_writes_enforced } from './conditional-write-verdict';
 import { ConfiguredBucketNameResolver } from '@/adapters/configured-bucket-name-resolver';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -70,8 +71,13 @@ function make_factory(
 
 describe('DEK bootstrap race (issue #25)', () => {
   let buckets: BucketCache;
-  beforeEach(() => {
+  beforeEach(async () => {
     buckets = new BucketCache();
+    // The fake honours only If-None-Match; the guard's own probe is tested elsewhere.
+    await remember_conditional_writes_enforced(
+      buckets,
+      ...['tenant-race', 'tenant-1', 'tenant-2', 'tenant-new'].map((id) => `atlas-${id}`),
+    );
     vi.restoreAllMocks();
   });
 

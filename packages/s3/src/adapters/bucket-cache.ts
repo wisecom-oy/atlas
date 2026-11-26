@@ -1,5 +1,9 @@
 import { injectable } from 'inversify';
-import type { StorageImmutabilityProbeResult } from '@wisecom/atlas-types';
+import type {
+  StorageConditionalWriteCheck,
+  StorageImmutabilityProbeResult,
+} from '@wisecom/atlas-types';
+import type { ConditionalWriteProbeOutcome } from '@/adapters/s3-conditional-write-probe';
 
 /**
  * Per-instance memo of what has already been asked of a bucket.
@@ -19,6 +23,10 @@ import type { StorageImmutabilityProbeResult } from '@wisecom/atlas-types';
 export class BucketCache {
   private readonly _checked_buckets = new Set<string>();
   private readonly _immutability_probes = new Map<string, StorageImmutabilityProbeResult>();
+  private readonly _conditional_write_probes = new Map<
+    string,
+    Promise<ConditionalWriteProbeOutcome>
+  >();
 
   /** Whether this bucket's existence has already been established. */
   is_bucket_checked(bucket: string): boolean {
@@ -47,10 +55,45 @@ export class BucketCache {
     this._immutability_probes.set(probe_key(bucket, mode), result);
   }
 
+  /**
+   * The bucket's conditional-write check, running `probe` only when none is remembered. Callers
+   * that arrive while a probe runs share it. A provisional answer is forgotten once it settles,
+   * so the next caller probes again (issue #915).
+   */
+  async conditional_write_check(
+    bucket: string,
+    probe: () => Promise<ConditionalWriteProbeOutcome>,
+  ): Promise<StorageConditionalWriteCheck> {
+    let pending = this._conditional_write_probes.get(bucket);
+    if (pending === undefined) {
+      pending = probe();
+      this._conditional_write_probes.set(bucket, pending);
+    }
+    try {
+      const outcome = await pending;
+      if (outcome.provisional) this.forget_conditional_write_probe(bucket, pending);
+      return outcome.check;
+    } catch (err) {
+      this.forget_conditional_write_probe(bucket, pending);
+      throw err;
+    }
+  }
+
   /** Drops everything remembered. Called by `dispose()` and by tests. */
   clear(): void {
     this._checked_buckets.clear();
     this._immutability_probes.clear();
+    this._conditional_write_probes.clear();
+  }
+
+  /** Forgets `pending` unless a newer probe has already replaced it. */
+  private forget_conditional_write_probe(
+    bucket: string,
+    pending: Promise<ConditionalWriteProbeOutcome>,
+  ): void {
+    if (this._conditional_write_probes.get(bucket) === pending) {
+      this._conditional_write_probes.delete(bucket);
+    }
   }
 }
 

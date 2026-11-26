@@ -64,7 +64,8 @@ async function execute_storage_check(
     result.versioning_enabled &&
     result.object_lock_enabled &&
     result.mode_supported &&
-    // A backend that ignores write conditions cannot keep two runs off one owner (issue #623).
+    // A backend that does not enforce write conditions cannot keep two runs off one owner, and
+    // every command that writes refuses it (issues #623, #915).
     result.conditional_writes.support !== 'ignored';
 
   await render_static_view(
@@ -140,13 +141,14 @@ function describe_default_retention(retention?: StorageDefaultRetention): KeyVal
 
 /**
  * Reports the conditional-write probe. `ignored` is the dangerous answer: owner leases, the data
- * key bootstrap and the identity registry all depend on the backend refusing these writes.
+ * key bootstrap, create-only manifests and the identity registry all depend on the backend
+ * enforcing these conditions, and every command that writes refuses such a bucket (issue #915).
  */
 function describe_conditional_writes(check: StorageConditionalWriteCheck): KeyValueItem {
   const label = 'Conditional writes';
   if (check.support === 'supported') return { label, value: 'supported', color: 'green' };
   if (check.support === 'ignored') {
-    return { label, value: `IGNORED: ${check.detail ?? 'see docs'}`, color: 'red' };
+    return { label, value: `NOT ENFORCED: ${check.detail ?? 'see docs'}`, color: 'red' };
   }
   return { label, value: `not probed (${check.detail ?? 'no reason given'})`, color: 'yellow' };
 }
