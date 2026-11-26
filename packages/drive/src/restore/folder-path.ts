@@ -1,5 +1,6 @@
 import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { is_restore_run_refusal } from '@/restore/restore-run-refusal';
 
 /** The one connector call folder creation needs. */
 export interface DriveFolderCreator {
@@ -79,7 +80,8 @@ interface FolderSegment {
 
 /**
  * Creates one folder segment, or logs why it could not and returns undefined. A create cut short
- * by Ctrl+C is the run stopping, not a path that cannot exist, so it is rethrown (issue #682).
+ * by Ctrl+C is the run stopping, not a path that cannot exist, so it is rethrown (issue #682). So
+ * is a refusal of every restore write, such as a missing grant, which ends the restore (#871).
  */
 async function create_folder_segment(
   connector: DriveFolderCreator,
@@ -95,7 +97,7 @@ async function create_folder_segment(
       at.segment,
     );
   } catch (err) {
-    if (is_active_run_cancelled()) throw err;
+    if (is_active_run_cancelled() || is_restore_run_refusal(err)) throw err;
     logger.warn(
       `Failed to create folder ${current_path} in drive ${at.drive_id}: ${err instanceof Error ? err.message : String(err)}`,
     );
