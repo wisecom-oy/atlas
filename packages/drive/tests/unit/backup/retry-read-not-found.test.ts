@@ -8,8 +8,8 @@ import {
 import {
   NOT_FOUND_CONFIRMATION_READS,
   NOT_FOUND_CONFIRMATION_WINDOW_MS,
-  resolve_retry_read_not_found,
-} from '@/backup/retry-read-not-found';
+} from '@wisecom/atlas-core/services/shared/not-found-streak';
+import { resolve_retry_read_not_found } from '@/backup/retry-read-not-found';
 
 // Issue #850: one `404` on the re-read of a listed file cleared it from the failed-items list, and
 // delta never re-presents an unchanged file, so it was missing from every later snapshot while the
