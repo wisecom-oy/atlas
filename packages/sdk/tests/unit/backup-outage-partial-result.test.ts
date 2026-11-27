@@ -1,12 +1,12 @@
-/* eslint-disable @typescript-eslint/naming-convention */
 import { describe, it, expect, vi } from 'vitest';
 import type { Container } from 'inversify';
 import { GraphUnavailableError, ThrottledError } from '@wisecom/atlas-types';
 import { create_outlook_api } from '@/outlook-api.factory';
 import { create_onedrive_api } from '@/onedrive-api.factory';
+import { create_teams_api } from '@/teams-api.factory';
 
 /**
- * Issue #869. A backup that a Graph outage stopped rejects, and its caller got no result, so no
+ * Issues #869 and #989. A backup that a Graph outage stopped rejects, and its caller got no result, so no
  * snapshot ID and no list of failed folders. The rejection carries the run's result as
  * `partial_result`, camelised like a resolved backup.
  */
@@ -92,6 +92,56 @@ describe('backup rejected by a Graph outage', () => {
 
     expect(error).toBeInstanceOf(ThrottledError);
     expect((error as ThrottledError).partial_result).toEqual({ snapshotId: 'snap-2' });
+  });
+
+  it('teams.backup camelises a Graph outage partial result', async () => {
+    const outage = outage_with({
+      team_id: 'team-1',
+      snapshot: { snapshot_id: 'snap-3' },
+      summary: { messages_stored: 2 },
+    });
+    const api = create_teams_api(
+      'tenant-1',
+      container_with({
+        TeamsBackupUseCase: { backup_team: vi.fn().mockRejectedValue(outage) },
+      }),
+    );
+
+    const error = await api.backup('team-1').catch((err: unknown) => err);
+
+    expect(error).toBe(outage);
+    expect((error as GraphUnavailableError).partial_result).toEqual({
+      teamId: 'team-1',
+      snapshot: { snapshotId: 'snap-3' },
+      summary: { messagesStored: 2 },
+    });
+    expect(Object.prototype.propertyIsEnumerable.call(error, 'partial_result')).toBe(false);
+  });
+
+  it('teams.backup camelises a throttle partial result', async () => {
+    const outage = new ThrottledError('kept throttling', 30_000, {
+      partial_result: {
+        team_id: 'team-1',
+        snapshot: { snapshot_id: 'snap-4' },
+        summary: { messages_stored: 3 },
+      },
+    });
+    const api = create_teams_api(
+      'tenant-1',
+      container_with({
+        TeamsBackupUseCase: { backup_team: vi.fn().mockRejectedValue(outage) },
+      }),
+    );
+
+    const error = await api.backup('team-1').catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(ThrottledError);
+    expect((error as ThrottledError).partial_result).toEqual({
+      teamId: 'team-1',
+      snapshot: { snapshotId: 'snap-4' },
+      summary: { messagesStored: 3 },
+    });
+    expect(Object.prototype.propertyIsEnumerable.call(error, 'partial_result')).toBe(false);
   });
 
   it('leaves an outage without a result untouched', async () => {
