@@ -18,8 +18,8 @@ import {
   TEAMS_SAVE_USE_CASE_TOKEN,
   TEAMS_QUARANTINE_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
-import { camelize } from '@wisecom/atlas-types/public/case-convert';
 import { with_camelized_outage_result } from '@/outage-partial-result';
+import { camelize } from '@wisecom/atlas-types/public/case-convert';
 import { run_with_cost_tracking } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { adapt_operation_options, adapt_required_operation_options } from '@/operation-options';
 
