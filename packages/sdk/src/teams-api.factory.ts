@@ -18,6 +18,7 @@ import {
   TEAMS_SAVE_USE_CASE_TOKEN,
   TEAMS_QUARANTINE_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
+import { with_camelized_outage_result } from '@/outage-partial-result';
 import { camelize } from '@wisecom/atlas-types/public/case-convert';
 import { run_with_cost_tracking } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { adapt_operation_options, adapt_required_operation_options } from '@/operation-options';
@@ -35,8 +36,10 @@ export function create_teams_api(tenant_id: string, container: Container): Teams
   return {
     async backup(team_id, options) {
       // Tracked like Outlook: the cost covers every Graph call the backup made, graphCost included.
-      const [result, cost_result] = await run_with_cost_tracking(() =>
-        backup.backup_team(tenant_id, team_id, adapt_operation_options(options)),
+      const [result, cost_result] = await with_camelized_outage_result(() =>
+        run_with_cost_tracking(() =>
+          backup.backup_team(tenant_id, team_id, adapt_operation_options(options)),
+        ),
       );
       return camelize({ ...result, graph_cost: cost_result });
     },
